@@ -25,6 +25,8 @@ func main() {
 	username := flag.String("user", "", "Username")
 	password := flag.String("pass", "", "Password")
 	keyPath := flag.String("key", "", "SSH key path")
+	keyPassphrase := flag.String("key-passphrase", "", "SSH key passphrase (for passphrase-protected private keys)")
+	knownHosts := flag.String("known-hosts", "", "Path to SSH known_hosts file for host key verification")
 	share := flag.String("share", "", "SMB share name")
 	bucket := flag.String("bucket", "", "S3 bucket name")
 	region := flag.String("region", "us-east-1", "S3 region")
@@ -42,6 +44,8 @@ func main() {
 	_ = username
 	_ = password
 	_ = keyPath
+	_ = keyPassphrase
+	_ = knownHosts
 	_ = share
 	_ = bucket
 	_ = region
@@ -75,7 +79,7 @@ func main() {
 		if p == 0 {
 			p = 22
 		}
-		conn = connector.NewSSHConnector(*host, p, *username, *password, *keyPath)
+		conn = connector.NewSSHConnector(*host, p, *username, *password, *keyPath, *keyPassphrase, *knownHosts)
 	case "smb":
 		p := *port
 		if p == 0 {
