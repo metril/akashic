@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -47,12 +48,50 @@ type SearchParams struct {
 	MaxSize   int64
 }
 
+type Scan struct {
+	ID         string `json:"id"`
+	SourceID   string `json:"source_id"`
+	Status     string `json:"status"`
+	FilesFound int    `json:"files_found"`
+	StartedAt  string `json:"started_at"`
+}
+
+type DuplicateGroup struct {
+	ContentHash string `json:"content_hash"`
+	Count       int    `json:"count"`
+	TotalSize   int64  `json:"total_size"`
+	FileSize    int64  `json:"file_size"`
+	WastedBytes int64  `json:"wasted_bytes"`
+}
+
+type Tag struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
 func New(baseURL, apiKey string) *Client {
 	return &Client{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+func (c *Client) post(ctx context.Context, path string, body interface{}) (*http.Response, error) {
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return nil, err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	return c.httpClient.Do(req)
 }
 
 func (c *Client) get(ctx context.Context, path string, params url.Values) (*http.Response, error) {
@@ -103,4 +142,127 @@ func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 		return nil, err
 	}
 	return sources, nil
+}
+
+func (c *Client) CreateSource(ctx context.Context, name, sourceType string, config map[string]string) (*Source, error) {
+	body := map[string]interface{}{
+		"name":   name,
+		"type":   sourceType,
+		"config": config,
+	}
+	resp, err := c.post(ctx, "/api/sources", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var source Source
+	if err := json.NewDecoder(resp.Body).Decode(&source); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &source, nil
+}
+
+func (c *Client) TriggerScan(ctx context.Context, sourceName string) error {
+	body := map[string]string{"source_name": sourceName}
+	resp, err := c.post(ctx, "/api/scans", body)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	resp, err := c.get(ctx, "/api/scans", params)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var scans []Scan
+	if err := json.NewDecoder(resp.Body).Decode(&scans); err != nil {
+		return nil, err
+	}
+	return scans, nil
+}
+
+func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]DuplicateGroup, error) {
+	params := url.Values{}
+	if minSize > 0 {
+		params.Set("min_size", fmt.Sprintf("%d", minSize))
+	}
+	resp, err := c.get(ctx, "/api/duplicates", params)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var groups []DuplicateGroup
+	if err := json.NewDecoder(resp.Body).Decode(&groups); err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
+	resp, err := c.get(ctx, "/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var tags []Tag
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
+	body := map[string]string{"name": name}
+	resp, err := c.post(ctx, "/api/tags", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var tag Tag
+	if err := json.NewDecoder(resp.Body).Decode(&tag); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &tag, nil
+}
+
+func (c *Client) TagFile(ctx context.Context, fileID, tagID string) error {
+	path := fmt.Sprintf("/api/files/%s/tags/%s", fileID, tagID)
+	resp, err := c.post(ctx, path, nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) PurgeSource(ctx context.Context, sourceID string) error {
+	path := fmt.Sprintf("/api/purge/source/%s", sourceID)
+	resp, err := c.post(ctx, path, nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+	return nil
 }
