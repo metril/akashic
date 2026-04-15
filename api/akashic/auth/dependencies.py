@@ -53,5 +53,10 @@ async def check_source_access(
     perm = result.scalar_one_or_none()
     if perm is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this source")
-    if required_level == "admin" and perm.access_level != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Source admin access required")
+
+    # Enforce access level hierarchy: read < write < admin
+    level_hierarchy = {"read": 0, "write": 1, "admin": 2}
+    user_level = level_hierarchy.get(perm.access_level, 0)
+    required = level_hierarchy.get(required_level, 0)
+    if user_level < required:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Requires {required_level} access to this source")

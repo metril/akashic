@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import require_admin
@@ -21,14 +21,18 @@ async def purge_source(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    files_result = await db.execute(select(File).where(File.source_id == source_id))
-    files = files_result.scalars().all()
-    files_count = len(files)
+    # Count first without loading rows into memory
+    files_count_result = await db.execute(
+        select(func.count(File.id)).where(File.source_id == source_id)
+    )
+    files_count = files_count_result.scalar() or 0
 
-    dirs_result = await db.execute(select(Directory).where(Directory.source_id == source_id))
-    dirs = dirs_result.scalars().all()
-    dirs_count = len(dirs)
+    dirs_count_result = await db.execute(
+        select(func.count(Directory.id)).where(Directory.source_id == source_id)
+    )
+    dirs_count = dirs_count_result.scalar() or 0
 
+    # Delete directly without loading into Python
     await db.execute(delete(File).where(File.source_id == source_id))
     await db.execute(delete(Directory).where(Directory.source_id == source_id))
 
@@ -57,14 +61,19 @@ async def purge_deleted(
 ):
     threshold = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
-    files_result = await db.execute(
-        select(File).where(File.is_deleted == True, File.deleted_at <= threshold)
+    # Count first without loading rows into memory
+    files_count_result = await db.execute(
+        select(func.count(File.id)).where(
+            File.is_deleted == True, File.deleted_at <= threshold  # noqa: E712
+        )
     )
-    files = files_result.scalars().all()
-    files_count = len(files)
+    files_count = files_count_result.scalar() or 0
 
+    # Delete directly
     await db.execute(
-        delete(File).where(File.is_deleted == True, File.deleted_at <= threshold)
+        delete(File).where(
+            File.is_deleted == True, File.deleted_at <= threshold  # noqa: E712
+        )
     )
 
     log = PurgeLog(

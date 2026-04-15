@@ -57,6 +57,13 @@ async def get_file_versions(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Verify access to the file's source
+    file_result = await db.execute(select(File).where(File.id == file_id))
+    f = file_result.scalar_one_or_none()
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    await check_source_access(f.source_id, user, db)
+
     result = await db.execute(
         select(FileVersion).where(FileVersion.file_id == file_id).order_by(FileVersion.detected_at.desc())
     )
@@ -73,7 +80,21 @@ async def get_file_locations(
     f = file_result.scalar_one_or_none()
     if not f or not f.content_hash:
         raise HTTPException(status_code=404, detail="File not found or no hash")
-    result = await db.execute(
-        select(File).where(File.content_hash == f.content_hash, File.is_deleted == False)
+    await check_source_access(f.source_id, user, db)
+
+    # Only return locations from sources the user has access to
+    all_files_result = await db.execute(
+        select(File).where(File.content_hash == f.content_hash, File.is_deleted == False)  # noqa: E712
     )
-    return result.scalars().all()
+    all_files = all_files_result.scalars().all()
+
+    # Filter to sources the user can access (admins see all)
+    if user.role == "admin":
+        return all_files
+
+    from akashic.models.user import SourcePermission
+    perms_result = await db.execute(
+        select(SourcePermission.source_id).where(SourcePermission.user_id == user.id)
+    )
+    allowed_sources = {row[0] for row in perms_result.all()}
+    return [f for f in all_files if f.source_id in allowed_sources]

@@ -10,8 +10,9 @@ POST /api/auth/ldap/login         — LDAP username/password -> JWT
 
 import asyncio
 import logging
+import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,14 +84,16 @@ async def get_providers() -> ProvidersResponse:
 
 
 @router.get("/oidc/login")
-async def oidc_login() -> RedirectResponse:
+async def oidc_login() -> Response:
     """Redirect the user to the configured OIDC provider for authentication."""
     _require_oidc()
 
     from akashic.auth.oidc import get_authorization_url
 
+    state = secrets.token_urlsafe(32)
+
     try:
-        url = await get_authorization_url()
+        url = await get_authorization_url(state=state)
     except Exception as exc:
         logger.error("Failed to build OIDC authorization URL: %s", exc)
         raise HTTPException(
@@ -98,17 +101,33 @@ async def oidc_login() -> RedirectResponse:
             detail="Unable to reach OIDC provider",
         ) from exc
 
-    return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        key="oidc_state",
+        value=state,
+        max_age=600,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.get("/oidc/callback", response_model=TokenResponse)
 async def oidc_callback(
     code: str = Query(..., description="Authorization code returned by the OIDC provider"),
     state: str | None = Query(None),
+    oidc_state: str | None = Cookie(None),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Handle the OIDC callback: exchange the code for tokens and return a JWT."""
     _require_oidc()
+
+    # Validate state parameter to prevent CSRF
+    if not state or not oidc_state or state != oidc_state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or missing state parameter",
+        )
 
     from akashic.auth.oidc import exchange_code, get_or_create_user
 
