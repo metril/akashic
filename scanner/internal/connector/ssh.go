@@ -1,0 +1,179 @@
+package connector
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"io/fs"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/akashic-project/akashic/scanner/internal/metadata"
+	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/pkg/sftp"
+	gossh "golang.org/x/crypto/ssh"
+)
+
+// SSHConnector connects to a remote host via SSH/SFTP and walks the filesystem.
+type SSHConnector struct {
+	host     string
+	port     int
+	username string
+	password string
+	keyPath  string
+
+	sshClient  *gossh.Client
+	sftpClient *sftp.Client
+}
+
+// NewSSHConnector creates a new SSHConnector.
+func NewSSHConnector(host string, port int, username, password, keyPath string) *SSHConnector {
+	return &SSHConnector{
+		host:     host,
+		port:     port,
+		username: username,
+		password: password,
+		keyPath:  keyPath,
+	}
+}
+
+// Connect dials the remote SSH server and creates an SFTP session.
+func (c *SSHConnector) Connect(_ context.Context) error {
+	authMethods := []gossh.AuthMethod{}
+
+	if c.keyPath != "" {
+		key, err := os.ReadFile(c.keyPath)
+		if err != nil {
+			return fmt.Errorf("read ssh key: %w", err)
+		}
+		signer, err := gossh.ParsePrivateKey(key)
+		if err != nil {
+			return fmt.Errorf("parse ssh key: %w", err)
+		}
+		authMethods = append(authMethods, gossh.PublicKeys(signer))
+	}
+
+	if c.password != "" {
+		authMethods = append(authMethods, gossh.Password(c.password))
+	}
+
+	cfg := &gossh.ClientConfig{
+		User:            c.username,
+		Auth:            authMethods,
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec // TODO: use known_hosts in production
+		Timeout:         15 * time.Second,
+	}
+
+	addr := net.JoinHostPort(c.host, fmt.Sprintf("%d", c.port))
+	sshClient, err := gossh.Dial("tcp", addr, cfg)
+	if err != nil {
+		return fmt.Errorf("ssh dial %s: %w", addr, err)
+	}
+	c.sshClient = sshClient
+
+	sftpClient, err := sftp.NewClient(sshClient)
+	if err != nil {
+		sshClient.Close()
+		return fmt.Errorf("sftp client: %w", err)
+	}
+	c.sftpClient = sftpClient
+
+	return nil
+}
+
+// Walk traverses the remote filesystem starting at root via SFTP.
+func (c *SSHConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+	if c.sftpClient == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+
+	walker := c.sftpClient.Walk(root)
+	for walker.Step() {
+		if err := walker.Err(); err != nil {
+			continue
+		}
+
+		path := walker.Path()
+		stat := walker.Stat()
+		name := stat.Name()
+
+		if path == root {
+			continue
+		}
+
+		if excludeSet[strings.ToLower(name)] {
+			if stat.IsDir() {
+				walker.SkipDir()
+			}
+			continue
+		}
+
+		entry := fileInfoToEntry(path, stat, computeHash, c)
+		if err := fn(entry); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ReadFile opens a remote file for reading via SFTP.
+func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
+	if c.sftpClient == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	return c.sftpClient.Open(path)
+}
+
+// Close shuts down the SFTP and SSH connections.
+func (c *SSHConnector) Close() error {
+	if c.sftpClient != nil {
+		c.sftpClient.Close()
+	}
+	if c.sshClient != nil {
+		return c.sshClient.Close()
+	}
+	return nil
+}
+
+// Type returns the connector type.
+func (c *SSHConnector) Type() string {
+	return "ssh"
+}
+
+// fileInfoToEntry converts an fs.FileInfo into a models.FileEntry.
+// If computeHash is true and the file is not a directory, it reads from
+// the connector to compute the content hash.
+func fileInfoToEntry(path string, info fs.FileInfo, computeHash bool, conn Connector) *models.FileEntry {
+	modTime := info.ModTime()
+	entry := &models.FileEntry{
+		Path:       path,
+		Filename:   info.Name(),
+		Extension:  strings.TrimPrefix(filepath.Ext(info.Name()), "."),
+		SizeBytes:  info.Size(),
+		Permissions: fmt.Sprintf("%o", info.Mode().Perm()),
+		ModifiedAt: &modTime,
+		IsDir:      info.IsDir(),
+	}
+
+	if computeHash && !info.IsDir() {
+		if conn != nil {
+			if rc, err := conn.ReadFile(context.Background(), path); err == nil {
+				if hash, err := metadata.HashReader(rc); err == nil {
+					entry.ContentHash = hash
+				}
+				rc.Close()
+			}
+		}
+	}
+
+	return entry
+}
