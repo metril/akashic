@@ -85,8 +85,8 @@ function DuplicateGroupRow({ group }: { group: DuplicateGroup }) {
   const [expanded, setExpanded] = useState(false);
 
   const filesQuery = useQuery<FileEntry[]>({
-    queryKey: ["duplicates", group.hash, "files"],
-    queryFn: () => api.get<FileEntry[]>(`/duplicates/${group.hash}/files`),
+    queryKey: ["duplicates", group.content_hash, "files"],
+    queryFn: () => api.get<FileEntry[]>(`/duplicates/${group.content_hash}/files`),
     enabled: expanded,
   });
 
@@ -94,15 +94,15 @@ function DuplicateGroupRow({ group }: { group: DuplicateGroup }) {
     <div style={groupCardStyle}>
       <div style={groupHeaderStyle} onClick={() => setExpanded((v) => !v)}>
         <div>
-          <div style={hashStyle}>{group.hash.substring(0, 16)}...</div>
+          <div style={hashStyle}>{group.content_hash.substring(0, 16)}...</div>
           <div style={metaStyle}>
-            {group.file_count} copies &middot; {formatBytes(group.total_size)} total
+            {group.count} copies &middot; {formatBytes(group.total_size)} total
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div>
             <div style={{ fontSize: 11, color: "#bbb", textAlign: "right" }}>Wasted space</div>
-            <div style={wastedStyle}>{formatBytes(group.wasted_size)}</div>
+            <div style={wastedStyle}>{formatBytes(group.wasted_bytes)}</div>
           </div>
           <span style={{ color: "#ccc", fontSize: 18 }}>{expanded ? "▲" : "▼"}</span>
         </div>
@@ -114,7 +114,7 @@ function DuplicateGroupRow({ group }: { group: DuplicateGroup }) {
           )}
           {(filesQuery.data ?? []).map((file) => (
             <div key={file.id} style={fileItemStyle}>
-              <div>{file.name}</div>
+              <div>{file.filename}</div>
               <div style={filePathStyle}>{file.path}</div>
             </div>
           ))}
@@ -130,9 +130,9 @@ export default function Duplicates() {
     queryFn: () => api.get<DuplicateGroup[]>("/duplicates"),
   });
 
-  const sorted = [...(groups ?? [])].sort((a, b) => b.wasted_size - a.wasted_size);
+  const sorted = [...(groups ?? [])].sort((a, b) => b.wasted_bytes - a.wasted_bytes);
 
-  const totalWasted = sorted.reduce((s, g) => s + g.wasted_size, 0);
+  const totalWasted = sorted.reduce((s, g) => s + g.wasted_bytes, 0);
 
   return (
     <div style={pageStyle}>
@@ -150,7 +150,7 @@ export default function Duplicates() {
       )}
 
       {sorted.map((group) => (
-        <DuplicateGroupRow key={group.hash} group={group} />
+        <DuplicateGroupRow key={group.content_hash} group={group} />
       ))}
     </div>
   );

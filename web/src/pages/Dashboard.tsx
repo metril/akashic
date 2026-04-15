@@ -101,9 +101,9 @@ export default function Dashboard() {
   const sources = sourcesQuery.data ?? [];
   const storageByType = storageQuery.data ?? [];
 
-  const totalFiles = storageByType.reduce((s, r) => s + r.file_count, 0);
-  const totalSize = storageByType.reduce((s, r) => s + r.total_size, 0);
-  const enabledSources = sources.filter((s) => s.enabled).length;
+  const totalFiles = storageByType.reduce((s, r) => s + r.count, 0);
+  const totalSize = storageByType.reduce((s, r) => s + (r.total_size ?? 0), 0);
+  const enabledSources = sources.filter((s) => s.status === "active").length;
 
   return (
     <div style={pageStyle}>
@@ -147,7 +147,7 @@ export default function Dashboard() {
             {storageByType.slice(0, 10).map((row) => (
               <tr key={row.extension}>
                 <td style={tdStyle}>{row.extension || "(none)"}</td>
-                <td style={tdStyle}>{row.file_count.toLocaleString()}</td>
+                <td style={tdStyle}>{row.count.toLocaleString()}</td>
                 <td style={tdStyle}>{formatBytes(row.total_size)}</td>
               </tr>
             ))}

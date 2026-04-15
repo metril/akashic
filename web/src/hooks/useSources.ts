@@ -15,9 +15,10 @@ export function useCreateSource() {
   return useMutation({
     mutationFn: (data: {
       name: string;
-      path: string;
-      source_type: string;
-      enabled?: boolean;
+      type: string;
+      connection_config: Record<string, unknown>;
+      scan_schedule?: string | null;
+      exclude_patterns?: string[] | null;
     }) => api.post<Source>("/sources", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -29,7 +30,7 @@ export function useUpdateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<Source> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns">> }) =>
       api.patch<Source>(`/sources/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -41,7 +42,7 @@ export function useDeleteSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: number) => api.delete<void>(`/sources/${id}`),
+    mutationFn: (id: string) => api.delete<void>(`/sources/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },

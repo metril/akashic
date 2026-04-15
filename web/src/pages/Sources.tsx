@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSources, useCreateSource, useDeleteSource, useUpdateSource } from "../hooks/useSources";
+import { useSources, useCreateSource, useDeleteSource } from "../hooks/useSources";
 
 const pageStyle: React.CSSProperties = {
   padding: "32px 40px",
@@ -40,14 +40,14 @@ const cardPathStyle: React.CSSProperties = {
   wordBreak: "break-all",
 };
 
-const badgeStyle = (enabled: boolean): React.CSSProperties => ({
+const badgeStyle = (active: boolean): React.CSSProperties => ({
   display: "inline-block",
   padding: "2px 10px",
   borderRadius: 12,
   fontSize: 12,
   fontWeight: 600,
-  background: enabled ? "#e8f5e9" : "#fce4ec",
-  color: enabled ? "#2e7d32" : "#c62828",
+  background: active ? "#e8f5e9" : "#fce4ec",
+  color: active ? "#2e7d32" : "#c62828",
   marginBottom: 10,
 });
 
@@ -122,7 +122,6 @@ export default function Sources() {
   const { data: sources, isLoading, error } = useSources();
   const createSource = useCreateSource();
   const deleteSource = useDeleteSource();
-  const updateSource = useUpdateSource();
 
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -133,7 +132,11 @@ export default function Sources() {
     e.preventDefault();
     setFormError(null);
     try {
-      await createSource.mutateAsync({ name, path, source_type: sourceType, enabled: true });
+      await createSource.mutateAsync({
+        name,
+        type: sourceType,
+        connection_config: { path },
+      });
       setName("");
       setPath("");
       setSourceType("local");
@@ -142,11 +145,7 @@ export default function Sources() {
     }
   }
 
-  async function handleToggle(id: number, enabled: boolean) {
-    await updateSource.mutateAsync({ id, data: { enabled: !enabled } });
-  }
-
-  async function handleDelete(id: number) {
+  async function handleDelete(id: string) {
     if (confirm("Delete this source?")) {
       await deleteSource.mutateAsync(id);
     }
@@ -163,23 +162,21 @@ export default function Sources() {
         {(sources ?? []).map((source) => (
           <div key={source.id} style={cardStyle}>
             <div style={cardNameStyle}>{source.name}</div>
-            <div style={cardPathStyle}>{source.path}</div>
-            <span style={badgeStyle(source.enabled)}>
-              {source.enabled ? "Active" : "Disabled"}
+            <div style={cardPathStyle}>
+              {typeof source.connection_config?.path === "string"
+                ? source.connection_config.path
+                : JSON.stringify(source.connection_config)}
+            </div>
+            <span style={badgeStyle(source.status === "active")}>
+              {source.status === "active" ? "Active" : source.status}
             </span>
             <div style={lastScanStyle}>
-              Type: {source.source_type}
+              Type: {source.type}
               {source.last_scan_at && (
                 <> &middot; Last scan: {new Date(source.last_scan_at).toLocaleDateString()}</>
               )}
             </div>
             <div style={cardActionsStyle}>
-              <button
-                style={btnStyle("default")}
-                onClick={() => handleToggle(source.id, source.enabled)}
-              >
-                {source.enabled ? "Disable" : "Enable"}
-              </button>
               <button
                 style={btnStyle("danger")}
                 onClick={() => handleDelete(source.id)}
