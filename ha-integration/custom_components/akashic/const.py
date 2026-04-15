@@ -1,0 +1,5 @@
+DOMAIN = "akashic"
+CONF_API_URL = "api_url"
+CONF_API_KEY = "api_key"
+DEFAULT_SCAN_INTERVAL = 60
+STATS_SCAN_INTERVAL = 300

@@ -1,0 +1,11 @@
+{
+  "domain": "akashic",
+  "name": "Akashic File Index",
+  "version": "0.1.0",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/akashic-project/akashic",
+  "iot_class": "local_polling",
+  "requirements": ["httpx>=0.28"]
+}
