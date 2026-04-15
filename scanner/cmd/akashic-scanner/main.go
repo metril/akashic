@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/config"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
@@ -101,7 +103,7 @@ func main() {
 
 	sid := *scanID
 	if sid == "" {
-		sid = fmt.Sprintf("scan-%s", *sourceID)
+		sid = uuid.New().String()
 	}
 
 	s := scanner.New(apiClient, conn, scanner.Options{

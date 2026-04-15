@@ -22,6 +22,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.27.0 // indirect
 	github.com/aws/smithy-go v1.20.1 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hirochachacha/go-smb2 v1.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/kr/fs v0.1.0 // indirect
