@@ -60,3 +60,13 @@ async def check_source_access(
     required = level_hierarchy.get(required_level, 0)
     if user_level < required:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Requires {required_level} access to this source")
+
+
+async def get_permitted_source_ids(user: User, db: AsyncSession) -> list[uuid.UUID] | None:
+    """Return list of source IDs the user can access, or None if admin (no filtering needed)."""
+    if user.role == "admin":
+        return None  # Admin sees everything
+    result = await db.execute(
+        select(SourcePermission.source_id).where(SourcePermission.user_id == user.id)
+    )
+    return [row[0] for row in result.all()]

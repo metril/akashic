@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.directory import Directory
 from akashic.models.user import User
@@ -21,9 +21,16 @@ async def list_directories(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    stmt = select(Directory).where(Directory.is_deleted == False)
+    if source_id:
+        await check_source_access(source_id, user, db)
+
+    stmt = select(Directory).where(Directory.is_deleted == False)  # noqa: E712
     if source_id:
         stmt = stmt.where(Directory.source_id == source_id)
+    else:
+        allowed = await get_permitted_source_ids(user, db)
+        if allowed is not None:
+            stmt = stmt.where(Directory.source_id.in_(allowed)) if allowed else stmt.where(False)
     if path_prefix:
         stmt = stmt.where(Directory.path.startswith(path_prefix))
     stmt = stmt.offset(offset).limit(limit)

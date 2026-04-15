@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.file import File
 from akashic.models.user import User
@@ -18,6 +18,15 @@ async def list_duplicates(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    base_filter = [File.is_deleted == False, File.content_hash.isnot(None)]  # noqa: E712
+
+    # Scope to permitted sources for non-admin users
+    allowed = await get_permitted_source_ids(user, db)
+    if allowed is not None:
+        if not allowed:
+            return []
+        base_filter.append(File.source_id.in_(allowed))
+
     stmt = (
         select(
             File.content_hash,
@@ -25,7 +34,7 @@ async def list_duplicates(
             func.sum(File.size_bytes).label("total_size"),
             func.min(File.size_bytes).label("file_size"),
         )
-        .where(File.is_deleted == False, File.content_hash.isnot(None))
+        .where(*base_filter)
         .group_by(File.content_hash)
         .having(func.count(File.id) > 1)
     )
@@ -54,7 +63,13 @@ async def get_duplicate_files(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(File).where(File.content_hash == content_hash, File.is_deleted == False)
-    )
+    stmt = select(File).where(File.content_hash == content_hash, File.is_deleted == False)  # noqa: E712
+
+    allowed = await get_permitted_source_ids(user, db)
+    if allowed is not None:
+        if not allowed:
+            return []
+        stmt = stmt.where(File.source_id.in_(allowed))
+
+    result = await db.execute(stmt)
     return result.scalars().all()

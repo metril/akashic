@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
 from akashic.models.tag import Tag, FileTag
 from akashic.models.file import File
@@ -44,8 +44,10 @@ async def apply_tag(
     user: User = Depends(get_current_user),
 ):
     file_result = await db.execute(select(File).where(File.id == file_id))
-    if not file_result.scalar_one_or_none():
+    f = file_result.scalar_one_or_none()
+    if not f:
         raise HTTPException(status_code=404, detail="File not found")
+    await check_source_access(f.source_id, user, db)
 
     tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
     if not tag_result.scalar_one_or_none():
@@ -67,6 +69,12 @@ async def remove_tag(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    file_result = await db.execute(select(File).where(File.id == file_id))
+    f = file_result.scalar_one_or_none()
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    await check_source_access(f.source_id, user, db)
+
     await db.execute(
         delete(FileTag).where(FileTag.file_id == file_id, FileTag.tag_id == tag_id)
     )

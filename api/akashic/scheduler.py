@@ -2,17 +2,17 @@
 
 Reads `scan_schedule` (cron expression) from each source and triggers scans
 at the configured intervals. Runs as part of the FastAPI app lifespan.
+Uses the application's existing DB session factory (no duplicate engine).
 """
 import asyncio
 import logging
-import uuid
 from datetime import datetime, timezone
 
 from croniter import croniter
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.config import settings
+from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 
@@ -21,9 +21,43 @@ logger = logging.getLogger(__name__)
 _scheduler_task: asyncio.Task | None = None
 
 
-async def _check_and_trigger_scans(session_factory: async_sessionmaker):
+async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
+    """Attempt to trigger a scan for a single source. Uses conditional UPDATE to avoid races."""
+    try:
+        cron = croniter(source.scan_schedule, source.last_scan_at or datetime(2000, 1, 1, tzinfo=timezone.utc))
+        next_run = cron.get_next(datetime)
+        if next_run > now:
+            return  # Not due yet
+    except (ValueError, KeyError) as exc:
+        logger.warning("Invalid cron expression for source '%s': %s", source.name, exc)
+        return
+
+    # Atomic conditional update to prevent race conditions:
+    # Only set status='scanning' if it's still not 'scanning'
+    result = await db.execute(
+        update(Source)
+        .where(Source.id == source.id, Source.status != "scanning")
+        .values(status="scanning")
+        .returning(Source.id)
+    )
+    updated = result.first()
+    if not updated:
+        return  # Another tick already claimed this source
+
+    scan = Scan(
+        source_id=source.id,
+        scan_type="incremental",
+        status="pending",
+    )
+    db.add(scan)
+    await db.commit()
+    logger.info("Scheduled scan triggered for source '%s' (scan_id=%s)", source.name, scan.id)
+
+
+async def _check_and_trigger_scans():
     """Check all sources with a scan_schedule and trigger any that are due."""
-    async with session_factory() as db:
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
         result = await db.execute(
             select(Source).where(
                 Source.scan_schedule.isnot(None),
@@ -32,46 +66,25 @@ async def _check_and_trigger_scans(session_factory: async_sessionmaker):
         )
         sources = result.scalars().all()
 
-        now = datetime.now(timezone.utc)
-        for source in sources:
-            if not source.scan_schedule:
-                continue
-
-            try:
-                cron = croniter(source.scan_schedule, source.last_scan_at or datetime(2000, 1, 1, tzinfo=timezone.utc))
-                next_run = cron.get_next(datetime)
-                if next_run <= now:
-                    # Time to scan — create a pending scan record
-                    scan = Scan(
-                        source_id=source.id,
-                        scan_type="incremental",
-                        status="pending",
-                    )
-                    db.add(scan)
-                    source.status = "scanning"
-                    await db.commit()
-                    logger.info(
-                        "Scheduled scan triggered for source '%s' (scan_id=%s)",
-                        source.name, scan.id,
-                    )
-            except (ValueError, KeyError) as exc:
-                logger.warning("Invalid cron expression for source '%s': %s", source.name, exc)
+    # Process each source in its own session to isolate failures
+    for source in sources:
+        if not source.scan_schedule:
+            continue
+        try:
+            async with async_session() as db:
+                await _try_trigger_source(db, source, now)
+        except Exception as exc:
+            logger.error("Scheduler error for source '%s': %s", source.name, exc)
 
 
 async def _scheduler_loop():
     """Main scheduler loop — checks every 60 seconds."""
-    engine = create_async_engine(settings.database_url)
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    try:
-        while True:
-            try:
-                await _check_and_trigger_scans(session_factory)
-            except Exception as exc:
-                logger.error("Scheduler error: %s", exc)
-            await asyncio.sleep(60)
-    finally:
-        await engine.dispose()
+    while True:
+        try:
+            await _check_and_trigger_scans()
+        except Exception as exc:
+            logger.error("Scheduler loop error: %s", exc)
+        await asyncio.sleep(60)
 
 
 def start_scheduler():

@@ -56,8 +56,12 @@ async def _index_files_to_meilisearch(file_ids: list[str], db_url: str):
         await engine.dispose()
 
 
-async def _enqueue_extraction_jobs(file_ids: list[str], redis_url: str):
-    """Background task: enqueue text extraction jobs to Redis."""
+def _enqueue_extraction_jobs(file_ids: list[str], redis_url: str):
+    """Background task: enqueue text extraction jobs to Redis.
+
+    This is a sync function so FastAPI dispatches it to a thread pool,
+    avoiding blocking the event loop with synchronous Redis I/O.
+    """
     try:
         from redis import Redis
         from rq import Queue
