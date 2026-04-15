@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.source import Source
-from akashic.models.user import User
+from akashic.models.user import SourcePermission, User
 from akashic.schemas.source import SourceCreate, SourceUpdate, SourceResponse
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -31,7 +31,16 @@ async def list_sources(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Source).order_by(Source.name))
+    if user.role == "admin":
+        result = await db.execute(select(Source).order_by(Source.name))
+    else:
+        # Non-admins only see sources they have permission for
+        result = await db.execute(
+            select(Source)
+            .join(SourcePermission, Source.id == SourcePermission.source_id)
+            .where(SourcePermission.user_id == user.id)
+            .order_by(Source.name)
+        )
     return result.scalars().all()
 
 
@@ -41,6 +50,7 @@ async def get_source(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    await check_source_access(source_id, user, db)
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:

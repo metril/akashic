@@ -4,6 +4,7 @@ Redis Queue worker for text extraction.
 Run with: rq worker extraction --url redis://localhost:6379/0
 """
 import asyncio
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -22,7 +23,7 @@ def process_file_extraction(file_id: str):
 
 async def _extract(file_id: str):
     async with session_factory() as db:
-        result = await db.execute(select(File).where(File.id == file_id))
+        result = await db.execute(select(File).where(File.id == uuid.UUID(file_id)))
         file = result.scalar_one_or_none()
         if not file or not file.mime_type:
             return

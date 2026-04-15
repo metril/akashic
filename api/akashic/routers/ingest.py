@@ -22,7 +22,7 @@ async def ingest_batch(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await check_source_access(batch.source_id, user, db, required_level="admin")
+    await check_source_access(batch.source_id, user, db, required_level="write")
     now = datetime.now(timezone.utc)
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))

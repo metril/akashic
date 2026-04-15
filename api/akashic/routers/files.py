@@ -25,9 +25,15 @@ async def list_files(
 ):
     if source_id:
         await check_source_access(source_id, user, db)
-    stmt = select(File).where(File.is_deleted == False)
+    stmt = select(File).where(File.is_deleted == False)  # noqa: E712
     if source_id:
         stmt = stmt.where(File.source_id == source_id)
+    elif user.role != "admin":
+        # Non-admin users without source_id filter only see their permitted sources
+        from akashic.models.user import SourcePermission
+        perms = await db.execute(select(SourcePermission.source_id).where(SourcePermission.user_id == user.id))
+        allowed = [row[0] for row in perms.all()]
+        stmt = stmt.where(File.source_id.in_(allowed)) if allowed else stmt.where(False)
     if extension:
         stmt = stmt.where(File.extension == extension)
     if path_prefix:
