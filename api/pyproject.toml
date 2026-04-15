@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "python-jose[cryptography]>=3.3",
     "passlib[bcrypt]>=1.7",
+    "bcrypt>=4.0,<5",
     "httpx>=0.28",
     "meilisearch-python-sdk>=3.0",
     "redis[hiredis]>=5.2",
@@ -26,6 +27,9 @@ dev = [
     "pytest-httpx>=0.35",
     "coverage>=7.6",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["akashic"]
 
 [build-system]
 requires = ["hatchling"]
