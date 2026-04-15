@@ -18,6 +18,7 @@ dependencies = [
     "rq>=2.1",
     "python-multipart>=0.0.18",
     "cryptography>=44.0",
+    "python-ldap>=3.4",
 ]
 
 [project.optional-dependencies]
