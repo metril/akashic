@@ -1,16 +1,76 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.scan import Scan
+from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanResponse
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
+
+
+class ScanTriggerRequest(BaseModel):
+    source_name: str | None = None
+    source_id: uuid.UUID | None = None
+    scan_type: str = "incremental"
+
+
+class ScanTriggerResponse(BaseModel):
+    scan_id: uuid.UUID
+    source_id: uuid.UUID
+    source_name: str
+    scan_type: str
+    last_scan_at: str | None
+
+
+@router.post("/trigger", response_model=ScanTriggerResponse)
+async def trigger_scan(
+    data: ScanTriggerRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a scan record and return the info needed to run the scanner.
+
+    The caller (CLI, HA integration, or scheduler) uses the returned scan_id
+    and source config to invoke the Go scanner binary.
+    """
+    if not data.source_name and not data.source_id:
+        raise HTTPException(status_code=400, detail="source_name or source_id required")
+
+    if data.source_id:
+        result = await db.execute(select(Source).where(Source.id == data.source_id))
+    else:
+        result = await db.execute(select(Source).where(Source.name == data.source_name))
+
+    source = result.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    await check_source_access(source.id, user, db, required_level="write")
+
+    scan = Scan(
+        source_id=source.id,
+        scan_type=data.scan_type,
+        status="pending",
+    )
+    db.add(scan)
+    source.status = "scanning"
+    await db.commit()
+    await db.refresh(scan)
+
+    return ScanTriggerResponse(
+        scan_id=scan.id,
+        source_id=source.id,
+        source_name=source.name,
+        scan_type=data.scan_type,
+        last_scan_at=source.last_scan_at.isoformat() if source.last_scan_at else None,
+    )
 
 
 @router.get("", response_model=list[ScanResponse])

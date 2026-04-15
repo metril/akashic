@@ -19,6 +19,7 @@ dependencies = [
     "python-multipart>=0.0.18",
     "cryptography>=44.0",
     "python-ldap>=3.4",
+    "croniter>=6.0",
 ]
 
 [project.optional-dependencies]
