@@ -1,0 +1,21 @@
+trigger_scan:
+  name: Trigger Scan
+  description: Trigger a scan for a specific source
+  fields:
+    source_name:
+      name: Source Name
+      description: The name of the source to scan
+      required: true
+      selector:
+        text:
+
+trigger_full_scan:
+  name: Trigger Full Scan
+  description: Trigger a full rescan for a specific source
+  fields:
+    source_name:
+      name: Source Name
+      description: The name of the source to scan
+      required: true
+      selector:
+        text:
