@@ -24,37 +24,50 @@ from akashic.models.user import User
 # ---------------------------------------------------------------------------
 
 _discovery_cache: dict | None = None
+_discovery_fetched_at: float = 0
 _jwks_cache: dict | None = None
+_jwks_fetched_at: float = 0
+_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 
 async def _get_discovery() -> dict:
-    """Fetch (and cache) the OIDC discovery document."""
-    global _discovery_cache
-    if _discovery_cache is None:
+    """Fetch (and cache with TTL) the OIDC discovery document."""
+    import time
+
+    global _discovery_cache, _discovery_fetched_at
+    now = time.monotonic()
+    if _discovery_cache is None or (now - _discovery_fetched_at) > _CACHE_TTL_SECONDS:
         async with httpx.AsyncClient() as client:
             resp = await client.get(settings.oidc_discovery_url, timeout=10)
             resp.raise_for_status()
             _discovery_cache = resp.json()
+            _discovery_fetched_at = now
     return _discovery_cache
 
 
 async def _get_jwks() -> dict:
-    """Fetch (and cache) the provider's JWKS for ID-token verification."""
-    global _jwks_cache
-    if _jwks_cache is None:
+    """Fetch (and cache with TTL) the provider's JWKS for ID-token verification."""
+    import time
+
+    global _jwks_cache, _jwks_fetched_at
+    now = time.monotonic()
+    if _jwks_cache is None or (now - _jwks_fetched_at) > _CACHE_TTL_SECONDS:
         discovery = await _get_discovery()
         async with httpx.AsyncClient() as client:
             resp = await client.get(discovery["jwks_uri"], timeout=10)
             resp.raise_for_status()
             _jwks_cache = resp.json()
+            _jwks_fetched_at = now
     return _jwks_cache
 
 
 def invalidate_cache() -> None:
     """Force a refresh of the discovery / JWKS cache (useful in tests)."""
-    global _discovery_cache, _jwks_cache
+    global _discovery_cache, _jwks_cache, _discovery_fetched_at, _jwks_fetched_at
     _discovery_cache = None
     _jwks_cache = None
+    _discovery_fetched_at = 0
+    _jwks_fetched_at = 0
 
 
 # ---------------------------------------------------------------------------
