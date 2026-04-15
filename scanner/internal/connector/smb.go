@@ -4,23 +4,27 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"path/filepath"
+	"strings"
 
+	"github.com/hirochachacha/go-smb2"
+
+	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
-// SMBConnector connects to a Windows/Samba share via SMB2/3.
-//
-// TODO: Implement using github.com/hirochachacha/go-smb2 when integration
-// testing with a real SMB server is available.
 type SMBConnector struct {
 	host     string
 	port     int
 	username string
 	password string
 	share    string
+	conn     net.Conn
+	session  *smb2.Session
+	smbShare *smb2.Share
 }
 
-// NewSMBConnector creates a new SMBConnector.
 func NewSMBConnector(host string, port int, username, password, share string) *SMBConnector {
 	return &SMBConnector{
 		host:     host,
@@ -31,30 +35,108 @@ func NewSMBConnector(host string, port int, username, password, share string) *S
 	}
 }
 
-// Connect establishes an SMB session.
-// TODO: Implement with go-smb2: dial TCP, negotiate SMB2, authenticate, mount share.
 func (c *SMBConnector) Connect(_ context.Context) error {
-	return fmt.Errorf("not implemented: SMBConnector.Connect (requires github.com/hirochachacha/go-smb2)")
-}
+	addr := net.JoinHostPort(c.host, fmt.Sprintf("%d", c.port))
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("smb dial %s: %w", addr, err)
+	}
+	c.conn = conn
 
-// Walk traverses the SMB share starting at root.
-// TODO: Use smb2.Share.ReadDir recursively to enumerate files.
-func (c *SMBConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
-	return fmt.Errorf("not implemented: SMBConnector.Walk")
-}
+	d := &smb2.Dialer{
+		Initiator: &smb2.NTLMInitiator{
+			User:     c.username,
+			Password: c.password,
+		},
+	}
 
-// ReadFile opens a file on the SMB share for reading.
-// TODO: Use smb2.Share.Open to get a ReadCloser.
-func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("not implemented: SMBConnector.ReadFile")
-}
+	session, err := d.Dial(conn)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("smb session: %w", err)
+	}
+	c.session = session
 
-// Close disconnects from the SMB server.
-func (c *SMBConnector) Close() error {
+	share, err := session.Mount(c.share)
+	if err != nil {
+		session.Logoff()
+		conn.Close()
+		return fmt.Errorf("smb mount %s: %w", c.share, err)
+	}
+	c.smbShare = share
+
 	return nil
 }
 
-// Type returns the connector type.
+func (c *SMBConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+
+	return c.walkDir(root, excludeSet, computeHash, fn)
+}
+
+func (c *SMBConnector) walkDir(dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.FileEntry) error) error {
+	entries, err := c.smbShare.ReadDir(dir)
+	if err != nil {
+		return nil // skip unreadable dirs
+	}
+
+	for _, info := range entries {
+		name := info.Name()
+		if excludeSet[strings.ToLower(name)] {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		entry := fileInfoToEntry(path, info, false, nil)
+
+		if computeHash && !info.IsDir() {
+			if hash, err := c.hashRemoteFile(path); err == nil {
+				entry.ContentHash = hash
+			}
+		}
+
+		if err := fn(entry); err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			if err := c.walkDir(path, excludeSet, computeHash, fn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
+	f, err := c.smbShare.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	return metadata.HashReader(f)
+}
+
+func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
+	return c.smbShare.Open(path)
+}
+
+func (c *SMBConnector) Close() error {
+	if c.smbShare != nil {
+		c.smbShare.Umount()
+	}
+	if c.session != nil {
+		c.session.Logoff()
+	}
+	if c.conn != nil {
+		c.conn.Close()
+	}
+	return nil
+}
+
 func (c *SMBConnector) Type() string {
 	return "smb"
 }
