@@ -19,11 +19,14 @@ class AkashicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         headers={"Authorization": f"Bearer {user_input[CONF_API_KEY]}"},
                         timeout=10,
                     )
-                    resp.raise_for_status()
+                    if resp.status_code in (401, 403):
+                        errors["base"] = "invalid_auth"
+                    elif resp.status_code >= 400:
+                        errors["base"] = "cannot_connect"
+                    else:
+                        return self.async_create_entry(title="Akashic", data=user_input)
             except Exception:
                 errors["base"] = "cannot_connect"
-            else:
-                return self.async_create_entry(title="Akashic", data=user_input)
 
         return self.async_show_form(
             step_id="user",

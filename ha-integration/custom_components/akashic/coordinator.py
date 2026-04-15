@@ -20,13 +20,16 @@ class AkashicCoordinator(DataUpdateCoordinator):
         )
         self.api_url = config[CONF_API_URL]
         self.api_key = config[CONF_API_KEY]
+        self._client = httpx.AsyncClient()
+
+    async def async_shutdown(self) -> None:
+        await self._client.aclose()
 
     async def _async_update_data(self) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        async with httpx.AsyncClient() as client:
-            sources_resp = await client.get(f"{self.api_url}/api/sources", headers=headers, timeout=10)
-            sources_resp.raise_for_status()
-            sources = sources_resp.json()
+        sources_resp = await self._client.get(f"{self.api_url}/api/sources", headers=headers, timeout=10)
+        sources_resp.raise_for_status()
+        sources = sources_resp.json()
 
         return {
             "sources": {s["name"]: s for s in sources},
