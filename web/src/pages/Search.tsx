@@ -101,16 +101,17 @@ export default function Search() {
     queryFn: () => api.get<Source[]>("/sources"),
   });
 
-  const params = new URLSearchParams();
-  if (query) params.set("q", query);
-  if (sourceId) params.set("source_id", sourceId);
-  if (extension) params.set("extension", extension);
-  if (minSize) params.set("min_size", minSize);
-  if (maxSize) params.set("max_size", maxSize);
-
   const searchQuery = useQuery<SearchResponse>({
     queryKey: ["search", query, sourceId, extension, minSize, maxSize],
-    queryFn: () => api.get<SearchResponse>(`/search?${params.toString()}`),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (query) params.set("q", query);
+      if (sourceId) params.set("source_id", sourceId);
+      if (extension) params.set("extension", extension);
+      if (minSize) params.set("min_size", minSize);
+      if (maxSize) params.set("max_size", maxSize);
+      return api.get<SearchResponse>(`/search?${params.toString()}`);
+    },
     enabled: query.trim().length > 0,
   });
 
