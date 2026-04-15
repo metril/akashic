@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
 from akashic.models.file import File, FileVersion
 from akashic.models.user import User
@@ -23,6 +23,8 @@ async def list_files(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if source_id:
+        await check_source_access(source_id, user, db)
     stmt = select(File).where(File.is_deleted == False)
     if source_id:
         stmt = stmt.where(File.source_id == source_id)
@@ -45,6 +47,7 @@ async def get_file(
     f = result.scalar_one_or_none()
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
+    await check_source_access(f.source_id, user, db)
     return f
 
 

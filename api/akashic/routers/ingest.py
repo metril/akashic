@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.directory import Directory
-from akashic.models.file import File, FileVersion
+from akashic.models.file import File, FileEvent, FileVersion
 from akashic.models.scan import Scan
 from akashic.models.user import User
 from akashic.schemas.scan import ScanBatchIn, ScanBatchResponse
@@ -110,6 +110,44 @@ async def ingest_batch(
     if batch.is_final:
         scan.status = "completed"
         scan.completed_at = now
+
+        # Mark files not seen in this scan as deleted
+        stale_result = await db.execute(
+            select(File).where(
+                File.source_id == batch.source_id,
+                File.is_deleted == False,  # noqa: E712
+                File.last_seen_at < scan.started_at,
+            )
+        )
+        stale_files = stale_result.scalars().all()
+        for stale in stale_files:
+            stale.is_deleted = True
+            stale.deleted_at = now
+            scan.files_deleted += 1
+
+            # Movement detection: if this hash exists at a new path on any source,
+            # record it as a move event
+            if stale.content_hash:
+                new_location = await db.execute(
+                    select(File).where(
+                        File.content_hash == stale.content_hash,
+                        File.is_deleted == False,  # noqa: E712
+                        File.last_seen_at >= scan.started_at,
+                        File.id != stale.id,
+                    ).limit(1)
+                )
+                new_file = new_location.scalar_one_or_none()
+                if new_file:
+                    event = FileEvent(
+                        event_type="moved",
+                        content_hash=stale.content_hash,
+                        old_source_id=stale.source_id,
+                        old_path=stale.path,
+                        new_source_id=new_file.source_id,
+                        new_path=new_file.path,
+                        scan_id=batch.scan_id,
+                    )
+                    db.add(event)
 
     await db.commit()
 

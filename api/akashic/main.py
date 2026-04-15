@@ -1,10 +1,27 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from akashic.routers import users, ingest, sources, search, files, directories, duplicates, tags, analytics, purge, webhooks, scans
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure Meilisearch index exists
+    try:
+        from akashic.services.search import ensure_index
+        await ensure_index()
+        logger.info("Meilisearch index initialized")
+    except Exception as e:
+        logger.warning("Meilisearch not available at startup: %s", e)
+    yield
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Akashic", version="0.1.0")
+    app = FastAPI(title="Akashic", version="0.1.0", lifespan=lifespan)
     app.include_router(users.router)
     app.include_router(ingest.router)
     app.include_router(sources.router)
