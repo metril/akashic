@@ -49,15 +49,17 @@ async def search(
         filter_str = " AND ".join(filters) if filters else None
         meili_results = await search_files(q, filters=filter_str, offset=offset, limit=limit)
 
+        from akashic.schemas.search import SearchHit
+        hits = [SearchHit(**h) if isinstance(h, dict) else h for h in (meili_results.hits or [])]
         return SearchResults(
-            results=meili_results.hits,
+            results=hits,
             total=meili_results.estimated_total_hits or 0,
             query=q,
         )
     except HTTPException:
         raise
     except Exception:
-        conditions = [File.is_deleted == False, File.filename.ilike(f"%{q}%")]
+        conditions = [File.is_deleted == False, File.filename.ilike(f"%{q}%")]  # noqa: E712
         if source_id:
             conditions.append(File.source_id == source_id)
         if extension:
@@ -72,8 +74,19 @@ async def search(
         files = result.scalars().all()
 
         from sqlalchemy import func
+        from akashic.schemas.search import SearchHit
         count_stmt = select(func.count(File.id)).where(and_(*conditions))
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        return SearchResults(results=files, total=total, query=q)
+        # Convert File ORM objects to SearchHit
+        hits = [
+            SearchHit(
+                id=f.id, source_id=f.source_id, path=f.path,
+                filename=f.filename, extension=f.extension,
+                mime_type=f.mime_type, size_bytes=f.size_bytes,
+                fs_modified_at=int(f.fs_modified_at.timestamp()) if f.fs_modified_at else None,
+            )
+            for f in files
+        ]
+        return SearchResults(results=hits, total=total, query=q)

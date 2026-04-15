@@ -116,7 +116,12 @@ async def ingest_batch(
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))
     scan = result.scalar_one_or_none()
-    if not scan:
+    if scan:
+        # Verify scan belongs to the claimed source
+        if scan.source_id != batch.source_id:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="scan_id does not belong to this source")
+    else:
         scan = Scan(
             id=batch.scan_id,
             source_id=batch.source_id,
