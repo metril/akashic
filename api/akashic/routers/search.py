@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.file import File
 from akashic.models.user import User
@@ -33,12 +33,23 @@ async def search(
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
 
+    # RBAC: scope to permitted sources for non-admin users
+    allowed_source_ids = await get_permitted_source_ids(user, db)
+    if allowed_source_ids is not None:
+        if not allowed_source_ids:
+            return SearchResults(results=[], total=0, query=q)
+        if source_id and source_id not in allowed_source_ids:
+            raise HTTPException(status_code=403, detail="No access to this source")
+
     try:
         from akashic.services.search import search_files
 
         filters = []
         if source_id:
             filters.append(f'source_id = "{source_id}"')
+        elif allowed_source_ids is not None:
+            sid_filter = " OR ".join(f'source_id = "{sid}"' for sid in allowed_source_ids)
+            filters.append(f"({sid_filter})")
         if extension:
             filters.append(f'extension = "{extension}"')
         if min_size is not None:
@@ -62,6 +73,8 @@ async def search(
         conditions = [File.is_deleted == False, File.filename.ilike(f"%{q}%")]  # noqa: E712
         if source_id:
             conditions.append(File.source_id == source_id)
+        elif allowed_source_ids is not None:
+            conditions.append(File.source_id.in_(allowed_source_ids))
         if extension:
             conditions.append(File.extension == extension)
         if min_size is not None:

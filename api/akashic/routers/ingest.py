@@ -121,6 +121,11 @@ async def ingest_batch(
         if scan.source_id != batch.source_id:
             from fastapi import HTTPException
             raise HTTPException(status_code=400, detail="scan_id does not belong to this source")
+        # Set started_at on first batch for pre-triggered scans
+        if scan.started_at is None:
+            scan.started_at = now
+        if scan.status == "pending":
+            scan.status = "running"
     else:
         scan = Scan(
             id=batch.scan_id,
