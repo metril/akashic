@@ -1,0 +1,40 @@
+import { Routes, Route, Navigate } from "react-router-dom";
+import { isAuthenticated } from "./api/client";
+import Layout from "./components/Layout";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Search from "./pages/Search";
+import Sources from "./pages/Sources";
+import Duplicates from "./pages/Duplicates";
+import Analytics from "./pages/Analytics";
+
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/"
+        element={
+          <PrivateRoute>
+            <Layout />
+          </PrivateRoute>
+        }
+      >
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="search" element={<Search />} />
+        <Route path="sources" element={<Sources />} />
+        <Route path="duplicates" element={<Duplicates />} />
+        <Route path="analytics" element={<Analytics />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
