@@ -208,7 +208,8 @@ async def ingest_batch(
                 new_file_ids.append(str(new_file.id))
                 scan.files_new += 1
 
-        files_processed += 1
+        if not entry.is_dir:
+            files_processed += 1
 
     scan.files_found += files_processed
 
