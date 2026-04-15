@@ -9,10 +9,26 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
+
+func newTestServer(t *testing.T, onBatch func(models.ScanBatch)) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if onBatch != nil {
+			var b models.ScanBatch
+			if err := json.NewDecoder(r.Body).Decode(&b); err == nil {
+				onBatch(b)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+}
 
 func TestScanner_ScanLocal(t *testing.T) {
 	dir := t.TempDir()
@@ -22,11 +38,7 @@ func TestScanner_ScanLocal(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "sub", "f3.txt"), []byte("three"), 0644)
 
 	var batchCount atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		batchCount.Add(1)
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	}))
+	server := newTestServer(t, func(_ models.ScanBatch) { batchCount.Add(1) })
 	defer server.Close()
 
 	apiClient := client.New(server.URL, "key")
@@ -51,5 +63,89 @@ func TestScanner_ScanLocal(t *testing.T) {
 
 	if batchCount.Load() < 2 {
 		t.Errorf("expected at least 2 batches with batch size 2, got %d", batchCount.Load())
+	}
+}
+
+// TestScanner_Incremental_PastLastScan uses a LastScanTime well before the files
+// were created, so every file is "newer" and should receive a non-empty hash.
+func TestScanner_Incremental_PastLastScan(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
+
+	var received []models.FileEntry
+	server := newTestServer(t, func(b models.ScanBatch) {
+		received = append(received, b.Files...)
+	})
+	defer server.Close()
+
+	past := time.Now().Add(-24 * time.Hour)
+	s := New(client.New(server.URL, "key"), connector.NewLocalConnector(), Options{
+		SourceID:     "src",
+		ScanID:       "scan",
+		Root:         dir,
+		BatchSize:    100,
+		Hash:         true,
+		LastScanTime: &past,
+	})
+
+	result, err := s.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.FilesFound != 2 {
+		t.Fatalf("expected 2 files, got %d", result.FilesFound)
+	}
+
+	for _, entry := range received {
+		if entry.IsDir {
+			continue
+		}
+		if entry.ContentHash == "" {
+			t.Errorf("file %s: expected non-empty hash (mtime after last scan), got empty", entry.Path)
+		}
+	}
+}
+
+// TestScanner_Incremental_FutureLastScan uses a LastScanTime in the future, so
+// every file is "older" and should be sent with an empty hash.
+func TestScanner_Incremental_FutureLastScan(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
+
+	var received []models.FileEntry
+	server := newTestServer(t, func(b models.ScanBatch) {
+		received = append(received, b.Files...)
+	})
+	defer server.Close()
+
+	future := time.Now().Add(24 * time.Hour)
+	s := New(client.New(server.URL, "key"), connector.NewLocalConnector(), Options{
+		SourceID:     "src",
+		ScanID:       "scan",
+		Root:         dir,
+		BatchSize:    100,
+		Hash:         true,
+		LastScanTime: &future,
+	})
+
+	result, err := s.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.FilesFound != 2 {
+		t.Fatalf("expected 2 files, got %d", result.FilesFound)
+	}
+
+	for _, entry := range received {
+		if entry.IsDir {
+			continue
+		}
+		if entry.ContentHash != "" {
+			t.Errorf("file %s: expected empty hash (mtime before last scan), got %s", entry.Path, entry.ContentHash)
+		}
 	}
 }

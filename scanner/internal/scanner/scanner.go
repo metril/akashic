@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -17,6 +19,7 @@ type Options struct {
 	BatchSize       int
 	Hash            bool
 	ExcludePatterns []string
+	LastScanTime    *time.Time // nil = full scan, non-nil = incremental
 }
 
 type Result struct {
@@ -69,11 +72,27 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		return nil
 	}
 
-	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, s.opts.Hash, func(entry *models.FileEntry) error {
+	// For incremental scans, we walk without hashing and selectively compute
+	// hashes only for files modified after LastScanTime.
+	incremental := s.opts.Hash && s.opts.LastScanTime != nil
+	walkHash := s.opts.Hash && !incremental
+
+	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, func(entry *models.FileEntry) error {
 		if entry.IsDir {
 			result.DirsFound++
 		} else {
 			result.FilesFound++
+
+			if incremental && entry.ModifiedAt != nil && entry.ModifiedAt.After(*s.opts.LastScanTime) {
+				r, err := s.connector.ReadFile(ctx, entry.Path)
+				if err == nil {
+					hash, herr := metadata.HashReader(r)
+					r.Close()
+					if herr == nil {
+						entry.ContentHash = hash
+					}
+				}
+			}
 		}
 
 		batch = append(batch, *entry)
