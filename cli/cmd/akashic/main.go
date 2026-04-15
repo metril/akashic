@@ -26,6 +26,10 @@ func main() {
 
 	rootCmd.AddCommand(commands.NewSearchCmd(c))
 	rootCmd.AddCommand(commands.NewSourcesCmd(c))
+	rootCmd.AddCommand(commands.NewScanCmd(c))
+	rootCmd.AddCommand(commands.NewDuplicatesCmd(c))
+	rootCmd.AddCommand(commands.NewTagCmd(c))
+	rootCmd.AddCommand(commands.NewPurgeCmd(c))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
