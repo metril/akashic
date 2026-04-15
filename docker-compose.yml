@@ -45,11 +45,6 @@ services:
     image: apache/tika:3.0.0.0
     ports:
       - "127.0.0.1:9998:9998"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9998/tika"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   api:
     build:
@@ -64,8 +59,6 @@ services:
       meilisearch:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      tika:
         condition: service_healthy
 
   web:

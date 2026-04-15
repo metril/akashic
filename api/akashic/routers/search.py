@@ -29,16 +29,17 @@ async def search(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Validate extension before any search path
+    if extension and not _SAFE_EXTENSION.match(extension):
+        raise HTTPException(status_code=400, detail="Invalid extension format")
+
     try:
         from akashic.services.search import search_files
 
         filters = []
         if source_id:
-            # source_id is typed as uuid.UUID — safe to interpolate
             filters.append(f'source_id = "{source_id}"')
         if extension:
-            if not _SAFE_EXTENSION.match(extension):
-                raise HTTPException(status_code=400, detail="Invalid extension format")
             filters.append(f'extension = "{extension}"')
         if min_size is not None:
             filters.append(f"size_bytes >= {min_size}")
@@ -53,6 +54,8 @@ async def search(
             total=meili_results.estimated_total_hits or 0,
             query=q,
         )
+    except HTTPException:
+        raise
     except Exception:
         conditions = [File.is_deleted == False, File.filename.ilike(f"%{q}%")]
         if source_id:
