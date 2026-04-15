@@ -10,14 +10,23 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure Meilisearch index exists
+    # Startup
     try:
         from akashic.services.search import ensure_index
         await ensure_index()
         logger.info("Meilisearch index initialized")
     except Exception as e:
         logger.warning("Meilisearch not available at startup: %s", e)
+
+    from akashic.scheduler import start_scheduler
+    start_scheduler()
+    logger.info("Scan scheduler started")
+
     yield
+
+    # Shutdown
+    from akashic.scheduler import stop_scheduler
+    stop_scheduler()
 
 
 def create_app() -> FastAPI:
