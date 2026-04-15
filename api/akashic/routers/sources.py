@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 async def create_source(
     data: SourceCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     source = Source(**data.model_dump())
     db.add(source)
@@ -53,7 +53,7 @@ async def update_source(
     source_id: uuid.UUID,
     data: SourceUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
@@ -70,7 +70,7 @@ async def update_source(
 async def delete_source(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()

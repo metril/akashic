@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
 from akashic.models.directory import Directory
 from akashic.models.file import File, FileEvent, FileVersion
@@ -22,6 +22,7 @@ async def ingest_batch(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    await check_source_access(batch.source_id, user, db, required_level="admin")
     now = datetime.now(timezone.utc)
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))

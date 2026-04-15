@@ -7,7 +7,7 @@ COPY akashic/ akashic/
 COPY alembic.ini .
 COPY alembic/ alembic/
 
-RUN apt-get update && apt-get install -y libldap2-dev libsasl2-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir .
 

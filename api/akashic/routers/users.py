@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from passlib.context import CryptContext
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user
@@ -18,11 +20,15 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.username == data.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Username taken")
+    # First user gets admin role; subsequent users get viewer
+    count_result = await db.execute(select(func.count(User.id)))
+    user_count = count_result.scalar()
+    role = "admin" if user_count == 0 else "viewer"
     user = User(
         username=data.username,
         email=data.email,
         password_hash=pwd_context.hash(data.password),
-        role="admin",
+        role=role,
     )
     db.add(user)
     await db.commit()
@@ -36,6 +42,8 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user or not pwd_context.verify(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
     token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token)
 
