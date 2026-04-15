@@ -105,8 +105,8 @@ export default function Analytics() {
   const sourceData = sourceQuery.data ?? [];
   const largestData = largestQuery.data ?? [];
 
-  const maxTypeSize = Math.max(...typeData.map((r) => r.total_size), 1);
-  const maxSourceSize = Math.max(...sourceData.map((r) => r.total_size), 1);
+  const maxTypeSize = Math.max(...typeData.map((r) => r.total_size ?? 0), 1);
+  const maxSourceSize = Math.max(...sourceData.map((r) => r.total_size ?? 0), 1);
 
   return (
     <div style={pageStyle}>
@@ -137,10 +137,10 @@ export default function Analytics() {
                         {row.extension || "(none)"}
                       </code>
                     </td>
-                    <td style={tdStyle}>{row.file_count.toLocaleString()}</td>
-                    <td style={tdStyle}>{formatBytes(row.total_size)}</td>
+                    <td style={tdStyle}>{row.count.toLocaleString()}</td>
+                    <td style={tdStyle}>{formatBytes(row.total_size ?? 0)}</td>
                     <td style={tdStyle}>
-                      <BarCell value={row.total_size} max={maxTypeSize} />
+                      <BarCell value={row.total_size ?? 0} max={maxTypeSize} />
                     </td>
                   </tr>
                 ))}
@@ -170,11 +170,11 @@ export default function Analytics() {
               <tbody>
                 {sourceData.map((row) => (
                   <tr key={row.source_id}>
-                    <td style={tdStyle}>{row.source_name}</td>
-                    <td style={tdStyle}>{row.file_count.toLocaleString()}</td>
-                    <td style={tdStyle}>{formatBytes(row.total_size)}</td>
+                    <td style={tdStyle}>{row.source_id}</td>
+                    <td style={tdStyle}>{row.count.toLocaleString()}</td>
+                    <td style={tdStyle}>{formatBytes(row.total_size ?? 0)}</td>
                     <td style={tdStyle}>
-                      <BarCell value={row.total_size} max={maxSourceSize} />
+                      <BarCell value={row.total_size ?? 0} max={maxSourceSize} />
                     </td>
                   </tr>
                 ))}
@@ -203,9 +203,9 @@ export default function Analytics() {
               <tbody>
                 {largestData.map((file) => (
                   <tr key={file.id}>
-                    <td style={tdStyle}>{file.name}</td>
+                    <td style={tdStyle}>{file.filename}</td>
                     <td style={{ ...tdStyle, fontWeight: 600, color: "#7c83fd" }}>
-                      {formatBytes(file.size)}
+                      {formatBytes(file.size_bytes)}
                     </td>
                     <td style={{ ...tdStyle, color: "#aaa", fontSize: 12, wordBreak: "break-all" }}>
                       {file.path}

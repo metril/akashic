@@ -178,13 +178,13 @@ export default function Search() {
       {results.map((file) => (
         <div key={file.id} style={resultCardStyle}>
           <div>
-            <div style={fileNameStyle}>{file.name}</div>
+            <div style={fileNameStyle}>{file.filename}</div>
             <div style={fileMetaStyle}>{file.path}</div>
             {file.extension && (
               <div style={fileMetaStyle}>Type: .{file.extension}</div>
             )}
           </div>
-          <div style={fileSizeStyle}>{formatBytes(file.size)}</div>
+          <div style={fileSizeStyle}>{formatBytes(file.size_bytes ?? 0)}</div>
         </div>
       ))}
     </div>

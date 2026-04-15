@@ -1,64 +1,67 @@
 export interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
   created_at: string;
 }
 
 export interface Source {
-  id: number;
+  id: string;
   name: string;
-  path: string;
-  source_type: string;
-  enabled: boolean;
+  type: string;
+  connection_config: Record<string, unknown>;
+  scan_schedule: string | null;
+  exclude_patterns: string[] | null;
   last_scan_at: string | null;
+  status: string;
   created_at: string;
-  file_count?: number;
-  total_size?: number;
+  updated_at: string;
 }
 
 export interface FileVersion {
-  id: number;
-  file_id: number;
-  size: number;
-  hash: string;
+  id: string;
+  file_id: string;
+  size_bytes: number;
+  content_hash: string;
   scanned_at: string;
 }
 
 export interface FileLocation {
-  id: number;
-  file_id: number;
-  source_id: number;
+  id: string;
+  file_id: string;
+  source_id: string;
   path: string;
   source?: Source;
 }
 
 export interface FileEntry {
-  id: number;
-  name: string;
+  id: string;
+  filename: string;
   extension: string | null;
-  size: number;
-  hash: string;
+  size_bytes: number | null;
+  content_hash: string | null;
   mime_type: string | null;
-  created_at: string | null;
-  modified_at: string | null;
-  scanned_at: string;
-  source_id: number;
+  fs_modified_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  is_deleted: boolean;
+  source_id: string;
   path: string;
   source?: Source;
   tags?: Tag[];
 }
 
 export interface SearchResult {
-  id: number;
-  name: string;
+  id: string;
+  filename: string;
   extension: string | null;
-  size: number;
-  hash: string;
+  size_bytes: number | null;
+  content_hash: string | null;
   mime_type: string | null;
   path: string;
-  source_id: number;
-  scanned_at: string;
+  source_id: string;
+  fs_modified_at: number | null;
+  tags: string[];
 }
 
 export interface SearchResults {
@@ -68,29 +71,29 @@ export interface SearchResults {
 }
 
 export interface DuplicateGroup {
-  hash: string;
-  file_count: number;
+  content_hash: string;
+  count: number;
   total_size: number;
-  wasted_size: number;
-  files?: FileEntry[];
+  file_size: number;
+  wasted_bytes: number;
 }
 
 export interface Scan {
-  id: number;
-  source_id: number;
-  status: "pending" | "running" | "completed" | "failed";
+  id: string;
+  source_id: string;
+  scan_type: string;
+  status: string;
+  files_found: number;
+  files_new: number;
+  files_changed: number;
+  files_deleted: number;
   started_at: string | null;
   completed_at: string | null;
-  files_scanned: number;
-  files_added: number;
-  files_updated: number;
-  files_removed: number;
-  error_message: string | null;
   source?: Source;
 }
 
 export interface Tag {
-  id: number;
+  id: string;
   name: string;
   color: string | null;
   created_at: string;
@@ -98,28 +101,27 @@ export interface Tag {
 
 export interface StorageByType {
   extension: string;
-  file_count: number;
+  count: number;
   total_size: number;
 }
 
 export interface StorageBySource {
-  source_id: number;
-  source_name: string;
-  file_count: number;
+  source_id: string;
+  count: number;
   total_size: number;
 }
 
 export interface LargestFile {
-  id: number;
-  name: string;
-  size: number;
+  id: string;
+  filename: string;
+  size_bytes: number;
   path: string;
-  source_id: number;
-  extension: string | null;
+  source_id: string;
+  mime_type: string | null;
 }
 
 export interface Webhook {
-  id: number;
+  id: string;
   url: string;
   events: string[];
   enabled: boolean;
