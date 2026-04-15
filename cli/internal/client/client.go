@@ -159,7 +159,7 @@ func (c *Client) CreateSource(ctx context.Context, name, sourceType string, conf
 	body := map[string]interface{}{
 		"name":   name,
 		"type":   sourceType,
-		"config": config,
+		"connection_config": config,
 	}
 	resp, err := c.post(ctx, "/api/sources", body)
 	if err != nil {
@@ -176,7 +176,7 @@ func (c *Client) CreateSource(ctx context.Context, name, sourceType string, conf
 
 func (c *Client) TriggerScan(ctx context.Context, sourceName string) error {
 	body := map[string]string{"source_name": sourceName}
-	resp, err := c.post(ctx, "/api/scans", body)
+	resp, err := c.post(ctx, "/api/scans/trigger", body)
 	if err != nil {
 		return err
 	}
