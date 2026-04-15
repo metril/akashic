@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/config"
@@ -31,6 +32,7 @@ func main() {
 	excludes := flag.String("exclude", ".git,node_modules,__pycache__,.DS_Store,Thumbs.db", "Comma-separated exclude patterns")
 	fullScan := flag.Bool("full", false, "Full scan (hash all files)")
 	batchSize := flag.Int("batch-size", 1000, "Files per batch")
+	lastScanStr := flag.String("last-scan", "", "RFC3339 timestamp of last scan; enables incremental mode (only re-hashes changed files)")
 
 	flag.Parse()
 
@@ -44,6 +46,15 @@ func main() {
 	_ = bucket
 	_ = region
 	_ = endpoint
+
+	var lastScanTime *time.Time
+	if *lastScanStr != "" {
+		t, err := time.Parse(time.RFC3339, *lastScanStr)
+		if err != nil {
+			log.Fatalf("invalid --last-scan timestamp (expected RFC3339): %v", err)
+		}
+		lastScanTime = &t
+	}
 
 	if *sourceID == "" || *root == "" {
 		fmt.Fprintln(os.Stderr, "required: -source-id and -root")
@@ -96,6 +107,7 @@ func main() {
 		BatchSize:       *batchSize,
 		Hash:            *fullScan,
 		ExcludePatterns: excludePatterns,
+		LastScanTime:    lastScanTime,
 	})
 
 	result, err := s.Run(context.Background())
