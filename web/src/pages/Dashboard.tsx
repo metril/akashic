@@ -103,7 +103,7 @@ export default function Dashboard() {
 
   const totalFiles = storageByType.reduce((s, r) => s + r.count, 0);
   const totalSize = storageByType.reduce((s, r) => s + (r.total_size ?? 0), 0);
-  const enabledSources = sources.filter((s) => s.status === "active").length;
+  const enabledSources = sources.filter((s) => s.status === "online").length;
 
   return (
     <div style={pageStyle}>
