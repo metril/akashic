@@ -16,28 +16,33 @@ import (
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 	"github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // SSHConnector connects to a remote host via SSH/SFTP and walks the filesystem.
 type SSHConnector struct {
-	host     string
-	port     int
-	username string
-	password string
-	keyPath  string
+	host           string
+	port           int
+	username       string
+	password       string
+	keyPath        string
+	keyPassphrase  string
+	knownHostsPath string
 
 	sshClient  *gossh.Client
 	sftpClient *sftp.Client
 }
 
 // NewSSHConnector creates a new SSHConnector.
-func NewSSHConnector(host string, port int, username, password, keyPath string) *SSHConnector {
+func NewSSHConnector(host string, port int, username, password, keyPath, keyPassphrase, knownHostsPath string) *SSHConnector {
 	return &SSHConnector{
-		host:     host,
-		port:     port,
-		username: username,
-		password: password,
-		keyPath:  keyPath,
+		host:           host,
+		port:           port,
+		username:       username,
+		password:       password,
+		keyPath:        keyPath,
+		keyPassphrase:  keyPassphrase,
+		knownHostsPath: knownHostsPath,
 	}
 }
 
@@ -50,7 +55,12 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read ssh key: %w", err)
 		}
-		signer, err := gossh.ParsePrivateKey(key)
+		var signer gossh.Signer
+		if c.keyPassphrase != "" {
+			signer, err = gossh.ParsePrivateKeyWithPassphrase(key, []byte(c.keyPassphrase))
+		} else {
+			signer, err = gossh.ParsePrivateKey(key)
+		}
 		if err != nil {
 			return fmt.Errorf("parse ssh key: %w", err)
 		}
@@ -61,10 +71,22 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 		authMethods = append(authMethods, gossh.Password(c.password))
 	}
 
+	var hostKeyCallback gossh.HostKeyCallback
+	if c.knownHostsPath != "" {
+		cb, err := knownhosts.New(c.knownHostsPath)
+		if err != nil {
+			return fmt.Errorf("load known_hosts %s: %w", c.knownHostsPath, err)
+		}
+		hostKeyCallback = cb
+	} else {
+		log.Printf("warning: SSH host key verification disabled (no --known-hosts provided)")
+		hostKeyCallback = gossh.InsecureIgnoreHostKey() //nolint:gosec
+	}
+
 	cfg := &gossh.ClientConfig{
 		User:            c.username,
 		Auth:            authMethods,
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec // TODO: use known_hosts in production
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         15 * time.Second,
 	}
 

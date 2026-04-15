@@ -68,7 +68,7 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SMBConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
 	if c.smbShare == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -77,10 +77,10 @@ func (c *SMBConnector) Walk(_ context.Context, root string, excludePatterns []st
 		excludeSet[strings.ToLower(p)] = true
 	}
 
-	return c.walkDir(root, excludeSet, computeHash, fn)
+	return c.walkDir(ctx, root, excludeSet, computeHash, fn)
 }
 
-func (c *SMBConnector) walkDir(dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.FileEntry) error) error {
 	entries, err := c.smbShare.ReadDir(dir)
 	if err != nil {
 		return nil // skip unreadable dirs
@@ -93,7 +93,7 @@ func (c *SMBConnector) walkDir(dir string, excludeSet map[string]bool, computeHa
 		}
 
 		path := filepath.Join(dir, name)
-		entry := fileInfoToEntry(context.Background(), path, info, false, nil)
+		entry := fileInfoToEntry(ctx, path, info, false, nil)
 
 		if computeHash && !info.IsDir() {
 			if hash, err := c.hashRemoteFile(path); err == nil {
@@ -106,7 +106,7 @@ func (c *SMBConnector) walkDir(dir string, excludeSet map[string]bool, computeHa
 		}
 
 		if info.IsDir() {
-			if err := c.walkDir(path, excludeSet, computeHash, fn); err != nil {
+			if err := c.walkDir(ctx, path, excludeSet, computeHash, fn); err != nil {
 				return err
 			}
 		}
