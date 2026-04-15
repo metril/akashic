@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -85,7 +86,7 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 }
 
 // Walk traverses the remote filesystem starting at root via SFTP.
-func (c *SSHConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
 	if c.sftpClient == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -98,6 +99,7 @@ func (c *SSHConnector) Walk(_ context.Context, root string, excludePatterns []st
 	walker := c.sftpClient.Walk(root)
 	for walker.Step() {
 		if err := walker.Err(); err != nil {
+			log.Printf("warning: walk error at %s: %v", walker.Path(), err)
 			continue
 		}
 
@@ -116,7 +118,7 @@ func (c *SSHConnector) Walk(_ context.Context, root string, excludePatterns []st
 			continue
 		}
 
-		entry := fileInfoToEntry(path, stat, computeHash, c)
+		entry := fileInfoToEntry(ctx, path, stat, computeHash, c)
 		if err := fn(entry); err != nil {
 			return err
 		}
@@ -135,13 +137,18 @@ func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, 
 
 // Close shuts down the SFTP and SSH connections.
 func (c *SSHConnector) Close() error {
+	var firstErr error
 	if c.sftpClient != nil {
-		c.sftpClient.Close()
+		if err := c.sftpClient.Close(); err != nil {
+			firstErr = err
+		}
 	}
 	if c.sshClient != nil {
-		return c.sshClient.Close()
+		if err := c.sshClient.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return nil
+	return firstErr
 }
 
 // Type returns the connector type.
@@ -152,7 +159,7 @@ func (c *SSHConnector) Type() string {
 // fileInfoToEntry converts an fs.FileInfo into a models.FileEntry.
 // If computeHash is true and the file is not a directory, it reads from
 // the connector to compute the content hash.
-func fileInfoToEntry(path string, info fs.FileInfo, computeHash bool, conn Connector) *models.FileEntry {
+func fileInfoToEntry(ctx context.Context, path string, info fs.FileInfo, computeHash bool, conn Connector) *models.FileEntry {
 	modTime := info.ModTime()
 	entry := &models.FileEntry{
 		Path:       path,
@@ -166,7 +173,7 @@ func fileInfoToEntry(path string, info fs.FileInfo, computeHash bool, conn Conne
 
 	if computeHash && !info.IsDir() {
 		if conn != nil {
-			if rc, err := conn.ReadFile(context.Background(), path); err == nil {
+			if rc, err := conn.ReadFile(ctx, path); err == nil {
 				if hash, err := metadata.HashReader(rc); err == nil {
 					entry.ContentHash = hash
 				}

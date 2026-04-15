@@ -16,6 +16,10 @@ func main() {
 		apiURL = "http://localhost:8000"
 	}
 	apiKey := os.Getenv("AKASHIC_API_KEY")
+	if apiKey == "" {
+		fmt.Fprintln(os.Stderr, "error: AKASHIC_API_KEY environment variable is not set")
+		os.Exit(1)
+	}
 
 	c := client.New(apiURL, apiKey)
 
