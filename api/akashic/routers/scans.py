@@ -95,7 +95,7 @@ async def list_scans(
             stmt = stmt.where(Scan.source_id.in_(allowed)) if allowed else stmt.where(False)
     if status:
         stmt = stmt.where(Scan.status == status)
-    stmt = stmt.order_by(Scan.started_at.desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(Scan.started_at.desc().nulls_first()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
 

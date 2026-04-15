@@ -79,6 +79,11 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
     """Background task: dispatch webhooks for scan events."""
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+    import uuid as uuid_mod
+
+    from sqlalchemy import or_
+
+    from akashic.models.user import SourcePermission, User
     from akashic.models.webhook import Webhook
     from akashic.services.webhooks import dispatch_webhook
 
@@ -88,8 +93,30 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
     event_type = f"scan.{status}"
     try:
         async with session() as db:
+            # Only dispatch to webhooks owned by users who can access this source
+            # (admins see everything, non-admins need a SourcePermission row)
+            admin_ids_result = await db.execute(
+                select(User.id).where(User.role == "admin")
+            )
+            admin_ids = [row[0] for row in admin_ids_result.all()]
+
+            perm_ids_result = await db.execute(
+                select(SourcePermission.user_id).where(
+                    SourcePermission.source_id == uuid_mod.UUID(source_id)
+                )
+            )
+            permitted_user_ids = [row[0] for row in perm_ids_result.all()]
+
+            allowed_user_ids = list(set(admin_ids + permitted_user_ids))
+            if not allowed_user_ids:
+                return
+
             result = await db.execute(
-                select(Webhook).where(Webhook.event_type == event_type, Webhook.enabled == True)  # noqa: E712
+                select(Webhook).where(
+                    Webhook.event_type == event_type,
+                    Webhook.enabled == True,  # noqa: E712
+                    Webhook.user_id.in_(allowed_user_ids),
+                )
             )
             webhooks = result.scalars().all()
             for webhook in webhooks:
@@ -112,6 +139,13 @@ async def ingest_batch(
     user: User = Depends(get_current_user),
 ):
     await check_source_access(batch.source_id, user, db, required_level="write")
+
+    # Capture scan_start BEFORE now — ensures scan_start < now so that
+    # stale-file detection (last_seen_at < scan.started_at) works correctly
+    # even for single-batch scans where started_at and last_seen_at would
+    # otherwise be the same timestamp.
+    from datetime import timedelta
+    scan_start = datetime.now(timezone.utc) - timedelta(milliseconds=1)
     now = datetime.now(timezone.utc)
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))
@@ -123,7 +157,7 @@ async def ingest_batch(
             raise HTTPException(status_code=400, detail="scan_id does not belong to this source")
         # Set started_at on first batch for pre-triggered scans
         if scan.started_at is None:
-            scan.started_at = now
+            scan.started_at = scan_start
         if scan.status == "pending":
             scan.status = "running"
     else:
@@ -132,7 +166,7 @@ async def ingest_batch(
             source_id=batch.source_id,
             scan_type="incremental",
             status="running",
-            started_at=now,
+            started_at=scan_start,
         )
         db.add(scan)
 

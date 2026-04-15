@@ -167,8 +167,8 @@ export default function Sources() {
                 ? source.connection_config.path
                 : JSON.stringify(source.connection_config)}
             </div>
-            <span style={badgeStyle(source.status === "active")}>
-              {source.status === "active" ? "Active" : source.status}
+            <span style={badgeStyle(source.status === "online")}>
+              {source.status === "online" ? "Online" : source.status}
             </span>
             <div style={lastScanStyle}>
               Type: {source.type}
