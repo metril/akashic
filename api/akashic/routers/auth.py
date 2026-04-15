@@ -163,12 +163,10 @@ async def ldap_login(
 
     from akashic.auth.ldap import authenticate_ldap, get_or_create_user
 
-    # python-ldap is synchronous — run it in the default thread pool so we
-    # don't block the event loop.
-    loop = asyncio.get_event_loop()
+    # python-ldap is synchronous — run in thread pool to avoid blocking
     try:
-        ldap_info = await loop.run_in_executor(
-            None, authenticate_ldap, data.username, data.password
+        ldap_info = await asyncio.to_thread(
+            authenticate_ldap, data.username, data.password
         )
     except Exception as exc:
         logger.error("LDAP authentication error for user %s: %s", data.username, exc)

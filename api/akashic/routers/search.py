@@ -71,8 +71,9 @@ async def search(
         result = await db.execute(query_stmt)
         files = result.scalars().all()
 
-        count_stmt = select(File).where(and_(*conditions))
+        from sqlalchemy import func
+        count_stmt = select(func.count(File.id)).where(and_(*conditions))
         count_result = await db.execute(count_stmt)
-        total = len(count_result.scalars().all())
+        total = count_result.scalar() or 0
 
         return SearchResults(results=files, total=total, query=q)
