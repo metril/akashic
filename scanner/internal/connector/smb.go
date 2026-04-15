@@ -93,7 +93,7 @@ func (c *SMBConnector) walkDir(dir string, excludeSet map[string]bool, computeHa
 		}
 
 		path := filepath.Join(dir, name)
-		entry := fileInfoToEntry(path, info, false, nil)
+		entry := fileInfoToEntry(context.Background(), path, info, false, nil)
 
 		if computeHash && !info.IsDir() {
 			if hash, err := c.hashRemoteFile(path); err == nil {

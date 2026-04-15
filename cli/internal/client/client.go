@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -123,6 +124,11 @@ func (c *Client) Search(ctx context.Context, query string, params *SearchParams)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
 	var results SearchResults
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
@@ -136,6 +142,11 @@ func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
 
 	var sources []Source
 	if err := json.NewDecoder(resp.Body).Decode(&sources); err != nil {
@@ -187,6 +198,11 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
 	var scans []Scan
 	if err := json.NewDecoder(resp.Body).Decode(&scans); err != nil {
 		return nil, err
@@ -205,6 +221,11 @@ func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]Duplicate
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
 	var groups []DuplicateGroup
 	if err := json.NewDecoder(resp.Body).Decode(&groups); err != nil {
 		return nil, err
@@ -218,6 +239,11 @@ func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
 
 	var tags []Tag
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
