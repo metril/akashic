@@ -69,6 +69,9 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 }
 
 func (c *SMBConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+	if c.smbShare == nil {
+		return fmt.Errorf("not connected")
+	}
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
@@ -121,6 +124,9 @@ func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 }
 
 func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
+	if c.smbShare == nil {
+		return nil, fmt.Errorf("not connected")
+	}
 	return c.smbShare.Open(path)
 }
 

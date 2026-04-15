@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+import re
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,11 +13,14 @@ from akashic.schemas.search import SearchResults
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
+# Only allow safe alphanumeric extensions
+_SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
+
 
 @router.get("", response_model=SearchResults)
 async def search(
     q: str = Query(..., min_length=1),
-    source_id: str | None = None,
+    source_id: uuid.UUID | None = None,
     extension: str | None = None,
     min_size: int | None = None,
     max_size: int | None = None,
@@ -28,8 +34,11 @@ async def search(
 
         filters = []
         if source_id:
+            # source_id is typed as uuid.UUID — safe to interpolate
             filters.append(f'source_id = "{source_id}"')
         if extension:
+            if not _SAFE_EXTENSION.match(extension):
+                raise HTTPException(status_code=400, detail="Invalid extension format")
             filters.append(f'extension = "{extension}"')
         if min_size is not None:
             filters.append(f"size_bytes >= {min_size}")

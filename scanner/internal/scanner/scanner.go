@@ -83,7 +83,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		} else {
 			result.FilesFound++
 
-			if incremental && entry.ModifiedAt != nil && entry.ModifiedAt.After(*s.opts.LastScanTime) {
+			if incremental && entry.ModifiedAt != nil && !entry.ModifiedAt.Before(*s.opts.LastScanTime) {
 				r, err := s.connector.ReadFile(ctx, entry.Path)
 				if err == nil {
 					hash, herr := metadata.HashReader(r)
