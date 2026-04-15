@@ -10,7 +10,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the Akashic API"
+      "cannot_connect": "Unable to connect to the Akashic API",
+      "invalid_auth": "Invalid API key"
     }
   }
 }
