@@ -1,11 +1,12 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
+from akashic.auth.dependencies import check_source_access, get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.source import Source
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/scans", tags=["scans"])
 class ScanTriggerRequest(BaseModel):
     source_name: str | None = None
     source_id: uuid.UUID | None = None
-    scan_type: str = "incremental"
+    scan_type: Literal["incremental", "full"] = "incremental"
 
 
 class ScanTriggerResponse(BaseModel):
@@ -82,9 +83,16 @@ async def list_scans(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if source_id:
+        await check_source_access(source_id, user, db)
+
     stmt = select(Scan)
     if source_id:
         stmt = stmt.where(Scan.source_id == source_id)
+    else:
+        allowed = await get_permitted_source_ids(user, db)
+        if allowed is not None:
+            stmt = stmt.where(Scan.source_id.in_(allowed)) if allowed else stmt.where(False)
     if status:
         stmt = stmt.where(Scan.status == status)
     stmt = stmt.order_by(Scan.started_at.desc()).offset(offset).limit(limit)
@@ -102,4 +110,5 @@ async def get_scan(
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+    await check_source_access(scan.source_id, user, db)
     return scan
