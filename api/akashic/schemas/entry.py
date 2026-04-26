@@ -4,11 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
-class ACLEntry(BaseModel):
-    tag: str  # user, group, mask, other, user_obj, group_obj
-    qualifier: str = ""  # username/groupname when applicable
-    perms: str  # rwx style
+from akashic.schemas.acl import ACL
 
 
 class EntryIn(BaseModel):
@@ -18,30 +14,25 @@ class EntryIn(BaseModel):
     name: str
     kind: Literal["file", "directory"] = "file"
 
-    # File-only
     extension: str | None = None
     size_bytes: int | None = None
     mime_type: str | None = None
     content_hash: str | None = None
 
-    # Permissions
     mode: int | None = None
     uid: int | None = None
     gid: int | None = None
     owner_name: str | None = None
     group_name: str | None = None
-    acl: list[ACLEntry] | None = None
+    acl: ACL | None = None
     xattrs: dict[str, str] | None = None
 
-    # Filesystem timestamps
     fs_created_at: datetime | None = None
     fs_modified_at: datetime | None = None
     fs_accessed_at: datetime | None = None
 
 
 class EntryResponse(BaseModel):
-    """Compact entry shape for list responses."""
-
     id: uuid.UUID
     source_id: uuid.UUID
     kind: str
@@ -76,7 +67,7 @@ class EntryVersionResponse(BaseModel):
     gid: int | None
     owner_name: str | None
     group_name: str | None
-    acl: list[ACLEntry] | None
+    acl: ACL | None
     xattrs: dict[str, str] | None
     detected_at: datetime
 
@@ -86,7 +77,7 @@ class EntryVersionResponse(BaseModel):
 class EntryDetailResponse(EntryResponse):
     """Full entry detail; includes ACL, xattrs, version history."""
 
-    acl: list[ACLEntry] | None = None
+    acl: ACL | None = None
     xattrs: dict[str, str] | None = None
     fs_created_at: datetime | None = None
     fs_accessed_at: datetime | None = None
@@ -106,13 +97,13 @@ class BrowseEntry(BaseModel):
     owner_name: str | None = None
     group_name: str | None = None
     fs_modified_at: datetime | None = None
-    child_count: int | None = None  # populated for directories
+    child_count: int | None = None
 
 
 class BrowseResponse(BaseModel):
     source_id: uuid.UUID
     source_name: str
     path: str
-    parent_path: str | None  # None when at root
+    parent_path: str | None
     is_root: bool
     entries: list[BrowseEntry]
