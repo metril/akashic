@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { isAuthenticated } from "./api/client";
 import Layout from "./components/Layout";
+import { ErrorBoundary } from "./components/ui";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Search from "./pages/Search";
@@ -23,7 +24,9 @@ export default function App() {
         path="/"
         element={
           <PrivateRoute>
-            <Layout />
+            <ErrorBoundary>
+              <Layout />
+            </ErrorBoundary>
           </PrivateRoute>
         }
       >

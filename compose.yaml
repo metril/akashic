@@ -60,6 +60,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./api/akashic
+        - action: rebuild
+          path: ./api/pyproject.toml
 
   web:
     build:
@@ -69,6 +75,18 @@ services:
       - "3000:3000"
     depends_on:
       - api
+    develop:
+      watch:
+        - action: rebuild
+          path: ./web/src
+        - action: rebuild
+          path: ./web/package.json
+        - action: rebuild
+          path: ./web/tailwind.config.js
+        - action: rebuild
+          path: ./web/index.html
+        - action: rebuild
+          path: ./web/nginx.conf
 
 volumes:
   pgdata:

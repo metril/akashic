@@ -18,6 +18,9 @@ web/dist/
 .vscode/
 *.swp
 
+# Playwright MCP scratch
+.playwright-mcp/
+
 # Environment
 .env
 *.local

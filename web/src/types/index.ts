@@ -107,6 +107,7 @@ export interface StorageByType {
 
 export interface StorageBySource {
   source_id: string;
+  source_name: string;
   count: number;
   total_size: number;
 }

@@ -1,131 +1,124 @@
 import { useState } from "react";
-import { useSources, useCreateSource, useDeleteSource } from "../hooks/useSources";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useSources,
+  useCreateSource,
+  useDeleteSource,
+} from "../hooks/useSources";
+import { api } from "../api/client";
+import {
+  Card,
+  CardHeader,
+  Button,
+  Input,
+  Badge,
+  Skeleton,
+  EmptyState,
+} from "../components/ui";
+import type { BadgeVariant } from "../components/ui";
+import type { Source } from "../types";
+import { formatDate } from "../lib/format";
 
-const pageStyle: React.CSSProperties = {
-  padding: "32px 40px",
-};
+const KNOWN_STATUSES: BadgeVariant[] = [
+  "online",
+  "offline",
+  "scanning",
+  "failed",
+];
 
-const headingStyle: React.CSSProperties = {
-  fontSize: 26,
-  fontWeight: 700,
-  color: "#1a1a2e",
-  marginBottom: 24,
-};
+function statusVariant(status: string): BadgeVariant {
+  return (KNOWN_STATUSES as string[]).includes(status)
+    ? (status as BadgeVariant)
+    : "neutral";
+}
 
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-  gap: 18,
-  marginBottom: 36,
-};
+function statusLabel(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
 
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: "20px 22px",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-};
-
-const cardNameStyle: React.CSSProperties = {
-  fontSize: 17,
-  fontWeight: 700,
-  color: "#1a1a2e",
-  marginBottom: 4,
-};
-
-const cardPathStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#aaa",
-  marginBottom: 10,
-  wordBreak: "break-all",
-};
-
-const badgeStyle = (active: boolean): React.CSSProperties => ({
-  display: "inline-block",
-  padding: "2px 10px",
-  borderRadius: 12,
-  fontSize: 12,
-  fontWeight: 600,
-  background: active ? "#e8f5e9" : "#fce4ec",
-  color: active ? "#2e7d32" : "#c62828",
-  marginBottom: 10,
-});
-
-const cardActionsStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  marginTop: 10,
-};
-
-const btnStyle = (variant: "danger" | "default"): React.CSSProperties => ({
-  padding: "6px 14px",
-  fontSize: 13,
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 500,
-  background: variant === "danger" ? "#fce4ec" : "#e8eaf6",
-  color: variant === "danger" ? "#c62828" : "#3949ab",
-});
-
-const formBoxStyle: React.CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: "24px 28px",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-  maxWidth: 480,
-};
-
-const formTitleStyle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 600,
-  color: "#1a1a2e",
-  marginBottom: 18,
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: 5,
-  fontWeight: 500,
-  fontSize: 13,
-  color: "#555",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 11px",
-  fontSize: 14,
-  border: "1.5px solid #d0d5e8",
-  borderRadius: 7,
-  outline: "none",
-  boxSizing: "border-box",
-  marginBottom: 14,
-};
-
-const submitBtnStyle: React.CSSProperties = {
-  padding: "10px 22px",
-  background: "#7c83fd",
-  color: "#fff",
-  border: "none",
-  borderRadius: 7,
-  fontSize: 15,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-const lastScanStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#bbb",
-};
-
-export default function Sources() {
-  const { data: sources, isLoading, error } = useSources();
-  const createSource = useCreateSource();
+function SourceCard({ source }: { source: Source }) {
   const deleteSource = useDeleteSource();
+  const queryClient = useQueryClient();
 
+  const triggerScan = useMutation({
+    mutationFn: (sourceId: string) =>
+      api.post("/scans/trigger", {
+        source_id: sourceId,
+        scan_type: "incremental",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+
+  const path =
+    typeof source.connection_config?.path === "string"
+      ? source.connection_config.path
+      : JSON.stringify(source.connection_config);
+
+  function handleDelete() {
+    if (confirm(`Delete source "${source.name}"?`)) {
+      deleteSource.mutate(source.id);
+    }
+  }
+
+  const canScan = source.status !== "scanning";
+
+  return (
+    <Card padding="md" className="flex flex-col">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h3 className="text-base font-semibold text-gray-900 truncate">
+          {source.name}
+        </h3>
+        <Badge variant={statusVariant(source.status)}>
+          {statusLabel(source.status)}
+        </Badge>
+      </div>
+      <p className="text-xs text-gray-500 font-mono break-all mb-3">{path}</p>
+      <dl className="text-xs text-gray-500 space-y-1 mb-4">
+        <div className="flex gap-2">
+          <dt className="text-gray-400">Type</dt>
+          <dd>{source.type}</dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-gray-400">Last scan</dt>
+          <dd>{formatDate(source.last_scan_at)}</dd>
+        </div>
+      </dl>
+      <div className="mt-auto flex items-center gap-2 pt-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => triggerScan.mutate(source.id)}
+          disabled={!canScan}
+          loading={triggerScan.isPending}
+        >
+          {source.status === "scanning" ? "Scanning…" : "Scan now"}
+        </Button>
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={handleDelete}
+          loading={deleteSource.isPending}
+        >
+          Delete
+        </Button>
+      </div>
+      {triggerScan.isError && (
+        <p className="text-xs text-rose-600 mt-2">
+          {triggerScan.error instanceof Error
+            ? triggerScan.error.message
+            : "Failed to trigger scan"}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function AddSourceForm() {
+  const createSource = useCreateSource();
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
-  const [sourceType, setSourceType] = useState("local");
   const [formError, setFormError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -134,96 +127,102 @@ export default function Sources() {
     try {
       await createSource.mutateAsync({
         name,
-        type: sourceType,
+        type: "local",
         connection_config: { path },
       });
       setName("");
       setPath("");
-      setSourceType("local");
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create source");
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (confirm("Delete this source?")) {
-      await deleteSource.mutateAsync(id);
+      setFormError(
+        err instanceof Error ? err.message : "Failed to create source",
+      );
     }
   }
 
   return (
-    <div style={pageStyle}>
-      <div style={headingStyle}>Sources</div>
+    <Card padding="md">
+      <CardHeader
+        title="Add a source"
+        description="Index a local filesystem path."
+      />
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="My Documents"
+          required
+        />
+        <Input
+          label="Path"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder="/home/user/documents"
+          required
+        />
+        {formError && <p className="text-xs text-rose-600">{formError}</p>}
+        <Button
+          type="submit"
+          loading={createSource.isPending}
+          className="w-full"
+        >
+          Add source
+        </Button>
+      </form>
+    </Card>
+  );
+}
 
-      {isLoading && <div style={{ color: "#aaa" }}>Loading sources...</div>}
-      {error && <div style={{ color: "#e74c3c" }}>Error loading sources</div>}
+export default function Sources() {
+  const { data: sources, isLoading, error } = useSources();
 
-      <div style={gridStyle}>
-        {(sources ?? []).map((source) => (
-          <div key={source.id} style={cardStyle}>
-            <div style={cardNameStyle}>{source.name}</div>
-            <div style={cardPathStyle}>
-              {typeof source.connection_config?.path === "string"
-                ? source.connection_config.path
-                : JSON.stringify(source.connection_config)}
-            </div>
-            <span style={badgeStyle(source.status === "online")}>
-              {source.status === "online" ? "Online" : source.status}
-            </span>
-            <div style={lastScanStyle}>
-              Type: {source.type}
-              {source.last_scan_at && (
-                <> &middot; Last scan: {new Date(source.last_scan_at).toLocaleDateString()}</>
-              )}
-            </div>
-            <div style={cardActionsStyle}>
-              <button
-                style={btnStyle("danger")}
-                onClick={() => handleDelete(source.id)}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ))}
+  return (
+    <div className="px-8 py-7 max-w-7xl">
+      <div className="mb-7 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+            Sources
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Filesystem locations Akashic indexes and watches.
+          </p>
+        </div>
       </div>
 
-      <div style={formBoxStyle}>
-        <div style={formTitleStyle}>Add New Source</div>
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Name</label>
-          <input
-            style={inputStyle}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My Documents"
-            required
-          />
-          <label style={labelStyle}>Path</label>
-          <input
-            style={inputStyle}
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="/home/user/documents"
-            required
-          />
-          <label style={labelStyle}>Type</label>
-          <select
-            style={{ ...inputStyle, marginBottom: 18 }}
-            value={sourceType}
-            onChange={(e) => setSourceType(e.target.value)}
-          >
-            <option value="local">Local</option>
-            <option value="network">Network</option>
-            <option value="cloud">Cloud</option>
-          </select>
-          {formError && (
-            <div style={{ color: "#e74c3c", fontSize: 13, marginBottom: 10 }}>{formError}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-4">
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Skeleton className="h-44" />
+              <Skeleton className="h-44" />
+            </div>
+          ) : error ? (
+            <Card>
+              <p className="text-sm text-rose-600">
+                {error instanceof Error
+                  ? error.message
+                  : "Error loading sources"}
+              </p>
+            </Card>
+          ) : (sources ?? []).length === 0 ? (
+            <Card padding="lg">
+              <EmptyState
+                title="No sources yet"
+                description="Add your first source on the right to start indexing."
+              />
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {(sources ?? []).map((s) => (
+                <SourceCard key={s.id} source={s} />
+              ))}
+            </div>
           )}
-          <button style={submitBtnStyle} type="submit" disabled={createSource.isPending}>
-            {createSource.isPending ? "Adding..." : "Add Source"}
-          </button>
-        </form>
+        </div>
+
+        <div>
+          <AddSourceForm />
+        </div>
       </div>
     </div>
   );

@@ -19,7 +19,7 @@ _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 
 @router.get("", response_model=SearchResults)
 async def search(
-    q: str = Query(..., min_length=1),
+    q: str = Query(default=""),
     source_id: uuid.UUID | None = None,
     extension: str | None = None,
     min_size: int | None = None,

@@ -1,76 +1,8 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "#f5f6fa",
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  borderRadius: 12,
-  padding: "40px 48px",
-  boxShadow: "0 4px 32px rgba(0,0,0,0.10)",
-  width: 360,
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: 28,
-  fontWeight: 700,
-  color: "#1a1a2e",
-  marginBottom: 8,
-  textAlign: "center",
-};
-
-const subtitleStyle: React.CSSProperties = {
-  color: "#888",
-  textAlign: "center",
-  marginBottom: 28,
-  fontSize: 14,
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: 6,
-  fontWeight: 500,
-  fontSize: 14,
-  color: "#444",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  fontSize: 15,
-  border: "1.5px solid #d0d5e8",
-  borderRadius: 7,
-  outline: "none",
-  boxSizing: "border-box",
-  marginBottom: 18,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "11px 0",
-  background: "#7c83fd",
-  color: "#fff",
-  border: "none",
-  borderRadius: 7,
-  fontSize: 16,
-  fontWeight: 600,
-  cursor: "pointer",
-  marginTop: 4,
-};
-
-const errorStyle: React.CSSProperties = {
-  color: "#e74c3c",
-  fontSize: 13,
-  marginBottom: 14,
-  textAlign: "center",
-};
+import { Card, Input, Button } from "../components/ui";
+import { BrandMark } from "../components/BrandMark";
 
 export default function Login() {
   const { isAuthenticated, login, loading, error } = useAuth();
@@ -87,37 +19,49 @@ export default function Login() {
   }
 
   return (
-    <div style={pageStyle}>
-      <div style={cardStyle}>
-        <div style={titleStyle}>Akashic</div>
-        <div style={subtitleStyle}>Sign in to your account</div>
-        <form onSubmit={handleSubmit}>
-          <label style={labelStyle}>Username</label>
-          <input
-            style={inputStyle}
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <Card padding="lg" className="w-full max-w-sm">
+        <div className="flex flex-col items-center mb-7">
+          <BrandMark className="mb-4" />
+          <h1 className="text-xl font-semibold text-gray-900">
+            Sign in to Akashic
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Universal file index
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="Username"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="Enter username"
+            placeholder="admin"
             autoComplete="username"
             required
+            autoFocus
           />
-          <label style={labelStyle}>Password</label>
-          <input
-            style={inputStyle}
+          <Input
+            label="Password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter password"
+            placeholder="••••••••"
             autoComplete="current-password"
             required
+            error={error || undefined}
           />
-          {error && <div style={errorStyle}>{error}</div>}
-          <button style={buttonStyle} type="submit" disabled={loading}>
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
+          <Button
+            type="submit"
+            loading={loading}
+            className="w-full"
+            size="lg"
+          >
+            {loading ? "Signing in..." : "Sign in"}
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   );
 }
