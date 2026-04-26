@@ -17,19 +17,12 @@ class Tag(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
 
-class FileTag(Base):
-    __tablename__ = "file_tags"
+class EntryTag(Base):
+    """Tag attached to an Entry (works for both files and directories)."""
 
-    file_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id"), primary_key=True)
-    tag_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tags.id"), primary_key=True)
-    tagged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __tablename__ = "entry_tags"
 
-
-class DirectoryTag(Base):
-    __tablename__ = "directory_tags"
-
-    directory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("directories.id"), primary_key=True)
+    entry_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("entries.id"), primary_key=True)
     tag_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tags.id"), primary_key=True)
     tagged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     tagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

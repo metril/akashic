@@ -38,7 +38,15 @@ func TestScanner_ScanLocal(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "sub", "f3.txt"), []byte("three"), 0644)
 
 	var batchCount atomic.Int32
-	server := newTestServer(t, func(_ models.ScanBatch) { batchCount.Add(1) })
+	var sawDirectory atomic.Bool
+	server := newTestServer(t, func(b models.ScanBatch) {
+		batchCount.Add(1)
+		for _, e := range b.Entries {
+			if e.Kind == "directory" {
+				sawDirectory.Store(true)
+			}
+		}
+	})
 	defer server.Close()
 
 	apiClient := client.New(server.URL, "key")
@@ -60,22 +68,26 @@ func TestScanner_ScanLocal(t *testing.T) {
 	if result.FilesFound < 3 {
 		t.Errorf("expected at least 3 files, got %d", result.FilesFound)
 	}
+	if result.DirsFound == 0 {
+		t.Error("expected directory entries to be reported")
+	}
+	if !sawDirectory.Load() {
+		t.Error("expected at least one directory entry in the batches")
+	}
 
 	if batchCount.Load() < 2 {
 		t.Errorf("expected at least 2 batches with batch size 2, got %d", batchCount.Load())
 	}
 }
 
-// TestScanner_Incremental_PastLastScan uses a LastScanTime well before the files
-// were created, so every file is "newer" and should receive a non-empty hash.
 func TestScanner_Incremental_PastLastScan(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
 
-	var received []models.FileEntry
+	var received []models.EntryRecord
 	server := newTestServer(t, func(b models.ScanBatch) {
-		received = append(received, b.Files...)
+		received = append(received, b.Entries...)
 	})
 	defer server.Close()
 
@@ -99,7 +111,7 @@ func TestScanner_Incremental_PastLastScan(t *testing.T) {
 	}
 
 	for _, entry := range received {
-		if entry.IsDir {
+		if entry.IsDir() {
 			continue
 		}
 		if entry.ContentHash == "" {
@@ -108,16 +120,14 @@ func TestScanner_Incremental_PastLastScan(t *testing.T) {
 	}
 }
 
-// TestScanner_Incremental_FutureLastScan uses a LastScanTime in the future, so
-// every file is "older" and should be sent with an empty hash.
 func TestScanner_Incremental_FutureLastScan(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
 
-	var received []models.FileEntry
+	var received []models.EntryRecord
 	server := newTestServer(t, func(b models.ScanBatch) {
-		received = append(received, b.Files...)
+		received = append(received, b.Entries...)
 	})
 	defer server.Close()
 
@@ -141,7 +151,7 @@ func TestScanner_Incremental_FutureLastScan(t *testing.T) {
 	}
 
 	for _, entry := range received {
-		if entry.IsDir {
+		if entry.IsDir() {
 			continue
 		}
 		if entry.ContentHash != "" {

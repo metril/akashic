@@ -31,6 +31,13 @@ const navItems: NavItem[] = [
     icon: <Icon d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />,
   },
   {
+    to: "/browse",
+    label: "Browse",
+    icon: (
+      <Icon d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+    ),
+  },
+  {
     to: "/search",
     label: "Search",
     icon: (

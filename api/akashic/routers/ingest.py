@@ -1,28 +1,38 @@
 import logging
-from datetime import datetime, timezone
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
-from akashic.models.directory import Directory
-from akashic.models.file import File, FileEvent, FileVersion
+from akashic.models.entry import Entry, EntryEvent, EntryVersion
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanBatchIn, ScanBatchResponse
+from akashic.services.ingest import entry_state_changed, serialize_acl
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
 
-async def _index_files_to_meilisearch(file_ids: list[str], db_url: str):
-    """Background task: index ingested files into Meilisearch."""
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+def _parent_path(path: str) -> str:
+    parent = os.path.dirname(path) or "/"
+    return parent
+
+
+async def _index_files_to_meilisearch(entry_ids: list[str], db_url: str):
+    """Background task: index ingested file entries into Meilisearch."""
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
 
     from akashic.services.search import index_files_batch
 
@@ -31,23 +41,26 @@ async def _index_files_to_meilisearch(file_ids: list[str], db_url: str):
 
     try:
         async with session() as db:
-            for file_id in file_ids:
-                import uuid
-
-                result = await db.execute(select(File).where(File.id == uuid.UUID(file_id)))
-                f = result.scalar_one_or_none()
-                if not f:
+            for entry_id in entry_ids:
+                result = await db.execute(
+                    select(Entry).where(Entry.id == uuid.UUID(entry_id))
+                )
+                e = result.scalar_one_or_none()
+                if not e or e.kind != "file":
                     continue
 
                 await index_files_batch([{
-                    "id": str(f.id),
-                    "source_id": str(f.source_id),
-                    "path": f.path,
-                    "filename": f.filename,
-                    "extension": f.extension,
-                    "mime_type": f.mime_type,
-                    "size_bytes": f.size_bytes,
-                    "fs_modified_at": int(f.fs_modified_at.timestamp()) if f.fs_modified_at else None,
+                    "id": str(e.id),
+                    "source_id": str(e.source_id),
+                    "path": e.path,
+                    "filename": e.name,
+                    "extension": e.extension,
+                    "mime_type": e.mime_type,
+                    "size_bytes": e.size_bytes,
+                    "owner_name": e.owner_name,
+                    "group_name": e.group_name,
+                    "fs_modified_at": int(e.fs_modified_at.timestamp())
+                    if e.fs_modified_at else None,
                     "tags": [],
                 }])
     except Exception as exc:
@@ -56,32 +69,32 @@ async def _index_files_to_meilisearch(file_ids: list[str], db_url: str):
         await engine.dispose()
 
 
-def _enqueue_extraction_jobs(file_ids: list[str], redis_url: str):
-    """Background task: enqueue text extraction jobs to Redis.
-
-    This is a sync function so FastAPI dispatches it to a thread pool,
-    avoiding blocking the event loop with synchronous Redis I/O.
-    """
+def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
+    """Background task: enqueue text extraction jobs to Redis."""
     try:
         from redis import Redis
         from rq import Queue
 
         conn = Redis.from_url(redis_url)
         q = Queue("extraction", connection=conn)
-        for file_id in file_ids:
-            q.enqueue("akashic.workers.extraction.process_file_extraction", file_id)
-        logger.info("Enqueued %d extraction jobs", len(file_ids))
+        for entry_id in entry_ids:
+            q.enqueue("akashic.workers.extraction.process_file_extraction", entry_id)
+        logger.info("Enqueued %d extraction jobs", len(entry_ids))
     except Exception as exc:
         logger.warning("Failed to enqueue extraction jobs: %s", exc)
 
 
 async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_url: str):
-    """Background task: dispatch webhooks for scan events."""
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    """Background task: dispatch webhooks for scan events.
 
-    import uuid as uuid_mod
-
-    from sqlalchemy import or_
+    Scoped to webhook owners who have access to this source (admins or
+    SourcePermission rows).
+    """
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
 
     from akashic.models.user import SourcePermission, User
     from akashic.models.webhook import Webhook
@@ -93,8 +106,6 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
     event_type = f"scan.{status}"
     try:
         async with session() as db:
-            # Only dispatch to webhooks owned by users who can access this source
-            # (admins see everything, non-admins need a SourcePermission row)
             admin_ids_result = await db.execute(
                 select(User.id).where(User.role == "admin")
             )
@@ -102,7 +113,7 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
 
             perm_ids_result = await db.execute(
                 select(SourcePermission.user_id).where(
-                    SourcePermission.source_id == uuid_mod.UUID(source_id)
+                    SourcePermission.source_id == uuid.UUID(source_id)
                 )
             )
             permitted_user_ids = [row[0] for row in perm_ids_result.all()]
@@ -118,8 +129,7 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
                     Webhook.user_id.in_(allowed_user_ids),
                 )
             )
-            webhooks = result.scalars().all()
-            for webhook in webhooks:
+            for webhook in result.scalars().all():
                 await dispatch_webhook(webhook, {
                     "event": event_type,
                     "scan_id": scan_id,
@@ -131,6 +141,42 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
         await engine.dispose()
 
 
+def _apply_entry_fields(target: Entry, src):
+    """Copy versioned + descriptive fields from incoming EntryIn (or Entry) onto target."""
+    target.kind = src.kind
+    target.extension = src.extension
+    target.size_bytes = src.size_bytes
+    target.mime_type = src.mime_type
+    target.content_hash = src.content_hash
+    target.mode = src.mode
+    target.uid = src.uid
+    target.gid = src.gid
+    target.owner_name = src.owner_name
+    target.group_name = src.group_name
+    target.acl = serialize_acl(src.acl)
+    target.xattrs = src.xattrs
+    target.fs_created_at = src.fs_created_at
+    target.fs_modified_at = src.fs_modified_at
+    target.fs_accessed_at = src.fs_accessed_at
+
+
+def _snapshot_version(entry: Entry, scan_id) -> EntryVersion:
+    """Capture the current state of an entry as an EntryVersion row."""
+    return EntryVersion(
+        entry_id=entry.id,
+        scan_id=scan_id,
+        content_hash=entry.content_hash,
+        size_bytes=entry.size_bytes,
+        mode=entry.mode,
+        uid=entry.uid,
+        gid=entry.gid,
+        owner_name=entry.owner_name,
+        group_name=entry.group_name,
+        acl=entry.acl,
+        xattrs=entry.xattrs,
+    )
+
+
 @router.post("/batch", response_model=ScanBatchResponse)
 async def ingest_batch(
     batch: ScanBatchIn,
@@ -140,22 +186,18 @@ async def ingest_batch(
 ):
     await check_source_access(batch.source_id, user, db, required_level="write")
 
-    # Capture scan_start BEFORE now — ensures scan_start < now so that
-    # stale-file detection (last_seen_at < scan.started_at) works correctly
-    # even for single-batch scans where started_at and last_seen_at would
-    # otherwise be the same timestamp.
-    from datetime import timedelta
+    # scan_start sits 1ms before now so stale-detection (last_seen_at < scan.started_at)
+    # works on single-batch scans.
     scan_start = datetime.now(timezone.utc) - timedelta(milliseconds=1)
     now = datetime.now(timezone.utc)
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))
     scan = result.scalar_one_or_none()
     if scan:
-        # Verify scan belongs to the claimed source
         if scan.source_id != batch.source_id:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail="scan_id does not belong to this source")
-        # Set started_at on first batch for pre-triggered scans
+            raise HTTPException(
+                status_code=400, detail="scan_id does not belong to this source"
+            )
         if scan.started_at is None:
             scan.started_at = scan_start
         if scan.status == "pending":
@@ -172,77 +214,62 @@ async def ingest_batch(
 
     files_processed = 0
     new_file_ids: list[str] = []
+    changed_file_ids: list[str] = []
 
-    for entry in batch.files:
-        if entry.is_dir:
-            stmt = insert(Directory).values(
-                source_id=batch.source_id,
-                path=entry.path,
-                name=entry.filename,
-                last_seen_at=now,
-            ).on_conflict_do_update(
-                constraint="uq_directories_source_path",
-                set_={"last_seen_at": now, "is_deleted": False},
+    for incoming in batch.entries:
+        existing_result = await db.execute(
+            select(Entry).where(
+                Entry.source_id == batch.source_id,
+                Entry.path == incoming.path,
             )
-            await db.execute(stmt)
-        else:
-            existing_result = await db.execute(
-                select(File).where(File.source_id == batch.source_id, File.path == entry.path)
-            )
-            existing = existing_result.scalar_one_or_none()
+        )
+        existing = existing_result.scalar_one_or_none()
 
-            if existing:
-                old_hash = existing.content_hash
-                existing.filename = entry.filename
-                existing.extension = entry.extension
-                existing.size_bytes = entry.size_bytes
-                existing.mime_type = entry.mime_type
-                existing.content_hash = entry.content_hash
-                existing.permissions = entry.permissions
-                existing.owner = entry.owner
-                existing.file_group = entry.file_group
-                existing.fs_created_at = entry.fs_created_at
-                existing.fs_modified_at = entry.fs_modified_at
-                existing.fs_accessed_at = entry.fs_accessed_at
-                existing.last_seen_at = now
-                existing.is_deleted = False
-                existing.deleted_at = None
-
-                if old_hash and entry.content_hash and old_hash != entry.content_hash:
-                    version = FileVersion(
-                        file_id=existing.id,
-                        content_hash=entry.content_hash,
-                        size_bytes=entry.size_bytes,
-                        scan_id=batch.scan_id,
-                    )
-                    db.add(version)
+        if existing:
+            if entry_state_changed(existing, incoming):
+                # Snapshot the old state before overwriting
+                db.add(_snapshot_version(existing, batch.scan_id))
+                _apply_entry_fields(existing, incoming)
+                if existing.kind == "file":
                     scan.files_changed += 1
-                # Re-index changed files
-                new_file_ids.append(str(existing.id))
-            else:
-                new_file = File(
-                    source_id=batch.source_id,
-                    path=entry.path,
-                    filename=entry.filename,
-                    extension=entry.extension,
-                    size_bytes=entry.size_bytes,
-                    mime_type=entry.mime_type,
-                    content_hash=entry.content_hash,
-                    permissions=entry.permissions,
-                    owner=entry.owner,
-                    file_group=entry.file_group,
-                    fs_created_at=entry.fs_created_at,
-                    fs_modified_at=entry.fs_modified_at,
-                    fs_accessed_at=entry.fs_accessed_at,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                )
-                db.add(new_file)
-                await db.flush()  # Get the ID for indexing
-                new_file_ids.append(str(new_file.id))
+                    changed_file_ids.append(str(existing.id))
+            existing.last_seen_at = now
+            existing.is_deleted = False
+            existing.deleted_at = None
+        else:
+            new_entry = Entry(
+                source_id=batch.source_id,
+                kind=incoming.kind,
+                parent_path=_parent_path(incoming.path),
+                path=incoming.path,
+                name=incoming.name,
+                extension=incoming.extension,
+                size_bytes=incoming.size_bytes,
+                mime_type=incoming.mime_type,
+                content_hash=incoming.content_hash,
+                mode=incoming.mode,
+                uid=incoming.uid,
+                gid=incoming.gid,
+                owner_name=incoming.owner_name,
+                group_name=incoming.group_name,
+                acl=serialize_acl(incoming.acl),
+                xattrs=incoming.xattrs,
+                fs_created_at=incoming.fs_created_at,
+                fs_modified_at=incoming.fs_modified_at,
+                fs_accessed_at=incoming.fs_accessed_at,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+            db.add(new_entry)
+            await db.flush()
+            # Seed a v0 row so version history starts on first observation.
+            db.add(_snapshot_version(new_entry, batch.scan_id))
+
+            if incoming.kind == "file":
+                new_file_ids.append(str(new_entry.id))
                 scan.files_new += 1
 
-        if not entry.is_dir:
+        if incoming.kind == "file":
             files_processed += 1
 
     scan.files_found += files_processed
@@ -251,63 +278,70 @@ async def ingest_batch(
         scan.status = "completed"
         scan.completed_at = now
 
-        # Update source.last_scan_at
-        source_result = await db.execute(select(Source).where(Source.id == batch.source_id))
+        source_result = await db.execute(
+            select(Source).where(Source.id == batch.source_id)
+        )
         source = source_result.scalar_one_or_none()
         if source:
             source.last_scan_at = now
             source.status = "online"
 
-        # Mark files not seen in this scan as deleted
         if scan.started_at:
             stale_result = await db.execute(
-                select(File).where(
-                    File.source_id == batch.source_id,
-                    File.is_deleted == False,  # noqa: E712
-                    File.last_seen_at < scan.started_at,
+                select(Entry).where(
+                    Entry.source_id == batch.source_id,
+                    Entry.is_deleted == False,  # noqa: E712
+                    Entry.last_seen_at < scan.started_at,
                 )
             )
-            stale_files = stale_result.scalars().all()
-            for stale in stale_files:
+            for stale in stale_result.scalars().all():
                 stale.is_deleted = True
                 stale.deleted_at = now
-                scan.files_deleted += 1
+                if stale.kind == "file":
+                    scan.files_deleted += 1
 
-                if stale.content_hash:
+                if stale.kind == "file" and stale.content_hash:
                     new_location = await db.execute(
-                        select(File).where(
-                            File.content_hash == stale.content_hash,
-                            File.is_deleted == False,  # noqa: E712
-                            File.last_seen_at >= scan.started_at,
-                            File.id != stale.id,
+                        select(Entry).where(
+                            Entry.content_hash == stale.content_hash,
+                            Entry.kind == "file",
+                            Entry.is_deleted == False,  # noqa: E712
+                            Entry.last_seen_at >= scan.started_at,
+                            Entry.id != stale.id,
                         ).limit(1)
                     )
-                    new_file_record = new_location.scalar_one_or_none()
-                    if new_file_record:
-                        event = FileEvent(
+                    moved_to = new_location.scalar_one_or_none()
+                    if moved_to:
+                        db.add(EntryEvent(
                             event_type="moved",
                             content_hash=stale.content_hash,
                             old_source_id=stale.source_id,
                             old_path=stale.path,
-                            new_source_id=new_file_record.source_id,
-                            new_path=new_file_record.path,
+                            new_source_id=moved_to.source_id,
+                            new_path=moved_to.path,
                             scan_id=batch.scan_id,
-                        )
-                        db.add(event)
+                        ))
 
     await db.commit()
 
-    # Background tasks: index to Meilisearch, enqueue extraction, dispatch webhooks
     from akashic.config import settings
 
-    if new_file_ids:
-        background_tasks.add_task(_index_files_to_meilisearch, new_file_ids, settings.database_url)
-        background_tasks.add_task(_enqueue_extraction_jobs, new_file_ids, settings.redis_url)
+    indexed_ids = list(set(new_file_ids + changed_file_ids))
+    if indexed_ids:
+        background_tasks.add_task(
+            _index_files_to_meilisearch, indexed_ids, settings.database_url
+        )
+        background_tasks.add_task(
+            _enqueue_extraction_jobs, indexed_ids, settings.redis_url
+        )
 
     if batch.is_final:
         background_tasks.add_task(
             _dispatch_scan_webhooks,
-            str(batch.scan_id), str(batch.source_id), scan.status, settings.database_url,
+            str(batch.scan_id),
+            str(batch.source_id),
+            scan.status,
+            settings.database_url,
         )
 
     return ScanBatchResponse(files_processed=files_processed, scan_id=batch.scan_id)

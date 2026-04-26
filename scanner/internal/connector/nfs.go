@@ -9,7 +9,6 @@ import (
 )
 
 // NFSConnector wraps LocalConnector for NFS-mounted paths.
-// NFS mounts appear as local filesystems, so no special protocol handling is needed.
 type NFSConnector struct {
 	local *LocalConnector
 }
@@ -22,7 +21,7 @@ func (c *NFSConnector) Connect(ctx context.Context) error {
 	return c.local.Connect(ctx)
 }
 
-func (c *NFSConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *NFSConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
 	return walker.Walk(root, excludePatterns, computeHash, fn)
 }
 

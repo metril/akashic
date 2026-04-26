@@ -11,4 +11,7 @@ export { Skeleton } from "./Skeleton";
 export { StatCard } from "./StatCard";
 export { Spinner } from "./Spinner";
 export { ErrorBoundary } from "./ErrorBoundary";
+export { Drawer } from "./Drawer";
+export { Breadcrumb } from "./Breadcrumb";
+export type { BreadcrumbSegment } from "./Breadcrumb";
 export { cn } from "./cn";

@@ -9,19 +9,23 @@ import (
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
-type WalkFunc func(entry *models.FileEntry) error
+type WalkFunc func(entry *models.EntryRecord) error
 
+// Walk traverses `root` and emits EntryRecord values for every file AND
+// directory it visits (the root itself is skipped). Uses a per-walk
+// OwnerResolver to memoize uid/gid lookups.
 func Walk(root string, excludePatterns []string, computeHash bool, fn WalkFunc) error {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
 	}
 
+	owners := metadata.NewOwnerResolver()
+
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-
 		if path == root {
 			return nil
 		}
@@ -39,7 +43,7 @@ func Walk(root string, excludePatterns []string, computeHash bool, fn WalkFunc) 
 			return nil
 		}
 
-		entry, err := metadata.CollectFromInfo(path, info, computeHash)
+		entry, err := metadata.CollectFromInfo(path, info, computeHash, owners)
 		if err != nil {
 			return nil
 		}

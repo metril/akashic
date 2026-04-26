@@ -30,8 +30,8 @@ func TestClient_SendBatch(t *testing.T) {
 	batch := models.ScanBatch{
 		SourceID: "src-1",
 		ScanID:   "scan-1",
-		Files: []models.FileEntry{
-			{Path: "/a.txt", Filename: "a.txt", SizeBytes: 100},
+		Entries: []models.EntryRecord{
+			{Path: "/a.txt", Name: "a.txt", Kind: "file"},
 		},
 	}
 
@@ -40,7 +40,7 @@ func TestClient_SendBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(received.Files) != 1 {
-		t.Errorf("expected 1 file, got %d", len(received.Files))
+	if len(received.Entries) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(received.Entries))
 	}
 }

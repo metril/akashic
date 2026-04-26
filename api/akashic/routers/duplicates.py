@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
-from akashic.models.file import File
+from akashic.models.entry import Entry
 from akashic.models.user import User
 
 router = APIRouter(prefix="/api/duplicates", tags=["duplicates"])
@@ -18,29 +18,32 @@ async def list_duplicates(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    base_filter = [File.is_deleted == False, File.content_hash.isnot(None)]  # noqa: E712
+    base_filter = [
+        Entry.kind == "file",
+        Entry.is_deleted == False,  # noqa: E712
+        Entry.content_hash.isnot(None),
+    ]
 
-    # Scope to permitted sources for non-admin users
     allowed = await get_permitted_source_ids(user, db)
     if allowed is not None:
         if not allowed:
             return []
-        base_filter.append(File.source_id.in_(allowed))
+        base_filter.append(Entry.source_id.in_(allowed))
 
     stmt = (
         select(
-            File.content_hash,
-            func.count(File.id).label("count"),
-            func.sum(File.size_bytes).label("total_size"),
-            func.min(File.size_bytes).label("file_size"),
+            Entry.content_hash,
+            func.count(Entry.id).label("count"),
+            func.sum(Entry.size_bytes).label("total_size"),
+            func.min(Entry.size_bytes).label("file_size"),
         )
         .where(*base_filter)
-        .group_by(File.content_hash)
-        .having(func.count(File.id) > 1)
+        .group_by(Entry.content_hash)
+        .having(func.count(Entry.id) > 1)
     )
     if min_size:
-        stmt = stmt.having(func.min(File.size_bytes) >= min_size)
-    stmt = stmt.order_by(func.sum(File.size_bytes).desc()).offset(offset).limit(limit)
+        stmt = stmt.having(func.min(Entry.size_bytes) >= min_size)
+    stmt = stmt.order_by(func.sum(Entry.size_bytes).desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -63,13 +66,34 @@ async def get_duplicate_files(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    stmt = select(File).where(File.content_hash == content_hash, File.is_deleted == False)  # noqa: E712
+    stmt = select(Entry).where(
+        Entry.kind == "file",
+        Entry.content_hash == content_hash,
+        Entry.is_deleted == False,  # noqa: E712
+    )
 
     allowed = await get_permitted_source_ids(user, db)
     if allowed is not None:
         if not allowed:
             return []
-        stmt = stmt.where(File.source_id.in_(allowed))
+        stmt = stmt.where(Entry.source_id.in_(allowed))
 
     result = await db.execute(stmt)
-    return result.scalars().all()
+    entries = result.scalars().all()
+    return [
+        {
+            "id": str(e.id),
+            "source_id": str(e.source_id),
+            "path": e.path,
+            "filename": e.name,
+            "extension": e.extension,
+            "size_bytes": e.size_bytes,
+            "content_hash": e.content_hash,
+            "mime_type": e.mime_type,
+            "fs_modified_at": e.fs_modified_at.isoformat() if e.fs_modified_at else None,
+            "first_seen_at": e.first_seen_at.isoformat(),
+            "last_seen_at": e.last_seen_at.isoformat(),
+            "is_deleted": e.is_deleted,
+        }
+        for e in entries
+    ]

@@ -21,11 +21,11 @@ func setupTestTree(t *testing.T) string {
 	return dir
 }
 
-func TestWalk_AllFiles(t *testing.T) {
+func TestWalk_AllEntries(t *testing.T) {
 	dir := setupTestTree(t)
 
-	var entries []*models.FileEntry
-	err := Walk(dir, nil, false, func(entry *models.FileEntry) error {
+	var entries []*models.EntryRecord
+	err := Walk(dir, nil, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -33,16 +33,31 @@ func TestWalk_AllFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(entries) < 3 {
-		t.Errorf("expected at least 3 entries, got %d", len(entries))
+	if len(entries) < 5 {
+		t.Errorf("expected at least 5 entries (files + dirs), got %d", len(entries))
+	}
+
+	files, dirs := 0, 0
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs++
+		} else {
+			files++
+		}
+	}
+	if files == 0 {
+		t.Error("expected at least one file entry")
+	}
+	if dirs == 0 {
+		t.Error("expected at least one directory entry")
 	}
 }
 
 func TestWalk_ExcludePatterns(t *testing.T) {
 	dir := setupTestTree(t)
 
-	var entries []*models.FileEntry
-	err := Walk(dir, []string{".git"}, false, func(entry *models.FileEntry) error {
+	var entries []*models.EntryRecord
+	err := Walk(dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -61,8 +76,8 @@ func TestWalk_WithHash(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var hashed int
-	err := Walk(dir, nil, true, func(entry *models.FileEntry) error {
-		if !entry.IsDir && entry.ContentHash != "" {
+	err := Walk(dir, nil, true, func(entry *models.EntryRecord) error {
+		if !entry.IsDir() && entry.ContentHash != "" {
 			hashed++
 		}
 		return nil

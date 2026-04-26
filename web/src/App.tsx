@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import { ErrorBoundary } from "./components/ui";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import Browse from "./pages/Browse";
 import Search from "./pages/Search";
 import Sources from "./pages/Sources";
 import Duplicates from "./pages/Duplicates";
@@ -32,6 +33,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="browse" element={<Browse />} />
         <Route path="search" element={<Search />} />
         <Route path="sources" element={<Sources />} />
         <Route path="duplicates" element={<Duplicates />} />

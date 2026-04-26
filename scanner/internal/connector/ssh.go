@@ -4,19 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/internal/metadata"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 	"github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 // SSHConnector connects to a remote host via SSH/SFTP and walks the filesystem.
@@ -33,7 +31,6 @@ type SSHConnector struct {
 	sftpClient *sftp.Client
 }
 
-// NewSSHConnector creates a new SSHConnector.
 func NewSSHConnector(host string, port int, username, password, keyPath, keyPassphrase, knownHostsPath string) *SSHConnector {
 	return &SSHConnector{
 		host:           host,
@@ -46,7 +43,6 @@ func NewSSHConnector(host string, port int, username, password, keyPath, keyPass
 	}
 }
 
-// Connect dials the remote SSH server and creates an SFTP session.
 func (c *SSHConnector) Connect(_ context.Context) error {
 	authMethods := []gossh.AuthMethod{}
 
@@ -107,8 +103,7 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-// Walk traverses the remote filesystem starting at root via SFTP.
-func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
 	if c.sftpClient == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -149,7 +144,6 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 	return nil
 }
 
-// ReadFile opens a remote file for reading via SFTP.
 func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	if c.sftpClient == nil {
 		return nil, fmt.Errorf("not connected")
@@ -157,7 +151,6 @@ func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, 
 	return c.sftpClient.Open(path)
 }
 
-// Close shuts down the SFTP and SSH connections.
 func (c *SSHConnector) Close() error {
 	var firstErr error
 	if c.sftpClient != nil {
@@ -173,36 +166,6 @@ func (c *SSHConnector) Close() error {
 	return firstErr
 }
 
-// Type returns the connector type.
 func (c *SSHConnector) Type() string {
 	return "ssh"
-}
-
-// fileInfoToEntry converts an fs.FileInfo into a models.FileEntry.
-// If computeHash is true and the file is not a directory, it reads from
-// the connector to compute the content hash.
-func fileInfoToEntry(ctx context.Context, path string, info fs.FileInfo, computeHash bool, conn Connector) *models.FileEntry {
-	modTime := info.ModTime()
-	entry := &models.FileEntry{
-		Path:       path,
-		Filename:   info.Name(),
-		Extension:  strings.TrimPrefix(filepath.Ext(info.Name()), "."),
-		SizeBytes:  info.Size(),
-		Permissions: fmt.Sprintf("%o", info.Mode().Perm()),
-		ModifiedAt: &modTime,
-		IsDir:      info.IsDir(),
-	}
-
-	if computeHash && !info.IsDir() {
-		if conn != nil {
-			if rc, err := conn.ReadFile(ctx, path); err == nil {
-				if hash, err := metadata.HashReader(rc); err == nil {
-					entry.ContentHash = hash
-				}
-				rc.Close()
-			}
-		}
-	}
-
-	return entry
 }
