@@ -18,7 +18,8 @@ async def ensure_index():
         index = await client.get_index(INDEX_NAME)
         await index.update_searchable_attributes(["filename", "path", "content_text", "tags"])
         await index.update_filterable_attributes([
-            "source_id", "extension", "mime_type", "size_bytes", "fs_modified_at", "tags",
+            "source_id", "extension", "mime_type", "size_bytes",
+            "fs_modified_at", "tags", "owner_name", "group_name",
         ])
         await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
 

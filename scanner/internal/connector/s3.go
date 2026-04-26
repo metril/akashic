@@ -54,7 +54,7 @@ func (c *S3Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
@@ -74,7 +74,6 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 		for _, obj := range page.Contents {
 			key := aws.ToString(obj.Key)
 
-			// Check exclude patterns against each path component
 			skip := false
 			for _, part := range strings.Split(key, "/") {
 				if excludeSet[strings.ToLower(part)] {
@@ -87,15 +86,17 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			}
 
 			isDir := strings.HasSuffix(key, "/")
-			entry := &models.FileEntry{
-				Path:      key,
-				Filename:  filepath.Base(key),
-				SizeBytes: aws.ToInt64(obj.Size),
-				IsDir:     isDir,
+			entry := &models.EntryRecord{
+				Path: key,
+				Name: filepath.Base(key),
 			}
-
-			if !isDir {
-				ext := filepath.Ext(entry.Filename)
+			if isDir {
+				entry.Kind = "directory"
+			} else {
+				entry.Kind = "file"
+				size := aws.ToInt64(obj.Size)
+				entry.SizeBytes = &size
+				ext := filepath.Ext(entry.Name)
 				if ext != "" {
 					entry.Extension = strings.TrimPrefix(ext, ".")
 				}
@@ -106,13 +107,11 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 				entry.ModifiedAt = &t
 			}
 
-			// S3 ETag as default hash for non-multipart uploads
 			if obj.ETag != nil {
 				entry.ContentHash = strings.Trim(aws.ToString(obj.ETag), "\"")
 			}
 
-			// For proper BLAKE3 hashing, download and hash
-			if computeHash && !isDir {
+			if computeHash && entry.Kind == "file" {
 				if hash, err := c.hashObject(ctx, key); err == nil {
 					entry.ContentHash = hash
 				}

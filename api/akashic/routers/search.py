@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
-from akashic.models.file import File
+from akashic.models.entry import Entry
 from akashic.models.user import User
 from akashic.schemas.search import SearchResults
 
@@ -70,36 +70,39 @@ async def search(
     except HTTPException:
         raise
     except Exception:
-        conditions = [File.is_deleted == False, File.filename.ilike(f"%{q}%")]  # noqa: E712
+        conditions = [
+            Entry.kind == "file",
+            Entry.is_deleted == False,  # noqa: E712
+            Entry.name.ilike(f"%{q}%"),
+        ]
         if source_id:
-            conditions.append(File.source_id == source_id)
+            conditions.append(Entry.source_id == source_id)
         elif allowed_source_ids is not None:
-            conditions.append(File.source_id.in_(allowed_source_ids))
+            conditions.append(Entry.source_id.in_(allowed_source_ids))
         if extension:
-            conditions.append(File.extension == extension)
+            conditions.append(Entry.extension == extension)
         if min_size is not None:
-            conditions.append(File.size_bytes >= min_size)
+            conditions.append(Entry.size_bytes >= min_size)
         if max_size is not None:
-            conditions.append(File.size_bytes <= max_size)
+            conditions.append(Entry.size_bytes <= max_size)
 
-        query_stmt = select(File).where(and_(*conditions)).offset(offset).limit(limit)
+        query_stmt = select(Entry).where(and_(*conditions)).offset(offset).limit(limit)
         result = await db.execute(query_stmt)
-        files = result.scalars().all()
+        entries = result.scalars().all()
 
         from sqlalchemy import func
         from akashic.schemas.search import SearchHit
-        count_stmt = select(func.count(File.id)).where(and_(*conditions))
+        count_stmt = select(func.count(Entry.id)).where(and_(*conditions))
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        # Convert File ORM objects to SearchHit
         hits = [
             SearchHit(
-                id=f.id, source_id=f.source_id, path=f.path,
-                filename=f.filename, extension=f.extension,
-                mime_type=f.mime_type, size_bytes=f.size_bytes,
-                fs_modified_at=int(f.fs_modified_at.timestamp()) if f.fs_modified_at else None,
+                id=e.id, source_id=e.source_id, path=e.path,
+                filename=e.name, extension=e.extension,
+                mime_type=e.mime_type, size_bytes=e.size_bytes,
+                fs_modified_at=int(e.fs_modified_at.timestamp()) if e.fs_modified_at else None,
             )
-            for f in files
+            for e in entries
         ]
         return SearchResults(results=hits, total=total, query=q)

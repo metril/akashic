@@ -13,25 +13,32 @@ func TestCollect_RegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry, err := Collect(path, true)
+	owners := NewOwnerResolver()
+	entry, err := Collect(path, true, owners)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if entry.Filename != "test.txt" {
-		t.Errorf("expected filename test.txt, got %s", entry.Filename)
+	if entry.Name != "test.txt" {
+		t.Errorf("expected name test.txt, got %s", entry.Name)
+	}
+	if entry.Kind != "file" {
+		t.Errorf("expected kind file, got %s", entry.Kind)
 	}
 	if entry.Extension != "txt" {
 		t.Errorf("expected extension txt, got %s", entry.Extension)
 	}
-	if entry.SizeBytes != 11 {
-		t.Errorf("expected size 11, got %d", entry.SizeBytes)
+	if entry.SizeBytes == nil || *entry.SizeBytes != 11 {
+		t.Errorf("expected size 11, got %v", entry.SizeBytes)
 	}
 	if entry.ContentHash == "" {
 		t.Error("expected non-empty content hash")
 	}
-	if entry.IsDir {
-		t.Error("expected IsDir to be false")
+	if entry.Mode == nil {
+		t.Error("expected mode to be captured")
+	}
+	if entry.Uid == nil {
+		t.Error("expected uid to be captured")
 	}
 }
 
@@ -42,16 +49,19 @@ func TestCollect_Directory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry, err := Collect(subdir, false)
+	entry, err := Collect(subdir, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !entry.IsDir {
-		t.Error("expected IsDir to be true")
+	if entry.Kind != "directory" {
+		t.Errorf("expected kind directory, got %s", entry.Kind)
 	}
 	if entry.ContentHash != "" {
 		t.Error("expected empty content hash for directory")
+	}
+	if entry.SizeBytes != nil {
+		t.Error("expected nil size for directory")
 	}
 }
 
@@ -62,8 +72,8 @@ func TestCollect_WithHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry1, _ := Collect(path, true)
-	entry2, _ := Collect(path, true)
+	entry1, _ := Collect(path, true, nil)
+	entry2, _ := Collect(path, true, nil)
 
 	if entry1.ContentHash != entry2.ContentHash {
 		t.Error("same content should produce same hash")
@@ -77,12 +87,32 @@ func TestCollect_SkipHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry, err := Collect(path, false)
+	entry, err := Collect(path, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if entry.ContentHash != "" {
 		t.Error("expected empty hash when computeHash=false")
+	}
+}
+
+func TestCollect_OwnerResolution(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "owned.txt")
+	if err := os.WriteFile(path, []byte("hi"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	owners := NewOwnerResolver()
+	entry, err := Collect(path, false, owners)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// At minimum, uid must be captured. Name resolution may fail in CI, that's
+	// ok — it should be empty string, not crash.
+	if entry.Uid == nil {
+		t.Error("expected uid to be captured")
 	}
 }

@@ -3,13 +3,13 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from akashic.schemas.file import FileEntryIn
+from akashic.schemas.entry import EntryIn
 
 
 class ScanBatchIn(BaseModel):
     source_id: uuid.UUID
     scan_id: uuid.UUID
-    files: list[FileEntryIn]
+    entries: list[EntryIn]
     is_final: bool = False
 
 

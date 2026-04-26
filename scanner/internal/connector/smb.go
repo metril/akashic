@@ -68,7 +68,7 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
 	if c.smbShare == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -80,10 +80,10 @@ func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []
 	return c.walkDir(ctx, root, excludeSet, computeHash, fn)
 }
 
-func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.FileEntry) error) error {
+func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.EntryRecord) error) error {
 	entries, err := c.smbShare.ReadDir(dir)
 	if err != nil {
-		return nil // skip unreadable dirs
+		return nil
 	}
 
 	for _, info := range entries {

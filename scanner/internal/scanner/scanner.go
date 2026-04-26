@@ -52,7 +52,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	defer s.connector.Close()
 
 	result := &Result{}
-	var batch []models.FileEntry
+	var batch []models.EntryRecord
 
 	flush := func(final bool) error {
 		if len(batch) == 0 && !final {
@@ -61,7 +61,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		scanBatch := models.ScanBatch{
 			SourceID: s.opts.SourceID,
 			ScanID:   s.opts.ScanID,
-			Files:    batch,
+			Entries:  batch,
 			IsFinal:  final,
 		}
 		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
@@ -72,13 +72,13 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		return nil
 	}
 
-	// For incremental scans, we walk without hashing and selectively compute
-	// hashes only for files modified after LastScanTime.
+	// Incremental scans walk without hashing and selectively re-hash files
+	// modified after LastScanTime.
 	incremental := s.opts.Hash && s.opts.LastScanTime != nil
 	walkHash := s.opts.Hash && !incremental
 
-	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, func(entry *models.FileEntry) error {
-		if entry.IsDir {
+	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, func(entry *models.EntryRecord) error {
+		if entry.IsDir() {
 			result.DirsFound++
 		} else {
 			result.FilesFound++

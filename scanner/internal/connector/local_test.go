@@ -22,8 +22,8 @@ func TestLocalConnector_Walk(t *testing.T) {
 	}
 	defer c.Close()
 
-	var entries []*models.FileEntry
-	err := c.Walk(context.Background(), dir, nil, true, func(e *models.FileEntry) error {
+	var entries []*models.EntryRecord
+	err := c.Walk(context.Background(), dir, nil, true, func(e *models.EntryRecord) error {
 		entries = append(entries, e)
 		return nil
 	})
@@ -33,7 +33,7 @@ func TestLocalConnector_Walk(t *testing.T) {
 
 	fileCount := 0
 	for _, e := range entries {
-		if !e.IsDir {
+		if !e.IsDir() {
 			fileCount++
 			if e.ContentHash == "" {
 				t.Errorf("expected hash for %s", e.Path)

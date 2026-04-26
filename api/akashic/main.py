@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from akashic.routers import users, ingest, sources, search, files, directories, duplicates, tags, analytics, purge, webhooks, scans, auth
+from akashic.routers import users, ingest, sources, search, entries, browse, duplicates, tags, analytics, purge, webhooks, scans, auth
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    from akashic.database import Base, engine
+    # Import all models so create_all sees them.
+    from akashic import models  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database schema ensured")
+
     try:
         from akashic.services.search import ensure_index
         await ensure_index()
@@ -36,8 +44,8 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router)
     app.include_router(sources.router)
     app.include_router(search.router)
-    app.include_router(files.router)
-    app.include_router(directories.router)
+    app.include_router(entries.router)
+    app.include_router(browse.router)
     app.include_router(duplicates.router)
     app.include_router(tags.router)
     app.include_router(analytics.router)

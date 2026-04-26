@@ -112,6 +112,84 @@ export interface StorageBySource {
   total_size: number;
 }
 
+// ---- Browse / Entry types ----
+
+export interface ACLEntry {
+  tag: string;
+  qualifier: string;
+  perms: string;
+}
+
+export type EntryKind = "file" | "directory";
+
+export interface BrowseChild {
+  id: string;
+  kind: EntryKind;
+  name: string;
+  path: string;
+  extension: string | null;
+  size_bytes: number | null;
+  mime_type: string | null;
+  content_hash: string | null;
+  mode: number | null;
+  owner_name: string | null;
+  group_name: string | null;
+  fs_modified_at: string | null;
+  child_count: number | null;
+}
+
+export interface BrowseResponse {
+  source_id: string;
+  source_name: string;
+  path: string;
+  parent_path: string | null;
+  is_root: boolean;
+  entries: BrowseChild[];
+}
+
+export interface EntryVersion {
+  id: string;
+  entry_id: string;
+  scan_id: string | null;
+  content_hash: string | null;
+  size_bytes: number | null;
+  mode: number | null;
+  uid: number | null;
+  gid: number | null;
+  owner_name: string | null;
+  group_name: string | null;
+  acl: ACLEntry[] | null;
+  xattrs: Record<string, string> | null;
+  detected_at: string;
+}
+
+export interface EntryDetail {
+  id: string;
+  source_id: string;
+  kind: EntryKind;
+  parent_path: string;
+  path: string;
+  name: string;
+  extension: string | null;
+  size_bytes: number | null;
+  mime_type: string | null;
+  content_hash: string | null;
+  mode: number | null;
+  uid: number | null;
+  gid: number | null;
+  owner_name: string | null;
+  group_name: string | null;
+  acl: ACLEntry[] | null;
+  xattrs: Record<string, string> | null;
+  fs_created_at: string | null;
+  fs_modified_at: string | null;
+  fs_accessed_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  is_deleted: boolean;
+  versions: EntryVersion[];
+}
+
 export interface LargestFile {
   id: string;
   filename: string;
