@@ -209,6 +209,10 @@ async def ingest_batch(
             scan_type="incremental",
             status="running",
             started_at=scan_start,
+            files_found=0,
+            files_new=0,
+            files_changed=0,
+            files_deleted=0,
         )
         db.add(scan)
 
@@ -273,6 +277,14 @@ async def ingest_batch(
             files_processed += 1
 
     scan.files_found += files_processed
+
+    if batch.source_security_metadata is not None:
+        source_result = await db.execute(
+            select(Source).where(Source.id == batch.source_id)
+        )
+        source_row = source_result.scalar_one_or_none()
+        if source_row is not None:
+            source_row.security_metadata = batch.source_security_metadata
 
     if batch.is_final:
         scan.status = "completed"
