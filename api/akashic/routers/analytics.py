@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.file import File
+from akashic.models.source import Source
 from akashic.models.user import User
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -47,13 +48,27 @@ async def get_storage_by_source(
     filters.extend(await _source_filter(user, db))
 
     stmt = (
-        select(File.source_id, func.count(File.id).label("count"), func.sum(File.size_bytes).label("total_size"))
+        select(
+            File.source_id,
+            Source.name.label("source_name"),
+            func.count(File.id).label("count"),
+            func.sum(File.size_bytes).label("total_size"),
+        )
+        .join(Source, Source.id == File.source_id)
         .where(*filters)
-        .group_by(File.source_id)
+        .group_by(File.source_id, Source.name)
         .order_by(func.sum(File.size_bytes).desc())
     )
     result = await db.execute(stmt)
-    return [{"source_id": str(r.source_id), "count": r.count, "total_size": r.total_size} for r in result.all()]
+    return [
+        {
+            "source_id": str(r.source_id),
+            "source_name": r.source_name,
+            "count": r.count,
+            "total_size": r.total_size,
+        }
+        for r in result.all()
+    ]
 
 
 @router.get("/largest-files")

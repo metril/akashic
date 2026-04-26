@@ -1,91 +1,41 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Cell,
+} from "recharts";
 import { api } from "../api/client";
 import type { Source, StorageByType } from "../types";
+import { Card, CardHeader, StatCard, EmptyState } from "../components/ui";
+import { formatBytes, formatNumber } from "../lib/format";
 
-const pageStyle: React.CSSProperties = {
-  padding: "32px 40px",
-};
+const CHART_COLORS = [
+  "#6366f1",
+  "#8b5cf6",
+  "#a78bfa",
+  "#c4b5fd",
+  "#d8b4fe",
+  "#e9d5ff",
+];
 
-const headingStyle: React.CSSProperties = {
-  fontSize: 26,
-  fontWeight: 700,
-  color: "#1a1a2e",
-  marginBottom: 8,
-};
-
-const subheadStyle: React.CSSProperties = {
-  color: "#888",
-  fontSize: 14,
-  marginBottom: 32,
-};
-
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-  gap: 20,
-  marginBottom: 36,
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: "22px 26px",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-};
-
-const cardValueStyle: React.CSSProperties = {
-  fontSize: 32,
-  fontWeight: 700,
-  color: "#7c83fd",
-  marginBottom: 4,
-};
-
-const cardLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "#888",
-  fontWeight: 500,
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 600,
-  color: "#1a1a2e",
-  marginBottom: 16,
-};
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  background: "#fff",
-  borderRadius: 10,
-  overflow: "hidden",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-};
-
-const thStyle: React.CSSProperties = {
-  padding: "12px 16px",
-  textAlign: "left",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#666",
-  background: "#f8f9fc",
-  borderBottom: "1px solid #eee",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "12px 16px",
-  fontSize: 14,
-  color: "#333",
-  borderBottom: "1px solid #f0f0f0",
-};
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
+const PageIcon = ({ d }: { d: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="h-4 w-4"
+  >
+    <path d={d} />
+  </svg>
+);
 
 export default function Dashboard() {
   const sourcesQuery = useQuery<Source[]>({
@@ -103,57 +53,131 @@ export default function Dashboard() {
 
   const totalFiles = storageByType.reduce((s, r) => s + r.count, 0);
   const totalSize = storageByType.reduce((s, r) => s + (r.total_size ?? 0), 0);
-  const enabledSources = sources.filter((s) => s.status === "online").length;
+  const activeSources = sources.filter(
+    (s) => s.status === "online" || s.status === "scanning",
+  ).length;
+
+  const chartData = storageByType
+    .slice(0, 10)
+    .map((r) => ({
+      extension: r.extension || "(none)",
+      size: r.total_size ?? 0,
+      count: r.count,
+    }))
+    .reverse();
+
+  const isLoading = sourcesQuery.isLoading || storageQuery.isLoading;
 
   return (
-    <div style={pageStyle}>
-      <div style={headingStyle}>Dashboard</div>
-      <div style={subheadStyle}>Overview of your file archive</div>
-
-      <div style={gridStyle}>
-        <div style={cardStyle}>
-          <div style={cardValueStyle}>{sources.length}</div>
-          <div style={cardLabelStyle}>Total Sources</div>
-        </div>
-        <div style={cardStyle}>
-          <div style={cardValueStyle}>{enabledSources}</div>
-          <div style={cardLabelStyle}>Active Sources</div>
-        </div>
-        <div style={cardStyle}>
-          <div style={cardValueStyle}>{totalFiles.toLocaleString()}</div>
-          <div style={cardLabelStyle}>Total Files</div>
-        </div>
-        <div style={cardStyle}>
-          <div style={cardValueStyle}>{formatBytes(totalSize)}</div>
-          <div style={cardLabelStyle}>Total Storage Used</div>
-        </div>
+    <div className="px-8 py-7 max-w-7xl">
+      <div className="mb-7">
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+          Dashboard
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Overview of your indexed file archive.
+        </p>
       </div>
 
-      <div style={sectionTitleStyle}>Storage by File Type</div>
-      {storageQuery.isLoading ? (
-        <div style={{ color: "#888" }}>Loading...</div>
-      ) : storageByType.length === 0 ? (
-        <div style={{ color: "#aaa", fontSize: 14 }}>No data available.</div>
-      ) : (
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Extension</th>
-              <th style={thStyle}>File Count</th>
-              <th style={thStyle}>Total Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            {storageByType.slice(0, 10).map((row) => (
-              <tr key={row.extension}>
-                <td style={tdStyle}>{row.extension || "(none)"}</td>
-                <td style={tdStyle}>{row.count.toLocaleString()}</td>
-                <td style={tdStyle}>{formatBytes(row.total_size)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard
+          label="Sources"
+          value={formatNumber(sources.length)}
+          subtext={`${activeSources} active`}
+          loading={sourcesQuery.isLoading}
+          icon={<PageIcon d="M3 7h18M3 12h18M3 17h18" />}
+        />
+        <StatCard
+          label="Files indexed"
+          value={formatNumber(totalFiles)}
+          loading={storageQuery.isLoading}
+          icon={
+            <PageIcon d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6" />
+          }
+        />
+        <StatCard
+          label="Total storage"
+          value={formatBytes(totalSize)}
+          loading={storageQuery.isLoading}
+          icon={
+            <PageIcon d="M22 12H2M22 12a10 10 0 01-20 0M22 12a10 10 0 00-20 0" />
+          }
+        />
+        <StatCard
+          label="File types"
+          value={formatNumber(storageByType.length)}
+          loading={storageQuery.isLoading}
+          icon={
+            <PageIcon d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+          }
+        />
+      </div>
+
+      <Card padding="md">
+        <CardHeader
+          title="Storage by file type"
+          description="Top 10 extensions by total size"
+        />
+        {isLoading ? (
+          <div className="h-72 animate-pulse bg-gray-100 rounded-md" />
+        ) : chartData.length === 0 ? (
+          <EmptyState
+            title="No files indexed yet"
+            description="Add a source and trigger a scan to see storage breakdowns."
+          />
+        ) : (
+          <div className="h-72 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={chartData}
+                layout="vertical"
+                margin={{ top: 8, right: 24, bottom: 8, left: 8 }}
+              >
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => formatBytes(v)}
+                  stroke="#9ca3af"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="extension"
+                  width={70}
+                  stroke="#6b7280"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(99,102,241,0.06)" }}
+                  contentStyle={{
+                    background: "white",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                  }}
+                  formatter={(value: number, _name, item) => [
+                    `${formatBytes(value)} · ${formatNumber(item.payload.count)} files`,
+                    item.payload.extension,
+                  ]}
+                  labelFormatter={() => ""}
+                />
+                <Bar dataKey="size" radius={[0, 4, 4, 0]}>
+                  {chartData.map((_, i) => (
+                    <Cell
+                      key={i}
+                      fill={CHART_COLORS[i % CHART_COLORS.length]}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

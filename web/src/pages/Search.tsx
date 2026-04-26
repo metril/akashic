@@ -1,93 +1,38 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import SearchBar from "../components/SearchBar";
 import { api } from "../api/client";
 import type { SearchResult, Source } from "../types";
-
-const pageStyle: React.CSSProperties = {
-  padding: "32px 40px",
-};
-
-const headingStyle: React.CSSProperties = {
-  fontSize: 26,
-  fontWeight: 700,
-  color: "#1a1a2e",
-  marginBottom: 24,
-};
-
-const filtersRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 12,
-  marginTop: 12,
-  marginBottom: 24,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: "9px 12px",
-  fontSize: 14,
-  border: "1.5px solid #d0d5e8",
-  borderRadius: 7,
-  background: "#fff",
-  outline: "none",
-};
-
-const inputSmallStyle: React.CSSProperties = {
-  ...selectStyle,
-  width: 130,
-};
-
-const resultCardStyle: React.CSSProperties = {
-  background: "#fff",
-  borderRadius: 8,
-  padding: "14px 18px",
-  marginBottom: 10,
-  boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-};
-
-const fileNameStyle: React.CSSProperties = {
-  fontWeight: 600,
-  fontSize: 15,
-  color: "#1a1a2e",
-  marginBottom: 3,
-};
-
-const fileMetaStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#999",
-};
-
-const fileSizeStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "#7c83fd",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-};
-
-const statusStyle: React.CSSProperties = {
-  color: "#aaa",
-  fontSize: 14,
-  marginTop: 20,
-  textAlign: "center",
-};
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
+import {
+  Card,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  EmptyState,
+} from "../components/ui";
+import { formatBytes } from "../lib/format";
 
 interface SearchResponse {
   results: SearchResult[];
   total: number;
   query: string;
 }
+
+const SearchIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="h-4 w-4"
+  >
+    <circle cx="11" cy="11" r="7" />
+    <path d="M21 21l-4.35-4.35" />
+  </svg>
+);
 
 export default function Search() {
   const [query, setQuery] = useState("");
@@ -101,92 +46,157 @@ export default function Search() {
     queryFn: () => api.get<Source[]>("/sources"),
   });
 
+  const sourceMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of sourcesQuery.data ?? []) m.set(s.id, s.name);
+    return m;
+  }, [sourcesQuery.data]);
+
+  const sourceOptions = useMemo(
+    () => [
+      { value: "", label: "All sources" },
+      ...(sourcesQuery.data ?? []).map((s) => ({
+        value: s.id,
+        label: s.name,
+      })),
+    ],
+    [sourcesQuery.data],
+  );
+
+  const hasFilter = Boolean(
+    query.trim() || sourceId || extension || minSize || maxSize,
+  );
+
   const searchQuery = useQuery<SearchResponse>({
     queryKey: ["search", query, sourceId, extension, minSize, maxSize],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (query) params.set("q", query);
+      if (query.trim()) params.set("q", query.trim());
       if (sourceId) params.set("source_id", sourceId);
       if (extension) params.set("extension", extension);
       if (minSize) params.set("min_size", minSize);
       if (maxSize) params.set("max_size", maxSize);
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
-    enabled: query.trim().length > 0,
+    enabled: hasFilter,
   });
 
   const results = searchQuery.data?.results ?? [];
 
   return (
-    <div style={pageStyle}>
-      <div style={headingStyle}>Search Files</div>
-
-      <SearchBar value={query} onChange={setQuery} placeholder="Search files by name, content..." />
-
-      <div style={filtersRowStyle}>
-        <select
-          style={selectStyle}
-          value={sourceId}
-          onChange={(e) => setSourceId(e.target.value)}
-        >
-          <option value="">All Sources</option>
-          {(sourcesQuery.data ?? []).map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <input
-          style={inputSmallStyle}
-          type="text"
-          value={extension}
-          onChange={(e) => setExtension(e.target.value)}
-          placeholder="Extension (e.g. pdf)"
-        />
-        <input
-          style={inputSmallStyle}
-          type="number"
-          value={minSize}
-          onChange={(e) => setMinSize(e.target.value)}
-          placeholder="Min size (bytes)"
-        />
-        <input
-          style={inputSmallStyle}
-          type="number"
-          value={maxSize}
-          onChange={(e) => setMaxSize(e.target.value)}
-          placeholder="Max size (bytes)"
-        />
+    <div className="px-8 py-7 max-w-5xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+          Search
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Find files by name, path, or filter alone.
+        </p>
       </div>
 
-      {searchQuery.isLoading && <div style={statusStyle}>Searching...</div>}
-      {searchQuery.isError && (
-        <div style={{ ...statusStyle, color: "#e74c3c" }}>
-          Error: {searchQuery.error instanceof Error ? searchQuery.error.message : "Search failed"}
+      <Card padding="md" className="mb-5">
+        <Input
+          leftIcon={<SearchIcon />}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search files…"
+          className="h-11 text-[15px]"
+          autoFocus
+        />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+          <Select
+            value={sourceId}
+            onChange={(e) => setSourceId(e.target.value)}
+            options={sourceOptions}
+          />
+          <Input
+            value={extension}
+            onChange={(e) => setExtension(e.target.value)}
+            placeholder="Extension (pdf)"
+          />
+          <Input
+            type="number"
+            value={minSize}
+            onChange={(e) => setMinSize(e.target.value)}
+            placeholder="Min size (bytes)"
+          />
+          <Input
+            type="number"
+            value={maxSize}
+            onChange={(e) => setMaxSize(e.target.value)}
+            placeholder="Max size (bytes)"
+          />
         </div>
-      )}
-      {!query.trim() && (
-        <div style={statusStyle}>Enter a search query to find files.</div>
-      )}
+      </Card>
 
-      {searchQuery.data && (
-        <div style={{ marginBottom: 12, color: "#666", fontSize: 13 }}>
-          {searchQuery.data.total} result{searchQuery.data.total !== 1 ? "s" : ""} found
+      {!hasFilter ? (
+        <Card padding="lg">
+          <EmptyState
+            title="Start searching"
+            description="Type a query or pick a filter to see results."
+          />
+        </Card>
+      ) : searchQuery.isLoading ? (
+        <div className="flex items-center justify-center py-12 text-gray-400">
+          <Spinner size="md" />
         </div>
-      )}
-
-      {results.map((file) => (
-        <div key={file.id} style={resultCardStyle}>
-          <div>
-            <div style={fileNameStyle}>{file.filename}</div>
-            <div style={fileMetaStyle}>{file.path}</div>
-            {file.extension && (
-              <div style={fileMetaStyle}>Type: .{file.extension}</div>
-            )}
+      ) : searchQuery.isError ? (
+        <Card>
+          <p className="text-sm text-rose-600">
+            {searchQuery.error instanceof Error
+              ? searchQuery.error.message
+              : "Search failed"}
+          </p>
+        </Card>
+      ) : results.length === 0 ? (
+        <Card padding="lg">
+          <EmptyState
+            title="No matches"
+            description="Try a different query or relax the filters."
+          />
+        </Card>
+      ) : (
+        <>
+          <div className="text-xs text-gray-500 mb-3">
+            {searchQuery.data?.total.toLocaleString()} result
+            {searchQuery.data?.total !== 1 && "s"}
           </div>
-          <div style={fileSizeStyle}>{formatBytes(file.size_bytes ?? 0)}</div>
-        </div>
-      ))}
+          <div className="space-y-2">
+            {results.map((file) => (
+              <Card
+                key={file.id}
+                padding="none"
+                className="px-4 py-3 hover:border-accent-200 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-medium text-gray-900 truncate">
+                        {file.filename}
+                      </span>
+                      {file.extension && (
+                        <Badge variant="neutral">.{file.extension}</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 font-mono truncate">
+                      {file.path}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end flex-shrink-0">
+                    <div className="text-sm font-medium text-gray-700 tabular-nums">
+                      {formatBytes(file.size_bytes)}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {sourceMap.get(file.source_id) ??
+                        file.source_id.slice(0, 8)}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     tika_url: str = "http://localhost:9998"
 
+    # Recover scans/sources stuck in pending|running|scanning after this many minutes.
+    stale_scan_threshold_minutes: int = 60
+
     # OIDC
     oidc_enabled: bool = False
     oidc_discovery_url: str = ""  # e.g. https://auth.example.com/.well-known/openid-configuration

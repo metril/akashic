@@ -6,17 +6,21 @@ Uses the application's existing DB session factory (no duplicate engine).
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from croniter import croniter
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.config import settings
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 
 logger = logging.getLogger(__name__)
+
+# Source.status values: "offline" (default), "scanning", "online", "failed".
+# Scan.status values:   "pending", "running", "completed", "failed".
 
 _scheduler_task: asyncio.Task | None = None
 
@@ -77,9 +81,76 @@ async def _check_and_trigger_scans():
             logger.error("Scheduler error for source '%s': %s", source.name, exc)
 
 
+async def _check_stale_scans():
+    """Mark scans/sources stuck in pending|running|scanning past the threshold as failed.
+
+    Two paths:
+    1. Active scans (started_at set, status pending|running) older than the threshold.
+    2. Sources stuck in `scanning` whose last_scan_at is older than the threshold —
+       this catches orphaned pending scans (started_at NULL) and any other case where
+       the source state never returned to online/offline.
+    """
+    threshold_minutes = settings.stale_scan_threshold_minutes
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
+    message = f"Watchdog: exceeded {threshold_minutes} min"
+
+    async with async_session() as db:
+        # 1) Active scans past the threshold
+        result = await db.execute(
+            select(Scan).where(
+                Scan.status.in_(["pending", "running"]),
+                Scan.started_at.isnot(None),
+                Scan.started_at < cutoff,
+            )
+        )
+        for scan in result.scalars().all():
+            scan.status = "failed"
+            scan.error_message = message
+            await db.execute(
+                update(Source)
+                .where(Source.id == scan.source_id, Source.status == "scanning")
+                .values(status="failed")
+            )
+            logger.warning(
+                "Watchdog: marked scan %s and source %s as failed (active-scan path)",
+                scan.id,
+                scan.source_id,
+            )
+
+        # 2) Sources stuck in scanning (covers orphan pending scans / lost workers)
+        result = await db.execute(
+            select(Source).where(
+                Source.status == "scanning",
+                Source.last_scan_at.isnot(None),
+                Source.last_scan_at < cutoff,
+            )
+        )
+        for source in result.scalars().all():
+            source.status = "failed"
+            await db.execute(
+                update(Scan)
+                .where(
+                    Scan.source_id == source.id,
+                    Scan.status.in_(["pending", "running"]),
+                )
+                .values(status="failed", error_message=message)
+            )
+            logger.warning(
+                "Watchdog: source %s stuck in scanning since %s — reset to failed",
+                source.id,
+                source.last_scan_at,
+            )
+
+        await db.commit()
+
+
 async def _scheduler_loop():
     """Main scheduler loop — checks every 60 seconds."""
     while True:
+        try:
+            await _check_stale_scans()
+        except Exception as exc:
+            logger.error("Stale-scan watchdog error: %s", exc)
         try:
             await _check_and_trigger_scans()
         except Exception as exc:
