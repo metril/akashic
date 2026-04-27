@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -19,6 +18,14 @@ import (
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
+// sdFetcher is the narrow interface for fetching raw NT security descriptor
+// bytes. *smb2.Share (from the vendored go-smb2) satisfies it automatically.
+// The interface exists solely so unit tests can inject a mock without a live
+// SMB server.
+type sdFetcher interface {
+	GetSecurityDescriptorBytes(path string) ([]byte, error)
+}
+
 type SMBConnector struct {
 	host      string
 	port      int
@@ -31,6 +38,9 @@ type SMBConnector struct {
 	ipcShare  *smb2.Share
 	lsaClient *lsarpc.Client
 	resolver  *metadata.SIDResolver
+	// sdSource provides raw security descriptor bytes for each path.
+	// Populated from smbShare after Connect(); can be overridden in tests.
+	sdSource  sdFetcher
 }
 
 func NewSMBConnector(host string, port int, username, password, share string) *SMBConnector {
@@ -72,6 +82,7 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 		return fmt.Errorf("smb mount %s: %w", c.share, err)
 	}
 	c.smbShare = share
+	c.sdSource = share // *smb2.Share satisfies sdFetcher via GetSecurityDescriptorBytes
 
 	// Try opening LSARPC named pipe for SID resolution. Failures are non-fatal —
 	// capture continues with raw SIDs (well-known table still resolves what it can).
@@ -158,17 +169,32 @@ func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 	return metadata.HashReader(f)
 }
 
-// querySecurityDescriptor returns the raw NT security descriptor bytes for the path.
+// querySecurityDescriptor returns the raw NT security descriptor bytes for
+// the path via SMB2 QUERY_INFO (InfoType=SMB2_0_INFO_SECURITY,
+// AdditionalInformation=OWNER|GROUP|DACL = 0x7, per MS-SMB2 §2.2.37).
 //
-// NOTE: The pinned hirochachacha/go-smb2 release does not expose the
-// SMB2 QUERY_INFO request needed to fetch security descriptors. This stub
-// returns an "unavailable" sentinel; NT ACL capture is therefore disabled
-// until the dependency exposes the API or we drop to a forked smb2 client.
+// Implementation note — vendored go-smb2 patch
+// ─────────────────────────────────────────────
+// The stock hirochachacha/go-smb2 v1.1.0 does not expose the QUERY_INFO
+// request needed to retrieve a security descriptor. We vendor a minimal patch
+// at scanner/internal/vendor/go-smb2 that adds GetSecurityDescriptorBytes()
+// on *smb2.Share — the only change relative to v1.1.0. The scanner's go.mod
+// redirects the module via a replace directive.
+//
+// Upstream PR that inspired the patch:
+//   https://github.com/hirochachacha/go-smb2/pull/65 (elimity-com, open as of 2026-04)
+//
+// To drop the vendor copy:
+//   1. Wait for upstream to merge & tag a release with GetSecurityDescriptorBytes
+//      (or equivalent raw-bytes API).
+//   2. Remove the replace directive from scanner/go.mod.
+//   3. Delete scanner/internal/vendor/go-smb2/.
 func (c *SMBConnector) querySecurityDescriptor(path string) ([]byte, error) {
-	return nil, errSMBSecurityUnavailable
+	if c.sdSource == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	return c.sdSource.GetSecurityDescriptorBytes(path)
 }
-
-var errSMBSecurityUnavailable = errors.New("smb security capture unavailable: go-smb2 needs to expose GetSecurityDescriptor")
 
 func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	if c.smbShare == nil {
