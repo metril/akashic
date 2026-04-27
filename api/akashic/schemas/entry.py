@@ -7,6 +7,15 @@ from pydantic import BaseModel, Field
 from akashic.schemas.acl import ACL
 
 
+class _EntrySourceRef(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+    security_metadata: dict | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class EntryIn(BaseModel):
     """Inbound from the scanner; one row per file/directory observed in a scan."""
 
@@ -82,6 +91,7 @@ class EntryDetailResponse(EntryResponse):
     fs_created_at: datetime | None = None
     fs_accessed_at: datetime | None = None
     versions: list[EntryVersionResponse] = Field(default_factory=list)
+    source: _EntrySourceRef | None = None
 
 
 class BrowseEntry(BaseModel):
