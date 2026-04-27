@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -115,7 +116,7 @@ func (a *ACL) MarshalJSON() ([]byte, error) {
 		}
 		return json.Marshal(out)
 	}
-	return nil, nil
+	return nil, fmt.Errorf("acl: unknown type %q", a.Type)
 }
 
 // EntryRecord is one observation of a filesystem entry (file or directory).
