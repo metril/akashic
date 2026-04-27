@@ -19,12 +19,17 @@ import (
 )
 
 type S3Connector struct {
-	endpoint  string
-	bucket    string
-	region    string
-	accessKey string
-	secretKey string
-	client    *s3.Client
+	endpoint          string
+	bucket            string
+	region            string
+	accessKey         string
+	secretKey         string
+	client            *s3.Client
+	captureObjectACLs bool
+}
+
+func (c *S3Connector) SetCaptureObjectACLs(v bool) {
+	c.captureObjectACLs = v
 }
 
 func NewS3Connector(endpoint, bucket, region, accessKey, secretKey string) *S3Connector {
@@ -116,6 +121,15 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			if computeHash && entry.Kind == "file" {
 				if hash, err := c.hashObject(ctx, key); err == nil {
 					entry.ContentHash = hash
+				}
+			}
+
+			if c.captureObjectACLs && entry.Kind == "file" {
+				if aclOut, aerr := c.client.GetObjectAcl(ctx, &s3.GetObjectAclInput{
+					Bucket: aws.String(c.bucket),
+					Key:    aws.String(key),
+				}); aerr == nil {
+					entry.Acl = metadata.FromS3GetObjectAcl(aclOut)
 				}
 			}
 

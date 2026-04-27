@@ -13,13 +13,14 @@ import (
 )
 
 type Options struct {
-	SourceID        string
-	ScanID          string
-	Root            string
-	BatchSize       int
-	Hash            bool
-	ExcludePatterns []string
-	LastScanTime    *time.Time // nil = full scan, non-nil = incremental
+	SourceID          string
+	ScanID            string
+	Root              string
+	BatchSize         int
+	Hash              bool
+	ExcludePatterns   []string
+	LastScanTime      *time.Time // nil = full scan, non-nil = incremental
+	CaptureObjectACLs bool       // S3 only: call GetObjectAcl per file (opt-in)
 }
 
 type Result struct {
@@ -53,6 +54,9 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 
 	var bucketSecurity *models.SourceSecurityMetadata
 	if s3c, ok := s.connector.(*connector.S3Connector); ok {
+		if s.opts.CaptureObjectACLs {
+			s3c.SetCaptureObjectACLs(true)
+		}
 		if sec, err := s3c.CollectBucketSecurity(ctx); err == nil {
 			bucketSecurity = sec
 		} else {
