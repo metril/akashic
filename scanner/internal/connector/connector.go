@@ -9,7 +9,7 @@ import (
 
 type Connector interface {
 	Connect(ctx context.Context) error
-	Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error
+	Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) error
 	ReadFile(ctx context.Context, path string) (io.ReadCloser, error)
 	Close() error
 	Type() string

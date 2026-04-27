@@ -97,7 +97,7 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
+func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
 	if c.smbShare == nil {
 		return fmt.Errorf("not connected")
 	}

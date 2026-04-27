@@ -118,7 +118,7 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
+func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) error {
 	if c.sftpClient == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -130,7 +130,7 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 
 	// Mode selection: full scans get a single full-tree dump.
 	c.aclCache = make(map[string]*models.ACL)
-	if computeHash {
+	if fullScan {
 		c.aclMode = "full"
 		c.prefetchACLs(root, true)
 	} else {
