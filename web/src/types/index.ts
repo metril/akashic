@@ -114,11 +114,74 @@ export interface StorageBySource {
 
 // ---- Browse / Entry types ----
 
-export interface ACLEntry {
+// ---- ACL discriminated-union types ----
+
+export type ACLType = "posix" | "nfsv4" | "nt" | "s3";
+
+export interface PosixACE {
   tag: string;
   qualifier: string;
   perms: string;
 }
+
+export interface PosixACL {
+  type: "posix";
+  entries: PosixACE[];
+  default_entries: PosixACE[] | null;
+}
+
+export interface NfsV4ACE {
+  principal: string;
+  ace_type: "allow" | "deny" | "audit" | "alarm";
+  flags: string[];
+  mask: string[];
+}
+
+export interface NfsV4ACL {
+  type: "nfsv4";
+  entries: NfsV4ACE[];
+}
+
+export interface NtPrincipal {
+  sid: string;
+  name: string;
+}
+
+export interface NtACE {
+  sid: string;
+  name: string;
+  ace_type: "allow" | "deny" | "audit";
+  flags: string[];
+  mask: string[];
+}
+
+export interface NtACL {
+  type: "nt";
+  owner: NtPrincipal | null;
+  group: NtPrincipal | null;
+  control: string[];
+  entries: NtACE[];
+}
+
+export interface S3Owner {
+  id: string;
+  display_name: string;
+}
+
+export interface S3Grant {
+  grantee_type: "canonical_user" | "group" | "amazon_customer_by_email";
+  grantee_id: string;
+  grantee_name: string;
+  permission: "FULL_CONTROL" | "READ" | "WRITE" | "READ_ACP" | "WRITE_ACP";
+}
+
+export interface S3ACL {
+  type: "s3";
+  owner: S3Owner | null;
+  grants: S3Grant[];
+}
+
+export type ACL = PosixACL | NfsV4ACL | NtACL | S3ACL;
 
 export type EntryKind = "file" | "directory";
 
@@ -158,7 +221,7 @@ export interface EntryVersion {
   gid: number | null;
   owner_name: string | null;
   group_name: string | null;
-  acl: ACLEntry[] | null;
+  acl: ACL | null;
   xattrs: Record<string, string> | null;
   detected_at: string;
 }
@@ -179,7 +242,7 @@ export interface EntryDetail {
   gid: number | null;
   owner_name: string | null;
   group_name: string | null;
-  acl: ACLEntry[] | null;
+  acl: ACL | null;
   xattrs: Record<string, string> | null;
   fs_created_at: string | null;
   fs_modified_at: string | null;
