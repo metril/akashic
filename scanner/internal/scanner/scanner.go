@@ -51,8 +51,18 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	}
 	defer s.connector.Close()
 
+	var bucketSecurity *models.SourceSecurityMetadata
+	if s3c, ok := s.connector.(*connector.S3Connector); ok {
+		if sec, err := s3c.CollectBucketSecurity(ctx); err == nil {
+			bucketSecurity = sec
+		} else {
+			log.Printf("warning: bucket security capture failed: %v", err)
+		}
+	}
+
 	result := &Result{}
 	var batch []models.EntryRecord
+	firstBatch := true
 
 	flush := func(final bool) error {
 		if len(batch) == 0 && !final {
@@ -63,6 +73,10 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			ScanID:   s.opts.ScanID,
 			Entries:  batch,
 			IsFinal:  final,
+		}
+		if firstBatch {
+			scanBatch.SourceSecurityMetadata = bucketSecurity
+			firstBatch = false
 		}
 		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
 			return fmt.Errorf("send batch: %w", err)
