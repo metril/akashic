@@ -5,6 +5,22 @@ export interface User {
   created_at: string;
 }
 
+export interface PublicAccessBlock {
+  block_public_acls: boolean;
+  ignore_public_acls: boolean;
+  block_public_policy: boolean;
+  restrict_public_buckets: boolean;
+}
+
+export interface SourceSecurityMetadata {
+  captured_at: string;
+  bucket_acl: Record<string, unknown> | null;
+  bucket_policy_present: boolean;
+  bucket_policy: Record<string, unknown> | null;
+  public_access_block: PublicAccessBlock | null;
+  is_public_inferred: boolean;
+}
+
 export interface Source {
   id: string;
   name: string;
@@ -16,6 +32,7 @@ export interface Source {
   status: string;
   created_at: string;
   updated_at: string;
+  security_metadata?: SourceSecurityMetadata | null;
 }
 
 export interface FileVersion {
