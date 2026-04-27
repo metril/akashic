@@ -94,8 +94,9 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// modified after LastScanTime.
 	incremental := s.opts.Hash && s.opts.LastScanTime != nil
 	walkHash := s.opts.Hash && !incremental
+	fullScan := !incremental
 
-	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, func(entry *models.EntryRecord) error {
+	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
 		} else {

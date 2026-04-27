@@ -61,7 +61,7 @@ func (c *S3Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
+func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
