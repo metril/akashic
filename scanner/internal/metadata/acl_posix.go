@@ -39,12 +39,6 @@ func CollectPosixACL(path string) (*models.ACL, error) {
 	}, nil
 }
 
-// CollectACL is re-introduced in Task 2.3 as the dispatcher. Stub here keeps
-// the package buildable during Phase 2 transition.
-func CollectACL(path string) (*models.ACL, error) {
-	return CollectPosixACL(path)
-}
-
 func parsePosixACL(raw string) (access, defaults []models.PosixACE) {
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
