@@ -83,6 +83,16 @@ func (c *Client) Lookup(sids [][]byte) ([]TranslatedName, error) {
 }
 
 func (c *Client) Close() error {
+	// Best-effort LsarClose to release the server-side policy handle. Errors
+	// here are non-fatal — the transport teardown that follows will clean up
+	// regardless.
+	if c.opened && c.t != nil {
+		pkt := BuildLsarCloseRequest(c.nextCall(), c.handle)
+		if _, werr := c.t.Write(pkt); werr == nil {
+			_, _ = c.readResponseBody()
+		}
+		c.opened = false
+	}
 	if c.t != nil {
 		_ = c.t.Close()
 	}

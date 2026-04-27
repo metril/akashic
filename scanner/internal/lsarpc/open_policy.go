@@ -45,6 +45,13 @@ func wrapRequest(callID uint32, opnum uint16, body []byte) []byte {
 	return append(out, body...)
 }
 
+// BuildLsarCloseRequest encodes an LsarClose request that releases a policy handle.
+func BuildLsarCloseRequest(callID uint32, h PolicyHandle) []byte {
+	body := make([]byte, 0, 20)
+	body = append(body, h[:]...)
+	return wrapRequest(callID, OpnumLsarClose, body)
+}
+
 // ParseOpenPolicy2Response decodes the response body.
 func ParseOpenPolicy2Response(body []byte) (PolicyHandle, uint32, error) {
 	var h PolicyHandle
