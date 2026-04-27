@@ -65,6 +65,7 @@ var aceMaskLookup = map[byte]string{
 	'n': "read_named_attrs",
 	'N': "write_named_attrs",
 	'c': "read_acl",
+	'C': "write_acl",
 	'o': "write_owner",
 	'y': "synchronize",
 }

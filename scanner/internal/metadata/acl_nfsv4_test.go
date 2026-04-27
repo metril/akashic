@@ -11,7 +11,7 @@ func TestParseNfsV4ACL_AllowAndDeny(t *testing.T) {
 	raw := `A::OWNER@:rwatTnNcCy
 A:fd:GROUP@:rxtncy
 D::EVERYONE@:wadDxoy
-A::alice@example.com:rwatTncy
+A::alice@example.com:rwatTnNcy
 `
 	got := parseNfsV4ACL(raw)
 	want := []models.NfsV4ACE{
@@ -22,7 +22,7 @@ A::alice@example.com:rwatTncy
 			Mask: []string{
 				"read_data", "write_data", "append_data", "read_attributes",
 				"write_attributes", "read_named_attrs", "write_named_attrs",
-				"read_acl", "synchronize",
+				"read_acl", "write_acl", "synchronize",
 			},
 		},
 		{
@@ -41,7 +41,7 @@ A::alice@example.com:rwatTncy
 			Principal: "alice@example.com",
 			AceType:   "allow",
 			Flags:     []string{},
-			Mask:      []string{"read_data", "write_data", "append_data", "read_attributes", "write_attributes", "read_named_attrs", "read_acl", "synchronize"},
+			Mask:      []string{"read_data", "write_data", "append_data", "read_attributes", "write_attributes", "read_named_attrs", "write_named_attrs", "read_acl", "synchronize"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
