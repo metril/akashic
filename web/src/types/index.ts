@@ -5,6 +5,22 @@ export interface User {
   created_at: string;
 }
 
+export interface PublicAccessBlock {
+  block_public_acls: boolean;
+  ignore_public_acls: boolean;
+  block_public_policy: boolean;
+  restrict_public_buckets: boolean;
+}
+
+export interface SourceSecurityMetadata {
+  captured_at: string;
+  bucket_acl: Record<string, unknown> | null;
+  bucket_policy_present: boolean;
+  bucket_policy: Record<string, unknown> | null;
+  public_access_block: PublicAccessBlock | null;
+  is_public_inferred: boolean;
+}
+
 export interface Source {
   id: string;
   name: string;
@@ -16,6 +32,7 @@ export interface Source {
   status: string;
   created_at: string;
   updated_at: string;
+  security_metadata?: SourceSecurityMetadata | null;
 }
 
 export interface FileVersion {
@@ -114,11 +131,74 @@ export interface StorageBySource {
 
 // ---- Browse / Entry types ----
 
-export interface ACLEntry {
+// ---- ACL discriminated-union types ----
+
+export type ACLType = "posix" | "nfsv4" | "nt" | "s3";
+
+export interface PosixACE {
   tag: string;
   qualifier: string;
   perms: string;
 }
+
+export interface PosixACL {
+  type: "posix";
+  entries: PosixACE[];
+  default_entries: PosixACE[] | null;
+}
+
+export interface NfsV4ACE {
+  principal: string;
+  ace_type: "allow" | "deny" | "audit" | "alarm";
+  flags: string[];
+  mask: string[];
+}
+
+export interface NfsV4ACL {
+  type: "nfsv4";
+  entries: NfsV4ACE[];
+}
+
+export interface NtPrincipal {
+  sid: string;
+  name: string;
+}
+
+export interface NtACE {
+  sid: string;
+  name: string;
+  ace_type: "allow" | "deny" | "audit";
+  flags: string[];
+  mask: string[];
+}
+
+export interface NtACL {
+  type: "nt";
+  owner: NtPrincipal | null;
+  group: NtPrincipal | null;
+  control: string[];
+  entries: NtACE[];
+}
+
+export interface S3Owner {
+  id: string;
+  display_name: string;
+}
+
+export interface S3Grant {
+  grantee_type: "canonical_user" | "group" | "amazon_customer_by_email";
+  grantee_id: string;
+  grantee_name: string;
+  permission: "FULL_CONTROL" | "READ" | "WRITE" | "READ_ACP" | "WRITE_ACP";
+}
+
+export interface S3ACL {
+  type: "s3";
+  owner: S3Owner | null;
+  grants: S3Grant[];
+}
+
+export type ACL = PosixACL | NfsV4ACL | NtACL | S3ACL;
 
 export type EntryKind = "file" | "directory";
 
@@ -158,7 +238,7 @@ export interface EntryVersion {
   gid: number | null;
   owner_name: string | null;
   group_name: string | null;
-  acl: ACLEntry[] | null;
+  acl: ACL | null;
   xattrs: Record<string, string> | null;
   detected_at: string;
 }
@@ -179,7 +259,7 @@ export interface EntryDetail {
   gid: number | null;
   owner_name: string | null;
   group_name: string | null;
-  acl: ACLEntry[] | null;
+  acl: ACL | null;
   xattrs: Record<string, string> | null;
   fs_created_at: string | null;
   fs_modified_at: string | null;
@@ -188,6 +268,12 @@ export interface EntryDetail {
   last_seen_at: string;
   is_deleted: boolean;
   versions: EntryVersion[];
+  source: {
+    id: string;
+    name: string;
+    type: string;
+    security_metadata: SourceSecurityMetadata | null;
+  } | null;
 }
 
 export interface LargestFile {

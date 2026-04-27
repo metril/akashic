@@ -13,13 +13,14 @@ import (
 )
 
 type Options struct {
-	SourceID        string
-	ScanID          string
-	Root            string
-	BatchSize       int
-	Hash            bool
-	ExcludePatterns []string
-	LastScanTime    *time.Time // nil = full scan, non-nil = incremental
+	SourceID          string
+	ScanID            string
+	Root              string
+	BatchSize         int
+	Hash              bool
+	ExcludePatterns   []string
+	LastScanTime      *time.Time // nil = full scan, non-nil = incremental
+	CaptureObjectACLs bool       // S3 only: call GetObjectAcl per file (opt-in)
 }
 
 type Result struct {
@@ -51,8 +52,21 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	}
 	defer s.connector.Close()
 
+	var bucketSecurity *models.SourceSecurityMetadata
+	if s3c, ok := s.connector.(*connector.S3Connector); ok {
+		if s.opts.CaptureObjectACLs {
+			s3c.SetCaptureObjectACLs(true)
+		}
+		if sec, err := s3c.CollectBucketSecurity(ctx); err == nil {
+			bucketSecurity = sec
+		} else {
+			log.Printf("warning: bucket security capture failed: %v", err)
+		}
+	}
+
 	result := &Result{}
 	var batch []models.EntryRecord
+	firstBatch := true
 
 	flush := func(final bool) error {
 		if len(batch) == 0 && !final {
@@ -63,6 +77,10 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			ScanID:   s.opts.ScanID,
 			Entries:  batch,
 			IsFinal:  final,
+		}
+		if firstBatch {
+			scanBatch.SourceSecurityMetadata = bucketSecurity
+			firstBatch = false
 		}
 		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
 			return fmt.Errorf("send batch: %w", err)
@@ -76,8 +94,9 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// modified after LastScanTime.
 	incremental := s.opts.Hash && s.opts.LastScanTime != nil
 	walkHash := s.opts.Hash && !incremental
+	fullScan := !incremental
 
-	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, func(entry *models.EntryRecord) error {
+	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
 		} else {

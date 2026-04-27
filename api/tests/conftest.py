@@ -10,7 +10,12 @@ from akashic.database import Base, get_db
 from akashic.main import create_app
 from akashic.models import *  # noqa: F401,F403
 
-TEST_DB_URL = "postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test"
+import os
+
+TEST_DB_URL = os.environ.get(
+    "TEST_DB_URL",
+    "postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test",
+)
 
 engine = create_async_engine(TEST_DB_URL, echo=False)
 test_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

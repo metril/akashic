@@ -4,6 +4,8 @@ import type { EntryDetail as EntryDetailT } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { formatMode, formatOctal } from "../lib/perms";
 import { Badge, Spinner, EmptyState } from "./ui";
+import { ACLSection } from "./acl/ACLSection";
+import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 
 interface Props {
   entryId: string | null;
@@ -80,6 +82,7 @@ export function EntryDetail({ entryId }: Props) {
 
   return (
     <div className="divide-y divide-gray-100">
+      <S3ExposureBanner source={entry.source as import("../types").Source | undefined} />
       <Section title="Identity">
         <dl>
           <Row label="Path">
@@ -124,32 +127,7 @@ export function EntryDetail({ entryId }: Props) {
         </dl>
       </Section>
 
-      <Section title="POSIX ACL" empty={!entry.acl || entry.acl.length === 0}>
-        {entry.acl && entry.acl.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[11px] text-gray-400 uppercase tracking-wide">
-                <th className="text-left py-1 font-semibold">Tag</th>
-                <th className="text-left py-1 font-semibold">Qualifier</th>
-                <th className="text-left py-1 font-semibold">Perms</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {entry.acl.map((a, i) => (
-                <tr key={i}>
-                  <td className="py-1.5">
-                    <Mono>{a.tag}</Mono>
-                  </td>
-                  <td className="py-1.5 text-gray-700">{a.qualifier || "—"}</td>
-                  <td className="py-1.5">
-                    <Mono>{a.perms}</Mono>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Section>
+      <ACLSection acl={entry.acl} />
 
       <Section
         title="Extended attributes"

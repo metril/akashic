@@ -23,7 +23,7 @@ require (
 	github.com/aws/smithy-go v1.20.1 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hirochachacha/go-smb2 v1.1.0 // indirect
+	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pkg/sftp v1.13.6 // indirect
@@ -32,3 +32,10 @@ require (
 	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 )
+
+// Vendored patch: github.com/hirochachacha/go-smb2 v1.1.0 does not expose
+// SMB2 QUERY_INFO with InfoType=SMB2_0_INFO_SECURITY. The local copy at
+// ./internal/vendor/go-smb2 adds GetSecurityDescriptorBytes() on *Share.
+// Based on upstream PR #65 (github.com/hirochachacha/go-smb2/pull/65).
+// Drop this replace once that PR is merged and a tagged release is cut.
+replace github.com/hirochachacha/go-smb2 => ./internal/vendor/go-smb2
