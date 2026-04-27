@@ -41,6 +41,7 @@ class SourceResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    security_metadata: dict | None = None
 
     model_config = {"from_attributes": True}
 

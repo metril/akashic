@@ -18,6 +18,7 @@ import {
 import type { BadgeVariant } from "../components/ui";
 import type { Source } from "../types";
 import { formatDate } from "../lib/format";
+import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
   "online",
@@ -111,6 +112,7 @@ function SourceCard({ source }: { source: Source }) {
             : "Failed to trigger scan"}
         </p>
       )}
+      {source.type === "s3" && <BucketSecurityCard source={source} />}
     </Card>
   );
 }

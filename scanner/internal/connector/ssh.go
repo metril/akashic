@@ -1,12 +1,14 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -29,6 +32,11 @@ type SSHConnector struct {
 
 	sshClient  *gossh.Client
 	sftpClient *sftp.Client
+
+	hasGetfacl     bool
+	hasNfs4Getfacl bool
+	aclCache       map[string]*models.ACL // keyed by absolute path
+	aclMode        string                 // "full" | "perdir"
 }
 
 func NewSSHConnector(host string, port int, username, password, keyPath, keyPassphrase, knownHostsPath string) *SSHConnector {
@@ -100,10 +108,17 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 	}
 	c.sftpClient = sftpClient
 
+	c.hasGetfacl = c.remoteHas("getfacl")
+	c.hasNfs4Getfacl = c.remoteHas("nfs4_getfacl")
+	if !c.hasGetfacl && !c.hasNfs4Getfacl {
+		log.Printf("ssh: neither getfacl nor nfs4_getfacl available on %s — ACL capture disabled", c.host)
+	}
+	c.aclCache = make(map[string]*models.ACL)
+
 	return nil
 }
 
-func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn func(*models.EntryRecord) error) error {
+func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) error {
 	if c.sftpClient == nil {
 		return fmt.Errorf("not connected")
 	}
@@ -113,18 +128,28 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 		excludeSet[strings.ToLower(p)] = true
 	}
 
+	// Mode selection: full scans get a single full-tree dump.
+	c.aclCache = make(map[string]*models.ACL)
+	if fullScan {
+		c.aclMode = "full"
+		c.prefetchACLs(root, true)
+	} else {
+		c.aclMode = "perdir"
+	}
+
 	walker := c.sftpClient.Walk(root)
+	currentDir := ""
 	for walker.Step() {
 		if err := walker.Err(); err != nil {
 			log.Printf("warning: walk error at %s: %v", walker.Path(), err)
 			continue
 		}
 
-		path := walker.Path()
+		p := walker.Path()
 		stat := walker.Stat()
 		name := stat.Name()
 
-		if path == root {
+		if p == root {
 			continue
 		}
 
@@ -135,7 +160,18 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 			continue
 		}
 
-		entry := fileInfoToEntry(ctx, path, stat, computeHash, c)
+		if c.aclMode == "perdir" {
+			parent := path.Dir(p)
+			if parent != currentDir {
+				currentDir = parent
+				c.prefetchACLs(parent, false)
+			}
+		}
+
+		entry := fileInfoToEntry(ctx, p, stat, computeHash, c)
+		if acl, ok := c.aclCache[p]; ok {
+			entry.Acl = acl
+		}
 		if err := fn(entry); err != nil {
 			return err
 		}
@@ -168,4 +204,68 @@ func (c *SSHConnector) Close() error {
 
 func (c *SSHConnector) Type() string {
 	return "ssh"
+}
+
+func (c *SSHConnector) remoteHas(tool string) bool {
+	out, err := c.runRemote("command -v " + tool + " >/dev/null 2>&1 && echo yes || echo no")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) == "yes"
+}
+
+func (c *SSHConnector) runRemote(cmd string) (string, error) {
+	sess, err := c.sshClient.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer sess.Close()
+	var stdout, stderr bytes.Buffer
+	sess.Stdout = &stdout
+	sess.Stderr = &stderr
+	if err := sess.Run(cmd); err != nil {
+		return stdout.String(), fmt.Errorf("ssh exec %q: %w (stderr=%s)", cmd, err, stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+// prefetchACLs runs a remote dump command and merges results into c.aclCache.
+func (c *SSHConnector) prefetchACLs(scope string, fullTree bool) {
+	if !c.hasGetfacl && !c.hasNfs4Getfacl {
+		return
+	}
+	depth := ""
+	if !fullTree {
+		depth = "-maxdepth 1 -mindepth 1"
+	}
+	scopeQ := shellQuote(scope)
+
+	if c.hasNfs4Getfacl {
+		cmd := fmt.Sprintf(
+			`find %s %s -print0 2>/dev/null | xargs -0 -I{} sh -c 'echo "# file: $1"; nfs4_getfacl "$1" 2>/dev/null; echo' _ {}`,
+			scopeQ, depth,
+		)
+		if out, err := c.runRemote(cmd); err == nil {
+			for k, v := range metadata.ParseRemoteNfs4Dump(out) {
+				c.aclCache[k] = v
+			}
+		}
+	}
+	if c.hasGetfacl {
+		cmd := fmt.Sprintf(
+			`find %s %s -exec getfacl --absolute-names {} + 2>/dev/null`,
+			scopeQ, depth,
+		)
+		if out, err := c.runRemote(cmd); err == nil {
+			for k, v := range metadata.ParseRemotePosixDump(out) {
+				if _, alreadyHaveNfs4 := c.aclCache[k]; !alreadyHaveNfs4 {
+					c.aclCache[k] = v
+				}
+			}
+		}
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -116,3 +116,20 @@ func TestCollect_OwnerResolution(t *testing.T) {
 		t.Error("expected uid to be captured")
 	}
 }
+
+func TestCollect_ACLWrapped(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := Collect(path, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ACL may be nil on filesystems without extended ACLs — that's fine.
+	// But if present, it must be POSIX-typed.
+	if entry.Acl != nil && entry.Acl.Type != "posix" {
+		t.Errorf("expected posix ACL or nil, got type=%q", entry.Acl.Type)
+	}
+}

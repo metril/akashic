@@ -1,0 +1,67 @@
+package metadata
+
+// wellKnownSIDs covers the standard NT SIDs that don't require LSA lookup.
+// Source: MS-DTYP §2.4.2.4 + Microsoft KB 243330.
+var wellKnownSIDs = map[string]string{
+	"S-1-0-0":      "Null SID",
+	"S-1-1-0":      "Everyone",
+	"S-1-2-0":      "Local",
+	"S-1-2-1":      "Console Logon",
+	"S-1-3-0":      "Creator Owner",
+	"S-1-3-1":      "Creator Group",
+	"S-1-3-2":      "Creator Owner Server",
+	"S-1-3-3":      "Creator Group Server",
+	"S-1-3-4":      "Owner Rights",
+	"S-1-5-1":      "NT AUTHORITY\\Dialup",
+	"S-1-5-2":      "NT AUTHORITY\\Network",
+	"S-1-5-3":      "NT AUTHORITY\\Batch",
+	"S-1-5-4":      "NT AUTHORITY\\Interactive",
+	"S-1-5-6":      "NT AUTHORITY\\Service",
+	"S-1-5-7":      "NT AUTHORITY\\Anonymous",
+	"S-1-5-8":      "NT AUTHORITY\\Proxy",
+	"S-1-5-9":      "NT AUTHORITY\\Enterprise Domain Controllers",
+	"S-1-5-10":     "NT AUTHORITY\\Self",
+	"S-1-5-11":     "NT AUTHORITY\\Authenticated Users",
+	"S-1-5-12":     "NT AUTHORITY\\Restricted",
+	"S-1-5-13":     "NT AUTHORITY\\Terminal Server User",
+	"S-1-5-14":     "NT AUTHORITY\\Remote Interactive Logon",
+	"S-1-5-15":     "NT AUTHORITY\\This Organization",
+	"S-1-5-17":     "NT AUTHORITY\\IUSR",
+	"S-1-5-18":     "NT AUTHORITY\\SYSTEM",
+	"S-1-5-19":     "NT AUTHORITY\\Local Service",
+	"S-1-5-20":     "NT AUTHORITY\\Network Service",
+	"S-1-5-32-544": "BUILTIN\\Administrators",
+	"S-1-5-32-545": "BUILTIN\\Users",
+	"S-1-5-32-546": "BUILTIN\\Guests",
+	"S-1-5-32-547": "BUILTIN\\Power Users",
+	"S-1-5-32-548": "BUILTIN\\Account Operators",
+	"S-1-5-32-549": "BUILTIN\\Server Operators",
+	"S-1-5-32-550": "BUILTIN\\Print Operators",
+	"S-1-5-32-551": "BUILTIN\\Backup Operators",
+	"S-1-5-32-552": "BUILTIN\\Replicator",
+	"S-1-5-32-554": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+	"S-1-5-32-555": "BUILTIN\\Remote Desktop Users",
+	"S-1-5-32-556": "BUILTIN\\Network Configuration Operators",
+	"S-1-5-32-557": "BUILTIN\\Incoming Forest Trust Builders",
+	"S-1-5-32-558": "BUILTIN\\Performance Monitor Users",
+	"S-1-5-32-559": "BUILTIN\\Performance Log Users",
+	"S-1-5-32-560": "BUILTIN\\Windows Authorization Access Group",
+	"S-1-5-32-561": "BUILTIN\\Terminal Server License Servers",
+	"S-1-5-32-562": "BUILTIN\\Distributed COM Users",
+	"S-1-5-32-568": "BUILTIN\\IIS_IUSRS",
+	"S-1-5-32-569": "BUILTIN\\Cryptographic Operators",
+	"S-1-5-32-573": "BUILTIN\\Event Log Readers",
+	"S-1-5-32-574": "BUILTIN\\Certificate Service DCOM Access",
+	"S-1-5-32-575": "BUILTIN\\RDS Remote Access Servers",
+	"S-1-5-32-576": "BUILTIN\\RDS Endpoint Servers",
+	"S-1-5-32-577": "BUILTIN\\RDS Management Servers",
+	"S-1-5-32-578": "BUILTIN\\Hyper-V Administrators",
+	"S-1-5-32-579": "BUILTIN\\Access Control Assistance Operators",
+	"S-1-5-32-580": "BUILTIN\\Remote Management Users",
+}
+
+// WellKnownSIDName returns the friendly name for a well-known SID, or "" if
+// not in the table. Domain SIDs (S-1-5-21-...) are NOT here — those need LSA.
+func WellKnownSIDName(sid string) string {
+	return wellKnownSIDs[sid]
+}

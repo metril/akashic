@@ -11,6 +11,7 @@ class ScanBatchIn(BaseModel):
     scan_id: uuid.UUID
     entries: list[EntryIn]
     is_final: bool = False
+    source_security_metadata: dict | None = None
 
 
 class ScanBatchResponse(BaseModel):
