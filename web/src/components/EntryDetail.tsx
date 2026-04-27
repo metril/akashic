@@ -5,6 +5,7 @@ import { formatBytes, formatDateTime } from "../lib/format";
 import { formatMode, formatOctal } from "../lib/perms";
 import { Badge, Spinner, EmptyState } from "./ui";
 import { ACLSection } from "./acl/ACLSection";
+import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 
 interface Props {
   entryId: string | null;
@@ -81,6 +82,7 @@ export function EntryDetail({ entryId }: Props) {
 
   return (
     <div className="divide-y divide-gray-100">
+      <S3ExposureBanner source={entry.source as import("../types").Source | undefined} />
       <Section title="Identity">
         <dl>
           <Row label="Path">

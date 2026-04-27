@@ -11,11 +11,13 @@ from akashic.auth.dependencies import (
 )
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryVersion
+from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.entry import (
     EntryDetailResponse,
     EntryResponse,
     EntryVersionResponse,
+    _EntrySourceRef,
 )
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -95,6 +97,9 @@ async def get_entry(
     )
     versions = versions_result.scalars().all()
 
+    source_result = await db.execute(select(Source).where(Source.id == entry.source_id))
+    source = source_result.scalar_one_or_none()
+
     return EntryDetailResponse(
         id=entry.id,
         source_id=entry.source_id,
@@ -120,6 +125,7 @@ async def get_entry(
         last_seen_at=entry.last_seen_at,
         is_deleted=entry.is_deleted,
         versions=[EntryVersionResponse.model_validate(v) for v in versions],
+        source=_EntrySourceRef.model_validate(source) if source else None,
     )
 
 

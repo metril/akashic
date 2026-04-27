@@ -268,6 +268,12 @@ export interface EntryDetail {
   last_seen_at: string;
   is_deleted: boolean;
   versions: EntryVersion[];
+  source: {
+    id: string;
+    name: string;
+    type: string;
+    security_metadata: SourceSecurityMetadata | null;
+  } | null;
 }
 
 export interface LargestFile {
