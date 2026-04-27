@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -101,6 +102,12 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 			}
 		}
 
+		if sd, sderr := c.querySecurityDescriptor(path); sderr == nil && len(sd) > 0 {
+			if acl, aerr := metadata.SDToNtACL(sd, nil); aerr == nil {
+				entry.Acl = acl
+			}
+		}
+
 		if err := fn(entry); err != nil {
 			return err
 		}
@@ -122,6 +129,18 @@ func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 	defer f.Close()
 	return metadata.HashReader(f)
 }
+
+// querySecurityDescriptor returns the raw NT security descriptor bytes for the path.
+//
+// NOTE: The pinned hirochachacha/go-smb2 release does not expose the
+// SMB2 QUERY_INFO request needed to fetch security descriptors. This stub
+// returns an "unavailable" sentinel; NT ACL capture is therefore disabled
+// until the dependency exposes the API or we drop to a forked smb2 client.
+func (c *SMBConnector) querySecurityDescriptor(path string) ([]byte, error) {
+	return nil, errSMBSecurityUnavailable
+}
+
+var errSMBSecurityUnavailable = errors.New("smb security capture unavailable: go-smb2 needs to expose GetSecurityDescriptor")
 
 func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	if c.smbShare == nil {
