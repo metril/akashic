@@ -84,6 +84,9 @@ function diffPosix(prev: PosixACL, curr: PosixACL): ACLDiffItem[] {
 
 function nfsKey(ace: NfsV4ACE): string {
   // (principal, ace_type) — semantic identity for "is this the same ACE".
+  // Limitation: filesystems may legitimately produce multiple ACEs with the same
+  // (principal, ace_type) tuple but different masks/flags evaluated in order.
+  // We collapse those to one diff entry; full LCS would distinguish them.
   return `${ace.principal}\x00${ace.ace_type}`;
 }
 
@@ -157,7 +160,7 @@ function diffNfsV4(prev: NfsV4ACL, curr: NfsV4ACL): ACLDiffItem[] {
     nfsKey,
     nfsAcesEqual,
     nfsSummary,
-    (a, b) => `${a.principal} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
+    (a, b) => `${nfsSummary(a)} → ${nfsSummary(b)}`,
   );
 }
 
@@ -175,6 +178,8 @@ function ntSummary(ace: NtACE): string {
   return `${label} ${ace.ace_type} ${ace.mask.join(",")}${flagStr}${inherited}`;
 }
 
+// Intentionally excludes `name` — it's a resolved label that may rotate
+// across scans (e.g., LSA cache refresh between scans). SID is the durable identity.
 function ntAcesEqual(a: NtACE, b: NtACE): boolean {
   return (
     a.sid === b.sid &&
@@ -218,7 +223,7 @@ function diffNt(prev: NtACL, curr: NtACL): ACLDiffItem[] {
       ntKey,
       ntAcesEqual,
       ntSummary,
-      (a, b) => `${a.name || a.sid} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
+      (a, b) => `${ntSummary(a)} → ${ntSummary(b)}`,
     ),
   );
 
@@ -232,7 +237,7 @@ function diffNt(prev: NtACL, curr: NtACL): ACLDiffItem[] {
       ntKey,
       ntAcesEqual,
       ntSummary,
-      (a, b) => `${a.name || a.sid} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
+      (a, b) => `${ntSummary(a)} → ${ntSummary(b)}`,
       "inherited",
     ),
   );

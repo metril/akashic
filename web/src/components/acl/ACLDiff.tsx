@@ -59,11 +59,13 @@ export function ACLDiff({ prev, curr }: { prev: ACL | null; curr: ACL | null }) 
 
   return (
     <div className="mt-1">
-      <ul className="space-y-0.5">
-        {direct.map((item, i) => (
-          <DiffRow key={i} item={item} />
-        ))}
-      </ul>
+      {direct.length > 0 && (
+        <ul className="space-y-0.5">
+          {direct.map((item, i) => (
+            <DiffRow key={i} item={item} />
+          ))}
+        </ul>
+      )}
       {inherited.length > 0 && (
         <div className="mt-1">
           <button
