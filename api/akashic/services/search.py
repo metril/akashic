@@ -20,14 +20,14 @@ async def ensure_index():
         await client.get_index(INDEX_NAME)
     except Exception:
         await client.create_index(INDEX_NAME, primary_key="id")
-        index = await client.get_index(INDEX_NAME)
-        await index.update_searchable_attributes(["filename", "path", "content_text", "tags"])
-        await index.update_filterable_attributes([
-            "source_id", "extension", "mime_type", "size_bytes",
-            "fs_modified_at", "tags", "owner_name", "group_name",
-            "viewable_by_read", "viewable_by_write", "viewable_by_delete",
-        ])
-        await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
+    index = await client.get_index(INDEX_NAME)
+    await index.update_searchable_attributes(["filename", "path", "content_text", "tags"])
+    await index.update_filterable_attributes([
+        "source_id", "extension", "mime_type", "size_bytes",
+        "fs_modified_at", "tags", "owner_name", "group_name",
+        "viewable_by_read", "viewable_by_write", "viewable_by_delete",
+    ])
+    await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
 
 
 def build_entry_doc(entry: "Entry", content_text: str | None = None) -> dict:
