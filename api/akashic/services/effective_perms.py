@@ -39,6 +39,17 @@ _NFSV4_BITS: dict[RightName, set[str]] = {
     "change_perms": {"write_acl", "write_owner"},
 }
 
+_NT_BITS: dict[RightName, set[str]] = {
+    "read":         {"READ_DATA", "LIST_DIRECTORY", "GENERIC_READ", "GENERIC_ALL"},
+    "write":        {"WRITE_DATA", "ADD_FILE", "APPEND_DATA", "ADD_SUBDIRECTORY", "GENERIC_WRITE", "GENERIC_ALL"},
+    "execute":      {"EXECUTE", "TRAVERSE", "GENERIC_EXECUTE", "GENERIC_ALL"},
+    "delete":       {"DELETE", "DELETE_CHILD", "GENERIC_ALL"},
+    "change_perms": {"WRITE_DAC", "WRITE_OWNER", "GENERIC_ALL"},
+}
+
+_NT_EVERYONE_SID = "S-1-1-0"
+_NT_AUTHENTICATED_USERS_SID = "S-1-5-11"
+
 
 def _empty_rights() -> dict[RightName, RightResult]:
     return {r: RightResult(granted=False, by=[]) for r in _ALL_RIGHTS}
@@ -235,11 +246,51 @@ def _eval_nfsv4(acl: NfsV4ACL, principal: PrincipalRef, groups: list[GroupRef]) 
     return _effective(rights, "nfsv4", principal, groups, [])
 
 
-# Stubs for NT / S3 — implemented in later tasks.
+# ── NT (CIFS) ────────────────────────────────────────────────────────────────
+
+def _nt_principal_matches(
+    ace: NtACE, principal: PrincipalRef, groups: list[GroupRef],
+) -> bool:
+    if ace.sid == _NT_EVERYONE_SID:
+        return True
+    if ace.sid == _NT_AUTHENTICATED_USERS_SID and principal.type == "sid":
+        return True
+    if "identifier_group" in ace.flags:
+        return any(g.identifier == ace.sid for g in groups)
+    return ace.sid == principal.identifier
 
 
 def _eval_nt(acl: NtACL, principal: PrincipalRef, groups: list[GroupRef]) -> EffectivePerms:
-    return _effective(_empty_rights(), "nt", principal, groups, ["NT evaluator not yet implemented"])
+    rights = _empty_rights()
+    for right, bit_set in _NT_BITS.items():
+        for i, ace in enumerate(acl.entries):
+            if ace.ace_type not in ("allow", "deny"):
+                continue
+            if not _nt_principal_matches(ace, principal, groups):
+                continue
+            if not (set(ace.mask) & bit_set):
+                continue
+            granted = ace.ace_type == "allow"
+            label = ace.name or ace.sid
+            ref = ACEReference(
+                ace_index=i,
+                summary=f"{label} {ace.ace_type} {','.join(ace.mask)}",
+            )
+            rights[right] = RightResult(granted=granted, by=[ref])
+            break
+
+    # Owner implicit change_perms (READ_CONTROL + WRITE_DAC).
+    caveats: list[str] = []
+    if acl.owner is not None and acl.owner.sid == principal.identifier:
+        if not rights["change_perms"].granted:
+            ref = ACEReference(
+                ace_index=-1,
+                summary=f"owner implicit (READ_CONTROL+WRITE_DAC): {acl.owner.name or acl.owner.sid}",
+            )
+            rights["change_perms"] = RightResult(granted=True, by=[ref])
+            caveats.append("Owner is implicitly granted READ_CONTROL and WRITE_DAC even without explicit ACEs.")
+
+    return _effective(rights, "nt", principal, groups, caveats)
 
 
 def _eval_s3(

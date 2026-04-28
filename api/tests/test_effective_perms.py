@@ -210,3 +210,102 @@ def test_nfsv4_by_field_references_ace():
     )
     assert result.rights["read"].by[0].ace_index == 0
     assert "alice@dom" in result.rights["read"].by[0].summary
+
+
+from akashic.schemas.acl import NtACE, NtACL, NtPrincipal
+
+
+def _nt(
+    entries: list[dict],
+    owner: dict | None = None,
+    group: dict | None = None,
+) -> NtACL:
+    return NtACL.model_validate({
+        "type": "nt",
+        "owner": owner,
+        "group": group,
+        "control": [],
+        "entries": entries,
+    })
+
+
+def _nt_ace(sid: str, ace_type: str, mask: list[str], flags: list[str] | None = None) -> dict:
+    return {
+        "sid": sid, "name": "",
+        "ace_type": ace_type, "flags": flags or [], "mask": mask,
+    }
+
+
+@pytest.mark.parametrize(
+    "principal_sid,group_sids,acl,expect_read,expect_write,expect_delete",
+    [
+        # Direct allow.
+        ("S-1-5-21-1-2-3-1013", [],
+         _nt([_nt_ace("S-1-5-21-1-2-3-1013", "allow", ["READ_DATA", "WRITE_DATA"])]),
+         True, True, False),
+        # Deny precedes allow.
+        ("S-1-5-21-1-2-3-1013", [],
+         _nt([
+             _nt_ace("S-1-5-21-1-2-3-1013", "deny",  ["WRITE_DATA"]),
+             _nt_ace("S-1-5-21-1-2-3-1013", "allow", ["WRITE_DATA"]),
+         ]),
+         False, False, False),
+        # Everyone SID matches anyone.
+        ("S-1-5-21-9-9-9-1234", [],
+         _nt([_nt_ace("S-1-1-0", "allow", ["READ_DATA"])]),
+         True, False, False),
+        # Group match via identifier_group.
+        ("S-1-5-21-1-2-3-1013",
+         ["S-1-5-21-1-2-3-513"],
+         _nt([_nt_ace("S-1-5-21-1-2-3-513", "allow", ["WRITE_DATA"], ["identifier_group"])]),
+         False, True, False),
+        # GENERIC_READ maps to read.
+        ("S-1-5-21-1-2-3-1013", [],
+         _nt([_nt_ace("S-1-5-21-1-2-3-1013", "allow", ["GENERIC_READ"])]),
+         True, False, False),
+        # DELETE bit grants delete.
+        ("S-1-5-21-1-2-3-1013", [],
+         _nt([_nt_ace("S-1-5-21-1-2-3-1013", "allow", ["DELETE"])]),
+         False, False, True),
+    ],
+)
+def test_nt_evaluator(principal_sid, group_sids, acl, expect_read, expect_write, expect_delete):
+    groups = [GroupRef(type="sid", identifier=g) for g in group_sids]
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="sid", identifier=principal_sid),
+        groups=groups,
+    )
+    assert result.rights["read"].granted is expect_read
+    assert result.rights["write"].granted is expect_write
+    assert result.rights["delete"].granted is expect_delete
+    assert result.evaluated_with.model == "nt"
+
+
+def test_nt_owner_implicit_change_perms():
+    sid = "S-1-5-21-1-2-3-1013"
+    acl = _nt(
+        [_nt_ace("S-1-1-0", "allow", ["READ_DATA"])],
+        owner={"sid": sid, "name": "DOM\\alice"},
+    )
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="sid", identifier=sid),
+        groups=[],
+    )
+    assert result.rights["change_perms"].granted is True
+    # Synthetic ace_index=-1 indicates "owner implicit".
+    assert any(ref.ace_index == -1 for ref in result.rights["change_perms"].by)
+
+
+def test_nt_authenticated_users_matches_any_sid_principal():
+    acl = _nt([_nt_ace("S-1-5-11", "allow", ["READ_DATA"])])
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="sid", identifier="S-1-5-21-9-9-9-1234"),
+        groups=[],
+    )
+    assert result.rights["read"].granted is True
