@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 IdentityType = Literal["posix_uid", "sid", "nfsv4_principal", "s3_canonical"]
@@ -16,12 +16,42 @@ class FsBindingIn(BaseModel):
     identifier: str
     groups: list[str] = Field(default_factory=list)
 
+    @field_validator("identifier")
+    @classmethod
+    def _strip_identifier(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("identifier must not be empty")
+        return v
+
+    @field_validator("groups")
+    @classmethod
+    def _strip_groups(cls, v: list[str]) -> list[str]:
+        return [g.strip() for g in v if g.strip()]
+
 
 class FsBindingPatch(BaseModel):
     identity_type: IdentityType | None = None
     identifier: str | None = None
     groups: list[str] | None = None
     groups_source: GroupsSource | None = None  # caller can pin to 'manual'
+
+    @field_validator("identifier")
+    @classmethod
+    def _strip_identifier(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("identifier must not be empty")
+        return v
+
+    @field_validator("groups")
+    @classmethod
+    def _strip_groups(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        return [g.strip() for g in v if g.strip()]
 
 
 class FsBindingOut(BaseModel):

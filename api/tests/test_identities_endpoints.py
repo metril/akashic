@@ -150,3 +150,56 @@ async def test_binding_unique_per_source(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert second.status_code == 409  # unique violation surfaced as conflict
+
+
+@pytest.mark.asyncio
+async def test_binding_identifier_whitespace_trimmed(client, db_session):
+    from akashic.models import Source
+
+    token = await _register_login(client)
+
+    source = Source(id=uuid.uuid4(), name="t", type="local", connection_config={"path": "/tmp"})
+    db_session.add(source)
+    await db_session.commit()
+
+    create = await client.post(
+        "/api/identities", json={"label": "P"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    pid = create.json()["id"]
+    add = await client.post(
+        f"/api/identities/{pid}/bindings",
+        json={
+            "source_id": str(source.id),
+            "identity_type": "posix_uid",
+            "identifier": "  1000  ",
+            "groups": [" 100 ", "", "  1000 "],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert add.status_code == 201
+    body = add.json()
+    assert body["identifier"] == "1000"
+    assert body["groups"] == ["100", "1000"]
+
+
+@pytest.mark.asyncio
+async def test_binding_empty_identifier_rejected(client, db_session):
+    from akashic.models import Source
+
+    token = await _register_login(client)
+    source = Source(id=uuid.uuid4(), name="t", type="local", connection_config={"path": "/tmp"})
+    db_session.add(source)
+    await db_session.commit()
+
+    create = await client.post(
+        "/api/identities", json={"label": "P"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    pid = create.json()["id"]
+    add = await client.post(
+        f"/api/identities/{pid}/bindings",
+        json={"source_id": str(source.id), "identity_type": "posix_uid", "identifier": "   ", "groups": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert add.status_code == 422
