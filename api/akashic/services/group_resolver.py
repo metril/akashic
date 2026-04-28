@@ -57,6 +57,12 @@ def _ldap_initialize(url: str):
     return ldap.initialize(url)
 
 
+def _ldap_escape(value: str) -> str:
+    """Escape user-controlled values before interpolating into LDAP filters."""
+    import ldap.filter
+    return ldap.filter.escape_filter_chars(value)
+
+
 # ── Per-implementation helpers ──────────────────────────────────────────────
 
 
@@ -101,10 +107,11 @@ def _resolve_ldap(source, binding) -> ResolveResult:
         conn.simple_bind_s(bind_dn, bind_pw)
         # Filter by uid attribute against the principal's local-part.
         local = binding.identifier.split("@", 1)[0]
+        filterstr = f"(uid={_ldap_escape(local)})"
         results = conn.search_s(
             search_base,
             2,  # ldap.SCOPE_SUBTREE
-            filterstr=f"(uid={local})",
+            filterstr=filterstr,
             attrlist=[group_attr],
         )
         try:
