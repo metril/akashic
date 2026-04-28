@@ -309,3 +309,78 @@ def test_nt_authenticated_users_matches_any_sid_principal():
         groups=[],
     )
     assert result.rights["read"].granted is True
+
+
+from akashic.schemas.acl import S3ACL, S3Grant, S3Owner
+
+
+def _s3(grants: list[dict], owner: dict | None = None) -> S3ACL:
+    return S3ACL.model_validate({
+        "type": "s3",
+        "owner": owner,
+        "grants": grants,
+    })
+
+
+@pytest.mark.parametrize(
+    "principal_id,grants,expect_read,expect_write,expect_delete",
+    [
+        # Direct canonical_user grant.
+        ("acct-1",
+         [{"grantee_type": "canonical_user", "grantee_id": "acct-1", "grantee_name": "", "permission": "READ"}],
+         True, False, False),
+        # FULL_CONTROL grants everything (except execute).
+        ("acct-1",
+         [{"grantee_type": "canonical_user", "grantee_id": "acct-1", "grantee_name": "", "permission": "FULL_CONTROL"}],
+         True, True, True),
+        # AllUsers group grants to everyone.
+        ("anyone",
+         [{"grantee_type": "group", "grantee_id": "AllUsers", "grantee_name": "", "permission": "READ"}],
+         True, False, False),
+        # WRITE permission yields delete granted.
+        ("acct-1",
+         [{"grantee_type": "canonical_user", "grantee_id": "acct-1", "grantee_name": "", "permission": "WRITE"}],
+         False, True, True),
+        # Non-matching grantee.
+        ("acct-2",
+         [{"grantee_type": "canonical_user", "grantee_id": "acct-1", "grantee_name": "", "permission": "READ"}],
+         False, False, False),
+    ],
+)
+def test_s3_evaluator(principal_id, grants, expect_read, expect_write, expect_delete):
+    acl = _s3(grants)
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="s3_canonical", identifier=principal_id),
+        groups=[],
+    )
+    assert result.rights["read"].granted is expect_read
+    assert result.rights["write"].granted is expect_write
+    assert result.rights["delete"].granted is expect_delete
+    assert result.rights["execute"].granted is False  # always n/a
+    assert result.evaluated_with.model == "s3"
+
+
+def test_s3_authenticated_users_matches_any_principal():
+    acl = _s3([
+        {"grantee_type": "group", "grantee_id": "AuthenticatedUsers", "grantee_name": "", "permission": "READ"},
+    ])
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="s3_canonical", identifier="any-acct"),
+        groups=[],
+    )
+    assert result.rights["read"].granted is True
+
+
+def test_s3_caveats_always_include_iam_note():
+    acl = _s3([])
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="s3_canonical", identifier="acct-1"),
+        groups=[],
+    )
+    assert any("IAM" in c for c in result.evaluated_with.caveats)
