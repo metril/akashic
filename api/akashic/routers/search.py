@@ -175,7 +175,6 @@ async def search(
                 request=request,
                 source_id=source_id,
             )
-            await db.commit()
 
         return SearchResults(
             results=hits,
@@ -236,6 +235,5 @@ async def search(
                 request=request,
                 source_id=source_id,
             )
-            await db.commit()
 
         return SearchResults(results=hits, total=total, query=q)
