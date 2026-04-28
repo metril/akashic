@@ -300,6 +300,24 @@ def test_nt_owner_implicit_change_perms():
     assert any(ref.ace_index == -1 for ref in result.rights["change_perms"].by)
 
 
+def test_nt_group_sid_matches_via_token_membership_no_flag():
+    """Windows tokens contain both user and group SIDs uniformly. A DACL ACE
+    granting access to a group SID matches a user whose token includes that SID,
+    even though the ACE has no NFSv4-style 'identifier_group' flag.
+    """
+    user_sid = "S-1-5-21-1-2-3-1013"
+    group_sid = "S-1-5-21-1-2-3-513"  # Domain Users
+    acl = _nt([_nt_ace(group_sid, "allow", ["WRITE_DATA"])])  # no flags
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="sid", identifier=user_sid),
+        groups=[GroupRef(type="sid", identifier=group_sid)],
+    )
+    assert result.rights["write"].granted is True
+    assert result.rights["read"].granted is False
+
+
 def test_nt_authenticated_users_matches_any_sid_principal():
     acl = _nt([_nt_ace("S-1-5-11", "allow", ["READ_DATA"])])
     result = compute_effective(

@@ -270,9 +270,11 @@ def _nt_principal_matches(
         return True
     if ace.sid == _NT_AUTHENTICATED_USERS_SID and principal.type == "sid":
         return True
-    if "identifier_group" in ace.flags:
-        return any(g.identifier == ace.sid for g in groups)
-    return ace.sid == principal.identifier
+    if ace.sid == principal.identifier:
+        return True
+    # Windows tokens treat user and group SIDs uniformly at access-check time;
+    # the captured DACL doesn't carry the NFSv4-style identifier_group flag.
+    return any(g.identifier == ace.sid for g in groups)
 
 
 def _eval_nt(acl: NtACL, principal: PrincipalRef, groups: list[GroupRef]) -> EffectivePerms:

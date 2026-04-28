@@ -131,7 +131,7 @@ export function EntryDetail({ entryId }: Props) {
 
       <ACLSection acl={entry.acl} />
 
-      <EffectivePermissions entryId={entry.id} acl={entry.acl} />
+      <EffectivePermissions key={entry.id} entryId={entry.id} acl={entry.acl} />
 
       <Section
         title="Extended attributes"
