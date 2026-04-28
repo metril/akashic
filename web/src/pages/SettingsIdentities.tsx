@@ -70,6 +70,10 @@ function PersonCard({
     mutationFn: (bid) => api.delete<void>(`/identities/${person.id}/bindings/${bid}`),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
+  const resolveGroups = useMutation<FsBinding, Error, string>({
+    mutationFn: (bid) => api.post<FsBinding>(`/identities/${person.id}/bindings/${bid}/resolve-groups`, {}),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
+  });
 
   return (
     <li className="border border-gray-200 rounded p-4 bg-white">
@@ -105,6 +109,20 @@ function PersonCard({
                   groups: {b.groups.join(", ")}
                 </span>
               )}
+              {b.groups_resolved_at && b.groups_source === "auto" && (
+                <span className="text-[10px] text-gray-400">
+                  auto · {new Date(b.groups_resolved_at).toLocaleDateString()}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => resolveGroups.mutate(b.id)}
+                disabled={resolveGroups.isPending}
+                className="text-xs text-accent-700 hover:text-accent-900 disabled:opacity-50"
+                title="Auto-resolve groups from the source"
+              >
+                {resolveGroups.isPending ? "Resolving…" : "Resolve"}
+              </button>
               <button
                 type="button" onClick={() => deleteBinding.mutate(b.id)}
                 className="ml-auto text-xs text-gray-400 hover:text-red-600"
@@ -121,6 +139,11 @@ function PersonCard({
         onSubmit={(body) => addBinding.mutate(body)}
         pending={addBinding.isPending}
       />
+      {resolveGroups.error && (
+        <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1 mt-2">
+          {resolveGroups.error instanceof Error ? resolveGroups.error.message : "Resolve failed"}
+        </div>
+      )}
     </li>
   );
 }
