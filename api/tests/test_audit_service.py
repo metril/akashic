@@ -75,3 +75,34 @@ async def test_record_event_swallows_failures(db_session, caplog):
         request=None,
     )
     assert any("audit" in rec.message.lower() for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_record_event_swallows_commit_failures(caplog):
+    """A db.commit() that raises should NOT raise out of record_event."""
+    import logging
+    caplog.set_level(logging.WARNING, logger="akashic.services.audit")
+
+    class _CommitFailsSession:
+        def __init__(self):
+            self.added = []
+            self.rolled_back = False
+        def add(self, x):
+            self.added.append(x)
+        async def commit(self):
+            raise RuntimeError("commit failed")
+        async def rollback(self):
+            self.rolled_back = True
+
+    session = _CommitFailsSession()
+    # Should not raise.
+    await record_event(
+        db=session,
+        user=None,
+        event_type="identity_added",
+        payload={},
+        request=None,
+    )
+    assert len(session.added) == 1  # add was attempted
+    assert session.rolled_back  # rollback called after commit failure
+    assert any("audit" in rec.message.lower() for rec in caplog.records)

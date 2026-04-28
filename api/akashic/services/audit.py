@@ -41,5 +41,15 @@ async def record_event(
             payload=payload,
         )
         db.add(evt)
+        commit = getattr(db, "commit", None)
+        if commit is not None:
+            await commit()
     except Exception as exc:  # noqa: BLE001
         logger.warning("audit: failed to record %s: %s", event_type, exc)
+        # Try to roll back so the session isn't left in a broken state.
+        rollback = getattr(db, "rollback", None)
+        if rollback is not None:
+            try:
+                await rollback()
+            except Exception:  # noqa: BLE001
+                pass

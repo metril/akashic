@@ -73,7 +73,6 @@ async def create_identity(
         payload={"fs_person_id": str(person.id), "fs_person_label": person.label},
         request=request,
     )
-    await db.commit()
     return _person_with_bindings(person, [])
 
 
@@ -120,7 +119,6 @@ async def delete_identity(
         payload={"fs_person_id": str(person_id), "fs_person_label": label},
         request=request,
     )
-    await db.commit()
 
 
 @router.post("/{person_id}/bindings", response_model=FsBindingOut, status_code=status.HTTP_201_CREATED)
@@ -165,7 +163,6 @@ async def create_binding(
         },
         request=request,
     )
-    await db.commit()
     return FsBindingOut.model_validate(binding)
 
 
@@ -243,4 +240,3 @@ async def delete_binding(
         payload=snapshot,
         request=request,
     )
-    await db.commit()
