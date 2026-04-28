@@ -31,6 +31,14 @@ _ALL_RIGHTS: tuple[RightName, ...] = (
     "read", "write", "execute", "delete", "change_perms",
 )
 
+_NFSV4_BITS: dict[RightName, set[str]] = {
+    "read":         {"read_data", "list_directory"},
+    "write":        {"write_data", "append_data", "add_file"},
+    "execute":      {"execute"},
+    "delete":       {"delete", "delete_child"},
+    "change_perms": {"write_acl", "write_owner"},
+}
+
 
 def _empty_rights() -> dict[RightName, RightResult]:
     return {r: RightResult(granted=False, by=[]) for r in _ALL_RIGHTS}
@@ -189,10 +197,45 @@ def _eval_posix(
     return _effective(rights, "posix", principal, groups, caveats)
 
 
-# Stubs for NFSv4 / NT / S3 — implemented in later tasks.
+# ── NFSv4 ────────────────────────────────────────────────────────────────────
+
+def _nfsv4_principal_matches(
+    ace: NfsV4ACE, principal: PrincipalRef, groups: list[GroupRef],
+) -> bool:
+    if ace.principal == "EVERYONE@":
+        return True
+    if "identifier_group" in ace.flags:
+        return any(g.identifier == ace.principal for g in groups)
+    if ace.principal == principal.identifier:
+        return True
+    if ace.principal == "OWNER@" and principal.identifier == "OWNER@":
+        return True
+    if ace.principal == "GROUP@":
+        return any(g.identifier == "GROUP@" for g in groups)
+    return False
+
 
 def _eval_nfsv4(acl: NfsV4ACL, principal: PrincipalRef, groups: list[GroupRef]) -> EffectivePerms:
-    return _effective(_empty_rights(), "nfsv4", principal, groups, ["NFSv4 evaluator not yet implemented"])
+    rights = _empty_rights()
+    for right, bit_set in _NFSV4_BITS.items():
+        for i, ace in enumerate(acl.entries):
+            if ace.ace_type not in ("allow", "deny"):
+                continue  # audit/alarm don't affect access
+            if not _nfsv4_principal_matches(ace, principal, groups):
+                continue
+            if not (set(ace.mask) & bit_set):
+                continue
+            granted = ace.ace_type == "allow"
+            ref = ACEReference(
+                ace_index=i,
+                summary=f"{ace.principal} {ace.ace_type} {','.join(ace.mask)}",
+            )
+            rights[right] = RightResult(granted=granted, by=[ref])
+            break  # first match wins per RFC 7530 §6.2.1
+    return _effective(rights, "nfsv4", principal, groups, [])
+
+
+# Stubs for NT / S3 — implemented in later tasks.
 
 
 def _eval_nt(acl: NtACL, principal: PrincipalRef, groups: list[GroupRef]) -> EffectivePerms:
