@@ -5,6 +5,7 @@ import { formatBytes, formatDateTime } from "../lib/format";
 import { formatMode, formatOctal } from "../lib/perms";
 import { Badge, Spinner, EmptyState } from "./ui";
 import { ACLSection } from "./acl/ACLSection";
+import { ACLDiff } from "./acl/ACLDiff";
 import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 
 interface Props {
@@ -183,23 +184,31 @@ export function EntryDetail({ entryId }: Props) {
           <ol className="space-y-3">
             {entry.versions.map((v, i) => {
               const prev = entry.versions[i + 1];
-              const changes: string[] = [];
+              const nonAclChanges: string[] = [];
+              let aclChanged = false;
               if (prev) {
-                if (v.content_hash !== prev.content_hash) changes.push("content");
-                if (v.size_bytes !== prev.size_bytes) changes.push("size");
-                if (v.mode !== prev.mode) changes.push("mode");
-                if (v.uid !== prev.uid || v.gid !== prev.gid) changes.push("ownership");
-                if (
-                  JSON.stringify(v.acl ?? null) !==
-                  JSON.stringify(prev.acl ?? null)
-                )
-                  changes.push("acl");
+                if (v.content_hash !== prev.content_hash) nonAclChanges.push("content");
+                if (v.size_bytes !== prev.size_bytes) nonAclChanges.push("size");
+                if (v.mode !== prev.mode) nonAclChanges.push("mode");
+                if (v.uid !== prev.uid || v.gid !== prev.gid) nonAclChanges.push("ownership");
                 if (
                   JSON.stringify(v.xattrs ?? null) !==
                   JSON.stringify(prev.xattrs ?? null)
                 )
-                  changes.push("xattrs");
+                  nonAclChanges.push("xattrs");
+                if (
+                  JSON.stringify(v.acl ?? null) !==
+                  JSON.stringify(prev.acl ?? null)
+                )
+                  aclChanged = true;
               }
+              const label = !prev
+                ? "First observation"
+                : nonAclChanges.length === 0 && !aclChanged
+                  ? "Re-observed (no field changed)"
+                  : nonAclChanges.length > 0
+                    ? `Changed: ${nonAclChanges.join(", ")}`
+                    : null;
               return (
                 <li
                   key={v.id}
@@ -208,13 +217,12 @@ export function EntryDetail({ entryId }: Props) {
                   <div className="text-xs text-gray-500">
                     {formatDateTime(v.detected_at)}
                   </div>
-                  <div className="text-sm text-gray-800 mt-0.5">
-                    {prev
-                      ? changes.length > 0
-                        ? `Changed: ${changes.join(", ")}`
-                        : "Re-observed (no field changed)"
-                      : "First observation"}
-                  </div>
+                  {label && (
+                    <div className="text-sm text-gray-800 mt-0.5">{label}</div>
+                  )}
+                  {aclChanged && prev && (
+                    <ACLDiff prev={prev.acl} curr={v.acl} />
+                  )}
                 </li>
               );
             })}
