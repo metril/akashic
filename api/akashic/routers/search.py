@@ -23,6 +23,11 @@ _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 PermissionFilter = Literal["all", "readable", "writable"]
 
 
+def _escape_meili_value(s: str) -> str:
+    """Escape backslash and double-quote for use inside a Meili filter string literal."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 async def _user_has_any_bindings(user: User, db: AsyncSession) -> bool:
     result = await db.execute(
         select(FsPerson.id).where(FsPerson.user_id == user.id).limit(1)
@@ -108,7 +113,7 @@ async def search(
         if permission_filter in ("readable", "writable"):
             tokens = await _user_principal_tokens(user, db)
             field = "viewable_by_read" if permission_filter == "readable" else "viewable_by_write"
-            tok_clause = " OR ".join(f'{field} = "{t}"' for t in tokens)
+            tok_clause = " OR ".join(f'{field} = "{_escape_meili_value(t)}"' for t in tokens)
             filters.append(f"({tok_clause})")
 
         filter_str = " AND ".join(filters) if filters else None
