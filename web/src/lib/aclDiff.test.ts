@@ -261,3 +261,76 @@ describe("diffACL — NT", () => {
     ]);
   });
 });
+
+import type { S3ACL, S3Grant, S3Owner } from "../types";
+
+const s3Owner = (id: string, display_name = ""): S3Owner => ({ id, display_name });
+
+const grant = (
+  grantee_type: S3Grant["grantee_type"],
+  grantee_id: string,
+  permission: S3Grant["permission"],
+  grantee_name = "",
+): S3Grant => ({ grantee_type, grantee_id, permission, grantee_name });
+
+const s3 = (grants: S3Grant[], owner: S3Owner | null = s3Owner("acct-1", "owner")): S3ACL => ({
+  type: "s3",
+  owner,
+  grants,
+});
+
+describe("diffACL — S3", () => {
+  it("reports owner_changed using display_name when present, else id", () => {
+    const prev = s3([], s3Owner("acct-1", "Team A"));
+    const curr = s3([], s3Owner("acct-2", ""));
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "owner_changed",
+      from: "Team A",
+      to: "acct-2",
+    });
+  });
+
+  it("reports added grant", () => {
+    const prev = s3([grant("canonical_user", "acct-1", "FULL_CONTROL")]);
+    const curr = s3([
+      grant("canonical_user", "acct-1", "FULL_CONTROL"),
+      grant("group", "AllUsers", "READ"),
+    ]);
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "added",
+      summary: "group:AllUsers READ",
+    });
+  });
+
+  it("reports removed grant", () => {
+    const prev = s3([
+      grant("canonical_user", "acct-1", "FULL_CONTROL"),
+      grant("group", "AllUsers", "READ"),
+    ]);
+    const curr = s3([grant("canonical_user", "acct-1", "FULL_CONTROL")]);
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "removed",
+      summary: "group:AllUsers READ",
+    });
+  });
+
+  it("ignores ordering of grants", () => {
+    const prev = s3([
+      grant("canonical_user", "a", "FULL_CONTROL"),
+      grant("group", "AllUsers", "READ"),
+    ]);
+    const curr = s3([
+      grant("group", "AllUsers", "READ"),
+      grant("canonical_user", "a", "FULL_CONTROL"),
+    ]);
+    expect(diffACL(prev, curr)).toEqual([]);
+  });
+
+  it("treats permission change as remove+add (different key)", () => {
+    const prev = s3([grant("group", "AllUsers", "READ")]);
+    const curr = s3([grant("group", "AllUsers", "WRITE")]);
+    const result = diffACL(prev, curr);
+    expect(result).toContainEqual({ kind: "removed", summary: "group:AllUsers READ" });
+    expect(result).toContainEqual({ kind: "added", summary: "group:AllUsers WRITE" });
+  });
+});

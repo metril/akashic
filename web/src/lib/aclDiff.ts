@@ -1,4 +1,4 @@
-import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL, NtACE, NtACL, NtPrincipal } from "../types";
+import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../types";
 
 export type ACLDiffKind =
   | "type_changed"
@@ -28,6 +28,7 @@ export function diffACL(prev: ACL | null, curr: ACL | null): ACLDiffItem[] {
   if (prev!.type === "nfsv4" && curr!.type === "nfsv4") return diffNfsV4(prev as NfsV4ACL, curr as NfsV4ACL);
   if (prev!.type === "posix" && curr!.type === "posix") return diffPosix(prev as PosixACL, curr as PosixACL);
   if (prev!.type === "nt" && curr!.type === "nt") return diffNt(prev as NtACL, curr as NtACL);
+  if (prev!.type === "s3" && curr!.type === "s3") return diffS3(prev as S3ACL, curr as S3ACL);
   return [];
 }
 
@@ -235,6 +236,44 @@ function diffNt(prev: NtACL, curr: NtACL): ACLDiffItem[] {
       "inherited",
     ),
   );
+
+  return out;
+}
+
+// ── S3 ───────────────────────────────────────────────────────────────────────
+
+function s3OwnerLabel(o: S3Owner | null): string {
+  if (!o) return "(none)";
+  return o.display_name || o.id;
+}
+
+function s3GrantKey(g: S3Grant): string {
+  return `${g.grantee_type}\x00${g.grantee_id}\x00${g.permission}`;
+}
+
+function s3GrantSummary(g: S3Grant): string {
+  const label = g.grantee_name || g.grantee_id;
+  return `${g.grantee_type === "canonical_user" ? "user" : g.grantee_type}:${label} ${g.permission}`;
+}
+
+function diffS3(prev: S3ACL, curr: S3ACL): ACLDiffItem[] {
+  const out: ACLDiffItem[] = [];
+
+  const prevOwner = s3OwnerLabel(prev.owner);
+  const currOwner = s3OwnerLabel(curr.owner);
+  if (prevOwner !== currOwner) {
+    out.push({ kind: "owner_changed", from: prevOwner, to: currOwner });
+  }
+
+  const prevByKey = new Map(prev.grants.map((g) => [s3GrantKey(g), g]));
+  const currByKey = new Map(curr.grants.map((g) => [s3GrantKey(g), g]));
+
+  for (const g of prev.grants) {
+    if (!currByKey.has(s3GrantKey(g))) out.push({ kind: "removed", summary: s3GrantSummary(g) });
+  }
+  for (const g of curr.grants) {
+    if (!prevByKey.has(s3GrantKey(g))) out.push({ kind: "added", summary: s3GrantSummary(g) });
+  }
 
   return out;
 }
