@@ -79,18 +79,5 @@ async def _extract(entry_id: str):
                             entry.path,
                         )
 
-        await index_file({
-            "id": str(entry.id),
-            "source_id": str(entry.source_id),
-            "path": entry.path,
-            "filename": entry.name,
-            "extension": entry.extension,
-            "mime_type": entry.mime_type,
-            "size_bytes": entry.size_bytes,
-            "content_text": content_text,
-            "owner_name": entry.owner_name,
-            "group_name": entry.group_name,
-            "fs_modified_at": int(entry.fs_modified_at.timestamp())
-            if entry.fs_modified_at else None,
-            "tags": [],
-        })
+        from akashic.services.search import build_entry_doc
+        await index_file(build_entry_doc(entry, content_text=content_text))
