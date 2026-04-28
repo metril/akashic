@@ -49,20 +49,8 @@ async def _index_files_to_meilisearch(entry_ids: list[str], db_url: str):
                 if not e or e.kind != "file":
                     continue
 
-                await index_files_batch([{
-                    "id": str(e.id),
-                    "source_id": str(e.source_id),
-                    "path": e.path,
-                    "filename": e.name,
-                    "extension": e.extension,
-                    "mime_type": e.mime_type,
-                    "size_bytes": e.size_bytes,
-                    "owner_name": e.owner_name,
-                    "group_name": e.group_name,
-                    "fs_modified_at": int(e.fs_modified_at.timestamp())
-                    if e.fs_modified_at else None,
-                    "tags": [],
-                }])
+                from akashic.services.search import build_entry_doc
+                await index_files_batch([build_entry_doc(e)])
     except Exception as exc:
         logger.warning("Meilisearch indexing failed: %s", exc)
     finally:

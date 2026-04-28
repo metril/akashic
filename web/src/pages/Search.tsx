@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SearchResult, Source } from "../types";
+import type { SearchResult, Source, FsPerson } from "../types";
 import {
   Card,
   Input,
@@ -40,11 +40,21 @@ export default function Search() {
   const [extension, setExtension] = useState("");
   const [minSize, setMinSize] = useState("");
   const [maxSize, setMaxSize] = useState("");
+  const [permissionFilter, setPermissionFilter] = useState<"all" | "readable" | "writable" | null>(null);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
     queryFn: () => api.get<Source[]>("/sources"),
   });
+
+  const identitiesQ = useQuery<FsPerson[]>({
+    queryKey: ["identities"],
+    queryFn:  () => api.get<FsPerson[]>("/identities"),
+  });
+  const hasIdentities = (identitiesQ.data ?? []).length > 0;
+
+  const effectivePermissionFilter: "all" | "readable" | "writable" =
+    permissionFilter ?? (hasIdentities ? "readable" : "all");
 
   const sourceMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -68,7 +78,7 @@ export default function Search() {
   );
 
   const searchQuery = useQuery<SearchResponse>({
-    queryKey: ["search", query, sourceId, extension, minSize, maxSize],
+    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter],
     queryFn: () => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -76,6 +86,7 @@ export default function Search() {
       if (extension) params.set("extension", extension);
       if (minSize) params.set("min_size", minSize);
       if (maxSize) params.set("max_size", maxSize);
+      params.set("permission_filter", effectivePermissionFilter);
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
     enabled: hasFilter,
@@ -103,7 +114,16 @@ export default function Search() {
           className="h-11 text-[15px]"
           autoFocus
         />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+          <Select
+            value={effectivePermissionFilter}
+            onChange={(e) => setPermissionFilter(e.target.value as "all" | "readable" | "writable")}
+            options={[
+              { value: "readable", label: "Files I can read" },
+              { value: "writable", label: "Files I can write" },
+              { value: "all",      label: "All files I have access to" },
+            ]}
+          />
           <Select
             value={sourceId}
             onChange={(e) => setSourceId(e.target.value)}
