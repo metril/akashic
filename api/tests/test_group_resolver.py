@@ -54,8 +54,10 @@ async def test_posix_unknown_uid_raises_not_found(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ssh_unsupported(monkeypatch):
-    """SSH sources are deferred to 14b; resolver must return Unsupported."""
+async def test_ssh_empty_config_unsupported(monkeypatch):
+    """SSH source with no connection_config should surface UnsupportedResolution
+    (missing host). Phase 14b SSH-specific behavior is covered in
+    test_group_resolver_ssh.py."""
     from akashic.services.group_resolver import UnsupportedResolution, resolve_groups
 
     class _FakeSource:
@@ -71,7 +73,7 @@ async def test_ssh_unsupported(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_smb_unsupported(monkeypatch):
-    """SMB sources defer to 14b (SAMR); resolver returns Unsupported."""
+    """SMB sources defer to 14c (SAMR); resolver returns Unsupported."""
     from akashic.services.group_resolver import UnsupportedResolution, resolve_groups
 
     class _FakeSource:

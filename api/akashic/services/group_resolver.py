@@ -1,17 +1,20 @@
 """Group-membership auto-resolution for FsBindings.
 
-Per the Phase 14a scope:
+Per Phase 14a + 14b scope:
   - source.type=local|nfs + posix_uid → Python pwd/grp stdlib (NSS)
-  - identity_type=nfsv4_principal      → LDAP (memberOf attribute)
-  - everything else                    → UnsupportedResolution
+  - source.type=ssh      + posix_uid → paramiko + `id -Gn` over SSH
+  - identity_type=nfsv4_principal     → LDAP (memberOf attribute)
+  - everything else                   → UnsupportedResolution
 
-Phase 14b will add SSH POSIX (subprocess) and NT SMB (SAMR over DCE/RPC).
+Phase 14c will add NT SMB (SAMR over DCE/RPC).
 """
 from __future__ import annotations
 
 import logging
 import os
 import pwd
+import re
+import shlex
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class ResolveResult(BaseModel):
     groups: list[str]
-    source: Literal["nss", "ldap"]
+    source: Literal["nss", "ldap", "ssh"]
     resolved_at: datetime
 
 
@@ -63,7 +66,32 @@ def _ldap_escape(value: str) -> str:
     return ldap.filter.escape_filter_chars(value)
 
 
+def _paramiko_client():
+    """Lazy import; returns a fresh paramiko.SSHClient instance.
+    Tests monkeypatch this to inject a MagicMock and never touch real paramiko."""
+    import paramiko
+    return paramiko.SSHClient()
+
+
+def _ssh_load_known_hosts(client, path: str) -> None:
+    """Load a known_hosts file onto the client. Raises ResolutionFailed
+    on missing/unreadable/invalid file so the caller surfaces a structured
+    error instead of paramiko silently loading zero keys (which then fails
+    later as a generic 'host not in known_hosts' error)."""
+    if not os.access(path, os.R_OK):
+        raise ResolutionFailed(
+            "backend_error", f"known_hosts {path}: missing or unreadable"
+        )
+    try:
+        client.load_host_keys(path)
+    except (FileNotFoundError, OSError) as exc:
+        raise ResolutionFailed("backend_error", f"known_hosts {path}: {exc}")
+
+
 # ── Per-implementation helpers ──────────────────────────────────────────────
+
+
+_SAFE_UID = re.compile(r"^\d+$")
 
 
 def _resolve_posix_local(identifier: str) -> ResolveResult:
@@ -143,6 +171,101 @@ def _resolve_ldap(source, binding) -> ResolveResult:
     )
 
 
+def _resolve_posix_ssh(source, binding) -> ResolveResult:
+    """Resolve POSIX groups for a uid against an SSH source by running
+    `id -Gn <uid>` remotely and parsing the space-separated group names.
+
+    Connection details come from `source.connection_config` using the same
+    keys the SSH connector uses: host, port, username, password, key_path,
+    key_passphrase, known_hosts_path.
+
+    Strict-host-key by default: if known_hosts_path is missing, refuses to
+    auto-trust the remote host."""
+    cfg = source.connection_config or {}
+    host = cfg.get("host")
+    if not host:
+        raise UnsupportedResolution("Source missing host in connection_config")
+    port = int(cfg.get("port") or 22)
+    username = cfg.get("username")
+    if not username:
+        raise UnsupportedResolution("Source missing username in connection_config")
+    password = cfg.get("password") or None
+    key_path = cfg.get("key_path") or None
+    key_passphrase = cfg.get("key_passphrase") or None
+    known_hosts_path = cfg.get("known_hosts_path") or None
+
+    if not known_hosts_path:
+        # Strict by default — the deployer must explicitly opt into
+        # host-key trust by setting known_hosts_path on the source.
+        raise UnsupportedResolution(
+            "Source missing known_hosts_path; refusing to auto-trust host key"
+        )
+
+    # Validate identifier *after* config so a doubly-broken request (bad
+    # identifier on a misconfigured source) surfaces as a config issue
+    # the operator can fix, not as a phantom "user not found".
+    identifier = binding.identifier
+    if not _SAFE_UID.match(identifier or ""):
+        # Bare numeric uid only — anything else is rejected to prevent
+        # command-injection via crafted identifiers.
+        raise ResolutionFailed(
+            "not_found",
+            f"identifier {identifier!r} is not a numeric uid",
+        )
+
+    client = _paramiko_client()
+    try:
+        _ssh_load_known_hosts(client, known_hosts_path)
+
+        connect_kwargs = {
+            "hostname": host,
+            "port": port,
+            "username": username,
+            "timeout": 10,
+            "auth_timeout": 10,
+            "banner_timeout": 10,
+        }
+        if key_path:
+            connect_kwargs["key_filename"] = key_path
+            if key_passphrase:
+                connect_kwargs["passphrase"] = key_passphrase
+        if password:
+            connect_kwargs["password"] = password
+
+        try:
+            client.connect(**connect_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            raise ResolutionFailed("backend_error", f"ssh connect: {exc}")
+
+        cmd = f"id -Gn {shlex.quote(identifier)}"
+        try:
+            stdin, stdout, stderr = client.exec_command(cmd, timeout=10)
+            stdin.close()  # we're not piping anything in; close immediately
+            rc = stdout.channel.recv_exit_status()
+            out = stdout.read().decode("utf-8", errors="replace").strip()
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+        except Exception as exc:  # noqa: BLE001
+            raise ResolutionFailed("backend_error", f"ssh exec: {exc}")
+
+        if rc != 0:
+            if "no such user" in err.lower():
+                raise ResolutionFailed("not_found", err or f"uid {identifier} not found")
+            raise ResolutionFailed("backend_error", err or f"id exited {rc}")
+
+        groups = [g for g in out.split() if g]
+    finally:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return ResolveResult(
+        groups=groups,
+        source="ssh",
+        resolved_at=datetime.now(timezone.utc),
+    )
+
+
 # ── Public dispatcher ───────────────────────────────────────────────────────
 
 
@@ -162,16 +285,14 @@ async def resolve_groups(source, binding) -> ResolveResult:
         if src_type in ("local", "nfs"):
             return _resolve_posix_local(binding.identifier)
         if src_type == "ssh":
-            raise UnsupportedResolution(
-                "SSH POSIX group resolution is not yet implemented (Phase 14b)"
-            )
+            return _resolve_posix_ssh(source, binding)
         raise UnsupportedResolution(
             f"posix_uid resolution not supported on source.type={src_type!r}"
         )
 
     if id_type == "sid":
         raise UnsupportedResolution(
-            "NT/SID group resolution requires SAMR (Phase 14b)"
+            "NT/SID group resolution requires SAMR (Phase 14c)"
         )
 
     if id_type == "s3_canonical":
