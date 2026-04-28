@@ -335,3 +335,9 @@ export type {
   FsBindingInput,
   GroupsSource,
 } from "../lib/identityTypes";
+
+export type {
+  SearchAsOverride,
+  AuditEvent,
+  AuditEventList,
+} from "../lib/auditTypes";
