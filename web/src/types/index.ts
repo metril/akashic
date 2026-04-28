@@ -327,3 +327,11 @@ export type {
   EffectivePermsEvaluatedWith,
   EffectivePermsRequest,
 } from "../lib/effectivePermsTypes";
+
+export type {
+  FsBinding,
+  FsPerson,
+  FsPersonInput,
+  FsBindingInput,
+  GroupsSource,
+} from "../lib/identityTypes";
