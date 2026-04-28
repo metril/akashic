@@ -75,7 +75,13 @@ def _paramiko_client():
 
 def _ssh_load_known_hosts(client, path: str) -> None:
     """Load a known_hosts file onto the client. Raises ResolutionFailed
-    on missing/invalid file so the caller surfaces a structured error."""
+    on missing/unreadable/invalid file so the caller surfaces a structured
+    error instead of paramiko silently loading zero keys (which then fails
+    later as a generic 'host not in known_hosts' error)."""
+    if not os.access(path, os.R_OK):
+        raise ResolutionFailed(
+            "backend_error", f"known_hosts {path}: missing or unreadable"
+        )
     try:
         client.load_host_keys(path)
     except (FileNotFoundError, OSError) as exc:
@@ -188,6 +194,16 @@ def _resolve_posix_ssh(source, binding) -> ResolveResult:
     key_passphrase = cfg.get("key_passphrase") or None
     known_hosts_path = cfg.get("known_hosts_path") or None
 
+    if not known_hosts_path:
+        # Strict by default — the deployer must explicitly opt into
+        # host-key trust by setting known_hosts_path on the source.
+        raise UnsupportedResolution(
+            "Source missing known_hosts_path; refusing to auto-trust host key"
+        )
+
+    # Validate identifier *after* config so a doubly-broken request (bad
+    # identifier on a misconfigured source) surfaces as a config issue
+    # the operator can fix, not as a phantom "user not found".
     identifier = binding.identifier
     if not _SAFE_UID.match(identifier or ""):
         # Bare numeric uid only — anything else is rejected to prevent
@@ -195,13 +211,6 @@ def _resolve_posix_ssh(source, binding) -> ResolveResult:
         raise ResolutionFailed(
             "not_found",
             f"identifier {identifier!r} is not a numeric uid",
-        )
-
-    if not known_hosts_path:
-        # Strict by default — the deployer must explicitly opt into
-        # host-key trust by setting known_hosts_path on the source.
-        raise UnsupportedResolution(
-            "Source missing known_hosts_path; refusing to auto-trust host key"
         )
 
     client = _paramiko_client()
@@ -230,7 +239,8 @@ def _resolve_posix_ssh(source, binding) -> ResolveResult:
 
         cmd = f"id -Gn {shlex.quote(identifier)}"
         try:
-            _stdin, stdout, stderr = client.exec_command(cmd, timeout=10)
+            stdin, stdout, stderr = client.exec_command(cmd, timeout=10)
+            stdin.close()  # we're not piping anything in; close immediately
             rc = stdout.channel.recv_exit_status()
             out = stdout.read().decode("utf-8", errors="replace").strip()
             err = stderr.read().decode("utf-8", errors="replace").strip()
