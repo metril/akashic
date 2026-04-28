@@ -6,6 +6,7 @@ from akashic.models.user import User, SourcePermission, APIKey
 from akashic.models.webhook import Webhook, PurgeLog
 from akashic.models.fs_person import FsPerson, FsBinding
 from akashic.models.audit_event import AuditEvent
+from akashic.models.principal_groups_cache import PrincipalGroupsCache
 
 __all__ = [
     "Source",
@@ -23,4 +24,5 @@ __all__ = [
     "FsPerson",
     "FsBinding",
     "AuditEvent",
+    "PrincipalGroupsCache",
 ]
