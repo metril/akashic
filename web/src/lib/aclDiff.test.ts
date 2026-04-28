@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ACL, PosixACL, PosixACE, NfsV4ACL, NfsV4ACE } from "../types";
+import type { ACL, PosixACL, PosixACE, NfsV4ACL, NfsV4ACE, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../types";
 import { diffACL } from "./aclDiff";
 
 describe("diffACL — dispatcher", () => {
@@ -147,7 +147,18 @@ describe("diffACL — NFSv4", () => {
     const prev = nfs([nfsAce("alice@dom", "allow", ["read_data"])]);
     const curr = nfs([nfsAce("alice@dom", "allow", ["read_data", "write_data"])]);
     expect(diffACL(prev, curr)).toEqual([
-      { kind: "modified", summary: "alice@dom allow read_data → read_data,write_data" },
+      { kind: "modified", summary: "alice@dom allow read_data → alice@dom allow read_data,write_data" },
+    ]);
+  });
+
+  it("reports flag changes (mask unchanged)", () => {
+    const prev = nfs([nfsAce("alice@dom", "allow", ["read_data"], [])]);
+    const curr = nfs([nfsAce("alice@dom", "allow", ["read_data"], ["file_inherit"])]);
+    expect(diffACL(prev, curr)).toEqual([
+      {
+        kind: "modified",
+        summary: "alice@dom allow read_data → alice@dom allow read_data [file_inherit]",
+      },
     ]);
   });
 
@@ -181,8 +192,6 @@ describe("diffACL — NFSv4", () => {
     ]);
   });
 });
-
-import type { NtACE, NtACL, NtPrincipal } from "../types";
 
 const ntPrincipal = (sid: string, name = ""): NtPrincipal => ({ sid, name });
 
@@ -260,9 +269,16 @@ describe("diffACL — NT", () => {
       { kind: "owner_changed", from: "SYSTEM", to: "LOCAL SERVICE" },
     ]);
   });
-});
 
-import type { S3ACL, S3Grant, S3Owner } from "../types";
+  it("reports modified ACE with mask diff", () => {
+    const prev = nt([ntAce("S-1-1-0", "Everyone", "allow", ["READ_DATA"])]);
+    const curr = nt([ntAce("S-1-1-0", "Everyone", "allow", ["READ_DATA", "WRITE_DATA"])]);
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "modified",
+      summary: "Everyone allow READ_DATA → Everyone allow READ_DATA,WRITE_DATA",
+    });
+  });
+});
 
 const s3Owner = (id: string, display_name = ""): S3Owner => ({ id, display_name });
 
