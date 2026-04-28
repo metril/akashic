@@ -7,6 +7,7 @@ import { Badge, Spinner, EmptyState } from "./ui";
 import { ACLSection } from "./acl/ACLSection";
 import { ACLDiff } from "./acl/ACLDiff";
 import { S3ExposureBanner } from "./acl/S3ExposureBanner";
+import { EffectivePermissions } from "./acl/EffectivePermissions";
 
 interface Props {
   entryId: string | null;
@@ -129,6 +130,8 @@ export function EntryDetail({ entryId }: Props) {
       </Section>
 
       <ACLSection acl={entry.acl} />
+
+      <EffectivePermissions key={entry.id} entryId={entry.id} acl={entry.acl} />
 
       <Section
         title="Extended attributes"
