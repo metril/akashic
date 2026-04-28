@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ACL, PosixACL, PosixACE } from "../types";
+import type { ACL, PosixACL, PosixACE, NfsV4ACL, NfsV4ACE } from "../types";
 import { diffACL } from "./aclDiff";
 
 describe("diffACL — dispatcher", () => {
@@ -107,6 +107,77 @@ describe("diffACL — POSIX", () => {
     const curr = posix([{ tag: "mask", qualifier: "", perms: "r-x" }]);
     expect(diffACL(prev, curr)).toEqual([
       { kind: "modified", summary: "mask rwx → r-x" },
+    ]);
+  });
+});
+
+const nfsAce = (
+  principal: string,
+  ace_type: NfsV4ACE["ace_type"],
+  mask: string[],
+  flags: string[] = [],
+): NfsV4ACE => ({ principal, ace_type, mask, flags });
+
+const nfs = (entries: NfsV4ACE[]): NfsV4ACL => ({ type: "nfsv4", entries });
+
+describe("diffACL — NFSv4", () => {
+  it("reports added ACE", () => {
+    const prev = nfs([nfsAce("OWNER@", "allow", ["read_data"])]);
+    const curr = nfs([
+      nfsAce("OWNER@", "allow", ["read_data"]),
+      nfsAce("alice@dom", "allow", ["read_data", "write_data"]),
+    ]);
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "added", summary: "alice@dom allow read_data,write_data" },
+    ]);
+  });
+
+  it("reports removed ACE", () => {
+    const prev = nfs([
+      nfsAce("OWNER@", "allow", ["read_data"]),
+      nfsAce("alice@dom", "deny", ["write_data"]),
+    ]);
+    const curr = nfs([nfsAce("OWNER@", "allow", ["read_data"])]);
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "removed", summary: "alice@dom deny write_data" },
+    ]);
+  });
+
+  it("reports modified ACE when mask or flags change for same (principal, type)", () => {
+    const prev = nfs([nfsAce("alice@dom", "allow", ["read_data"])]);
+    const curr = nfs([nfsAce("alice@dom", "allow", ["read_data", "write_data"])]);
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "modified", summary: "alice@dom allow read_data → read_data,write_data" },
+    ]);
+  });
+
+  it("reports reorder when kept ACEs swap order", () => {
+    const prev = nfs([
+      nfsAce("alice@dom", "deny", ["write_data"]),
+      nfsAce("EVERYONE@", "allow", ["read_data"]),
+    ]);
+    const curr = nfs([
+      nfsAce("EVERYONE@", "allow", ["read_data"]),
+      nfsAce("alice@dom", "deny", ["write_data"]),
+    ]);
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "reordered", summary: "ACE order changed (significant for evaluation)" },
+    ]);
+  });
+
+  it("does not report reorder when add/remove changes naturally shift positions", () => {
+    const prev = nfs([
+      nfsAce("alice@dom", "deny", ["write_data"]),
+      nfsAce("EVERYONE@", "allow", ["read_data"]),
+    ]);
+    const curr = nfs([
+      nfsAce("alice@dom", "deny", ["write_data"]),
+      nfsAce("bob@dom", "allow", ["read_data"]),
+      nfsAce("EVERYONE@", "allow", ["read_data"]),
+    ]);
+    // alice and EVERYONE are still in the same relative order.
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "added", summary: "bob@dom allow read_data" },
     ]);
   });
 });
