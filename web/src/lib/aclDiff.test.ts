@@ -181,3 +181,83 @@ describe("diffACL — NFSv4", () => {
     ]);
   });
 });
+
+import type { NtACE, NtACL, NtPrincipal } from "../types";
+
+const ntPrincipal = (sid: string, name = ""): NtPrincipal => ({ sid, name });
+
+const ntAce = (
+  sid: string,
+  name: string,
+  ace_type: NtACE["ace_type"],
+  mask: string[],
+  flags: string[] = [],
+): NtACE => ({ sid, name, ace_type, mask, flags });
+
+const nt = (
+  entries: NtACE[],
+  owner: NtPrincipal | null = ntPrincipal("S-1-5-18", "SYSTEM"),
+  group: NtPrincipal | null = ntPrincipal("S-1-5-32-544", "Administrators"),
+): NtACL => ({ type: "nt", owner, group, control: [], entries });
+
+describe("diffACL — NT", () => {
+  it("reports owner_changed (display name when present, else SID)", () => {
+    const prev = nt([], ntPrincipal("S-1-5-18", "SYSTEM"));
+    const curr = nt([], ntPrincipal("S-1-5-21-100-100-100-500", "DOM\\Administrator"));
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "owner_changed",
+      from: "SYSTEM",
+      to: "DOM\\Administrator",
+    });
+  });
+
+  it("falls back to SID when owner has no name", () => {
+    const prev = nt([], ntPrincipal("S-1-5-18", ""));
+    const curr = nt([], ntPrincipal("S-1-5-19", ""));
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "owner_changed",
+      from: "S-1-5-18",
+      to: "S-1-5-19",
+    });
+  });
+
+  it("reports group_changed", () => {
+    const prev = nt([], undefined, ntPrincipal("S-1-5-32-544", "Administrators"));
+    const curr = nt([], undefined, ntPrincipal("S-1-5-32-545", "Users"));
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "group_changed",
+      from: "Administrators",
+      to: "Users",
+    });
+  });
+
+  it("reports added ACE keyed on (sid, ace_type)", () => {
+    const prev = nt([ntAce("S-1-1-0", "Everyone", "allow", ["READ_DATA"])]);
+    const curr = nt([
+      ntAce("S-1-1-0", "Everyone", "allow", ["READ_DATA"]),
+      ntAce("S-1-5-32-544", "Administrators", "allow", ["GENERIC_ALL"]),
+    ]);
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "added",
+      summary: "Administrators allow GENERIC_ALL",
+    });
+  });
+
+  it("scopes inherited ACE changes with [inherited]", () => {
+    const prev = nt([ntAce("S-1-1-0", "Everyone", "allow", ["READ_DATA"], ["inherited"])]);
+    const curr = nt([]);
+    expect(diffACL(prev, curr)).toContainEqual({
+      kind: "removed",
+      scope: "inherited",
+      summary: "Everyone allow READ_DATA [inherited]",
+    });
+  });
+
+  it("does not double-report owner change as 'modified' or as type_changed", () => {
+    const prev = nt([], ntPrincipal("S-1-5-18", "SYSTEM"));
+    const curr = nt([], ntPrincipal("S-1-5-19", "LOCAL SERVICE"));
+    expect(diffACL(prev, curr)).toEqual([
+      { kind: "owner_changed", from: "SYSTEM", to: "LOCAL SERVICE" },
+    ]);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL } from "../types";
+import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL, NtACE, NtACL, NtPrincipal } from "../types";
 
 export type ACLDiffKind =
   | "type_changed"
@@ -27,6 +27,7 @@ export function diffACL(prev: ACL | null, curr: ACL | null): ACLDiffItem[] {
   }
   if (prev!.type === "nfsv4" && curr!.type === "nfsv4") return diffNfsV4(prev as NfsV4ACL, curr as NfsV4ACL);
   if (prev!.type === "posix" && curr!.type === "posix") return diffPosix(prev as PosixACL, curr as PosixACL);
+  if (prev!.type === "nt" && curr!.type === "nt") return diffNt(prev as NtACL, curr as NtACL);
   return [];
 }
 
@@ -157,4 +158,83 @@ function diffNfsV4(prev: NfsV4ACL, curr: NfsV4ACL): ACLDiffItem[] {
     nfsSummary,
     (a, b) => `${a.principal} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
   );
+}
+
+// ── NT ───────────────────────────────────────────────────────────────────────
+
+function ntKey(ace: NtACE): string {
+  return `${ace.sid}\x00${ace.ace_type}`;
+}
+
+function ntSummary(ace: NtACE): string {
+  const label = ace.name || ace.sid;
+  const flags = ace.flags.filter((f) => f !== "inherited");
+  const flagStr = flags.length ? ` [${flags.join(",")}]` : "";
+  const inherited = ace.flags.includes("inherited") ? " [inherited]" : "";
+  return `${label} ${ace.ace_type} ${ace.mask.join(",")}${flagStr}${inherited}`;
+}
+
+function ntAcesEqual(a: NtACE, b: NtACE): boolean {
+  return (
+    a.sid === b.sid &&
+    a.ace_type === b.ace_type &&
+    arraysEqual(a.mask, b.mask) &&
+    arraysEqual(a.flags, b.flags)
+  );
+}
+
+function principalLabel(p: NtPrincipal | null): string {
+  if (!p) return "(none)";
+  return p.name || p.sid;
+}
+
+function isInherited(ace: NtACE): boolean {
+  return ace.flags.includes("inherited");
+}
+
+function diffNt(prev: NtACL, curr: NtACL): ACLDiffItem[] {
+  const out: ACLDiffItem[] = [];
+
+  // Owner / group first.
+  const prevOwner = principalLabel(prev.owner);
+  const currOwner = principalLabel(curr.owner);
+  if (prevOwner !== currOwner) {
+    out.push({ kind: "owner_changed", from: prevOwner, to: currOwner });
+  }
+  const prevGroup = principalLabel(prev.group);
+  const currGroup = principalLabel(curr.group);
+  if (prevGroup !== currGroup) {
+    out.push({ kind: "group_changed", from: prevGroup, to: currGroup });
+  }
+
+  // Direct ACEs.
+  const prevDirect = prev.entries.filter((a) => !isInherited(a));
+  const currDirect = curr.entries.filter((a) => !isInherited(a));
+  out.push(
+    ...diffOrderedAces(
+      prevDirect,
+      currDirect,
+      ntKey,
+      ntAcesEqual,
+      ntSummary,
+      (a, b) => `${a.name || a.sid} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
+    ),
+  );
+
+  // Inherited ACEs (separate scope so the renderer can collapse).
+  const prevInherited = prev.entries.filter(isInherited);
+  const currInherited = curr.entries.filter(isInherited);
+  out.push(
+    ...diffOrderedAces(
+      prevInherited,
+      currInherited,
+      ntKey,
+      ntAcesEqual,
+      ntSummary,
+      (a, b) => `${a.name || a.sid} ${a.ace_type} ${a.mask.join(",")} → ${b.mask.join(",")}`,
+      "inherited",
+    ),
+  );
+
+  return out;
 }
