@@ -50,6 +50,21 @@ _NT_BITS: dict[RightName, set[str]] = {
 _NT_EVERYONE_SID = "S-1-1-0"
 _NT_AUTHENTICATED_USERS_SID = "S-1-5-11"
 
+_S3_PERMS: dict[RightName, set[str]] = {
+    "read":         {"READ", "FULL_CONTROL"},
+    "write":        {"WRITE", "FULL_CONTROL"},
+    "delete":       {"WRITE", "FULL_CONTROL"},
+    "change_perms": {"WRITE_ACP", "FULL_CONTROL"},
+    # execute intentionally absent — S3 has no execute concept.
+}
+
+_S3_ALL_USERS = "AllUsers"
+_S3_AUTHENTICATED_USERS = "AuthenticatedUsers"
+_S3_CAVEAT_IAM = (
+    "S3 evaluation does not include IAM user/role policies; "
+    "bucket policy condition keys not evaluated."
+)
+
 
 def _empty_rights() -> dict[RightName, RightResult]:
     return {r: RightResult(granted=False, by=[]) for r in _ALL_RIGHTS}
@@ -293,10 +308,38 @@ def _eval_nt(acl: NtACL, principal: PrincipalRef, groups: list[GroupRef]) -> Eff
     return _effective(rights, "nt", principal, groups, caveats)
 
 
+def _s3_grant_matches(grant, principal: PrincipalRef) -> bool:
+    if grant.grantee_type == "group":
+        if grant.grantee_id == _S3_ALL_USERS:
+            return True
+        if grant.grantee_id == _S3_AUTHENTICATED_USERS:
+            return True
+        return False
+    # canonical_user / amazon_customer_by_email
+    return grant.grantee_id == principal.identifier
+
+
 def _eval_s3(
     acl: S3ACL,
     principal: PrincipalRef,
     groups: list[GroupRef],
     source_security: dict | None,
 ) -> EffectivePerms:
-    return _effective(_empty_rights(), "s3", principal, groups, ["S3 evaluator not yet implemented"])
+    rights = _empty_rights()
+    for right, perm_set in _S3_PERMS.items():
+        for i, grant in enumerate(acl.grants):
+            if not _s3_grant_matches(grant, principal):
+                continue
+            if grant.permission not in perm_set:
+                continue
+            label = grant.grantee_name or grant.grantee_id
+            ref = ACEReference(
+                ace_index=i,
+                summary=f"{grant.grantee_type}:{label} {grant.permission}",
+            )
+            rights[right] = RightResult(granted=True, by=[ref])
+            break  # any matching allow grants — no deny in S3 ACL grammar
+    caveats = [_S3_CAVEAT_IAM]
+    if source_security and source_security.get("is_public_inferred"):
+        caveats.append("Bucket is publicly accessible per Public Access Block / bucket policy.")
+    return _effective(rights, "s3", principal, groups, caveats)
