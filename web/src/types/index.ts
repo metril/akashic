@@ -315,3 +315,15 @@ export interface RegisterRequest {
   email: string;
   password: string;
 }
+
+export type {
+  PrincipalType,
+  RightName,
+  PrincipalRef,
+  GroupRef,
+  ACEReference,
+  RightResult,
+  EffectivePerms,
+  EffectivePermsEvaluatedWith,
+  EffectivePermsRequest,
+} from "../lib/effectivePermsTypes";
