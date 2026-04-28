@@ -110,3 +110,103 @@ def test_posix_caveats_include_fold_note():
         groups=[],
     )
     assert any("delete" in c.lower() and "write" in c.lower() for c in result.evaluated_with.caveats)
+
+
+from akashic.schemas.acl import NfsV4ACE, NfsV4ACL
+
+
+def _nfs(*entries) -> NfsV4ACL:
+    return NfsV4ACL.model_validate({
+        "type": "nfsv4",
+        "entries": [
+            {
+                "principal": e[0],
+                "ace_type":  e[1],
+                "mask":      list(e[2]),
+                "flags":     list(e[3]) if len(e) > 3 else [],
+            }
+            for e in entries
+        ],
+    })
+
+
+@pytest.mark.parametrize(
+    "principal_id,groups,acl,expect_read,expect_write,expect_exec",
+    [
+        # First-match: explicit allow read.
+        ("alice@dom", [],
+         _nfs(("alice@dom", "allow", ["read_data"])),
+         True, False, False),
+        # Deny precedes allow for the same right.
+        ("alice@dom", [],
+         _nfs(
+             ("alice@dom", "deny",  ["read_data"]),
+             ("alice@dom", "allow", ["read_data"]),
+         ),
+         False, False, False),
+        # EVERYONE@ allow grants to anyone.
+        ("alice@dom", [],
+         _nfs(("EVERYONE@", "allow", ["read_data"])),
+         True, False, False),
+        # Group match via identifier_group flag.
+        ("alice@dom",
+         [GroupRef(type="nfsv4_principal", identifier="eng@dom")],
+         _nfs(("eng@dom", "allow", ["write_data"], ["identifier_group"])),
+         False, True, False),
+        # Multiple right bits in one allow.
+        ("alice@dom", [],
+         _nfs(("alice@dom", "allow", ["read_data", "write_data", "execute"])),
+         True, True, True),
+        # Right with no addressing ACE → denied.
+        ("alice@dom", [],
+         _nfs(("alice@dom", "allow", ["read_data"])),
+         True, False, False),
+    ],
+)
+def test_nfsv4_evaluator(principal_id, groups, acl, expect_read, expect_write, expect_exec):
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="nfsv4_principal", identifier=principal_id),
+        groups=groups,
+    )
+    assert result.rights["read"].granted is expect_read
+    assert result.rights["write"].granted is expect_write
+    assert result.rights["execute"].granted is expect_exec
+    assert result.evaluated_with.model == "nfsv4"
+
+
+def test_nfsv4_delete_distinct_from_write():
+    acl = _nfs(("alice@dom", "allow", ["write_data"]))
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="nfsv4_principal", identifier="alice@dom"),
+        groups=[],
+    )
+    assert result.rights["write"].granted is True
+    # delete is its own bit in NFSv4 — not folded.
+    assert result.rights["delete"].granted is False
+
+
+def test_nfsv4_change_perms_via_write_acl():
+    acl = _nfs(("alice@dom", "allow", ["write_acl"]))
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="nfsv4_principal", identifier="alice@dom"),
+        groups=[],
+    )
+    assert result.rights["change_perms"].granted is True
+
+
+def test_nfsv4_by_field_references_ace():
+    acl = _nfs(("alice@dom", "allow", ["read_data"]))
+    result = compute_effective(
+        acl=acl,
+        base_mode=None, base_uid=None, base_gid=None,
+        principal=PrincipalRef(type="nfsv4_principal", identifier="alice@dom"),
+        groups=[],
+    )
+    assert result.rights["read"].by[0].ace_index == 0
+    assert "alice@dom" in result.rights["read"].by[0].summary
