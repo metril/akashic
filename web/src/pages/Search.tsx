@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SearchResult, Source, FsPerson } from "../types";
+import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
 import {
   Card,
   Input,
@@ -11,6 +11,7 @@ import {
   EmptyState,
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
+import { SearchAsForm } from "../components/search/SearchAsForm";
 
 interface SearchResponse {
   results: SearchResult[];
@@ -41,6 +42,8 @@ export default function Search() {
   const [minSize, setMinSize] = useState("");
   const [maxSize, setMaxSize] = useState("");
   const [permissionFilter, setPermissionFilter] = useState<"all" | "readable" | "writable" | null>(null);
+  const [searchAs, setSearchAs] = useState<SearchAsOverride | null>(null);
+  const [showSearchAs, setShowSearchAs] = useState(false);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -78,7 +81,7 @@ export default function Search() {
   );
 
   const searchQuery = useQuery<SearchResponse>({
-    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter],
+    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs],
     queryFn: () => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -87,6 +90,7 @@ export default function Search() {
       if (minSize) params.set("min_size", minSize);
       if (maxSize) params.set("max_size", maxSize);
       params.set("permission_filter", effectivePermissionFilter);
+      if (searchAs) params.set("search_as", JSON.stringify(searchAs));
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
     enabled: hasFilter,
@@ -104,6 +108,19 @@ export default function Search() {
           Find files by name, path, or filter alone.
         </p>
       </div>
+
+      <div className="flex items-center justify-end mb-2">
+        <button
+          type="button"
+          onClick={() => setShowSearchAs((v) => !v)}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          {showSearchAs ? "▾" : "▸"} Search as…
+        </button>
+      </div>
+      {showSearchAs && (
+        <SearchAsForm value={searchAs} onChange={setSearchAs} />
+      )}
 
       <Card padding="md" className="mb-5">
         <Input
@@ -180,6 +197,11 @@ export default function Search() {
           <div className="text-xs text-gray-500 mb-3">
             {searchQuery.data?.total.toLocaleString()} result
             {searchQuery.data?.total !== 1 && "s"}
+            {searchAs && (
+              <span className="ml-2 text-amber-700">
+                (filtered as {searchAs.type}:{searchAs.identifier})
+              </span>
+            )}
           </div>
           <div className="space-y-2">
             {results.map((file) => (

@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { clearToken } from "../api/client";
+import { useQuery } from "@tanstack/react-query";
+import { clearToken, api } from "../api/client";
 import { cn } from "./ui/cn";
 import { BrandMark } from "./BrandMark";
 
@@ -77,6 +78,12 @@ const navItems: NavItem[] = [
 export default function Layout() {
   const navigate = useNavigate();
 
+  const me = useQuery<{ role: string }>({
+    queryKey: ["me"],
+    queryFn:  () => api.get<{ role: string }>("/users/me"),
+  });
+  const isAdmin = me.data?.role === "admin";
+
   function handleLogout() {
     clearToken();
     navigate("/login");
@@ -108,6 +115,23 @@ export default function Layout() {
               <span>{label}</span>
             </NavLink>
           ))}
+          {isAdmin && (
+            <NavLink
+              to="/admin/audit"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium",
+                  "transition-colors duration-100",
+                  isActive
+                    ? "bg-accent-50 text-accent-700"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+                )
+              }
+            >
+              <Icon d="M9 12l2 2 4-4M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" />
+              <span>Audit log</span>
+            </NavLink>
+          )}
         </nav>
 
         <div className="px-3 py-4 border-t border-gray-100">

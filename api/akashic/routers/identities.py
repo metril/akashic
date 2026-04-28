@@ -1,7 +1,7 @@
 """CRUD for FsPerson + FsBinding (per-user identity claims)."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from akashic.schemas.identity import (
     FsPersonOut,
     FsPersonPatch,
 )
+from akashic.services.audit import record_event
 
 router = APIRouter(prefix="/api/identities", tags=["identities"])
 
@@ -58,6 +59,7 @@ async def list_identities(
 @router.post("", response_model=FsPersonOut, status_code=status.HTTP_201_CREATED)
 async def create_identity(
     body: FsPersonIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> FsPersonOut:
@@ -65,6 +67,12 @@ async def create_identity(
     db.add(person)
     await db.commit()
     await db.refresh(person)
+    await record_event(
+        db=db, user=user,
+        event_type="identity_added",
+        payload={"fs_person_id": str(person.id), "fs_person_label": person.label},
+        request=request,
+    )
     return _person_with_bindings(person, [])
 
 
@@ -93,6 +101,7 @@ async def update_identity(
 @router.delete("/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_identity(
     person_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -101,14 +110,22 @@ async def delete_identity(
     )).scalar_one_or_none()
     if person is None or person.user_id != user.id:
         raise HTTPException(status_code=404, detail="Identity not found")
+    label = person.label
     await db.delete(person)
     await db.commit()
+    await record_event(
+        db=db, user=user,
+        event_type="identity_removed",
+        payload={"fs_person_id": str(person_id), "fs_person_label": label},
+        request=request,
+    )
 
 
 @router.post("/{person_id}/bindings", response_model=FsBindingOut, status_code=status.HTTP_201_CREATED)
 async def create_binding(
     person_id: uuid.UUID,
     body: FsBindingIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> FsBindingOut:
@@ -134,6 +151,18 @@ async def create_binding(
         await db.rollback()
         raise HTTPException(status_code=409, detail="A binding for this source already exists")
     await db.refresh(binding)
+    await record_event(
+        db=db, user=user,
+        event_type="binding_added",
+        source_id=binding.source_id,
+        payload={
+            "fs_person_id": str(person.id),
+            "source_id": str(binding.source_id),
+            "identity_type": binding.identity_type,
+            "identifier": binding.identifier,
+        },
+        request=request,
+    )
     return FsBindingOut.model_validate(binding)
 
 
@@ -179,6 +208,7 @@ async def update_binding(
 async def delete_binding(
     person_id: uuid.UUID,
     binding_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
@@ -194,5 +224,19 @@ async def delete_binding(
     )).scalar_one_or_none()
     if binding is None:
         raise HTTPException(status_code=404, detail="Binding not found")
+    snapshot = {
+        "fs_person_id": str(person.id),
+        "source_id": str(binding.source_id),
+        "identity_type": binding.identity_type,
+        "identifier": binding.identifier,
+    }
+    binding_source_id = binding.source_id
     await db.delete(binding)
     await db.commit()
+    await record_event(
+        db=db, user=user,
+        event_type="binding_removed",
+        source_id=binding_source_id,
+        payload=snapshot,
+        request=request,
+    )

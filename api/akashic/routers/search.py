@@ -1,8 +1,10 @@
+import json
 import re
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +13,12 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.user import User
+from akashic.schemas.audit import SearchAsOverride
 from akashic.schemas.search import SearchResults
 from akashic.services.acl_denorm import (
     ANYONE, AUTH, posix_uid, posix_gid, sid, nfsv4_user, nfsv4_group, s3_user,
 )
+from akashic.services.audit import record_event
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -67,6 +71,32 @@ async def _user_principal_tokens(user: User, db: AsyncSession) -> list[str]:
     return sorted(tokens)
 
 
+def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
+    if raw is None:
+        return None
+    try:
+        return SearchAsOverride.model_validate(json.loads(raw))
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid search_as: {exc}")
+
+
+def _override_tokens(override: SearchAsOverride) -> list[str]:
+    """Return identifier tokens that represent the override principal."""
+    tokens: set[str] = {ANYONE, AUTH}
+    if override.type == "posix_uid":
+        tokens.add(posix_uid(override.identifier))
+        tokens.update(posix_gid(g) for g in override.groups)
+    elif override.type == "sid":
+        tokens.add(sid(override.identifier))
+        tokens.update(sid(g) for g in override.groups)
+    elif override.type == "nfsv4_principal":
+        tokens.add(nfsv4_user(override.identifier))
+        tokens.update(nfsv4_group(g) for g in override.groups)
+    elif override.type == "s3_canonical":
+        tokens.add(s3_user(override.identifier))
+    return sorted(tokens)
+
+
 @router.get("", response_model=SearchResults)
 async def search(
     q: str = Query(default=""),
@@ -75,13 +105,17 @@ async def search(
     min_size: int | None = None,
     max_size: int | None = None,
     permission_filter: PermissionFilter | None = None,
+    search_as: str | None = Query(default=None),
     offset: int = 0,
     limit: int = 20,
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
+
+    override = _parse_search_as(search_as)
 
     allowed_source_ids = await get_permitted_source_ids(user, db)
     if allowed_source_ids is not None:
@@ -92,7 +126,10 @@ async def search(
 
     # Default policy: has bindings → 'readable'; no bindings → 'all'
     if permission_filter is None:
-        permission_filter = "readable" if await _user_has_any_bindings(user, db) else "all"
+        if override is not None:
+            permission_filter = "readable"
+        else:
+            permission_filter = "readable" if await _user_has_any_bindings(user, db) else "all"
 
     try:
         from akashic.services.search import search_files
@@ -111,7 +148,10 @@ async def search(
             filters.append(f"size_bytes <= {max_size}")
 
         if permission_filter in ("readable", "writable"):
-            tokens = await _user_principal_tokens(user, db)
+            if override is not None:
+                tokens = _override_tokens(override)
+            else:
+                tokens = await _user_principal_tokens(user, db)
             field = "viewable_by_read" if permission_filter == "readable" else "viewable_by_write"
             tok_clause = " OR ".join(f'{field} = "{_escape_meili_value(t)}"' for t in tokens)
             filters.append(f"({tok_clause})")
@@ -121,6 +161,21 @@ async def search(
 
         from akashic.schemas.search import SearchHit
         hits = [SearchHit(**h) if isinstance(h, dict) else h for h in (meili_results.hits or [])]
+
+        if override is not None:
+            await record_event(
+                db=db, user=user,
+                event_type="search_as_used",
+                payload={
+                    "query": q,
+                    "search_as": override.model_dump(),
+                    "results_count": len(hits),
+                    "source_filter": str(source_id) if source_id else None,
+                },
+                request=request,
+                source_id=source_id,
+            )
+
         return SearchResults(
             results=hits,
             total=meili_results.estimated_total_hits or 0,
@@ -166,4 +221,19 @@ async def search(
             )
             for e in entries
         ]
+
+        if override is not None:
+            await record_event(
+                db=db, user=user,
+                event_type="search_as_used",
+                payload={
+                    "query": q,
+                    "search_as": override.model_dump(),
+                    "results_count": len(hits),
+                    "source_filter": str(source_id) if source_id else None,
+                },
+                request=request,
+                source_id=source_id,
+            )
+
         return SearchResults(results=hits, total=total, query=q)

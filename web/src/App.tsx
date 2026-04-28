@@ -10,6 +10,7 @@ import Sources from "./pages/Sources";
 import Duplicates from "./pages/Duplicates";
 import Analytics from "./pages/Analytics";
 import SettingsIdentities from "./pages/SettingsIdentities";
+import AdminAudit from "./pages/AdminAudit";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated()) {
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="duplicates" element={<Duplicates />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="settings/identities" element={<SettingsIdentities />} />
+        <Route path="admin/audit" element={<AdminAudit />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
