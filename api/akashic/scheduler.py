@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Scan.status values:   "pending", "running", "completed", "failed".
 
 _scheduler_task: asyncio.Task | None = None
+_retention_task: asyncio.Task | None = None
 
 
 async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
@@ -158,17 +159,46 @@ async def _scheduler_loop():
         await asyncio.sleep(60)
 
 
+async def _audit_retention_loop():
+    """Daily: delete audit events older than `settings.audit_retention_days`.
+    No-op when the setting is 0."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete
+    from akashic.config import settings
+    from akashic.database import async_session
+    from akashic.models.audit_event import AuditEvent
+
+    while True:
+        try:
+            if settings.audit_retention_days > 0:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=settings.audit_retention_days)
+                async with async_session() as db:
+                    result = await db.execute(
+                        delete(AuditEvent).where(AuditEvent.occurred_at < cutoff)
+                    )
+                    await db.commit()
+                    if result.rowcount:
+                        logger.info("Pruned %d audit events older than %s", result.rowcount, cutoff)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("audit retention pass failed: %s", exc)
+        await asyncio.sleep(24 * 3600)  # daily
+
+
 def start_scheduler():
-    """Start the background scheduler task."""
-    global _scheduler_task
+    """Start the background scheduler tasks."""
+    global _scheduler_task, _retention_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
+    if _retention_task is None or _retention_task.done():
+        _retention_task = asyncio.create_task(_audit_retention_loop())
+        logger.info("Audit retention scheduler started")
 
 
 def stop_scheduler():
-    """Stop the background scheduler task."""
-    global _scheduler_task
+    """Stop the background scheduler tasks."""
+    global _scheduler_task, _retention_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
-        logger.info("Scan scheduler stopped")
+    if _retention_task and not _retention_task.done():
+        _retention_task.cancel()
