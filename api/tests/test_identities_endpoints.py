@@ -203,3 +203,57 @@ async def test_binding_empty_identifier_rejected(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert add.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_identity_create_records_audit_event(client, db_session):
+    from akashic.models.audit_event import AuditEvent
+    from sqlalchemy import select
+
+    token = await _register_login(client)
+    create = await client.post(
+        "/api/identities", json={"label": "Audited"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create.status_code == 201
+
+    rows = (await db_session.execute(
+        select(AuditEvent).where(AuditEvent.event_type == "identity_added")
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].payload["fs_person_label"] == "Audited"
+
+
+@pytest.mark.asyncio
+async def test_binding_delete_records_audit_event(client, db_session):
+    from akashic.models import Source
+    from akashic.models.audit_event import AuditEvent
+    from sqlalchemy import select
+    import uuid
+
+    token = await _register_login(client)
+    source = Source(id=uuid.uuid4(), name="t", type="local", connection_config={"path": "/tmp"})
+    db_session.add(source)
+    await db_session.commit()
+
+    pid = (await client.post(
+        "/api/identities", json={"label": "P"},
+        headers={"Authorization": f"Bearer {token}"},
+    )).json()["id"]
+    bid = (await client.post(
+        f"/api/identities/{pid}/bindings",
+        json={"source_id": str(source.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )).json()["id"]
+
+    delete = await client.delete(
+        f"/api/identities/{pid}/bindings/{bid}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete.status_code == 204
+
+    rows = (await db_session.execute(
+        select(AuditEvent).where(AuditEvent.event_type == "binding_removed")
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].payload["identifier"] == "1000"
