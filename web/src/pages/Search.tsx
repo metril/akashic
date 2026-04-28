@@ -40,6 +40,7 @@ export default function Search() {
   const [extension, setExtension] = useState("");
   const [minSize, setMinSize] = useState("");
   const [maxSize, setMaxSize] = useState("");
+  const [permissionFilter, setPermissionFilter] = useState<"all" | "readable" | "writable">("readable");
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -68,7 +69,7 @@ export default function Search() {
   );
 
   const searchQuery = useQuery<SearchResponse>({
-    queryKey: ["search", query, sourceId, extension, minSize, maxSize],
+    queryKey: ["search", query, sourceId, extension, minSize, maxSize, permissionFilter],
     queryFn: () => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -76,6 +77,7 @@ export default function Search() {
       if (extension) params.set("extension", extension);
       if (minSize) params.set("min_size", minSize);
       if (maxSize) params.set("max_size", maxSize);
+      params.set("permission_filter", permissionFilter);
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
     enabled: hasFilter,
@@ -103,7 +105,16 @@ export default function Search() {
           className="h-11 text-[15px]"
           autoFocus
         />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+          <Select
+            value={permissionFilter}
+            onChange={(e) => setPermissionFilter(e.target.value as "all" | "readable" | "writable")}
+            options={[
+              { value: "readable", label: "Files I can read" },
+              { value: "writable", label: "Files I can write" },
+              { value: "all",      label: "All files I have access to" },
+            ]}
+          />
           <Select
             value={sourceId}
             onChange={(e) => setSourceId(e.target.value)}
