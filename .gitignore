@@ -29,3 +29,6 @@ web/dist/
 pgdata/
 msdata/
 redisdata/
+
+# Worktrees
+.worktrees/
