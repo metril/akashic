@@ -157,3 +157,69 @@ async def test_ldap_no_config_raises_unsupported():
 
     with pytest.raises(UnsupportedResolution):
         await resolve_groups(_FakeSource(), _FakeBinding())
+
+
+@pytest.mark.asyncio
+async def test_ldap_backend_error_raises_resolution_failed(monkeypatch):
+    """LDAP server unreachable surfaces as ResolutionFailed(backend_error)."""
+    from akashic.services.group_resolver import ResolutionFailed, resolve_groups
+
+    def _fail(_url):
+        raise ConnectionRefusedError("ldap unreachable")
+    monkeypatch.setattr("akashic.services.group_resolver._ldap_initialize", _fail)
+
+    class _FakeSource:
+        type = "nfs"
+        connection_config = {
+            "ldap_url": "ldap://nope",
+            "ldap_bind_dn": "",
+            "ldap_bind_password": "",
+            "ldap_user_search_base": "ou=people,dc=x",
+        }
+    class _FakeBinding:
+        identity_type = "nfsv4_principal"
+        identifier = "alice"
+
+    with pytest.raises(ResolutionFailed) as exc:
+        await resolve_groups(_FakeSource(), _FakeBinding())
+    assert exc.value.reason == "backend_error"
+
+
+@pytest.mark.asyncio
+async def test_ldap_filter_chars_are_escaped(monkeypatch):
+    """A binding identifier with LDAP metachars must be escaped before
+    being used in the search filter."""
+    from akashic.services.group_resolver import resolve_groups
+
+    captured: dict[str, str] = {}
+
+    class _FakeLdap:
+        def simple_bind_s(self, *_a, **_k): pass
+        def search_s(self, base, scope, filterstr=None, attrlist=None):
+            captured["filterstr"] = filterstr
+            return []  # not_found
+        def unbind_s(self): pass
+
+    monkeypatch.setattr("akashic.services.group_resolver._ldap_initialize",
+                        lambda url: _FakeLdap())
+
+    class _FakeSource:
+        type = "nfs"
+        connection_config = {
+            "ldap_url": "ldap://x",
+            "ldap_bind_dn": "",
+            "ldap_bind_password": "",
+            "ldap_user_search_base": "ou=people,dc=x",
+        }
+    class _FakeBinding:
+        identity_type = "nfsv4_principal"
+        identifier = "*)(uid=*"  # injection attempt
+
+    from akashic.services.group_resolver import ResolutionFailed
+    with pytest.raises(ResolutionFailed):
+        await resolve_groups(_FakeSource(), _FakeBinding())
+
+    # The captured filter must NOT contain the raw asterisk pattern.
+    # python-ldap's escape_filter_chars escapes * → \2a, ( → \28, ) → \29.
+    assert "\\2a" in captured["filterstr"].lower() or "\\\\2a" in captured["filterstr"].lower()
+    assert "*)(uid=*" not in captured["filterstr"]
