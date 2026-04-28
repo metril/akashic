@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
 
+    group_cache_ttl_hours: int = 24
+
     # LDAP
     ldap_enabled: bool = False
     ldap_server: str = ""  # e.g. ldap://ldap.example.com:389
