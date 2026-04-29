@@ -14,6 +14,7 @@ import (
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/config"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
 )
 
@@ -53,6 +54,8 @@ func main() {
 	fullScan := flag.Bool("full", false, "Full scan (hash all files)")
 	batchSize := flag.Int("batch-size", 1000, "Files per batch")
 	lastScanStr := flag.String("last-scan", "", "RFC3339 timestamp of last scan; enables incremental mode (only re-hashes changed files)")
+	prewalk := flag.Bool("prewalk", false, "Run a count-only pass first to estimate total files for ETA (first-scan only — adds I/O)")
+	noObserve := flag.Bool("no-observe", false, "Disable live progress reporting and stderr relay (run scanner standalone)")
 
 	flag.Parse()
 
@@ -122,6 +125,30 @@ func main() {
 		sid = uuid.New().String()
 	}
 
+	ctx := context.Background()
+
+	// Phase 1 — observability. Disabled when --no-observe (standalone /
+	// CI runs) or when no API key is configured (the heartbeat / log POSTs
+	// would 401 in a tight loop anyway).
+	var (
+		reporter      *observe.Reporter
+		state         *observe.State
+		stopReporter  func()
+		stopStderrTee func()
+	)
+	if !*noObserve && cfg.APIKey != "" {
+		state = observe.NewState()
+		reporter = observe.New(cfg.APIUrl, cfg.APIKey, sid, state)
+		reporter.Start(ctx)
+		// Stderr relay AFTER Start so the goroutines are draining when the
+		// pipe replaces os.Stderr — avoids losing the very first chunk
+		// to a not-yet-running drain.
+		if cleanup, err := reporter.StartStderrRelay(ctx); err == nil {
+			stopStderrTee = cleanup
+		}
+		stopReporter = reporter.Stop
+	}
+
 	s := scanner.New(apiClient, conn, scanner.Options{
 		SourceID:        *sourceID,
 		ScanID:          sid,
@@ -130,9 +157,20 @@ func main() {
 		Hash:            *fullScan,
 		ExcludePatterns: excludePatterns,
 		LastScanTime:    lastScanTime,
+		Prewalk:         *prewalk,
+		Reporter:        reporter,
+		State:           state,
 	})
 
-	result, err := s.Run(context.Background())
+	result, err := s.Run(ctx)
+
+	if stopStderrTee != nil {
+		stopStderrTee()
+	}
+	if stopReporter != nil {
+		stopReporter()
+	}
+
 	if err != nil {
 		log.Fatalf("scan failed: %v", err)
 	}

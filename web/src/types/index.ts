@@ -106,8 +106,77 @@ export interface Scan {
   files_deleted: number;
   started_at: string | null;
   completed_at: string | null;
+  error_message?: string | null;
+  // Phase 1 — heartbeat-driven progress fields. All nullable for legacy
+  // rows scanned with the old scanner.
+  current_path?: string | null;
+  last_heartbeat_at?: string | null;
+  bytes_scanned_so_far?: number | null;
+  files_skipped?: number;
+  dirs_walked?: number;
+  dirs_queued?: number;
+  total_estimated?: number | null;
+  phase?: "prewalk" | "walk" | "finalize" | null;
+  previous_scan_files?: number | null;
   source?: Source;
 }
+
+export interface ScanLogLine {
+  id: string;
+  ts: string;
+  level: "info" | "warn" | "error" | "stderr";
+  message: string;
+}
+
+export interface ScanSnapshot {
+  kind: "snapshot";
+  scan_id: string;
+  source_id: string;
+  status: string;
+  phase: string | null;
+  current_path: string | null;
+  files_found: number;
+  files_new: number;
+  files_changed: number;
+  files_deleted: number;
+  files_skipped: number;
+  bytes_scanned_so_far: number | null;
+  dirs_walked: number;
+  dirs_queued: number;
+  total_estimated: number | null;
+  previous_scan_files: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  last_heartbeat_at: string | null;
+  error_message: string | null;
+  recent_lines: ScanLogLine[];
+}
+
+export interface ScanProgressEvent {
+  kind: "progress";
+  scan_id: string;
+  current_path: string | null;
+  files_scanned: number;
+  bytes_scanned: number;
+  files_skipped: number;
+  dirs_walked: number;
+  dirs_queued: number;
+  total_estimated: number | null;
+  phase: string | null;
+  ts: string;
+}
+
+export interface ScanLogEvent {
+  kind: "log" | "stderr";
+  scan_id: string;
+  lines: ScanLogLine[];
+}
+
+export type ScanWsEvent =
+  | ScanSnapshot
+  | ScanProgressEvent
+  | ScanLogEvent
+  | { kind: "ping" };
 
 export interface Tag {
   id: string;

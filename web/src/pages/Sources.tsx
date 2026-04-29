@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useSources,
   useDeleteSource,
 } from "../hooks/useSources";
+import { useActiveScans } from "../hooks/useActiveScans";
 import { api } from "../api/client";
 import {
   Card,
@@ -12,10 +14,11 @@ import {
   EmptyState,
 } from "../components/ui";
 import type { BadgeVariant } from "../components/ui";
-import type { Source } from "../types";
-import { formatDate } from "../lib/format";
+import type { Scan, Source } from "../types";
+import { computeETA, formatDate, formatDuration, formatNumber } from "../lib/format";
 import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
+import { ScanLogPanel } from "../components/scans/ScanLogPanel";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
   "online",
@@ -34,7 +37,13 @@ function statusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function SourceCard({ source }: { source: Source }) {
+interface SourceCardProps {
+  source: Source;
+  activeScan: Scan | undefined;
+  onOpenLog: (scanId: string) => void;
+}
+
+function SourceCard({ source, activeScan, onOpenLog }: SourceCardProps) {
   const deleteSource = useDeleteSource();
   const queryClient = useQueryClient();
 
@@ -60,7 +69,18 @@ function SourceCard({ source }: { source: Source }) {
     }
   }
 
-  const canScan = source.status !== "scanning";
+  const isScanning = source.status === "scanning";
+  const canScan = !isScanning;
+
+  // Compose progress subtitle for in-flight scans.
+  const progressLine = isScanning && activeScan
+    ? buildProgressLine(activeScan)
+    : null;
+
+  // Show watchdog/error message for failed scans on the previous run.
+  const errorMessage = source.status === "failed" && activeScan?.error_message
+    ? activeScan.error_message
+    : null;
 
   return (
     <Card padding="md" className="flex flex-col">
@@ -73,6 +93,25 @@ function SourceCard({ source }: { source: Source }) {
         </Badge>
       </div>
       <p className="text-xs text-gray-500 font-mono break-all mb-3">{path}</p>
+
+      {progressLine && (
+        <div className="mb-3 rounded-md bg-blue-50 border border-blue-100 px-2.5 py-2">
+          <p className="text-xs text-blue-900 font-medium">{progressLine.summary}</p>
+          {progressLine.currentPath && (
+            <p className="text-[11px] text-blue-700 font-mono mt-0.5 truncate">
+              {progressLine.currentPath}
+            </p>
+          )}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="mb-3 rounded-md bg-rose-50 border border-rose-100 px-2.5 py-2">
+          <p className="text-xs text-rose-800 font-medium">Last scan failed</p>
+          <p className="text-[11px] text-rose-700 mt-0.5">{errorMessage}</p>
+        </div>
+      )}
+
       <dl className="text-xs text-gray-500 space-y-1 mb-4">
         <div className="flex gap-2">
           <dt className="text-gray-400">Type</dt>
@@ -83,7 +122,7 @@ function SourceCard({ source }: { source: Source }) {
           <dd>{formatDate(source.last_scan_at)}</dd>
         </div>
       </dl>
-      <div className="mt-auto flex items-center gap-2 pt-2">
+      <div className="mt-auto flex items-center gap-2 pt-2 flex-wrap">
         <Button
           size="sm"
           variant="secondary"
@@ -91,8 +130,17 @@ function SourceCard({ source }: { source: Source }) {
           disabled={!canScan}
           loading={triggerScan.isPending}
         >
-          {source.status === "scanning" ? "Scanning…" : "Scan now"}
+          {isScanning ? "Scanning…" : "Scan now"}
         </Button>
+        {isScanning && activeScan && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onOpenLog(activeScan.id)}
+          >
+            View live log
+          </Button>
+        )}
         <Button
           size="sm"
           variant="danger"
@@ -114,8 +162,47 @@ function SourceCard({ source }: { source: Source }) {
   );
 }
 
+interface ProgressLine {
+  summary: string;
+  currentPath: string | null;
+}
+
+function buildProgressLine(scan: Scan): ProgressLine {
+  const filesScanned = scan.files_found ?? 0;
+  const eta = computeETA(
+    filesScanned,
+    scan.total_estimated,
+    scan.previous_scan_files,
+    scan.started_at,
+  );
+
+  let summary: string;
+  if (scan.phase === "prewalk") {
+    // Prewalk's running count is reported via total_estimated.
+    const counted = scan.total_estimated ?? 0;
+    summary = `Estimating tree size: ${formatNumber(counted)} files counted…`;
+  } else if (eta) {
+    summary = `${formatNumber(filesScanned)} / ~${formatNumber(eta.total)} files · ETA ${formatDuration(eta.etaSeconds)}`;
+  } else {
+    summary = `${formatNumber(filesScanned)} files scanned`;
+  }
+
+  return {
+    summary,
+    currentPath: scan.current_path ?? null,
+  };
+}
+
 export default function Sources() {
   const { data: sources, isLoading, error } = useSources();
+  const { data: activeScans } = useActiveScans(sources);
+  const [logScanId, setLogScanId] = useState<string | null>(null);
+
+  const logScanSourceName = logScanId
+    ? sources?.find((s) =>
+        activeScans?.byScan[logScanId]?.source_id === s.id,
+      )?.name
+    : undefined;
 
   return (
     <div className="px-8 py-7 max-w-7xl">
@@ -155,7 +242,12 @@ export default function Sources() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {(sources ?? []).map((s) => (
-                <SourceCard key={s.id} source={s} />
+                <SourceCard
+                  key={s.id}
+                  source={s}
+                  activeScan={activeScans?.bySource[s.id]}
+                  onOpenLog={setLogScanId}
+                />
               ))}
             </div>
           )}
@@ -165,6 +257,13 @@ export default function Sources() {
           <AddSourceForm />
         </div>
       </div>
+
+      <ScanLogPanel
+        open={logScanId !== null}
+        onClose={() => setLogScanId(null)}
+        scanId={logScanId}
+        sourceName={logScanSourceName}
+      />
     </div>
   );
 }

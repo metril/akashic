@@ -1,0 +1,216 @@
+"""WebSocket fan-out for live scan progress and log streams.
+
+Browser opens `WS /ws/scans/{id}?token=<jwt>` (token is supplied as a query
+param because browsers can't set Authorization headers on WS handshakes).
+The handler:
+
+1. Authenticates and authorizes the user against the scan's source.
+2. Sends a snapshot frame (current scan state + last 100 log lines).
+3. Subscribes to Redis channel `scan:{id}` and forwards each event verbatim.
+
+On disconnect: tears down the pubsub subscription. The caller backfills any
+missed lines via `GET /api/scans/{id}/log?since=<last_ts>`.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import uuid
+from datetime import timedelta
+
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from akashic.auth.jwt import decode_access_token
+from akashic.database import async_session
+from akashic.models.scan import Scan
+from akashic.models.scan_log_entry import ScanLogEntry
+from akashic.models.user import User, SourcePermission
+from akashic.services import scan_pubsub
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/ws", tags=["scan-websocket"])
+
+# Heartbeat interval to detect half-open clients. Must be smaller than any
+# upstream proxy idle timeout (nginx defaults to 60 s).
+_SERVER_HEARTBEAT_SECONDS = 30
+
+
+async def _resolve_user(token: str, db: AsyncSession) -> User | None:
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+    sub = payload.get("sub")
+    if sub is None:
+        return None
+    try:
+        user_id = uuid.UUID(sub)
+    except (ValueError, TypeError):
+        return None
+    return (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+
+
+async def _user_can_read_source(user: User, source_id: uuid.UUID, db: AsyncSession) -> bool:
+    if user.role == "admin":
+        return True
+    perm = (
+        await db.execute(
+            select(SourcePermission).where(
+                SourcePermission.user_id == user.id,
+                SourcePermission.source_id == source_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return perm is not None  # any access level can subscribe to read-only stream
+
+
+def _scan_snapshot(scan: Scan) -> dict:
+    return {
+        "kind": "snapshot",
+        "scan_id": str(scan.id),
+        "source_id": str(scan.source_id),
+        "status": scan.status,
+        "phase": scan.phase,
+        "current_path": scan.current_path,
+        "files_found": scan.files_found,
+        "files_new": scan.files_new,
+        "files_changed": scan.files_changed,
+        "files_deleted": scan.files_deleted,
+        "files_skipped": scan.files_skipped,
+        "bytes_scanned_so_far": scan.bytes_scanned_so_far,
+        "dirs_walked": scan.dirs_walked,
+        "dirs_queued": scan.dirs_queued,
+        "total_estimated": scan.total_estimated,
+        "previous_scan_files": scan.previous_scan_files,
+        "started_at": scan.started_at.isoformat() if scan.started_at else None,
+        "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+        "last_heartbeat_at": (
+            scan.last_heartbeat_at.isoformat() if scan.last_heartbeat_at else None
+        ),
+        "error_message": scan.error_message,
+    }
+
+
+def _log_line(row: ScanLogEntry) -> dict:
+    return {
+        "id": str(row.id),
+        "ts": row.ts.isoformat(),
+        "level": row.level,
+        "message": row.message,
+    }
+
+
+@router.websocket("/scans/{scan_id}")
+async def scan_stream(
+    websocket: WebSocket,
+    scan_id: uuid.UUID,
+    token: str = Query(..., description="JWT access token"),
+):
+    """Single-scan stream. Authenticated via `?token=<jwt>` because browsers
+    can't set headers on the WS handshake."""
+    # Open the DB session in our own context — Depends() doesn't kick in
+    # until after `accept`, and we want auth-failure to close before
+    # accepting (cleaner client-side error).
+    async with async_session() as db:
+        user = await _resolve_user(token, db)
+        if user is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid token")
+            return
+
+        scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
+        if scan is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="scan not found")
+            return
+
+        if not await _user_can_read_source(user, scan.source_id, db):
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="forbidden")
+            return
+
+        # Build the snapshot synchronously (last 100 lines newest-first then
+        # reversed so the client can append in order).
+        recent = (
+            await db.execute(
+                select(ScanLogEntry)
+                .where(ScanLogEntry.scan_id == scan_id)
+                .order_by(ScanLogEntry.ts.desc())
+                .limit(100)
+            )
+        ).scalars().all()
+        snapshot = _scan_snapshot(scan)
+        snapshot["recent_lines"] = [_log_line(r) for r in reversed(list(recent))]
+
+    await websocket.accept()
+    try:
+        await websocket.send_json(snapshot)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("scan_stream snapshot send failed: %s", exc)
+        return
+
+    # Subscribe to Redis pub/sub. The iterator yields events as dicts.
+    # On Redis failure (broker unreachable / config error), `_forward`
+    # sends one diagnostic frame so the client knows the live stream is
+    # silent for an infrastructure reason, not because nothing is
+    # happening on the scan.
+    forward_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
+    receive_task: asyncio.Task | None = None
+
+    async def _forward() -> None:
+        try:
+            async for event in scan_pubsub.subscribe(scan_id):
+                await websocket.send_json(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scan_stream %s: pub/sub error: %s", scan_id, exc)
+            try:
+                await websocket.send_json({
+                    "kind": "error",
+                    "message": "live stream unavailable; falling back to polling",
+                })
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
+            await websocket.send_json({"kind": "ping"})
+
+    try:
+        forward_task = asyncio.create_task(_forward())
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        # `receive_text()` resolves when the peer closes; `wait` returns
+        # on the first completion. The receive task exists solely as a
+        # disconnect detector — we never read its return value.
+        receive_task = asyncio.create_task(_drain_inbound(websocket))
+        done, pending = await asyncio.wait(
+            {forward_task, heartbeat_task, receive_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scan_stream %s: %s", scan_id, exc)
+    finally:
+        # Cancel ALL three tasks — including receive_task — so a
+        # mid-handler crash doesn't leak a background coroutine.
+        for t in (forward_task, heartbeat_task, receive_task):
+            if t is not None and not t.done():
+                t.cancel()
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _drain_inbound(websocket: WebSocket) -> None:
+    """Reads (and ignores) anything the client sends. The only purpose is
+    to detect disconnection — `receive_text` raises WebSocketDisconnect
+    when the peer closes."""
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        return
