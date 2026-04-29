@@ -17,7 +17,11 @@ RUN cd scanner && go mod download \
     && CGO_ENABLED=0 go build -o /out/akashic-scanner ./cmd/akashic-scanner
 
 # ---- runtime: python + bundled scanner ----
-FROM python:3.12-slim
+# Bookworm-slim instead of the rolling -slim tag so we pin to a specific
+# Debian release (12), and 3.13 instead of 3.12 to pick up the upstream
+# fixes for the CVEs flagged against 3.12-slim. pyproject.toml's
+# requires-python = ">=3.12" remains satisfied.
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 
@@ -26,7 +30,9 @@ COPY api/akashic/ akashic/
 COPY api/alembic.ini .
 COPY api/alembic/ alembic/
 
-RUN apt-get update && apt-get install -y gcc libldap2-dev libsasl2-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    gcc libldap2-dev libsasl2-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir .
 
