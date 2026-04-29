@@ -6,6 +6,7 @@ Non-local sources spawn `akashic-scanner fetch` and stream stdout.
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from typing import Optional
@@ -14,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
@@ -69,15 +72,16 @@ def _looks_binary(buf: bytes) -> bool:
 
 
 def _decode_text(buf: bytes) -> tuple[str | None, str | None]:
-    """Try utf-8 first, then latin-1. Returns (decoded_text, encoding)
-    or (None, None) if decoding gives a string we believe to be binary."""
+    """Try utf-8 first, then latin-1. latin-1 is bijective over bytes so
+    it never raises — it's the universal fallback. The 'binary' flag in
+    PreviewResponse comes from the NUL-byte heuristic upstream, not from
+    decode failures here. Caveat: a true UTF-16 file with no NUL bytes
+    in the first 4KB would decode as garbled latin-1; users would see
+    mojibake rather than 'binary'. Acceptable for v1."""
     try:
         return buf.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
-        try:
-            return buf.decode("latin-1"), "latin-1"
-        except UnicodeDecodeError:
-            return None, None
+        return buf.decode("latin-1"), "latin-1"
 
 
 # ── /content ───────────────────────────────────────────────────────────────
@@ -114,21 +118,26 @@ async def get_content(
     except PathTraversal as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    if entry.size_bytes is not None:
-        headers["Content-Length"] = str(entry.size_bytes)
+    # Deliberately omit Content-Length: entry.size_bytes was captured at
+    # scan time and may be stale. Sending a wrong header risks HTTP/1.1
+    # framing bugs (clients hang waiting for missing bytes, or stop
+    # reading early). Chunked transfer-encoding is correctly framed
+    # without it.
 
     async def _gen():
         try:
             async for chunk in stream_via_scanner(source, entry.path):
                 yield chunk
         except ContentFetchFailed as exc:
-            # We've likely already started the response — best we can do
-            # is end the stream. The wrapped error is logged.
-            import logging
-            logging.getLogger(__name__).warning(
-                "entry-content fetch %s: %s", entry_id, exc
-            )
-            return
+            # Once the StreamingResponse has emitted any bytes the HTTP
+            # status code is locked in (200), so we can't retroactively
+            # signal a 502. Logging at WARN so failures are operator-
+            # visible. The truncation is observable via the ContentFetchFailed
+            # raise — re-raise so FastAPI/Starlette terminates the
+            # response abnormally rather than cleanly returning, which
+            # at least tells well-behaved clients the body was incomplete.
+            logger.warning("entry-content fetch %s: %s", entry_id, exc)
+            raise
 
     return StreamingResponse(_gen(), media_type=media_type, headers=headers)
 
@@ -168,8 +177,13 @@ async def get_preview(
             raise HTTPException(status_code=400, detail=str(exc))
         buf_chunks: list[bytes] = []
         size = 0
+        # Hold a reference to the generator so we can aclose() it
+        # synchronously after early-break — guarantees the subprocess is
+        # killed and the concurrency-semaphore slot released without
+        # waiting for GC to finalize the suspended generator.
+        gen = stream_via_scanner(source, entry.path)
         try:
-            async for chunk in stream_via_scanner(source, entry.path):
+            async for chunk in gen:
                 if size + len(chunk) >= cap:
                     buf_chunks.append(chunk[: cap - size])
                     size = cap
@@ -178,6 +192,8 @@ async def get_preview(
                 size += len(chunk)
         except ContentFetchFailed as exc:
             raise HTTPException(status_code=502, detail=str(exc))
+        finally:
+            await gen.aclose()
         buf = b"".join(buf_chunks)
 
     truncated = total > len(buf)
