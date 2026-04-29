@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import { api } from "../api/client";
 import type { Source, StorageByType } from "../types";
-import { Card, CardHeader, StatCard, EmptyState } from "../components/ui";
+import { Card, CardHeader, StatCard, EmptyState, Icon } from "../components/ui";
 import { formatBytes, formatNumber } from "../lib/format";
 
 const CHART_COLORS = [
@@ -21,21 +21,6 @@ const CHART_COLORS = [
   "#d8b4fe",
   "#e9d5ff",
 ];
-
-const PageIcon = ({ d }: { d: string }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.75"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="h-4 w-4"
-  >
-    <path d={d} />
-  </svg>
-);
 
 export default function Dashboard() {
   const sourcesQuery = useQuery<Source[]>({
@@ -85,31 +70,25 @@ export default function Dashboard() {
           value={formatNumber(sources.length)}
           subtext={`${activeSources} active`}
           loading={sourcesQuery.isLoading}
-          icon={<PageIcon d="M3 7h18M3 12h18M3 17h18" />}
+          icon={<Icon name="sources" />}
         />
         <StatCard
           label="Files indexed"
           value={formatNumber(totalFiles)}
           loading={storageQuery.isLoading}
-          icon={
-            <PageIcon d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6" />
-          }
+          icon={<Icon name="file" />}
         />
         <StatCard
           label="Total storage"
           value={formatBytes(totalSize)}
           loading={storageQuery.isLoading}
-          icon={
-            <PageIcon d="M22 12H2M22 12a10 10 0 01-20 0M22 12a10 10 0 00-20 0" />
-          }
+          icon={<Icon name="database" />}
         />
         <StatCard
           label="File types"
           value={formatNumber(storageByType.length)}
           loading={storageQuery.isLoading}
-          icon={
-            <PageIcon d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-          }
+          icon={<Icon name="box" />}
         />
       </div>
 
