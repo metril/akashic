@@ -3,16 +3,18 @@ package lsarpc
 import (
 	"bytes"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 func TestBuildBindRequest_LSARPC(t *testing.T) {
 	pkt := BuildBindRequest(1, 4280, 4280)
-	hdr, err := ParsePDUHeader(pkt)
+	hdr, err := dcerpc.ParsePDUHeader(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hdr.PType != PtypeBind {
-		t.Errorf("ptype: got %d want %d", hdr.PType, PtypeBind)
+	if hdr.PType != dcerpc.PtypeBind {
+		t.Errorf("ptype: got %d want %d", hdr.PType, dcerpc.PtypeBind)
 	}
 	if hdr.CallID != 1 {
 		t.Errorf("call_id: got %d want 1", hdr.CallID)

@@ -1,4 +1,11 @@
-package lsarpc
+// Package dcerpc holds protocol primitives shared by every DCE/RPC binding
+// the scanner speaks (LSARPC, SAMR, …): PDU framing, byte reader, generic
+// NDR helpers, the bind-request builder, and a small set of common error
+// sentinels.
+//
+// Per-binding packages (e.g. internal/lsarpc, internal/samr) supply the
+// interface UUID, opcode constants, and per-opcode request/response codecs.
+package dcerpc
 
 import "encoding/binary"
 
@@ -22,6 +29,7 @@ const (
 	PfcObjectUuid    byte = 0x80
 )
 
+// PDUHeader is the 16-byte common DCE/RPC PDU header (MS-RPCE §2.2.2.1).
 type PDUHeader struct {
 	PType   byte
 	Flags   byte
@@ -32,11 +40,12 @@ type PDUHeader struct {
 
 func (h PDUHeader) Marshal() []byte {
 	out := make([]byte, 16)
-	out[0] = 5
-	out[1] = 0
+	out[0] = 5 // rpc_vers
+	out[1] = 0 // rpc_vers_minor
 	out[2] = h.PType
 	out[3] = h.Flags
-	out[4] = 0x10
+	out[4] = 0x10 // packed_drep[0]: little-endian, ASCII, IEEE float
+	// out[5..7] remain 0: packed_drep[1..3] reserved per MS-RPCE §2.2.2.1
 	binary.LittleEndian.PutUint16(out[8:10], h.FragLen)
 	binary.LittleEndian.PutUint16(out[10:12], h.AuthLen)
 	binary.LittleEndian.PutUint32(out[12:16], h.CallID)
