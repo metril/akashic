@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 func TestSkipDomains_ZeroEntries(t *testing.T) {
@@ -13,10 +15,10 @@ func TestSkipDomains_ZeroEntries(t *testing.T) {
 	binary.Write(&buf, binary.LittleEndian, uint32(0))          // max count
 	binary.Write(&buf, binary.LittleEndian, uint32(0))          // MaxEntries
 
-	r := newReader(buf.Bytes())
-	r.SkipDomains()
-	if r.pos != 16 {
-		t.Errorf("expected pos 16 after empty SkipDomains, got %d", r.pos)
+	r := dcerpc.NewReader(buf.Bytes())
+	skipDomains(r)
+	if r.Pos() != 16 {
+		t.Errorf("expected pos 16 after empty SkipDomains, got %d", r.Pos())
 	}
 }
 
@@ -37,8 +39,8 @@ func TestSkipDomains_OneEntry(t *testing.T) {
 	buf.Write([]byte{'D', 0, 'O', 0, 'M', 0, '.', 0})           // 8 bytes — already aligned
 	// Deferred SID: max_count + SID body + align
 	binary.Write(&buf, binary.LittleEndian, uint32(4))          // sub count
-	buf.WriteByte(1)                                             // revision
-	buf.WriteByte(4)                                             // sub auth count
+	buf.WriteByte(1)                                            // revision
+	buf.WriteByte(4)                                            // sub auth count
 	buf.Write([]byte{0, 0, 0, 0, 0, 5})                         // identifier authority (BE)
 	for i := 0; i < 4; i++ {
 		binary.Write(&buf, binary.LittleEndian, uint32(21+uint32(i)))
@@ -46,9 +48,9 @@ func TestSkipDomains_OneEntry(t *testing.T) {
 	// SID is 24 bytes — 24 mod 4 == 0, no align needed
 	binary.Write(&buf, binary.LittleEndian, uint32(1)) // MaxEntries
 
-	r := newReader(buf.Bytes())
-	r.SkipDomains()
-	if r.pos != len(buf.Bytes()) {
-		t.Errorf("expected pos %d after SkipDomains (consumed all), got %d", len(buf.Bytes()), r.pos)
+	r := dcerpc.NewReader(buf.Bytes())
+	skipDomains(r)
+	if r.Pos() != len(buf.Bytes()) {
+		t.Errorf("expected pos %d after SkipDomains (consumed all), got %d", len(buf.Bytes()), r.Pos())
 	}
 }

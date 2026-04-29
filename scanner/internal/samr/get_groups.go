@@ -1,12 +1,14 @@
 package samr
 
+import "github.com/akashic-project/akashic/scanner/internal/dcerpc"
+
 // BuildSamrGetGroupsForUserRequest encodes SamrGetGroupsForUser (opnum 39).
 //
 // Wire format:
 //
 //	[20]byte UserHandle
 func BuildSamrGetGroupsForUserRequest(callID uint32, user Handle) []byte {
-	return wrapRequest(callID, OpnumSamrGetGroupsForUser, user[:])
+	return dcerpc.WrapRequest(callID, OpnumSamrGetGroupsForUser, user[:])
 }
 
 // GroupMembership is one (RID, Attributes) pair from SAMPR_GROUP_MEMBERSHIP.
@@ -30,7 +32,7 @@ type GroupMembership struct {
 //	      uint32 Attributes
 //	uint32 NTSTATUS
 func ParseSamrGetGroupsForUserResponse(body []byte) ([]GroupMembership, uint32, error) {
-	r := newReader(body)
+	r := dcerpc.NewReader(body)
 	bufPtr := r.U32()
 	if bufPtr == 0 {
 		// No buffer returned — read tail status, return empty list.

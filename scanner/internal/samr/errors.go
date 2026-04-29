@@ -5,12 +5,9 @@ import (
 	"fmt"
 )
 
-var (
-	ErrTruncated   = errors.New("samr: pdu truncated")
-	ErrUnsupported = errors.New("samr: unsupported pdu type")
-	ErrBindFailed  = errors.New("samr: bind failed")
-	ErrInvalidSID  = errors.New("samr: invalid SID")
-)
+// SAMR-specific errors. Generic DCE/RPC errors (ErrTruncated, ErrBindFailed,
+// ErrUnsupported) live in scanner/internal/dcerpc.
+var ErrInvalidSID = errors.New("samr: invalid SID")
 
 // Well-known NTSTATUS codes we care about for SAMR error mapping.
 const (

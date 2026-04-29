@@ -6,7 +6,7 @@ import (
 )
 
 func TestEncodeRPCSID_KnownDomainFixture(t *testing.T) {
-	// MS-DTYP §2.4.2.1 example domain SID with 3 sub-authorities (revision=1,
+	// MS-DTYP §2.4.2.1 example domain SID with 4 sub-authorities (revision=1,
 	// authority=NT (5), sub-auths 21, 1004336348, 1177238915, 682003330).
 	// Final wire form (per [MS-DTYP] §2.4.2.3, RPC_SID NDR):
 	//   uint32 conformance count = sub-auth count = 4
@@ -14,9 +14,9 @@ func TestEncodeRPCSID_KnownDomainFixture(t *testing.T) {
 	//   uint8  SubAuthCount = 4
 	//   [6]byte IdentifierAuthority = 00 00 00 00 00 05
 	//   uint32 SubAuthority[0] = 21        → 15 00 00 00
-	//   uint32 SubAuthority[1] = 1004336348 → 9c bd 36 3b
-	//   uint32 SubAuthority[2] = 1177238915 → 43 e9 30 46
-	//   uint32 SubAuthority[3] = 682003330  → 82 80 a3 28
+	//   uint32 SubAuthority[1] = 1004336348 → dc f4 dc 3b
+	//   uint32 SubAuthority[2] = 1177238915 → 83 3d 2b 46
+	//   uint32 SubAuthority[3] = 682003330  → 82 8b a6 28
 	// 28 bytes total; 4-aligned, no pad.
 	sid, err := ParseSidString("S-1-5-21-1004336348-1177238915-682003330")
 	if err != nil {
@@ -60,41 +60,5 @@ func TestDecodeRPCSID_RoundTrip(t *testing.T) {
 	}
 	if out.String() != in.String() {
 		t.Fatalf("round-trip mismatch: %q vs %q", out.String(), in.String())
-	}
-}
-
-func TestEncodeRPCUnicodeString_HeaderAndDeferred(t *testing.T) {
-	// Encode "AB" (4 UTF-16LE bytes).
-	got := EncodeRPCUnicodeString("AB", 0x20000)
-	// Header (8 bytes): length=4, max=4, referent=0x20000
-	if got[0] != 4 || got[1] != 0 || got[2] != 4 || got[3] != 0 {
-		t.Errorf("header lengths wrong: % x", got[:4])
-	}
-	if got[4] != 0x00 || got[5] != 0x00 || got[6] != 0x02 || got[7] != 0x00 {
-		t.Errorf("referent wrong: % x", got[4:8])
-	}
-	// Deferred: max=2, offset=0, actual=2, then "AB" UTF-16LE.
-	if got[8] != 2 || got[12] != 0 || got[16] != 2 {
-		t.Errorf("deferred counts wrong: max=%d offset=%d actual=%d", got[8], got[12], got[16])
-	}
-	if got[20] != 'A' || got[21] != 0 || got[22] != 'B' || got[23] != 0 {
-		t.Errorf("string bytes wrong: % x", got[20:24])
-	}
-}
-
-func TestUTF16RoundTrip(t *testing.T) {
-	in := "héllo"
-	dec := DecodeUTF16LE(EncodeUTF16LE(in))
-	if dec != in {
-		t.Fatalf("round-trip: got %q want %q", dec, in)
-	}
-}
-
-func TestPad4(t *testing.T) {
-	cases := map[int]int{0: 0, 1: 3, 2: 2, 3: 1, 4: 0, 5: 3}
-	for in, want := range cases {
-		if got := Pad4(in); got != want {
-			t.Errorf("Pad4(%d) = %d, want %d", in, got, want)
-		}
 	}
 }

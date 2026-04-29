@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 // Transport is satisfied by anything supporting bidirectional byte
@@ -44,9 +46,9 @@ func (c *Client) Bind() error {
 	if err != nil {
 		return err
 	}
-	hdr, _ := ParsePDUHeader(resp)
-	if hdr.PType != PtypeBindAck {
-		return fmt.Errorf("%w: got ptype %d", ErrBindFailed, hdr.PType)
+	hdr, _ := dcerpc.ParsePDUHeader(resp)
+	if hdr.PType != dcerpc.PtypeBindAck {
+		return fmt.Errorf("%w: got ptype %d", dcerpc.ErrBindFailed, hdr.PType)
 	}
 	c.bound = true
 	return nil
@@ -225,12 +227,12 @@ func (c *Client) readPDU() ([]byte, error) {
 	if _, err := io.ReadFull(c.t, hdrBuf); err != nil {
 		return nil, err
 	}
-	hdr, err := ParsePDUHeader(hdrBuf)
+	hdr, err := dcerpc.ParsePDUHeader(hdrBuf)
 	if err != nil {
 		return nil, err
 	}
 	if hdr.FragLen < 16 {
-		return nil, ErrTruncated
+		return nil, dcerpc.ErrTruncated
 	}
 	rest := make([]byte, int(hdr.FragLen)-16)
 	if _, err := io.ReadFull(c.t, rest); err != nil {
@@ -245,7 +247,7 @@ func (c *Client) readResponseBody() ([]byte, error) {
 		return nil, err
 	}
 	if len(pdu) < 24 {
-		return nil, ErrTruncated
+		return nil, dcerpc.ErrTruncated
 	}
 	return pdu[24:], nil
 }
