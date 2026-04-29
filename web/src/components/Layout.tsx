@@ -8,6 +8,10 @@ interface NavItem {
   to: string;
   label: string;
   icon: React.ReactNode;
+  /** When true, the active state only matches the exact path — sub-routes
+   * don't keep this item highlighted. Used by /settings so /settings/identities
+   * doesn't drag the sidebar Settings entry into the active state. */
+  end?: boolean;
 }
 
 interface NavSection {
@@ -82,6 +86,7 @@ const sections: NavSection[] = [
       {
         to: "/settings",
         label: "Settings",
+        end: true,
         icon: (
           <Icon d="M12 1.5a2.5 2.5 0 011.95 4.06l1.04 1.81a8 8 0 011.97 0l1.04-1.81a2.5 2.5 0 11-1.95 4.06l-1.04 1.81a8 8 0 010 1.96l1.04 1.81a2.5 2.5 0 11-4.06 1.95l-1.81-1.04a8 8 0 01-1.96 0l-1.81 1.04a2.5 2.5 0 11-1.95-4.06l-1.04-1.81a8 8 0 010-1.96L4.42 7.62A2.5 2.5 0 116.37 3.56l1.81 1.04a8 8 0 011.96 0L11.18 2.79A2.5 2.5 0 0112 1.5z" />
         ),
@@ -131,11 +136,11 @@ export default function Layout() {
                 {section.label}
               </h3>
               <div className="space-y-0.5">
-                {section.items.map(({ to, label, icon }) => (
+                {section.items.map(({ to, label, icon, end }) => (
                   <NavLink
                     key={to}
                     to={to}
-                    end={to === "/settings"}
+                    end={end ?? false}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium",

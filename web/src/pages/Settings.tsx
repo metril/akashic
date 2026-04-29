@@ -67,13 +67,19 @@ export default function Settings() {
               </Card>
             </Link>
           ) : (
-            <Card
+            <div
               key={tile.label}
-              padding="md"
-              className="h-full opacity-60 cursor-not-allowed"
+              role="group"
+              aria-disabled="true"
+              aria-label={`${tile.label} (coming soon)`}
             >
-              <TileBody tile={tile} />
-            </Card>
+              <Card
+                padding="md"
+                className="h-full opacity-60 cursor-not-allowed"
+              >
+                <TileBody tile={tile} />
+              </Card>
+            </div>
           ),
         )}
       </div>
