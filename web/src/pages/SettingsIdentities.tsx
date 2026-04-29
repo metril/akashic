@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { Card, EmptyState, Spinner } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -39,18 +40,29 @@ export default function SettingsIdentities() {
         these identities can read.
       </p>
 
-      {personsQ.isLoading && <div className="text-sm text-gray-400">Loading…</div>}
-
-      <ul className="space-y-4">
-        {(personsQ.data ?? []).map((p) => (
-          <PersonCard
-            key={p.id}
-            person={p}
-            sources={sourcesQ.data ?? []}
-            onDelete={() => deletePerson.mutate(p.id)}
+      {personsQ.isLoading ? (
+        <div className="flex items-center justify-center py-12 text-gray-400">
+          <Spinner />
+        </div>
+      ) : (personsQ.data ?? []).length === 0 ? (
+        <Card padding="lg" className="mb-4">
+          <EmptyState
+            title="No identities yet"
+            description="Add one below to filter search by what you can read."
           />
-        ))}
-      </ul>
+        </Card>
+      ) : (
+        <ul className="space-y-4">
+          {(personsQ.data ?? []).map((p) => (
+            <PersonCard
+              key={p.id}
+              person={p}
+              sources={sourcesQ.data ?? []}
+              onDelete={() => deletePerson.mutate(p.id)}
+            />
+          ))}
+        </ul>
+      )}
 
       <AddPersonForm onSubmit={(body) => createPerson.mutate(body)} pending={createPerson.isPending} />
     </div>
