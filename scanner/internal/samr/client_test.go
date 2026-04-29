@@ -3,6 +3,7 @@ package samr
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"testing"
 )
@@ -138,6 +139,34 @@ func cannedLookupIdsBody(names []string) []byte {
 	return body
 }
 
+// cannedLookupIdsBodyWithUseArray is like cannedLookupIdsBody but emits a
+// non-null Use[] array between the deferred name buffers and the NTSTATUS
+// — matching what real Windows DCs return. Catches over/under-consumption
+// bugs in the name parser since Tail32() works regardless but only if the
+// parser left the reader at the right position.
+func cannedLookupIdsBodyWithUseArray(names []string) []byte {
+	// First reuse the no-Use builder, but strip its trailing UsePtr=0 + NTSTATUS.
+	base := cannedLookupIdsBody(names)
+	base = base[:len(base)-8]
+
+	body := append([]byte{}, base...)
+	// UsePtr non-null
+	body = binary.LittleEndian.AppendUint32(body, 0x20100)
+	// UseCount = len(names)
+	body = binary.LittleEndian.AppendUint32(body, uint32(len(names)))
+	// UseElementsPtr non-null
+	body = binary.LittleEndian.AppendUint32(body, 0x20104)
+	// max_count = len(names)
+	body = binary.LittleEndian.AppendUint32(body, uint32(len(names)))
+	// One uint32 per name (SID_NAME_USE) — value 2 = SidTypeGroup.
+	for range names {
+		body = binary.LittleEndian.AppendUint32(body, 2)
+	}
+	// NTSTATUS = 0
+	body = binary.LittleEndian.AppendUint32(body, 0)
+	return body
+}
+
 func TestResolveGroupsForSid_HappyPath(t *testing.T) {
 	userSid, _ := ParseSidString("S-1-5-21-1004336348-1177238915-682003330-1013")
 
@@ -190,9 +219,6 @@ func TestResolveGroupsForSid_OpenUserNotFound(t *testing.T) {
 
 	// Build OpenUser response with NTSTATUS=0xC0000073 (STATUS_NONE_MAPPED).
 	openUserBody := make([]byte, 24)
-	for i := 0; i < 20; i++ {
-		openUserBody[i] = 0
-	}
 	binary.LittleEndian.PutUint32(openUserBody[20:24], 0xC0000073)
 
 	st := &scriptedTransport{
@@ -210,6 +236,76 @@ func TestResolveGroupsForSid_OpenUserNotFound(t *testing.T) {
 	_, err := ResolveGroupsForSid(st, "\\\\HOST", userSid)
 	if err == nil {
 		t.Fatal("expected open_user failure")
+	}
+	// The wrapped StatusError should classify as not-found.
+	var se *StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected *StatusError in chain, got %T: %v", err, err)
+	}
+	if !se.IsNotFound() {
+		t.Fatalf("StatusError 0x%x should be IsNotFound, isn't", se.Status)
+	}
+}
+
+func TestResolveGroupsForSid_OpenUserAccessDenied(t *testing.T) {
+	userSid, _ := ParseSidString("S-1-5-21-1-2-3-1013")
+
+	// STATUS_ACCESS_DENIED — the user EXISTS but the service account can't
+	// open it. Must NOT classify as not-found, since masking permission
+	// errors as "user not found" silently hides misconfigurations.
+	openUserBody := make([]byte, 24)
+	binary.LittleEndian.PutUint32(openUserBody[20:24], 0xC0000022)
+
+	st := &scriptedTransport{
+		responses: [][]byte{
+			bindAckPDU(1),
+			responsePDU(2, cannedConnect5Body(0xa1)),
+			responsePDU(3, cannedHandleStatusBody(0xa2)),
+			responsePDU(4, openUserBody),
+			responsePDU(5, cannedHandleStatusBody(0)),
+			responsePDU(6, cannedHandleStatusBody(0)),
+		},
+	}
+
+	_, err := ResolveGroupsForSid(st, "\\\\HOST", userSid)
+	if err == nil {
+		t.Fatal("expected open_user failure")
+	}
+	var se *StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected *StatusError in chain, got %T", err)
+	}
+	if se.IsNotFound() {
+		t.Fatalf("ACCESS_DENIED should NOT classify as not-found")
+	}
+}
+
+func TestResolveGroupsForSid_HappyPathWithUseArray(t *testing.T) {
+	// Same as HappyPath but the LookupIds response includes a non-null
+	// Use[] array — matches what real DCs return. Catches name-buffer
+	// over/under-consumption bugs.
+	userSid, _ := ParseSidString("S-1-5-21-1-2-3-1013")
+
+	st := &scriptedTransport{
+		responses: [][]byte{
+			bindAckPDU(1),
+			responsePDU(2, cannedConnect5Body(0xa1)),
+			responsePDU(3, cannedHandleStatusBody(0xa2)),
+			responsePDU(4, cannedHandleStatusBody(0xa3)),
+			responsePDU(5, cannedGetGroupsBody([]uint32{513, 1042})),
+			responsePDU(6, cannedLookupIdsBodyWithUseArray([]string{"engineers", "users"})),
+			responsePDU(7, cannedHandleStatusBody(0)),
+			responsePDU(8, cannedHandleStatusBody(0)),
+			responsePDU(9, cannedHandleStatusBody(0)),
+		},
+	}
+
+	names, err := ResolveGroupsForSid(st, "\\\\HOST", userSid)
+	if err != nil {
+		t.Fatalf("ResolveGroupsForSid: %v", err)
+	}
+	if len(names) != 2 || names[0] != "engineers" || names[1] != "users" {
+		t.Fatalf("names = %v, want [engineers users]", names)
 	}
 }
 

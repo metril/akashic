@@ -49,8 +49,10 @@ func BuildSamrConnect5Request(callID uint32, serverName string, desiredAccess ui
 	// InVersion = 1
 	body = binary.LittleEndian.AppendUint32(body, 1)
 
-	// SAMPR_REVISION_INFO_V1 = (Revision=3, SupportedFeatures=0)
-	body = binary.LittleEndian.AppendUint32(body, 3)
+	// SAMPR_REVISION_INFO_V1 = (Revision=1, SupportedFeatures=0).
+	// Revision=1 matches InVersion=1 — both name the V1 wire shape.
+	// (Real servers ignore this value, but match what conformant clients do.)
+	body = binary.LittleEndian.AppendUint32(body, 1)
 	body = binary.LittleEndian.AppendUint32(body, 0)
 
 	return wrapRequest(callID, OpnumSamrConnect5, body)

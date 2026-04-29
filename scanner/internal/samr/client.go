@@ -70,7 +70,7 @@ func (c *Client) Connect(serverName string) error {
 		return err
 	}
 	if status != 0 {
-		return fmt.Errorf("%w: ntstatus=0x%x", ErrSamrConnectFailed, status)
+		return &StatusError{Op: "SamrConnect5", Status: status}
 	}
 	c.serverHandle = h
 	c.hasServer = true
@@ -96,7 +96,7 @@ func (c *Client) OpenDomain(domain SID) error {
 		return err
 	}
 	if status != 0 {
-		return fmt.Errorf("%w: ntstatus=0x%x", ErrSamrOpenDomainFailed, status)
+		return &StatusError{Op: "SamrOpenDomain", Status: status}
 	}
 	c.domainHandle = h
 	c.hasDomain = true
@@ -121,7 +121,7 @@ func (c *Client) OpenUser(rid uint32) error {
 		return err
 	}
 	if status != 0 {
-		return fmt.Errorf("%w: ntstatus=0x%x", ErrSamrOpenUserFailed, status)
+		return &StatusError{Op: "SamrOpenUser", Status: status}
 	}
 	c.userHandle = h
 	c.hasUser = true
@@ -146,7 +146,7 @@ func (c *Client) GetGroupsForUser() ([]uint32, error) {
 		return nil, err
 	}
 	if status != 0 {
-		return nil, fmt.Errorf("%w: ntstatus=0x%x", ErrSamrGetGroupsFailed, status)
+		return nil, &StatusError{Op: "SamrGetGroupsForUser", Status: status}
 	}
 	rids := make([]uint32, len(groups))
 	for i, g := range groups {
@@ -176,7 +176,7 @@ func (c *Client) LookupIds(rids []uint32) ([]string, error) {
 		return nil, err
 	}
 	if status != 0 {
-		return nil, fmt.Errorf("%w: ntstatus=0x%x", ErrSamrLookupIdsFailed, status)
+		return nil, &StatusError{Op: "SamrLookupIdsInDomain", Status: status}
 	}
 	return names, nil
 }
