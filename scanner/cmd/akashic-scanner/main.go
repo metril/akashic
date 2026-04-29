@@ -18,6 +18,13 @@ import (
 )
 
 func main() {
+	// Subcommand dispatch: `akashic-scanner resolve-groups …` short-circuits
+	// the normal scan flow.
+	if len(os.Args) > 1 && os.Args[1] == "resolve-groups" {
+		runResolveGroups(os.Args[2:])
+		return
+	}
+
 	sourceID := flag.String("source-id", "", "Source ID to scan")
 	scanID := flag.String("scan-id", "", "Scan ID for this run")
 	sourceType := flag.String("type", "local", "Source type: local, ssh, smb, nfs, s3")

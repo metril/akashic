@@ -72,8 +72,10 @@ async def test_ssh_empty_config_unsupported(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_smb_unsupported(monkeypatch):
-    """SMB sources defer to 14c (SAMR); resolver returns Unsupported."""
+async def test_smb_empty_config_unsupported(monkeypatch):
+    """SMB source with empty connection_config should surface
+    UnsupportedResolution (missing host). Phase 14c SAMR-specific behavior
+    is covered in test_group_resolver_samr.py."""
     from akashic.services.group_resolver import UnsupportedResolution, resolve_groups
 
     class _FakeSource:
