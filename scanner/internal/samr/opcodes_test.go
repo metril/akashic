@@ -3,6 +3,8 @@ package samr
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 func TestBuildSamrCloseHandleRequest_OpnumAndShape(t *testing.T) {
@@ -191,13 +193,13 @@ func TestParseSamrLookupIdsInDomainResponse_TwoNames(t *testing.T) {
 	body = binary.LittleEndian.AppendUint32(body, 0) // offset
 	body = binary.LittleEndian.AppendUint32(body, 5) // actual
 	body = append(body, 'u', 0, 's', 0, 'e', 0, 'r', 0, 's', 0)
-	body = AlignBytes(body, 4)
+	body = dcerpc.AlignBytes(body, 4)
 	// Deferred buffer for "wheel"
 	body = binary.LittleEndian.AppendUint32(body, 5)
 	body = binary.LittleEndian.AppendUint32(body, 0)
 	body = binary.LittleEndian.AppendUint32(body, 5)
 	body = append(body, 'w', 0, 'h', 0, 'e', 0, 'e', 0, 'l', 0)
-	body = AlignBytes(body, 4)
+	body = dcerpc.AlignBytes(body, 4)
 	// Then UsePtr = 0 (we skip it via Tail32 — but we still need to give Tail32
 	// something to land on for the NTSTATUS.) Layout the Use pointer + status.
 	body = binary.LittleEndian.AppendUint32(body, 0) // UsePtr

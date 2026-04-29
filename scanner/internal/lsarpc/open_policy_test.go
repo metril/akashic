@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 func TestBuildOpenPolicy2Request(t *testing.T) {
 	pkt := BuildOpenPolicy2Request(2, 0x02000000)
-	hdr, err := ParsePDUHeader(pkt)
+	hdr, err := dcerpc.ParsePDUHeader(pkt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hdr.PType != PtypeRequest {
+	if hdr.PType != dcerpc.PtypeRequest {
 		t.Errorf("ptype: got %d want REQUEST", hdr.PType)
 	}
 	body := pkt[16:]

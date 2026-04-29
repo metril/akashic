@@ -1,6 +1,10 @@
 package samr
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
+)
 
 // BuildSamrLookupIdsInDomainRequest encodes SamrLookupIdsInDomain (opnum 18).
 //
@@ -19,13 +23,13 @@ func BuildSamrLookupIdsInDomainRequest(callID uint32, domain Handle, rids []uint
 	body = append(body, domain[:]...)
 	body = binary.LittleEndian.AppendUint32(body, count)
 	// Conformant-varying header for the RIDs array.
-	body = binary.LittleEndian.AppendUint32(body, 1000) // max_count
-	body = binary.LittleEndian.AppendUint32(body, 0)    // offset
+	body = binary.LittleEndian.AppendUint32(body, 1000)  // max_count
+	body = binary.LittleEndian.AppendUint32(body, 0)     // offset
 	body = binary.LittleEndian.AppendUint32(body, count) // actual_count
 	for _, rid := range rids {
 		body = binary.LittleEndian.AppendUint32(body, rid)
 	}
-	return wrapRequest(callID, OpnumSamrLookupIdsInDomain, body)
+	return dcerpc.WrapRequest(callID, OpnumSamrLookupIdsInDomain, body)
 }
 
 // ParseSamrLookupIdsInDomainResponse extracts the resolved names. We
@@ -50,7 +54,7 @@ func BuildSamrLookupIdsInDomainRequest(callID uint32, domain Handle, rids []uint
 //	uint32 UsePtr ... (skip)
 //	uint32 NTSTATUS (at tail)
 func ParseSamrLookupIdsInDomainResponse(body []byte) ([]string, uint32, error) {
-	r := newReader(body)
+	r := dcerpc.NewReader(body)
 	namesPtr := r.U32()
 	if namesPtr == 0 {
 		return nil, r.Tail32(), nil
@@ -83,7 +87,7 @@ func ParseSamrLookupIdsInDomainResponse(body []byte) ([]string, uint32, error) {
 		actual := r.U32()
 		nameBytes := r.Bytes(int(actual) * 2)
 		r.AlignTo(4)
-		out[i] = DecodeUTF16LE(nameBytes)
+		out[i] = dcerpc.DecodeUTF16LE(nameBytes)
 	}
 
 	status := r.Tail32()
