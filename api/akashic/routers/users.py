@@ -1,18 +1,17 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from passlib.context import CryptContext
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.auth.jwt import create_access_token
+from akashic.auth.passwords import hash_password, verify_password
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse
 
 router = APIRouter(prefix="/api/users", tags=["users"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -34,7 +33,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     user = User(
         username=data.username,
         email=data.email,
-        password_hash=pwd_context.hash(data.password),
+        password_hash=hash_password(data.password),
         role="admin",
     )
     db.add(user)
@@ -56,7 +55,7 @@ async def create_user(
     user = User(
         username=data.username,
         email=data.email,
-        password_hash=pwd_context.hash(data.password),
+        password_hash=hash_password(data.password),
         role="viewer",
     )
     db.add(user)
@@ -69,7 +68,7 @@ async def create_user(
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
-    if not user or not pwd_context.verify(data.password, user.password_hash):
+    if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
