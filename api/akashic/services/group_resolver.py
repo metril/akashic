@@ -280,9 +280,17 @@ def _scanner_binary_path() -> str | None:
     return shutil.which("akashic-scanner")
 
 
-def _run_scanner(argv: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    """Indirection for tests to monkeypatch."""
-    return subprocess.run(argv, capture_output=True, timeout=timeout, text=True)
+def _run_scanner(argv: list[str], password: str = "", timeout: int = 30) -> subprocess.CompletedProcess:
+    """Indirection for tests to monkeypatch.
+
+    The password is sent on stdin as a single JSON line so it doesn't show up
+    in /proc/<pid>/cmdline. stdin is otherwise DEVNULL-equivalent (we only
+    write the password line and immediately close)."""
+    payload = json.dumps({"password": password}) + "\n"
+    return subprocess.run(
+        argv, capture_output=True, timeout=timeout, text=True,
+        input=payload,
+    )
 
 
 def _resolve_smb_samr(source, binding) -> ResolveResult:
@@ -317,11 +325,11 @@ def _resolve_smb_samr(source, binding) -> ResolveResult:
         "--host", host,
         "--port", str(port),
         "--user", username,
-        "--password", password,
+        "--password-stdin",
         "--sid", sid,
     ]
     try:
-        proc = _run_scanner(argv)
+        proc = _run_scanner(argv, password=password)
     except subprocess.TimeoutExpired:
         raise ResolutionFailed("backend_error", "scanner timeout")
     except OSError as exc:

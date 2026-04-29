@@ -47,9 +47,11 @@ def _patch_binary(monkeypatch, path="/usr/local/bin/akashic-scanner"):
 @pytest.mark.asyncio
 async def test_samr_happy_path(monkeypatch):
     captured_argv = []
+    captured_password = []
 
-    def _fake_run(argv, timeout=30):
+    def _fake_run(argv, password="", timeout=30):
         captured_argv.extend(argv)
+        captured_password.append(password)
         return _proc(stdout=json.dumps({"groups": ["users", "wheel"], "source": "samr"}))
 
     _patch_binary(monkeypatch)
@@ -64,13 +66,17 @@ async def test_samr_happy_path(monkeypatch):
     assert "resolve-groups" in captured_argv
     assert "--type=smb" in captured_argv
     assert "S-1-5-21-1-2-3-1013" in captured_argv
+    # Critical: password is passed via stdin keyword, NOT as a CLI argument.
+    assert "hunter2" not in captured_argv
+    assert captured_password == ["hunter2"]
+    assert "--password-stdin" in captured_argv
 
 
 @pytest.mark.asyncio
 async def test_samr_uses_default_port_445(monkeypatch):
     captured = {}
 
-    def _fake_run(argv, timeout=30):
+    def _fake_run(argv, password="", timeout=30):
         captured["argv"] = argv
         return _proc(stdout=json.dumps({"groups": [], "source": "samr"}))
 
@@ -109,10 +115,9 @@ async def test_samr_no_binary(monkeypatch):
 @pytest.mark.asyncio
 async def test_samr_non_sid_identifier_rejected(monkeypatch):
     _patch_binary(monkeypatch)
-    monkeypatch.setattr(
-        group_resolver, "_run_scanner",
-        lambda argv, timeout=30: pytest.fail("scanner should not be invoked"),
-    )
+    def _no_run(argv, password="", timeout=30):
+        pytest.fail("scanner should not be invoked")
+    monkeypatch.setattr(group_resolver, "_run_scanner", _no_run)
     src = _src(host="h", username="u")
     with pytest.raises(ResolutionFailed) as ei:
         await resolve_groups(src, _binding(identifier="alice"))
@@ -125,7 +130,7 @@ async def test_samr_user_not_found_exits_2(monkeypatch):
     _patch_binary(monkeypatch)
     monkeypatch.setattr(
         group_resolver, "_run_scanner",
-        lambda argv, timeout=30: _proc(stderr="user not found in domain", rc=2),
+        lambda argv, password="", timeout=30: _proc(stderr="user not found in domain", rc=2),
     )
     src = _src(host="h", username="u")
     with pytest.raises(ResolutionFailed) as ei:
@@ -138,7 +143,7 @@ async def test_samr_scanner_failure_exits_1(monkeypatch):
     _patch_binary(monkeypatch)
     monkeypatch.setattr(
         group_resolver, "_run_scanner",
-        lambda argv, timeout=30: _proc(stderr="connection refused", rc=1),
+        lambda argv, password="", timeout=30: _proc(stderr="connection refused", rc=1),
     )
     src = _src(host="h", username="u")
     with pytest.raises(ResolutionFailed) as ei:
@@ -151,7 +156,7 @@ async def test_samr_bad_json(monkeypatch):
     _patch_binary(monkeypatch)
     monkeypatch.setattr(
         group_resolver, "_run_scanner",
-        lambda argv, timeout=30: _proc(stdout="not json", rc=0),
+        lambda argv, password="", timeout=30: _proc(stdout="not json", rc=0),
     )
     src = _src(host="h", username="u")
     with pytest.raises(ResolutionFailed) as ei:
@@ -163,7 +168,7 @@ async def test_samr_bad_json(monkeypatch):
 async def test_samr_timeout(monkeypatch):
     _patch_binary(monkeypatch)
 
-    def _raise(argv, timeout=30):
+    def _raise(argv, password="", timeout=30):
         raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
 
     monkeypatch.setattr(group_resolver, "_run_scanner", _raise)
@@ -177,7 +182,7 @@ async def test_samr_timeout(monkeypatch):
 async def test_samr_spawn_failure(monkeypatch):
     _patch_binary(monkeypatch)
 
-    def _raise(argv, timeout=30):
+    def _raise(argv, password="", timeout=30):
         raise OSError("permission denied")
 
     monkeypatch.setattr(group_resolver, "_run_scanner", _raise)
