@@ -34,9 +34,8 @@ func runTestConnection(args []string) {
 	port := fs.Int("port", 0, "Port (ssh, smb; default 22 / 445)")
 	user := fs.String("user", "", "Username (ssh, smb) or access key ID (s3)")
 	password := fs.String("password", "", "Password (insecure — prefer --password-stdin)")
-	passwordStdin := fs.Bool("password-stdin", false, "Read password from stdin: {\"password\":\"…\"}")
+	passwordStdin := fs.Bool("password-stdin", false, "Read creds from stdin: {\"password\":\"…\",\"key_passphrase\":\"…\"}")
 	keyPath := fs.String("key", "", "SSH key path")
-	keyPassphrase := fs.String("key-passphrase", "", "SSH key passphrase")
 	knownHosts := fs.String("known-hosts", "", "SSH known_hosts path (required for ssh)")
 	share := fs.String("share", "", "SMB share")
 	bucket := fs.String("bucket", "", "S3 bucket")
@@ -45,8 +44,11 @@ func runTestConnection(args []string) {
 	_ = fs.Parse(args)
 
 	pw := *password
+	keyPassphrase := ""
 	if *passwordStdin {
-		pw = readPasswordFromStdin()
+		creds := readCredsFromStdin()
+		pw = creds.Password
+		keyPassphrase = creds.KeyPassphrase
 	}
 
 	var ok bool
@@ -58,7 +60,7 @@ func runTestConnection(args []string) {
 		if p == 0 {
 			p = 22
 		}
-		ok, step, msg = testSSH(*host, p, *user, pw, *keyPath, *keyPassphrase, *knownHosts)
+		ok, step, msg = testSSH(*host, p, *user, pw, *keyPath, keyPassphrase, *knownHosts)
 	case "smb":
 		p := *port
 		if p == 0 {
@@ -175,7 +177,10 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 			return false, "connect", s
 		case strings.Contains(s, "InvalidAccessKeyId"), strings.Contains(s, "SignatureDoesNotMatch"):
 			return false, "auth", s
-		case strings.Contains(s, "NoSuchBucket"), strings.Contains(s, "NotFound"):
+		// Only the explicit S3-API codes — bare "NotFound" is too broad
+		// (HTTP 404 from a misconfigured endpoint URL would otherwise read
+		// as "bucket not found", masking the real config issue).
+		case strings.Contains(s, "NoSuchBucket"):
 			return false, "list", fmt.Sprintf("bucket %q not found", bucket)
 		case strings.Contains(s, "Forbidden"):
 			return false, "auth", "access denied"

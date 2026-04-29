@@ -43,18 +43,27 @@ def _scanner_binary_path() -> str | None:
     return shutil.which("akashic-scanner")
 
 
-def _run_scanner(argv: list[str], password: str = "", timeout: int = 15) -> subprocess.CompletedProcess:
+def _run_scanner(
+    argv: list[str],
+    password: str = "",
+    key_passphrase: str = "",
+    timeout: int = 15,
+) -> subprocess.CompletedProcess:
     """Indirection for tests to monkeypatch.
 
-    Password is fed via stdin JSON so it doesn't show up in /proc/<pid>/cmdline.
+    Both password and key_passphrase are credentials and fed via stdin JSON
+    so they don't show up in /proc/<pid>/cmdline. Anyone with read access
+    to /proc could otherwise see them via `ps`.
     """
-    payload = json.dumps({"password": password}) + "\n"
+    payload = json.dumps({"password": password, "key_passphrase": key_passphrase}) + "\n"
     return subprocess.run(
         argv, capture_output=True, timeout=timeout, text=True, input=payload,
     )
 
 
-def _test_via_scanner(scanner_argv: list[str], password: str = "") -> TestResult:
+def _test_via_scanner(
+    scanner_argv: list[str], password: str = "", key_passphrase: str = "",
+) -> TestResult:
     binary = _scanner_binary_path()
     if not binary:
         return TestResult(
@@ -63,7 +72,7 @@ def _test_via_scanner(scanner_argv: list[str], password: str = "") -> TestResult
         )
     argv = [binary] + scanner_argv
     try:
-        proc = _run_scanner(argv, password=password)
+        proc = _run_scanner(argv, password=password, key_passphrase=key_passphrase)
     except subprocess.TimeoutExpired:
         return TestResult(ok=False, step="connect", error="scanner timeout")
     except OSError as exc:
@@ -112,9 +121,13 @@ def test_ssh(cfg: dict) -> TestResult:
     ]
     if cfg.get("key_path"):
         argv += ["--key", cfg["key_path"]]
-        if cfg.get("key_passphrase"):
-            argv += ["--key-passphrase", cfg["key_passphrase"]]
-    return _test_via_scanner(argv, password=cfg.get("password") or "")
+    # key_passphrase is a credential — pipe via stdin alongside password so it
+    # doesn't end up in /proc/<pid>/cmdline.
+    return _test_via_scanner(
+        argv,
+        password=cfg.get("password") or "",
+        key_passphrase=cfg.get("key_passphrase") or "",
+    )
 
 
 def test_smb(cfg: dict) -> TestResult:
