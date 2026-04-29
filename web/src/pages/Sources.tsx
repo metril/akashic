@@ -1,16 +1,12 @@
-import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useSources,
-  useCreateSource,
   useDeleteSource,
 } from "../hooks/useSources";
 import { api } from "../api/client";
 import {
   Card,
-  CardHeader,
   Button,
-  Input,
   Badge,
   Skeleton,
   EmptyState,
@@ -19,6 +15,7 @@ import type { BadgeVariant } from "../components/ui";
 import type { Source } from "../types";
 import { formatDate } from "../lib/format";
 import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
+import { AddSourceForm } from "../components/sources/AddSourceForm";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
   "online",
@@ -113,64 +110,6 @@ function SourceCard({ source }: { source: Source }) {
         </p>
       )}
       {source.type === "s3" && <BucketSecurityCard source={source} />}
-    </Card>
-  );
-}
-
-function AddSourceForm() {
-  const createSource = useCreateSource();
-  const [name, setName] = useState("");
-  const [path, setPath] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-    try {
-      await createSource.mutateAsync({
-        name,
-        type: "local",
-        connection_config: { path },
-      });
-      setName("");
-      setPath("");
-    } catch (err) {
-      setFormError(
-        err instanceof Error ? err.message : "Failed to create source",
-      );
-    }
-  }
-
-  return (
-    <Card padding="md">
-      <CardHeader
-        title="Add a source"
-        description="Index a local filesystem path."
-      />
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <Input
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="My Documents"
-          required
-        />
-        <Input
-          label="Path"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          placeholder="/home/user/documents"
-          required
-        />
-        {formError && <p className="text-xs text-rose-600">{formError}</p>}
-        <Button
-          type="submit"
-          loading={createSource.isPending}
-          className="w-full"
-        >
-          Add source
-        </Button>
-      </form>
     </Card>
   );
 }
