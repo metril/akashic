@@ -19,6 +19,11 @@ import bcrypt
 # lowering weakens against offline cracking.
 _BCRYPT_ROUNDS = 12
 
+# bcrypt silently truncates inputs beyond 72 bytes — auth-bypass risk if
+# unchecked. The UserCreate schema rejects this at the API edge; the
+# defensive check below makes hash_password safe to call from anywhere.
+_BCRYPT_MAX_BYTES = 72
+
 # Static dummy hash used to keep the verify() runtime constant when the
 # user lookup misses. Without this, a non-existent username returns
 # faster than an existing one (no bcrypt call) — a username-enumeration
@@ -29,8 +34,17 @@ _DUMMY_HASH = bcrypt.hashpw(b"akashic-dummy-input", bcrypt.gensalt(_BCRYPT_ROUND
 
 
 def hash_password(plaintext: str) -> str:
-    """Returns a bcrypt hash suitable for storing in user.password_hash."""
-    return bcrypt.hashpw(plaintext.encode("utf-8"), bcrypt.gensalt(_BCRYPT_ROUNDS)).decode("utf-8")
+    """Returns a bcrypt hash suitable for storing in user.password_hash.
+
+    Raises ValueError if plaintext exceeds 72 UTF-8 bytes — refusing to
+    silently truncate. The API normally rejects oversize passwords at
+    the schema layer; this guard backstops direct callers."""
+    encoded = plaintext.encode("utf-8")
+    if len(encoded) > _BCRYPT_MAX_BYTES:
+        raise ValueError(
+            f"Password exceeds {_BCRYPT_MAX_BYTES}-byte bcrypt limit"
+        )
+    return bcrypt.hashpw(encoded, bcrypt.gensalt(_BCRYPT_ROUNDS)).decode("utf-8")
 
 
 def verify_password(plaintext: str, stored_hash: str | None) -> bool:
@@ -47,9 +61,13 @@ def verify_password(plaintext: str, stored_hash: str | None) -> bool:
         target = _DUMMY_HASH
     try:
         ok = bcrypt.checkpw(plaintext.encode("utf-8"), target)
-    except (ValueError, TypeError):
-        # Malformed stored hash — treat as a verification failure.
-        # Still ran a comparison, so timing is consistent.
+    except Exception:  # noqa: BLE001
+        # Malformed stored hash — every failure mode (ValueError, TypeError,
+        # and bcrypt 4.2.x's pyo3_runtime.PanicException for some
+        # syntactically-bcrypt-like-but-corrupt rows) is a verification
+        # failure. Catch broadly so /login can never 500 on a bad row.
+        # Still ran a comparison, so timing is consistent with the
+        # success path.
         ok = False
     # If we ran against the dummy, force-fail without short-circuiting.
     if not stored_hash:
