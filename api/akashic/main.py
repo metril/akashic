@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, auth, effective_perms, identities, admin_audit, group_resolution
+from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ async def lifespan(app: FastAPI):
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    from akashic.database import apply_inline_alters
+    await apply_inline_alters()
     logger.info("Database schema ensured")
 
     try:
@@ -35,6 +37,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     from akashic.scheduler import stop_scheduler
     stop_scheduler()
+    from akashic.services import scan_pubsub
+    await scan_pubsub.aclose()
 
 
 def create_app() -> FastAPI:
@@ -54,6 +58,8 @@ def create_app() -> FastAPI:
     app.include_router(purge.router)
     app.include_router(webhooks.router)
     app.include_router(scans.router)
+    app.include_router(scan_progress.router)
+    app.include_router(scan_websocket.router)
     app.include_router(effective_perms.router)
     app.include_router(identities.router)
     app.include_router(admin_audit.router)

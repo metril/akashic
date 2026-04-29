@@ -55,10 +55,14 @@ async def trigger_scan(
 
     await check_source_access(source.id, user, db, required_level="write")
 
+    from akashic.services.scan_factory import previous_files_for_source
+    prev = await previous_files_for_source(source.id, db)
+
     scan = Scan(
         source_id=source.id,
         scan_type=data.scan_type,
         status="pending",
+        previous_scan_files=prev,
     )
     db.add(scan)
     source.status = "scanning"
@@ -94,7 +98,13 @@ async def list_scans(
         if allowed is not None:
             stmt = stmt.where(Scan.source_id.in_(allowed)) if allowed else stmt.where(False)
     if status:
-        stmt = stmt.where(Scan.status == status)
+        # Comma-separated list supported so the UI can poll
+        # `?status=running,pending` in one request.
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            stmt = stmt.where(Scan.status == statuses[0])
+        elif statuses:
+            stmt = stmt.where(Scan.status.in_(statuses))
     stmt = stmt.order_by(Scan.started_at.desc().nulls_first()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()

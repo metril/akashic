@@ -23,3 +23,17 @@ class Scan(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Phase 1 observability — heartbeat-driven progress fields. Updated by the
+    # scanner via POST /api/scans/{id}/heartbeat independently of batch ingest.
+    current_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bytes_scanned_so_far: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    files_skipped: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    dirs_walked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    dirs_queued: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_estimated: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "prewalk" | "walk" | "finalize" | NULL (not started / legacy row).
+    phase: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Snapshot of the last successful scan's files_found, captured at start.
+    previous_scan_files: Mapped[int | None] = mapped_column(Integer, nullable=True)
