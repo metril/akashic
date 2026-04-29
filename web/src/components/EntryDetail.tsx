@@ -8,6 +8,7 @@ import { ACLSection } from "./acl/ACLSection";
 import { ACLDiff } from "./acl/ACLDiff";
 import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 import { EffectivePermissions } from "./acl/EffectivePermissions";
+import { ContentTab } from "./entry-detail/ContentTab";
 
 interface Props {
   entryId: string | null;
@@ -103,6 +104,12 @@ export function EntryDetail({ entryId }: Props) {
           {entry.mime_type && <Row label="MIME">{entry.mime_type}</Row>}
         </dl>
       </Section>
+
+      {entry.kind === "file" && (
+        <Section title="Content">
+          <ContentTab entry={entry} />
+        </Section>
+      )}
 
       <Section title="Permissions">
         <dl>
