@@ -143,7 +143,7 @@ export default function Browse() {
               className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Up one directory"
             >
-              <Icon name="arrow-left" />
+              <Icon name="arrow-left" className="size-4" />
               Up
             </button>
           </div>
@@ -216,11 +216,11 @@ export default function Browse() {
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Icon
                           path={iconPathForKind(child.kind, child.extension)}
-                          className={
+                          className={`size-4 ${
                             child.kind === "directory"
                               ? "text-accent-600"
                               : "text-gray-400"
-                          }
+                          }`}
                         />
                         <span className="truncate text-gray-900 font-medium">
                           {child.name}
@@ -269,7 +269,7 @@ export default function Browse() {
                           title="Download"
                           className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                         >
-                          <Icon name="download" />
+                          <Icon name="download" className="size-4" />
                         </button>
                       )}
                     </td>
