@@ -32,6 +32,19 @@ async def test_login(client):
 
 
 @pytest.mark.asyncio
+async def test_register_rejects_oversize_password(client):
+    """bcrypt-72-byte limit is enforced at the schema layer."""
+    response = await client.post("/api/users/register", json={
+        "username": "fatpw",
+        "password": "a" * 73,
+    })
+    assert response.status_code == 422
+    body = response.json()
+    assert any("72-byte" in str(e.get("ctx", "")) or "72-byte" in str(e.get("msg", ""))
+               for e in body.get("detail", []))
+
+
+@pytest.mark.asyncio
 async def test_login_wrong_password(client):
     await client.post("/api/users/register", json={
         "username": "wrongpw",
