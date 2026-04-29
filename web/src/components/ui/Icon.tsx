@@ -30,11 +30,7 @@ const iconPaths = {
 
 export type IconName = keyof typeof iconPaths;
 
-interface IconProps {
-  /** Named icon from the registry. */
-  name?: IconName;
-  /** Raw SVG path data. Use this for one-offs that don't justify a registry entry. */
-  path?: string;
+interface BaseIconProps {
   className?: string;
   /** Stroke width override (default 1.75). */
   strokeWidth?: number;
@@ -42,17 +38,19 @@ interface IconProps {
   "aria-label"?: string;
 }
 
-export function Icon({
-  name,
-  path,
-  className,
-  strokeWidth = 1.75,
-  "aria-label": ariaLabel,
-}: IconProps) {
-  const d = name ? iconPaths[name] : path;
-  if (!d) {
-    return null;
-  }
+/**
+ * Discriminated union — exactly one of `name` or `path` must be set.
+ * `name` is the registry path (recommended); `path` is the escape-hatch
+ * for one-offs that don't justify a registry entry.
+ */
+type IconProps =
+  | (BaseIconProps & { name: IconName; path?: never })
+  | (BaseIconProps & { name?: never; path: string });
+
+export function Icon(props: IconProps) {
+  const { className, strokeWidth = 1.75 } = props;
+  const ariaLabel = props["aria-label"];
+  const d = "name" in props && props.name ? iconPaths[props.name] : props.path;
   const decorative = !ariaLabel;
   return (
     <svg
@@ -63,7 +61,11 @@ export function Icon({
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn("h-4 w-4 flex-shrink-0", className)}
+      // Sizing is the caller's responsibility — the cn() helper is a plain
+      // string joiner with no tailwind-merge, so a default like "h-4 w-4"
+      // would not be reliably overridden by a call-site "h-[18px] w-[18px]".
+      // Pass an explicit size class (or use Tailwind's `size-N` shortcut).
+      className={cn("flex-shrink-0", className)}
       aria-hidden={decorative ? true : undefined}
       aria-label={ariaLabel}
       role={decorative ? undefined : "img"}

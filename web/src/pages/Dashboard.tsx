@@ -70,25 +70,25 @@ export default function Dashboard() {
           value={formatNumber(sources.length)}
           subtext={`${activeSources} active`}
           loading={sourcesQuery.isLoading}
-          icon={<Icon name="sources" />}
+          icon={<Icon name="sources" className="size-4" />}
         />
         <StatCard
           label="Files indexed"
           value={formatNumber(totalFiles)}
           loading={storageQuery.isLoading}
-          icon={<Icon name="file" />}
+          icon={<Icon name="file" className="size-4" />}
         />
         <StatCard
           label="Total storage"
           value={formatBytes(totalSize)}
           loading={storageQuery.isLoading}
-          icon={<Icon name="database" />}
+          icon={<Icon name="database" className="size-4" />}
         />
         <StatCard
           label="File types"
           value={formatNumber(storageByType.length)}
           loading={storageQuery.isLoading}
-          icon={<Icon name="box" />}
+          icon={<Icon name="box" className="size-4" />}
         />
       </div>
 
