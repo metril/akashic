@@ -17,6 +17,8 @@ const Duplicates         = lazy(() => import("./pages/Duplicates"));
 const Analytics          = lazy(() => import("./pages/Analytics"));
 const Settings           = lazy(() => import("./pages/Settings"));
 const SettingsIdentities = lazy(() => import("./pages/SettingsIdentities"));
+const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
+const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -111,6 +113,22 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <SettingsIdentities />
+              </Suspense>
+            }
+          />
+          <Route
+            path="tags"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <SettingsTags />
+              </Suspense>
+            }
+          />
+          <Route
+            path="schedules"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <SettingsSchedules />
               </Suspense>
             }
           />
