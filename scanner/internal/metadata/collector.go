@@ -50,12 +50,18 @@ func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *Ow
 		entry.SizeBytes = &size
 	}
 
-	mode := uint32(info.Mode())
-	entry.Mode = &mode
 	modTime := info.ModTime()
 	entry.ModifiedAt = &modTime
 
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		// Use the native st_mode (16-bit POSIX value) rather than
+		// Go's os.FileMode. Go's FileMode shoves classification flags
+		// like os.ModeDir (1<<31) into the high bits, producing values
+		// >2^31 that overflow the API's INT32 mode column. The native
+		// st_mode is what users see in `stat -c %f` and what fits the
+		// schema.
+		mode := uint32(stat.Mode)
+		entry.Mode = &mode
 		uid := stat.Uid
 		gid := stat.Gid
 		entry.Uid = &uid
@@ -68,6 +74,13 @@ func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *Ow
 		entry.AccessedAt = &atime
 		ctime := time.Unix(stat.Ctim.Sec, stat.Ctim.Nsec)
 		entry.CreatedAt = &ctime
+	} else {
+		// Non-Linux fallback (tests on macOS/Windows, or remote
+		// connectors that don't expose Stat_t). Mask Go's high-bit
+		// flags down to permission + setuid/setgid/sticky bits so we
+		// at least don't ship a value that overflows INT32.
+		mode := uint32(info.Mode().Perm() | (info.Mode() & (fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)))
+		entry.Mode = &mode
 	}
 
 	if entry.Kind == "file" {
