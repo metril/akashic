@@ -36,6 +36,28 @@ async def list_tags(
     return result.scalars().all()
 
 
+@router.delete("/api/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tag(
+    tag_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Deletes a tag and cascades to remove any entry-tag links.
+
+    Anyone with a logged-in session can delete; if finer-grained
+    permission becomes needed (only the creator, or admin-only),
+    gate here.
+    """
+    tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
+    tag = tag_result.scalar_one_or_none()
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    # Remove the link rows first — Tag has no cascade configured.
+    await db.execute(delete(EntryTag).where(EntryTag.tag_id == tag_id))
+    await db.delete(tag)
+    await db.commit()
+
+
 @router.post("/api/entries/{entry_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def apply_tag(
     entry_id: uuid.UUID,
