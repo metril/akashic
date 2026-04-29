@@ -1,8 +1,17 @@
 # ---- builder: compile the akashic-scanner Go binary ----
-FROM golang:1.23 AS scanner-builder
+# Alpine base avoids the bulk of the CVE surface in the full Debian-based
+# golang image. We build with CGO_ENABLED=0 so the resulting binary has no
+# runtime dependency on the builder image at all.
+FROM golang:1.23-alpine AS scanner-builder
+RUN apk add --no-cache git
 WORKDIR /src
-# Scanner has a `replace` pointing at internal/vendor/go-smb2, so we need the
-# full source tree before `go mod download` can resolve dependencies.
+# Note: the scanner's go.mod has a `replace` directive pointing at
+# internal/vendor/go-smb2, so `go mod download` requires the local replace
+# target to exist on disk — meaning we have to copy the full source tree
+# *before* downloading deps. This costs us layer-cache friendliness: any
+# scanner edit (even one line) re-downloads all Go modules. TODO: when the
+# vendored go-smb2 patch lands upstream and the replace can be dropped, split
+# this into the standard "COPY go.mod go.sum → go mod download → COPY ." form.
 COPY scanner/ ./scanner/
 RUN cd scanner && go mod download \
     && CGO_ENABLED=0 go build -o /out/akashic-scanner ./cmd/akashic-scanner

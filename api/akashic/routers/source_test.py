@@ -23,9 +23,14 @@ class TestSourceRequest(BaseModel):
     connection_config: dict
 
 
+# Allow-list of connection_config keys that are safe to record in the audit
+# log. Inverting the trust model: any new field that isn't here gets dropped
+# rather than risk leaking a future credential. access_key_id is the public
+# half of an AWS key pair — including it lets audit answer "which credentials
+# were used" for S3 sources, which would otherwise have no identity field.
 _AUDITABLE_KEYS = {
     "host", "port", "share", "domain", "bucket", "region",
-    "endpoint", "username", "export_path", "path",
+    "endpoint", "username", "export_path", "path", "access_key_id",
 }
 
 
