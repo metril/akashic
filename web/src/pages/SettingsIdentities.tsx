@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Card, EmptyState, Spinner } from "../components/ui";
+import { EmptyState, Spinner } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -44,13 +44,19 @@ export default function SettingsIdentities() {
         <div className="flex items-center justify-center py-12 text-gray-400">
           <Spinner />
         </div>
+      ) : personsQ.isError ? (
+        <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2 mb-4">
+          {personsQ.error instanceof Error
+            ? personsQ.error.message
+            : "Failed to load identities"}
+        </div>
       ) : (personsQ.data ?? []).length === 0 ? (
-        <Card padding="lg" className="mb-4">
+        <div className="border border-gray-200 rounded py-12 mb-4">
           <EmptyState
             title="No identities yet"
             description="Add one below to filter search by what you can read."
           />
-        </Card>
+        </div>
       ) : (
         <ul className="space-y-4">
           {(personsQ.data ?? []).map((p) => (
@@ -152,7 +158,7 @@ function PersonCard({
         pending={addBinding.isPending}
       />
       {resolveGroups.error && (
-        <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1 mt-2">
+        <div className="text-xs text-rose-600 bg-rose-50 rounded px-2 py-1 mt-2">
           {resolveGroups.error instanceof Error ? resolveGroups.error.message : "Resolve failed"}
         </div>
       )}
