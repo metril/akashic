@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ func runTestConnection(args []string) {
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
 	endpoint := fs.String("endpoint", "", "S3 endpoint URL (non-AWS)")
+	exportPath := fs.String("export-path", "", "NFS export path (informational; not validated by reachability probe)")
 	_ = fs.Parse(args)
 
 	pw := *password
@@ -69,6 +71,12 @@ func runTestConnection(args []string) {
 		ok, step, msg = testSMB(*host, p, *user, pw, *share)
 	case "s3":
 		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw)
+	case "nfs":
+		p := *port
+		if p == 0 {
+			p = 2049
+		}
+		ok, step, msg = testNFS(*host, p, *exportPath)
 	default:
 		fmt.Fprintln(os.Stderr, "config:unsupported type "+*srcType)
 		os.Exit(1)
@@ -188,5 +196,33 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 			return false, "list", s
 		}
 	}
+	return true, "", ""
+}
+
+// testNFS performs a TCP reachability probe against the NFS service port
+// (default 2049). It does NOT validate that the export path is mountable,
+// authenticate, or attempt an ONC-RPC MOUNT/COMPOUND — those would require
+// a much larger client. The probe still catches the common failure modes:
+// wrong host, firewall, server down, port mismatch.
+//
+// Returning ok=true here means: a TCP server is listening on host:port. The
+// UI surfaces a note clarifying that export validity is unverified.
+func testNFS(host string, port int, _exportPath string) (ok bool, step, msg string) {
+	if host == "" {
+		return false, "config", "host required"
+	}
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		// Strip the "dial tcp host:port:" wrap that net always adds, plus
+		// the redundant syscall-op prefix ("connect: ", "read: "). The UI
+		// already shows host/port; the step prefix already says "connect".
+		s := err.Error()
+		if i := strings.LastIndex(s, ": "); i > 0 && strings.HasPrefix(s, "dial tcp") {
+			s = s[i+2:]
+		}
+		return false, "connect", s
+	}
+	_ = conn.Close()
 	return true, "", ""
 }
