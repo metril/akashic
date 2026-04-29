@@ -18,11 +18,17 @@ import (
 )
 
 func main() {
-	// Subcommand dispatch: `akashic-scanner resolve-groups …` short-circuits
-	// the normal scan flow.
-	if len(os.Args) > 1 && os.Args[1] == "resolve-groups" {
-		runResolveGroups(os.Args[2:])
-		return
+	// Subcommand dispatch — short-circuit the normal scan flow when the
+	// first arg names a subcommand.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "resolve-groups":
+			runResolveGroups(os.Args[2:])
+			return
+		case "test-connection":
+			runTestConnection(os.Args[2:])
+			return
+		}
 	}
 
 	sourceID := flag.String("source-id", "", "Source ID to scan")
