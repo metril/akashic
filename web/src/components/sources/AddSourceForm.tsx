@@ -9,11 +9,7 @@ import {
   type AnyConfig,
   type SourceType,
 } from "./sourceTypes";
-import { LocalFields } from "./source-fields/LocalFields";
-import { NfsFields } from "./source-fields/NfsFields";
-import { SshFields } from "./source-fields/SshFields";
-import { SmbFields } from "./source-fields/SmbFields";
-import { S3Fields } from "./source-fields/S3Fields";
+import { SourceFieldSet } from "./SourceFieldSet";
 
 const SOURCE_TYPE_OPTIONS = SOURCE_TYPES.map((t) => ({
   value: t,
@@ -42,31 +38,6 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
 
   const validationError = validateSourceConfig(type, config);
   const canSubmit = name.trim() !== "" && validationError === null;
-
-  function renderFields() {
-    switch (type) {
-      case "local":
-        return (
-          <LocalFields value={config as never} onChange={setConfig as never} />
-        );
-      case "nfs":
-        return (
-          <NfsFields value={config as never} onChange={setConfig as never} />
-        );
-      case "ssh":
-        return (
-          <SshFields value={config as never} onChange={setConfig as never} />
-        );
-      case "smb":
-        return (
-          <SmbFields value={config as never} onChange={setConfig as never} />
-        );
-      case "s3":
-        return (
-          <S3Fields value={config as never} onChange={setConfig as never} />
-        );
-    }
-  }
 
   async function handleTest() {
     setTestResult(null);
@@ -127,7 +98,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           onChange={(e) => setType(e.target.value as SourceType)}
           options={SOURCE_TYPE_OPTIONS}
         />
-        {renderFields()}
+        <SourceFieldSet type={type} value={config} onChange={setConfig} />
 
         {testResult && (
           <div
