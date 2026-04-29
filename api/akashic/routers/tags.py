@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.tag import Tag, EntryTag
@@ -34,6 +34,29 @@ async def list_tags(
 ):
     result = await db.execute(select(Tag).order_by(Tag.name))
     return result.scalars().all()
+
+
+@router.delete("/api/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tag(
+    tag_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Deletes a tag and cascades to remove any entry-tag links.
+
+    Admin-only — matches the pattern for sources.delete + every other
+    destructive mutation in the API. A tag like 'PII' or 'do-not-share'
+    can be applied across many entries, so cascade-delete is destructive
+    and global; viewer/editor users shouldn't be able to invoke it.
+    """
+    tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
+    tag = tag_result.scalar_one_or_none()
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    # Remove the link rows first — Tag has no cascade configured.
+    await db.execute(delete(EntryTag).where(EntryTag.tag_id == tag_id))
+    await db.delete(tag)
+    await db.commit()
 
 
 @router.post("/api/entries/{entry_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)

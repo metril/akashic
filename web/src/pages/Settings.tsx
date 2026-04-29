@@ -1,11 +1,10 @@
 import { Link } from "react-router-dom";
-import { Card, Badge } from "../components/ui";
+import { Card } from "../components/ui";
 
 interface Tile {
-  to: string | null;
+  to: string;
   label: string;
   description: string;
-  comingSoon?: boolean;
 }
 
 const tiles: Tile[] = [
@@ -16,32 +15,18 @@ const tiles: Tile[] = [
       "Cross-source identity sets and per-source bindings. Used for ACL-aware search and group resolution.",
   },
   {
-    to: null,
+    to: "/settings/tags",
     label: "Tags",
     description:
       "Custom labels applied to entries for filter and search.",
-    comingSoon: true,
   },
   {
-    to: null,
+    to: "/settings/schedules",
     label: "Schedules",
     description:
-      "Source scan cadences and one-off triggers.",
-    comingSoon: true,
+      "Source scan cadences. One row per source with editable cron strings.",
   },
 ];
-
-function TileBody({ tile }: { tile: Tile }) {
-  return (
-    <>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-base font-semibold text-gray-900">{tile.label}</h3>
-        {tile.comingSoon && <Badge variant="neutral">Coming soon</Badge>}
-      </div>
-      <p className="text-sm text-gray-500">{tile.description}</p>
-    </>
-  );
-}
 
 export default function Settings() {
   return (
@@ -56,32 +41,19 @@ export default function Settings() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {tiles.map((tile) =>
-          tile.to ? (
-            <Link key={tile.label} to={tile.to} className="block">
-              <Card
-                padding="md"
-                className="h-full hover:shadow-md transition-shadow"
-              >
-                <TileBody tile={tile} />
-              </Card>
-            </Link>
-          ) : (
-            <div
-              key={tile.label}
-              role="group"
-              aria-disabled="true"
-              aria-label={`${tile.label} (coming soon)`}
+        {tiles.map((tile) => (
+          <Link key={tile.label} to={tile.to} className="block">
+            <Card
+              padding="md"
+              className="h-full hover:shadow-md transition-shadow"
             >
-              <Card
-                padding="md"
-                className="h-full opacity-60 cursor-not-allowed"
-              >
-                <TileBody tile={tile} />
-              </Card>
-            </div>
-          ),
-        )}
+              <h3 className="text-base font-semibold text-gray-900 mb-2">
+                {tile.label}
+              </h3>
+              <p className="text-sm text-gray-500">{tile.description}</p>
+            </Card>
+          </Link>
+        ))}
       </div>
     </div>
   );
