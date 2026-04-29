@@ -95,20 +95,29 @@ func runResolveGroups(args []string) {
 	}
 }
 
-// readPasswordFromStdin reads a single line of JSON from stdin and returns
-// the value of the "password" field. Empty on parse failure (caller will
-// surface auth errors from the SMB server).
-func readPasswordFromStdin() string {
+// stdinCreds bundles the credentials the api may pipe to the scanner over
+// stdin so they don't appear in /proc/<pid>/cmdline. Empty struct returned
+// on parse failure (caller surfaces auth errors from the remote server).
+type stdinCreds struct {
+	Password      string `json:"password"`
+	KeyPassphrase string `json:"key_passphrase"`
+}
+
+func readCredsFromStdin() stdinCreds {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 4096), 64*1024)
 	if !scanner.Scan() {
-		return ""
+		return stdinCreds{}
 	}
-	var payload struct {
-		Password string `json:"password"`
-	}
+	var payload stdinCreds
 	if err := json.Unmarshal(scanner.Bytes(), &payload); err != nil {
-		return ""
+		return stdinCreds{}
 	}
-	return payload.Password
+	return payload
+}
+
+// readPasswordFromStdin is the legacy single-field accessor used by the
+// `resolve-groups` subcommand. Equivalent to `readCredsFromStdin().Password`.
+func readPasswordFromStdin() string {
+	return readCredsFromStdin().Password
 }
