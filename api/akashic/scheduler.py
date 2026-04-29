@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 _scheduler_task: asyncio.Task | None = None
 _retention_task: asyncio.Task | None = None
+_log_cleanup_task: asyncio.Task | None = None
+
+# Phase 1 — log entries are kept for 7 days after the parent scan completes.
+# Long-running scans never expire while in flight; only completed/failed
+# scans contribute to the cleanup pass.
+_LOG_RETENTION_DAYS = 7
 
 
 async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
@@ -49,10 +55,13 @@ async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
     if not updated:
         return  # Another tick already claimed this source
 
+    from akashic.services.scan_factory import previous_files_for_source
+    prev = await previous_files_for_source(source.id, db)
     scan = Scan(
         source_id=source.id,
         scan_type="incremental",
         status="pending",
+        previous_scan_files=prev,
     )
     db.add(scan)
     await db.commit()
@@ -96,12 +105,20 @@ async def _check_stale_scans():
     message = f"Watchdog: exceeded {threshold_minutes} min"
 
     async with async_session() as db:
-        # 1) Active scans past the threshold
+        # 1) Active scans past the threshold. Prefer the heartbeat timestamp
+        # when present (Phase 1 onwards) — a scan that's actively
+        # heartbeating shouldn't be killed even if started_at is old (e.g.,
+        # a multi-hour scan that's still progressing). Fall back to
+        # started_at for legacy / pre-heartbeat scans.
+        from sqlalchemy import or_, and_
         result = await db.execute(
             select(Scan).where(
                 Scan.status.in_(["pending", "running"]),
                 Scan.started_at.isnot(None),
-                Scan.started_at < cutoff,
+                or_(
+                    and_(Scan.last_heartbeat_at.is_(None), Scan.started_at < cutoff),
+                    and_(Scan.last_heartbeat_at.isnot(None), Scan.last_heartbeat_at < cutoff),
+                ),
             )
         )
         for scan in result.scalars().all():
@@ -159,6 +176,41 @@ async def _scheduler_loop():
         await asyncio.sleep(60)
 
 
+async def _scan_log_cleanup_loop():
+    """Hourly: drop scan_log_entries whose parent scan completed >7 days ago.
+
+    Scoping by parent-scan completion time (rather than the row's own ts)
+    means a long-running scan keeps its full log history; we only sweep
+    scans the user is no longer actively investigating."""
+    from sqlalchemy import delete
+    from akashic.models.scan_log_entry import ScanLogEntry
+
+    while True:
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=_LOG_RETENTION_DAYS)
+            async with async_session() as db:
+                # Subquery: scan IDs whose terminal completion is past the
+                # cutoff. Failed scans count too — they won't be re-opened
+                # for inspection after a week.
+                stale_scan_ids = (
+                    select(Scan.id)
+                    .where(
+                        Scan.status.in_(["completed", "failed"]),
+                        Scan.completed_at.isnot(None),
+                        Scan.completed_at < cutoff,
+                    )
+                ).subquery()
+                result = await db.execute(
+                    delete(ScanLogEntry).where(ScanLogEntry.scan_id.in_(select(stale_scan_ids)))
+                )
+                await db.commit()
+                if result.rowcount:
+                    logger.info("Pruned %d scan_log_entries older than %s", result.rowcount, cutoff)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scan log cleanup pass failed: %s", exc)
+        await asyncio.sleep(3600)  # hourly
+
+
 async def _audit_retention_loop():
     """Daily: delete audit events older than `settings.audit_retention_days`.
     No-op when the setting is 0."""
@@ -186,19 +238,24 @@ async def _audit_retention_loop():
 
 def start_scheduler():
     """Start the background scheduler tasks."""
-    global _scheduler_task, _retention_task
+    global _scheduler_task, _retention_task, _log_cleanup_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
     if _retention_task is None or _retention_task.done():
         _retention_task = asyncio.create_task(_audit_retention_loop())
         logger.info("Audit retention scheduler started")
+    if _log_cleanup_task is None or _log_cleanup_task.done():
+        _log_cleanup_task = asyncio.create_task(_scan_log_cleanup_loop())
+        logger.info("Scan-log cleanup scheduler started")
 
 
 def stop_scheduler():
     """Stop the background scheduler tasks."""
-    global _scheduler_task, _retention_task
+    global _scheduler_task, _retention_task, _log_cleanup_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
     if _retention_task and not _retention_task.done():
         _retention_task.cancel()
+    if _log_cleanup_task and not _log_cleanup_task.done():
+        _log_cleanup_task.cancel()

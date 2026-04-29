@@ -9,6 +9,8 @@ import (
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
+	"github.com/akashic-project/akashic/scanner/internal/observe"
+	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -21,6 +23,13 @@ type Options struct {
 	ExcludePatterns   []string
 	LastScanTime      *time.Time // nil = full scan, non-nil = incremental
 	CaptureObjectACLs bool       // S3 only: call GetObjectAcl per file (opt-in)
+	// Phase 1 — pre-walk count pass to set total_estimated for ETA. Only
+	// useful for first scans; subsequent scans use previous_scan_files.
+	Prewalk bool
+	// Phase 1 — observability hooks. nil disables live progress reporting
+	// (useful for tests / standalone manual runs).
+	Reporter *observe.Reporter
+	State    *observe.State
 }
 
 type Result struct {
@@ -60,9 +69,38 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		if sec, err := s3c.CollectBucketSecurity(ctx); err == nil {
 			bucketSecurity = sec
 		} else {
-			log.Printf("warning: bucket security capture failed: %v", err)
+			s.warn("bucket security capture failed: %v", err)
 		}
 	}
+
+	// Phase 1: prewalk pass for ETA. Only runs on local-style filesystems
+	// (where the walker can actually count cheaply); skip for non-local
+	// connectors where every entry is a network round-trip.
+	if s.opts.Prewalk && s.opts.Root != "" {
+		s.setPhase("prewalk")
+		s.info("prewalk starting: %s", s.opts.Root)
+		pres, err := walker.Prewalk(s.opts.Root, s.opts.ExcludePatterns,
+			func(files, _, _ int64, currentPath string) {
+				if s.opts.State != nil {
+					s.opts.State.SetTotalEstimated(files)
+					if currentPath != "" {
+						s.opts.State.SetCurrent(currentPath, "prewalk")
+					}
+				}
+			}, 500)
+		if err != nil {
+			s.warn("prewalk failed (continuing without estimate): %v", err)
+		} else {
+			if s.opts.State != nil {
+				s.opts.State.SetTotalEstimated(pres.Files)
+			}
+			s.info("prewalk complete: %d files, %d dirs, %d bytes",
+				pres.Files, pres.Dirs, pres.Bytes)
+		}
+	}
+
+	s.setPhase("walk")
+	s.info("walk starting: %s", s.opts.Root)
 
 	result := &Result{}
 	var batch []models.EntryRecord
@@ -99,8 +137,19 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
+			if s.opts.State != nil {
+				s.opts.State.IncDirWalked()
+				s.opts.State.SetCurrent(entry.Path, "")
+			}
 		} else {
 			result.FilesFound++
+			if s.opts.State != nil {
+				s.opts.State.IncFile()
+				if entry.SizeBytes != nil {
+					s.opts.State.AddBytes(*entry.SizeBytes)
+				}
+				s.opts.State.SetCurrent(entry.Path, "")
+			}
 
 			if incremental && entry.ModifiedAt != nil && !entry.ModifiedAt.Before(*s.opts.LastScanTime) {
 				r, err := s.connector.ReadFile(ctx, entry.Path)
@@ -125,10 +174,37 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("walk: %w", err)
 	}
 
+	s.setPhase("finalize")
 	if err := flush(true); err != nil {
 		return nil, err
 	}
 
-	log.Printf("scan complete: %d files, %d dirs, %d batches", result.FilesFound, result.DirsFound, result.BatchesSent)
+	s.info("scan complete: %d files, %d dirs, %d batches",
+		result.FilesFound, result.DirsFound, result.BatchesSent)
 	return result, nil
+}
+
+// info / warn / error route through the structured log sink when one is
+// available so the UI sees the lines, falling back to stdlib `log` when
+// the scanner is run standalone (no Reporter configured).
+func (s *Scanner) info(format string, args ...any) {
+	if s.opts.Reporter != nil {
+		s.opts.Reporter.LogSink().Info(format, args...)
+		return
+	}
+	log.Printf(format, args...)
+}
+
+func (s *Scanner) warn(format string, args ...any) {
+	if s.opts.Reporter != nil {
+		s.opts.Reporter.LogSink().Warn(format, args...)
+		return
+	}
+	log.Printf("warn: "+format, args...)
+}
+
+func (s *Scanner) setPhase(phase string) {
+	if s.opts.State != nil {
+		s.opts.State.SetCurrent("", phase)
+	}
 }
