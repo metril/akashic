@@ -1,12 +1,15 @@
 """Pre-flight connection tests for the source-creation form.
 
 Local sources are checked directly (the API container has filesystem access
-to whatever is mounted in). SSH/SMB/S3 sources dispatch to the bundled
+to whatever is mounted in). SSH/SMB/S3/NFS sources dispatch to the bundled
 `akashic-scanner test-connection` subcommand, which speaks each protocol
 natively and exits with a structured `step:reason` stderr line on failure.
 
-NFS test is intentionally not implemented yet (Phase B1.1) — saves still
-work, the user just doesn't get pre-flight validation.
+NFS support is a TCP reachability probe against the NFS service port
+(default 2049). It does not validate the export path — that would require
+an ONC-RPC MOUNT or NFSv4 COMPOUND/LOOKUP client, which we don't have.
+The probe still catches the common failure modes (wrong host, firewall,
+server down).
 """
 from __future__ import annotations
 
@@ -163,14 +166,19 @@ def test_s3(cfg: dict) -> TestResult:
 
 
 def test_nfs(cfg: dict) -> TestResult:
-    if not (cfg.get("host") or "").strip() or not (cfg.get("export_path") or "").strip():
+    host = (cfg.get("host") or "").strip()
+    export_path = (cfg.get("export_path") or "").strip()
+    if not host or not export_path:
         return TestResult(
             ok=False, step="config", error="host and export_path required",
         )
-    return TestResult(
-        ok=False, step="config",
-        error="NFS connection test not yet supported (saves still work)",
-    )
+    argv = [
+        "test-connection", "--type=nfs",
+        "--host", host,
+        "--port", str(int(cfg.get("port") or 2049)),
+        "--export-path", export_path,
+    ]
+    return _test_via_scanner(argv)
 
 
 _DISPATCH = {

@@ -187,11 +187,43 @@ def test_scanner_timeout(monkeypatch):
     assert res.step == "connect"
 
 
-def test_nfs_returns_unsupported_message():
-    res = _test_connection("nfs", {"host": "h", "export_path": "/e"})
+def test_nfs_dispatches_tcp_probe(monkeypatch):
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+    captured = {}
+
+    def _fake(argv, password="", key_passphrase="", timeout=15):
+        captured["argv"] = argv
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {"host": "nfs.example.com", "export_path": "/srv/data"})
+    assert res.ok is True
+    assert "--type=nfs" in captured["argv"]
+    assert "nfs.example.com" in captured["argv"]
+    assert "2049" in captured["argv"]
+
+
+def test_nfs_missing_required():
+    res = _test_connection("nfs", {"host": "h"})
     assert res.ok is False
     assert res.step == "config"
-    assert "not yet supported" in res.error
+    assert "export_path" in res.error
+
+
+def test_nfs_connect_failure_propagates(monkeypatch):
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+
+    def _fake(argv, password="", key_passphrase="", timeout=15):
+        return subprocess.CompletedProcess(
+            args=argv, returncode=1, stdout="",
+            stderr="connect:dial tcp 10.0.0.1:2049: i/o timeout\n",
+        )
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {"host": "10.0.0.1", "export_path": "/e"})
+    assert res.ok is False
+    assert res.step == "connect"
+    assert "timeout" in res.error
 
 
 def test_s3_dispatches_with_secret_in_password_field(monkeypatch):

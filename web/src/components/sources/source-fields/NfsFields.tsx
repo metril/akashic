@@ -36,8 +36,9 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
           placeholder="vers=4.1,sec=sys"
         />
       )}
-      <p className="text-xs text-amber-700 bg-amber-50 rounded-md p-2">
-        Pre-flight connection test for NFS isn't supported yet — saves still work.
+      <p className="text-xs text-gray-600 bg-gray-50 rounded-md p-2">
+        Test probes TCP reachability of the NFS port (default 2049). Export
+        path validity isn't verified — that's checked when the scan mounts.
       </p>
     </div>
   );
