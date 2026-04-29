@@ -18,14 +18,14 @@ export async function downloadEntryContent(
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Defer revocation: a.click() dispatches the download asynchronously,
+  // so the browser may not have read the blob URL yet when this function
+  // returns. Revoking immediately aborts the download in Firefox.
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 }

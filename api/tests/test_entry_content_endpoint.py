@@ -50,6 +50,34 @@ def test_validate_local_path_relative_dotdot(tmp_path):
         validate_local_path(str(tmp_path), payload)
 
 
+def test_validate_local_path_symlink_escape_rejected(tmp_path):
+    """A symlink inside the source root that points OUTSIDE must be rejected.
+    Otherwise an attacker who can write a symlink into the indexed area
+    could exfiltrate arbitrary files via the content endpoint."""
+    outside = tmp_path.parent / "outside-target.txt"
+    outside.write_text("secret")
+    inside_link = tmp_path / "trap"
+    inside_link.symlink_to(outside)
+    with pytest.raises(PathTraversal):
+        validate_local_path(str(tmp_path), str(inside_link))
+
+
+def test_validate_local_path_internal_symlink_ok(tmp_path):
+    """A symlink that stays within the source root is fine."""
+    target = tmp_path / "real.txt"
+    target.write_text("content")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    canon = validate_local_path(str(tmp_path), str(link))
+    # Lexical canonical path is the link path; the real-path check passed.
+    assert canon == str(link.resolve().parent / "link.txt") or canon == str(link)
+
+
+def test_validate_remote_path_nul_byte_rejected():
+    with pytest.raises(PathTraversal):
+        validate_remote_path("/files/data\x00hidden")
+
+
 def test_validate_remote_path_dotdot_rejected():
     with pytest.raises(PathTraversal):
         validate_remote_path("/foo/../etc/passwd")
