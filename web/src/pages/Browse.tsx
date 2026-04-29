@@ -17,22 +17,7 @@ import { formatBytes, formatDate } from "../lib/format";
 import { formatMode, iconPathForKind } from "../lib/perms";
 import { EntryDetail } from "../components/EntryDetail";
 import { downloadEntryContent } from "../lib/downloadEntry";
-
-const Icon = ({ d, className = "h-4 w-4" }: { d: string; className?: string }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    aria-hidden="true"
-  >
-    <path d={d} />
-  </svg>
-);
+import { Icon } from "../components/ui";
 
 function pathSegments(path: string): string[] {
   if (path === "/") return [];
@@ -158,7 +143,7 @@ export default function Browse() {
               className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Up one directory"
             >
-              <Icon d="M19 12H5M12 19l-7-7 7-7" />
+              <Icon name="arrow-left" className="size-4" />
               Up
             </button>
           </div>
@@ -230,8 +215,8 @@ export default function Browse() {
                     <td className="py-2.5 px-4">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Icon
-                          d={iconPathForKind(child.kind, child.extension)}
-                          className={`h-4 w-4 flex-shrink-0 ${
+                          path={iconPathForKind(child.kind, child.extension)}
+                          className={`size-4 ${
                             child.kind === "directory"
                               ? "text-accent-600"
                               : "text-gray-400"
@@ -284,7 +269,7 @@ export default function Browse() {
                           title="Download"
                           className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                         >
-                          <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                          <Icon name="download" className="size-4" />
                         </button>
                       )}
                     </td>

@@ -14,4 +14,6 @@ export { ErrorBoundary } from "./ErrorBoundary";
 export { Drawer } from "./Drawer";
 export { Breadcrumb } from "./Breadcrumb";
 export type { BreadcrumbSegment } from "./Breadcrumb";
+export { Icon } from "./Icon";
+export type { IconName } from "./Icon";
 export { cn } from "./cn";
