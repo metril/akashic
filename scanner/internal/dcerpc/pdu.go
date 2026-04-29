@@ -44,7 +44,8 @@ func (h PDUHeader) Marshal() []byte {
 	out[1] = 0 // rpc_vers_minor
 	out[2] = h.PType
 	out[3] = h.Flags
-	out[4] = 0x10 // packed_drep[0]: little-endian, ASCII, IEEE
+	out[4] = 0x10 // packed_drep[0]: little-endian, ASCII, IEEE float
+	// out[5..7] remain 0: packed_drep[1..3] reserved per MS-RPCE §2.2.2.1
 	binary.LittleEndian.PutUint16(out[8:10], h.FragLen)
 	binary.LittleEndian.PutUint16(out[10:12], h.AuthLen)
 	binary.LittleEndian.PutUint32(out[12:16], h.CallID)

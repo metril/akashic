@@ -53,7 +53,8 @@ func DecodeRPCSID(b []byte) (SID, int, error) {
 	if uint32(subCount) != conformance {
 		return SID{}, 0, fmt.Errorf("samr: rpc_sid conformance mismatch (%d vs %d)", conformance, subCount)
 	}
-	if len(b) < 8+int(subCount)*4+4 {
+	// 4 (conformance) + 1 (rev) + 1 (count) + 6 (auth) + N*4 (sub-auths) = 12 + N*4
+	if len(b) < 12+int(subCount)*4 {
 		return SID{}, 0, fmt.Errorf("samr: rpc_sid truncated")
 	}
 	var auth [6]byte
