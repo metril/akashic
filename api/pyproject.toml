@@ -39,4 +39,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "session"
+# Per-test loop scope for both fixtures and tests so the autouse setup_db
+# fixture's engine creates and disposes asyncpg connections on the same
+# loop the test runs on. With session scope, fixtures end up holding
+# references bound to a different loop than the per-function test loop,
+# causing `RuntimeError: Future attached to a different loop` during
+# teardown.
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"

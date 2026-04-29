@@ -3,6 +3,8 @@ package samr
 import (
 	"encoding/binary"
 	"unicode/utf16"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 // BuildSamrConnect5Request encodes SamrConnect5 (opnum 64).
@@ -13,7 +15,7 @@ import (
 //	uint32 DesiredAccess
 //	uint32 InVersion (= 1)
 //	[switch_is(InVersion)] SAMPR_REVISION_INFO_V1 InRevisionInfo:
-//	    uint32 Revision         (= 3 for Windows Server 2003+)
+//	    uint32 Revision         (= 1 to match InVersion=1)
 //	    uint32 SupportedFeatures (= 0)
 //
 // ServerName is a unique pointer to a NUL-terminated UTF-16LE string;
@@ -41,7 +43,7 @@ func BuildSamrConnect5Request(callID uint32, serverName string, desiredAccess ui
 	for _, c := range codes {
 		body = binary.LittleEndian.AppendUint16(body, c)
 	}
-	body = AlignBytes(body, 4)
+	body = dcerpc.AlignBytes(body, 4)
 
 	// DesiredAccess
 	body = binary.LittleEndian.AppendUint32(body, desiredAccess)
@@ -55,7 +57,7 @@ func BuildSamrConnect5Request(callID uint32, serverName string, desiredAccess ui
 	body = binary.LittleEndian.AppendUint32(body, 1)
 	body = binary.LittleEndian.AppendUint32(body, 0)
 
-	return wrapRequest(callID, OpnumSamrConnect5, body)
+	return dcerpc.WrapRequest(callID, OpnumSamrConnect5, body)
 }
 
 // ParseSamrConnect5Response parses the response body.
@@ -67,13 +69,13 @@ func BuildSamrConnect5Request(callID uint32, serverName string, desiredAccess ui
 //	[20]byte ServerHandle
 //	uint32 ReturnCode (NTSTATUS)
 func ParseSamrConnect5Response(body []byte) (Handle, uint32, error) {
-	r := newReader(body)
+	r := dcerpc.NewReader(body)
 	r.U32() // OutVersion
 	r.U32() // Out.Revision
 	r.U32() // Out.SupportedFeatures
 	hbytes := r.Bytes(20)
 	if hbytes == nil {
-		return Handle{}, 0, ErrTruncated
+		return Handle{}, 0, dcerpc.ErrTruncated
 	}
 	var h Handle
 	copy(h[:], hbytes)

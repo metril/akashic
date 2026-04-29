@@ -3,6 +3,8 @@ package lsarpc
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 // TranslatedName holds the LSARPC name resolution for one input SID.
@@ -34,7 +36,7 @@ func BuildLookupSids2Request(callID uint32, h PolicyHandle, sids [][]byte) ([]by
 		subCount := uint32(sid[1])
 		body = binary.LittleEndian.AppendUint32(body, subCount)
 		body = append(body, sid...)
-		if pad := Pad4(len(sid)); pad > 0 {
+		if pad := dcerpc.Pad4(len(sid)); pad > 0 {
 			body = append(body, make([]byte, pad)...)
 		}
 	}
@@ -47,16 +49,16 @@ func BuildLookupSids2Request(callID uint32, h PolicyHandle, sids [][]byte) ([]by
 	body = binary.LittleEndian.AppendUint32(body, 0)
 	body = binary.LittleEndian.AppendUint32(body, 2)
 
-	return wrapRequest(callID, OpnumLsarLookupSids2, body), nil
+	return dcerpc.WrapRequest(callID, OpnumLsarLookupSids2, body), nil
 }
 
 // ParseLookupSids2Response is permissive — production needs careful NDR
 // handling. Returns nil names rather than failing on structural surprise.
 func ParseLookupSids2Response(body []byte) (names []TranslatedName, status uint32, err error) {
-	r := newReader(body)
+	r := dcerpc.NewReader(body)
 	domPtr := r.U32()
 	if domPtr != 0 {
-		r.SkipDomains()
+		skipDomains(r)
 	}
 	nameCount := r.U32()
 	namesPtr := r.U32()
@@ -95,23 +97,11 @@ func ParseLookupSids2Response(body []byte) (names []TranslatedName, status uint3
 		actual := r.U32()
 		nameBytes := r.Bytes(int(actual) * 2)
 		r.AlignTo(4)
-		name := DecodeUTF16LE(nameBytes)
+		name := dcerpc.DecodeUTF16LE(nameBytes)
 		out[i] = TranslatedName{SidType: f.sidType, Name: name, DomainIdx: f.domIdx}
 	}
 
 	r.U32()
 	status = r.Tail32()
 	return out, status, nil
-}
-
-// DecodeUTF16LE decodes the inverse of EncodeUTF16LE.
-func DecodeUTF16LE(b []byte) string {
-	if len(b)%2 != 0 {
-		return ""
-	}
-	codes := make([]uint16, len(b)/2)
-	for i := range codes {
-		codes[i] = binary.LittleEndian.Uint16(b[i*2 : i*2+2])
-	}
-	return string(decodeUTF16(codes))
 }

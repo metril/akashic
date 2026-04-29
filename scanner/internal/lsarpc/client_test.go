@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"io"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 // mockTransport records writes and serves canned responses for reads.
@@ -42,7 +44,7 @@ func TestClient_Close_SendsLsarCloseWhenOpened(t *testing.T) {
 	mt := c.t.(*mockTransport)
 	// Pre-load a fake response: 16-byte header + 8-byte response prefix + 4-byte body (status).
 	// We don't read it back, but readResponseBody will try; just give it enough bytes.
-	hdr := PDUHeader{PType: PtypeResponse, Flags: PfcFirstFrag | PfcLastFrag, FragLen: 28, CallID: 5}.Marshal()
+	hdr := dcerpc.PDUHeader{PType: dcerpc.PtypeResponse, Flags: dcerpc.PfcFirstFrag | dcerpc.PfcLastFrag, FragLen: 28, CallID: 5}.Marshal()
 	respHdr := make([]byte, 8)
 	binary.LittleEndian.PutUint32(respHdr[0:4], 4)
 	binary.LittleEndian.PutUint16(respHdr[4:6], 0)

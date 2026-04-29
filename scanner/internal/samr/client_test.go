@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 // scriptedTransport replays a sequence of canned response PDUs in order.
@@ -40,9 +42,9 @@ func (s *scriptedTransport) Close() error {
 // Helpers to build canned response PDUs.
 
 func bindAckPDU(callID uint32) []byte {
-	hdr := PDUHeader{
-		PType:   PtypeBindAck,
-		Flags:   PfcFirstFrag | PfcLastFrag,
+	hdr := dcerpc.PDUHeader{
+		PType:   dcerpc.PtypeBindAck,
+		Flags:   dcerpc.PfcFirstFrag | dcerpc.PfcLastFrag,
 		FragLen: 16,
 		CallID:  callID,
 	}.Marshal()
@@ -61,9 +63,9 @@ func responsePDU(callID uint32, body []byte) []byte {
 	//   uint8  reserved
 	bodyHdr := make([]byte, 8)
 	binary.LittleEndian.PutUint32(bodyHdr[0:4], uint32(len(body)))
-	pdu := PDUHeader{
-		PType:   PtypeResponse,
-		Flags:   PfcFirstFrag | PfcLastFrag,
+	pdu := dcerpc.PDUHeader{
+		PType:   dcerpc.PtypeResponse,
+		Flags:   dcerpc.PfcFirstFrag | dcerpc.PfcLastFrag,
 		FragLen: uint16(16 + 8 + len(body)),
 		CallID:  callID,
 	}.Marshal()
@@ -131,7 +133,7 @@ func cannedLookupIdsBody(names []string) []byte {
 		for _, c := range runes {
 			body = binary.LittleEndian.AppendUint16(body, uint16(c))
 		}
-		body = AlignBytes(body, 4)
+		body = dcerpc.AlignBytes(body, 4)
 	}
 	// Use array pointer = 0, then status.
 	body = binary.LittleEndian.AppendUint32(body, 0) // UsePtr
@@ -205,7 +207,7 @@ func TestResolveGroupsForSid_HappyPath(t *testing.T) {
 func TestResolveGroupsForSid_BindFailure(t *testing.T) {
 	userSid, _ := ParseSidString("S-1-5-21-1-2-3-1013")
 	// Bind response with wrong PType (Fault).
-	hdr := PDUHeader{PType: PtypeFault, Flags: PfcFirstFrag | PfcLastFrag, FragLen: 16, CallID: 1}.Marshal()
+	hdr := dcerpc.PDUHeader{PType: dcerpc.PtypeFault, Flags: dcerpc.PfcFirstFrag | dcerpc.PfcLastFrag, FragLen: 16, CallID: 1}.Marshal()
 	st := &scriptedTransport{responses: [][]byte{hdr}}
 
 	_, err := ResolveGroupsForSid(st, "\\\\HOST", userSid)

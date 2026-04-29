@@ -1,6 +1,10 @@
 package samr
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
+)
 
 // BuildSamrOpenDomainRequest encodes SamrOpenDomain (opnum 7).
 //
@@ -14,13 +18,13 @@ func BuildSamrOpenDomainRequest(callID uint32, server Handle, desiredAccess uint
 	body = append(body, server[:]...)
 	body = binary.LittleEndian.AppendUint32(body, desiredAccess)
 	body = append(body, EncodeRPCSID(domain)...)
-	return wrapRequest(callID, OpnumSamrOpenDomain, body)
+	return dcerpc.WrapRequest(callID, OpnumSamrOpenDomain, body)
 }
 
 // ParseSamrOpenDomainResponse parses the 20-byte handle + NTSTATUS.
 func ParseSamrOpenDomainResponse(body []byte) (Handle, uint32, error) {
 	if len(body) < 24 {
-		return Handle{}, 0, ErrTruncated
+		return Handle{}, 0, dcerpc.ErrTruncated
 	}
 	var h Handle
 	copy(h[:], body[:20])

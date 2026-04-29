@@ -3,6 +3,8 @@ package lsarpc
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/dcerpc"
 )
 
 func TestBuildLookupSidsRequest_OpnumAndCount(t *testing.T) {
@@ -18,8 +20,8 @@ func TestBuildLookupSidsRequest_OpnumAndCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hdr, _ := ParsePDUHeader(pkt)
-	if hdr.PType != PtypeRequest {
+	hdr, _ := dcerpc.ParsePDUHeader(pkt)
+	if hdr.PType != dcerpc.PtypeRequest {
 		t.Errorf("ptype")
 	}
 	body := pkt[16:]
