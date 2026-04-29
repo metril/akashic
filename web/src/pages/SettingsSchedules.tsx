@@ -26,20 +26,29 @@ function ScheduleRow({ source }: RowProps) {
     setDraft(source.scan_schedule ?? "");
   }, [source.scan_schedule]);
 
+  // Auto-clear the 'Saved' pill 2.5s after it appears. The cleanup return
+  // cancels the timer if the row unmounts (or saved flips back to false)
+  // before the timeout fires.
+  useEffect(() => {
+    if (!saved) return;
+    const id = setTimeout(() => setSaved(false), 2500);
+    return () => clearTimeout(id);
+  }, [saved]);
+
   const dirty = (source.scan_schedule ?? "") !== draft.trim();
 
   async function handleSave() {
     setSaved(false);
+    updateSource.reset();
     try {
       await updateSource.mutateAsync({
         id: source.id,
         data: { scan_schedule: draft.trim() || null },
       });
       setSaved(true);
-      // Auto-clear the "Saved" pill after a few seconds.
-      setTimeout(() => setSaved(false), 2500);
     } catch {
-      // Error surfaced inline below via mutation state.
+      // Error rendered inline below via updateSource.isError; nothing
+      // else to do here.
     }
   }
 
@@ -77,6 +86,15 @@ function ScheduleRow({ source }: RowProps) {
           Save
         </Button>
         {saved && <span className="text-xs text-emerald-700">Saved</span>}
+        {updateSource.isError && updateSource.variables?.id === source.id && (
+          <span className="text-xs text-rose-600 max-w-[12rem] truncate" title={
+            updateSource.error instanceof Error ? updateSource.error.message : "Failed"
+          }>
+            {updateSource.error instanceof Error
+              ? updateSource.error.message
+              : "Failed to save"}
+          </span>
+        )}
       </div>
     </li>
   );

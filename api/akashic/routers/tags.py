@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.tag import Tag, EntryTag
@@ -40,13 +40,14 @@ async def list_tags(
 async def delete_tag(
     tag_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Deletes a tag and cascades to remove any entry-tag links.
 
-    Anyone with a logged-in session can delete; if finer-grained
-    permission becomes needed (only the creator, or admin-only),
-    gate here.
+    Admin-only — matches the pattern for sources.delete + every other
+    destructive mutation in the API. A tag like 'PII' or 'do-not-share'
+    can be applied across many entries, so cascade-delete is destructive
+    and global; viewer/editor users shouldn't be able to invoke it.
     """
     tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
     tag = tag_result.scalar_one_or_none()

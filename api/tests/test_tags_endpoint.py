@@ -123,3 +123,38 @@ async def test_delete_tag_404_when_missing(client: AsyncClient):
     fake = uuid.uuid4()
     r = await client.delete(f"/api/tags/{fake}")
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_forbidden_for_non_admin(setup_db):
+    """A non-admin user can't delete tags — matches the sources.delete
+    pattern. Tags are global and a cascade-delete is destructive."""
+    async with setup_db() as session:
+        viewer = User(
+            id=uuid.uuid4(), username="viewer",
+            email="v@b.c", password_hash="x", role="viewer",
+        )
+        session.add(viewer)
+        tag = Tag(id=uuid.uuid4(), name="t1", created_by=None)
+        session.add(tag)
+        await session.commit()
+        tag_id = tag.id
+
+    async def _override_get_db():
+        async with setup_db() as session:
+            yield session
+
+    async def _override_get_current_user():
+        return viewer
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        r = await ac.delete(f"/api/tags/{tag_id}")
+    assert r.status_code == 403
+    # Tag must still exist.
+    async with setup_db() as session:
+        assert (await session.execute(
+            select(Tag).where(Tag.id == tag_id)
+        )).scalar_one_or_none() is not None
