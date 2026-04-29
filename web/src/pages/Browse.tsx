@@ -16,6 +16,7 @@ import type { BreadcrumbSegment } from "../components/ui";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatMode, iconPathForKind } from "../lib/perms";
 import { EntryDetail } from "../components/EntryDetail";
+import { downloadEntryContent } from "../lib/downloadEntry";
 
 const Icon = ({ d, className = "h-4 w-4" }: { d: string; className?: string }) => (
   <svg
@@ -212,6 +213,9 @@ export default function Browse() {
                   <th className="text-left font-semibold py-2.5 px-4 hidden md:table-cell">
                     Modified
                   </th>
+                  <th className="text-right font-semibold py-2.5 px-4 w-12">
+                    {/* actions column */}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -264,6 +268,25 @@ export default function Browse() {
                     </td>
                     <td className="py-2.5 px-4 text-gray-500 hidden md:table-cell">
                       {formatDate(child.fs_modified_at)}
+                    </td>
+                    <td className="py-2.5 px-4 text-right">
+                      {child.kind === "file" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadEntryContent(child.id, child.name).catch(
+                              (err) =>
+                                console.error("Download failed:", err),
+                            );
+                          }}
+                          aria-label={`Download ${child.name}`}
+                          title="Download"
+                          className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          <Icon d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

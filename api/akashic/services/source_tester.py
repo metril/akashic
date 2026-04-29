@@ -10,14 +10,14 @@ work, the user just doesn't get pre-flight validation.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
-import shutil
 import subprocess
 from typing import Literal, Optional
 
 from pydantic import BaseModel
+
+from akashic.services.scanner_helpers import scanner_binary_path, stdin_creds_payload
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +31,10 @@ class TestResult(BaseModel):
     error: Optional[str] = None
 
 
-_SCANNER_BIN_ENV = "AKASHIC_SCANNER_BIN"
-
-
 def _scanner_binary_path() -> str | None:
-    """Returns the akashic-scanner binary path, or None if not findable.
-    Tests can monkeypatch this to inject a fake."""
-    p = os.environ.get(_SCANNER_BIN_ENV)
-    if p and os.path.isfile(p):
-        return p
-    return shutil.which("akashic-scanner")
+    """Test seam — wraps scanner_helpers.scanner_binary_path so existing
+    monkeypatches keep working."""
+    return scanner_binary_path()
 
 
 def _run_scanner(
@@ -49,15 +43,13 @@ def _run_scanner(
     key_passphrase: str = "",
     timeout: int = 15,
 ) -> subprocess.CompletedProcess:
-    """Indirection for tests to monkeypatch.
-
-    Both password and key_passphrase are credentials and fed via stdin JSON
-    so they don't show up in /proc/<pid>/cmdline. Anyone with read access
-    to /proc could otherwise see them via `ps`.
-    """
-    payload = json.dumps({"password": password, "key_passphrase": key_passphrase}) + "\n"
+    """Synchronous run-and-collect for the short-lived test-connection probe.
+    Both credentials are fed via stdin JSON so they don't end up in
+    /proc/<pid>/cmdline. The streaming entry-content path uses
+    asyncio.create_subprocess_exec instead — see services/entry_content.py."""
     return subprocess.run(
-        argv, capture_output=True, timeout=timeout, text=True, input=payload,
+        argv, capture_output=True, timeout=timeout, text=True,
+        input=stdin_creds_payload(password=password, key_passphrase=key_passphrase),
     )
 
 
