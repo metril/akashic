@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { Spinner, EmptyState } from "../components/ui";
 import type { AuditEventList, AuditEvent } from "../types";
 
 const KNOWN_EVENT_TYPES = [
@@ -69,35 +70,44 @@ export default function AdminAudit() {
         </label>
       </div>
 
-      {audit.isLoading && <div className="text-sm text-gray-400">Loading…</div>}
       {audit.error && (
-        <div className="text-sm text-red-700 bg-red-50 rounded px-3 py-2 mb-3">
+        <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2 mb-3">
           {audit.error instanceof Error ? audit.error.message : "Error"}
         </div>
       )}
 
-      <div className="border border-gray-200 rounded">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-              <th className="text-left px-3 py-2 font-semibold">Time</th>
-              <th className="text-left px-3 py-2 font-semibold">User</th>
-              <th className="text-left px-3 py-2 font-semibold">Event</th>
-              <th className="text-left px-3 py-2 font-semibold">IP</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((e) => (
-              <Row key={e.id} event={e} expanded={expanded === e.id}
-                   onToggle={() => setExpanded(expanded === e.id ? null : e.id)} />
-            ))}
-            {items.length === 0 && !audit.isLoading && (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-gray-400">No events.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {audit.isLoading ? (
+        <div className="flex items-center justify-center py-16 text-gray-400">
+          <Spinner />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="border border-gray-200 rounded py-12">
+          <EmptyState
+            title="No events"
+            description="Audit events appear here as users act."
+          />
+        </div>
+      ) : (
+        <div className="border border-gray-200 rounded">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                <th className="text-left px-3 py-2 font-semibold">Time</th>
+                <th className="text-left px-3 py-2 font-semibold">User</th>
+                <th className="text-left px-3 py-2 font-semibold">Event</th>
+                <th className="text-left px-3 py-2 font-semibold">IP</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((e) => (
+                <Row key={e.id} event={e} expanded={expanded === e.id}
+                     onToggle={() => setExpanded(expanded === e.id ? null : e.id)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {audit.data && audit.data.total > audit.data.page_size && (
         <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
