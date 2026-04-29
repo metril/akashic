@@ -1,20 +1,22 @@
 """Group-membership auto-resolution for FsBindings.
 
-Per Phase 14a + 14b scope:
+Per Phase 14a + 14b + 14c scope:
   - source.type=local|nfs + posix_uid → Python pwd/grp stdlib (NSS)
   - source.type=ssh      + posix_uid → paramiko + `id -Gn` over SSH
+  - source.type=smb      + sid       → akashic-scanner subprocess (SAMR over DCE/RPC)
   - identity_type=nfsv4_principal     → LDAP (memberOf attribute)
   - everything else                   → UnsupportedResolution
-
-Phase 14c will add NT SMB (SAMR over DCE/RPC).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pwd
 import re
 import shlex
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class ResolveResult(BaseModel):
     groups: list[str]
-    source: Literal["nss", "ldap", "ssh"]
+    source: Literal["nss", "ldap", "ssh", "samr"]
     resolved_at: datetime
 
 
@@ -266,6 +268,96 @@ def _resolve_posix_ssh(source, binding) -> ResolveResult:
     )
 
 
+_SCANNER_BIN_ENV = "AKASHIC_SCANNER_BIN"
+
+
+def _scanner_binary_path() -> str | None:
+    """Returns the akashic-scanner binary path, or None if not findable.
+    Tests can monkeypatch this to inject a fake."""
+    explicit = os.environ.get(_SCANNER_BIN_ENV)
+    if explicit and os.path.isfile(explicit):
+        return explicit
+    return shutil.which("akashic-scanner")
+
+
+def _run_scanner(argv: list[str], password: str = "", timeout: int = 30) -> subprocess.CompletedProcess:
+    """Indirection for tests to monkeypatch.
+
+    The password is sent on stdin as a single JSON line so it doesn't show up
+    in /proc/<pid>/cmdline. stdin is otherwise DEVNULL-equivalent (we only
+    write the password line and immediately close)."""
+    payload = json.dumps({"password": password}) + "\n"
+    return subprocess.run(
+        argv, capture_output=True, timeout=timeout, text=True,
+        input=payload,
+    )
+
+
+def _resolve_smb_samr(source, binding) -> ResolveResult:
+    """Resolve groups for an NT SID against an SMB source by spawning
+    `akashic-scanner resolve-groups`. The Go process opens a DCE/RPC
+    connection over the SMB IPC$ \\PIPE\\samr endpoint, runs the SAMR
+    sequence, and writes a JSON {groups, source} object to stdout."""
+    cfg = source.connection_config or {}
+    host = cfg.get("host")
+    if not host:
+        raise UnsupportedResolution("Source missing host in connection_config")
+    username = cfg.get("username")
+    if not username:
+        raise UnsupportedResolution("Source missing username in connection_config")
+    port = int(cfg.get("port") or 445)
+    password = cfg.get("password") or ""
+
+    sid = (binding.identifier or "").strip()
+    if not sid.upper().startswith("S-1-"):
+        raise ResolutionFailed("not_found", f"identifier {sid!r} is not a SID")
+
+    binary = _scanner_binary_path()
+    if not binary:
+        raise UnsupportedResolution(
+            "akashic-scanner binary not found on PATH; "
+            f"set {_SCANNER_BIN_ENV} or install the scanner binary"
+        )
+
+    argv = [
+        binary, "resolve-groups",
+        "--type=smb",
+        "--host", host,
+        "--port", str(port),
+        "--user", username,
+        "--password-stdin",
+        "--sid", sid,
+    ]
+    try:
+        proc = _run_scanner(argv, password=password)
+    except subprocess.TimeoutExpired:
+        raise ResolutionFailed("backend_error", "scanner timeout")
+    except OSError as exc:
+        raise ResolutionFailed("backend_error", f"scanner spawn: {exc}")
+
+    if proc.returncode == 2:
+        raise ResolutionFailed(
+            "not_found",
+            (proc.stderr or "user not found in domain").strip(),
+        )
+    if proc.returncode != 0:
+        raise ResolutionFailed(
+            "backend_error",
+            (proc.stderr or f"scanner exited {proc.returncode}").strip(),
+        )
+
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ResolutionFailed("backend_error", f"scanner output not JSON: {exc}")
+
+    return ResolveResult(
+        groups=payload.get("groups", []) or [],
+        source="samr",
+        resolved_at=datetime.now(timezone.utc),
+    )
+
+
 # ── Public dispatcher ───────────────────────────────────────────────────────
 
 
@@ -291,8 +383,10 @@ async def resolve_groups(source, binding) -> ResolveResult:
         )
 
     if id_type == "sid":
+        if src_type == "smb":
+            return _resolve_smb_samr(source, binding)
         raise UnsupportedResolution(
-            "NT/SID group resolution requires SAMR (Phase 14c)"
+            f"sid resolution not supported on source.type={src_type!r}"
         )
 
     if id_type == "s3_canonical":
