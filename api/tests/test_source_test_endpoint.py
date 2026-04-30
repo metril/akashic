@@ -93,7 +93,7 @@ def test_ssh_happy_path(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["argv"] = argv
         captured["password"] = password
         captured["key_passphrase"] = key_passphrase
@@ -116,7 +116,7 @@ def test_ssh_key_passphrase_routed_via_stdin_not_argv(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["argv"] = argv
         captured["key_passphrase"] = key_passphrase
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
@@ -139,7 +139,7 @@ def test_ssh_classifies_step_from_stderr(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     monkeypatch.setattr(
         source_tester, "_run_scanner",
-        lambda argv, password="", key_passphrase="", timeout=15: subprocess.CompletedProcess(
+        lambda argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs: subprocess.CompletedProcess(
             args=argv, returncode=1, stdout="",
             stderr="auth: NT_STATUS_LOGON_FAILURE\n",
         ),
@@ -157,7 +157,7 @@ def test_smb_unclassified_stderr(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     monkeypatch.setattr(
         source_tester, "_run_scanner",
-        lambda argv, password="", key_passphrase="", timeout=15: subprocess.CompletedProcess(
+        lambda argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs: subprocess.CompletedProcess(
             args=argv, returncode=1, stdout="", stderr="something went wrong\n",
         ),
     )
@@ -178,7 +178,7 @@ def test_no_scanner_binary(monkeypatch):
 def test_scanner_timeout(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
 
-    def _raise(argv, password="", key_passphrase="", timeout=15):
+    def _raise(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
 
     monkeypatch.setattr(source_tester, "_run_scanner", _raise)
@@ -191,7 +191,7 @@ def test_nfs_dispatches_tcp_probe(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["argv"] = argv
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
 
@@ -211,7 +211,7 @@ def test_nfs_passes_auth_uid_gid_through(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["argv"] = argv
         captured["timeout"] = timeout
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true,"tier":"mount3"}\n', stderr="")
@@ -243,7 +243,7 @@ def test_nfs_aux_gids_string_form_normalized(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["argv"] = argv
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
 
@@ -295,7 +295,7 @@ def test_nfs_missing_required():
 def test_nfs_connect_failure_propagates(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         return subprocess.CompletedProcess(
             args=argv, returncode=1, stdout="",
             stderr="connect:dial tcp 10.0.0.1:2049: i/o timeout\n",
@@ -308,11 +308,125 @@ def test_nfs_connect_failure_propagates(monkeypatch):
     assert "timeout" in res.error
 
 
+# ── Phase 3c — Kerberos / RPCSEC_GSS dispatch ──────────────────────────────
+
+
+def test_nfs_krb5_keytab_argv(monkeypatch):
+    """auth_method=krb5 with a keytab path: argv carries principal,
+    realm, service-principal, keytab path, and the krb5-config path
+    when supplied."""
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+    captured = {}
+
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
+        captured["argv"] = argv
+        captured["timeout"] = timeout
+        captured["krb5_password"] = krb5_password
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true,"tier":"nfsv4"}\n', stderr="")
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {
+        "host": "nfs.example.com", "export_path": "/srv/data",
+        "auth_method": "krb5",
+        "krb5_principal": "akashic-svc",
+        "krb5_realm": "EXAMPLE.COM",
+        "krb5_service_principal": "nfs/nfs.example.com@EXAMPLE.COM",
+        "krb5_keytab_path": "/etc/akashic.keytab",
+        "krb5_config_path": "/etc/krb5.conf",
+        "probe_timeout_seconds": 10,
+    })
+    assert res.ok is True
+    argv = captured["argv"]
+    assert argv[argv.index("--auth-method") + 1] == "krb5"
+    assert argv[argv.index("--krb5-principal") + 1] == "akashic-svc"
+    assert argv[argv.index("--krb5-realm") + 1] == "EXAMPLE.COM"
+    assert argv[argv.index("--krb5-service-principal") + 1] == "nfs/nfs.example.com@EXAMPLE.COM"
+    assert argv[argv.index("--krb5-keytab") + 1] == "/etc/akashic.keytab"
+    assert argv[argv.index("--krb5-config") + 1] == "/etc/krb5.conf"
+    # password-stdin flag is on regardless (so the scanner reads
+    # krb5_password from the JSON line).
+    assert "--password-stdin" in argv
+    # No password was sent.
+    assert captured["krb5_password"] == ""
+    # Krb5 multiplier is 5 (vs 3 for sys): 10*5 + 5 = 55.
+    assert captured["timeout"] == 55
+
+
+def test_nfs_krb5_password_via_stdin(monkeypatch):
+    """auth_method=krb5 with a password: scanner argv must NOT carry
+    --krb5-keytab; the password rides on stdin via krb5_password."""
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+    captured = {}
+
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
+        captured["argv"] = argv
+        captured["krb5_password"] = krb5_password
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true,"tier":"nfsv4"}\n', stderr="")
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_method": "krb5",
+        "krb5_principal": "alice",
+        "krb5_realm": "EXAMPLE.COM",
+        "krb5_password": "hunter2",
+    })
+    assert res.ok is True
+    assert "--krb5-keytab" not in captured["argv"]
+    assert captured["krb5_password"] == "hunter2"
+
+
+def test_nfs_krb5_requires_principal_realm():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_method": "krb5",
+        "krb5_keytab_path": "/etc/akashic.keytab",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "principal" in res.error.lower()
+
+
+def test_nfs_krb5_requires_keytab_or_password():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_method": "krb5",
+        "krb5_principal": "alice",
+        "krb5_realm": "EXAMPLE.COM",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+
+
+def test_nfs_krb5_keytab_password_mutually_exclusive():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_method": "krb5",
+        "krb5_principal": "alice",
+        "krb5_realm": "EXAMPLE.COM",
+        "krb5_keytab_path": "/etc/akashic.keytab",
+        "krb5_password": "hunter2",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "mutually exclusive" in res.error
+
+
+def test_nfs_invalid_auth_method():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_method": "wat",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "auth_method" in res.error
+
+
 def test_s3_dispatches_with_secret_in_password_field(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
     captured = {}
 
-    def _fake(argv, password="", key_passphrase="", timeout=15):
+    def _fake(argv, password="", key_passphrase="", krb5_password="", timeout=15, **kwargs):
         captured["password"] = password
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
 

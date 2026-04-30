@@ -50,15 +50,20 @@ def _run_scanner(
     argv: list[str],
     password: str = "",
     key_passphrase: str = "",
+    krb5_password: str = "",
     timeout: int = 15,
 ) -> subprocess.CompletedProcess:
     """Synchronous run-and-collect for the short-lived test-connection probe.
-    Both credentials are fed via stdin JSON so they don't end up in
+    All credentials are fed via stdin JSON so they don't end up in
     /proc/<pid>/cmdline. The streaming entry-content path uses
     asyncio.create_subprocess_exec instead — see services/entry_content.py."""
     return subprocess.run(
         argv, capture_output=True, timeout=timeout, text=True,
-        input=stdin_creds_payload(password=password, key_passphrase=key_passphrase),
+        input=stdin_creds_payload(
+            password=password,
+            key_passphrase=key_passphrase,
+            krb5_password=krb5_password,
+        ),
     )
 
 
@@ -66,6 +71,7 @@ def _test_via_scanner(
     scanner_argv: list[str],
     password: str = "",
     key_passphrase: str = "",
+    krb5_password: str = "",
     timeout: int = 15,
 ) -> TestResult:
     binary = _scanner_binary_path()
@@ -76,7 +82,13 @@ def _test_via_scanner(
         )
     argv = [binary] + scanner_argv
     try:
-        proc = _run_scanner(argv, password=password, key_passphrase=key_passphrase, timeout=timeout)
+        proc = _run_scanner(
+            argv,
+            password=password,
+            key_passphrase=key_passphrase,
+            krb5_password=krb5_password,
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         return TestResult(ok=False, step="connect", error="scanner timeout")
     except OSError as exc:
@@ -249,6 +261,46 @@ def test_nfs(cfg: dict) -> TestResult:
             error="probe_timeout_seconds must be between 1 and 60",
         )
 
+    # Phase 3c — kerberos / RPCSEC_GSS. auth_method=sys is the default;
+    # krb5 takes a principal+realm and either a keytab path or a password.
+    # krb5i/krb5p surface as scanner-side config errors — they're declared
+    # in the schema for forward-compat but the probe rejects them.
+    auth_method = (cfg.get("auth_method") or "sys").strip().lower()
+    if auth_method not in {"sys", "krb5", "krb5i", "krb5p"}:
+        return TestResult(
+            ok=False, step="config",
+            error=f"auth_method must be one of sys / krb5 / krb5i / krb5p (got {auth_method!r})",
+        )
+
+    krb5_principal = ""
+    krb5_realm = ""
+    krb5_spn = ""
+    krb5_keytab_path = ""
+    krb5_config_path = ""
+    krb5_password = ""
+    if auth_method != "sys":
+        krb5_principal = (cfg.get("krb5_principal") or "").strip()
+        krb5_realm = (cfg.get("krb5_realm") or "").strip()
+        krb5_spn = (cfg.get("krb5_service_principal") or "").strip()
+        krb5_keytab_path = (cfg.get("krb5_keytab_path") or "").strip()
+        krb5_config_path = (cfg.get("krb5_config_path") or "").strip()
+        krb5_password = cfg.get("krb5_password") or ""
+        if not krb5_principal or not krb5_realm:
+            return TestResult(
+                ok=False, step="config",
+                error="krb5 auth requires krb5_principal and krb5_realm",
+            )
+        if not krb5_keytab_path and not krb5_password:
+            return TestResult(
+                ok=False, step="config",
+                error="krb5 auth requires krb5_keytab_path or krb5_password",
+            )
+        if krb5_keytab_path and krb5_password:
+            return TestResult(
+                ok=False, step="config",
+                error="krb5_keytab_path and krb5_password are mutually exclusive",
+            )
+
     argv = [
         "test-connection", "--type=nfs",
         "--host", host,
@@ -256,21 +308,31 @@ def test_nfs(cfg: dict) -> TestResult:
         "--export-path", export_path,
         "--auth-uid", str(auth_uid),
         "--auth-gid", str(auth_gid),
+        "--auth-method", auth_method,
+        "--password-stdin",
     ]
     if aux_str:
         argv += ["--auth-aux-gids", aux_str]
     if timeout_seconds:
         argv += ["--timeout", str(timeout_seconds)]
+    if auth_method != "sys":
+        argv += ["--krb5-principal", krb5_principal, "--krb5-realm", krb5_realm]
+        if krb5_spn:
+            argv += ["--krb5-service-principal", krb5_spn]
+        if krb5_keytab_path:
+            argv += ["--krb5-keytab", krb5_keytab_path]
+        if krb5_config_path:
+            argv += ["--krb5-config", krb5_config_path]
 
-    # Subprocess timeout matches the scanner's own outer context (3 ×
-    # per-RPC for the 3-RPC cascade) plus a small reap margin. Multiplying
-    # again at the API layer would mean a `probe_timeout_seconds=60`
-    # config could hang the form for 5 minutes — at that point the user
-    # has lost trust that the test button works. The Go side self-cancels
-    # at 3× per-RPC; the subprocess kill is a hard ceiling, not a goal.
+    # Subprocess timeout matches the scanner's own outer context. For
+    # AUTH_SYS that's 3× per-RPC (3 round trips: portmap, MNT, UMNT).
+    # For krb5 the scanner gives itself 5× (KDC AS_REQ, KDC TGS_REQ,
+    # NFS GSS_INIT, NFS LOOKUP, plus retries). Plus a small reap margin
+    # so the API doesn't kill the scanner before its own deadline expires.
     per_rpc = timeout_seconds or 5
-    sub_timeout = per_rpc * 3 + 5
-    return _test_via_scanner(argv, timeout=sub_timeout)
+    multiplier = 5 if auth_method != "sys" else 3
+    sub_timeout = per_rpc * multiplier + 5
+    return _test_via_scanner(argv, timeout=sub_timeout, krb5_password=krb5_password)
 
 
 _DISPATCH = {
