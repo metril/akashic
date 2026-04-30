@@ -201,6 +201,88 @@ def test_nfs_dispatches_tcp_probe(monkeypatch):
     assert "--type=nfs" in captured["argv"]
     assert "nfs.example.com" in captured["argv"]
     assert "2049" in captured["argv"]
+    # Phase 3b — defaults must still be passed explicitly so the scanner
+    # doesn't fall back to its own (matching) defaults inadvertently.
+    assert "--auth-uid" in captured["argv"]
+    assert "--auth-gid" in captured["argv"]
+
+
+def test_nfs_passes_auth_uid_gid_through(monkeypatch):
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+    captured = {}
+
+    def _fake(argv, password="", key_passphrase="", timeout=15):
+        captured["argv"] = argv
+        captured["timeout"] = timeout
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true,"tier":"mount3"}\n', stderr="")
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e",
+        "auth_uid": 1000, "auth_gid": 1000,
+        "auth_aux_gids": [27, 100],
+        "probe_timeout_seconds": 10,
+    })
+    assert res.ok is True
+    argv = captured["argv"]
+    # uid/gid land as the *next* argv entries after their flag.
+    assert argv[argv.index("--auth-uid") + 1] == "1000"
+    assert argv[argv.index("--auth-gid") + 1] == "1000"
+    assert argv[argv.index("--auth-aux-gids") + 1] == "27,100"
+    assert argv[argv.index("--timeout") + 1] == "10"
+    # Subprocess timeout matches the scanner's own outer context
+    # (3 × per-RPC) plus a small reap margin. With probe_timeout=10:
+    # 10 * 3 + 5 = 35.
+    assert captured["timeout"] == 35
+
+
+def test_nfs_aux_gids_string_form_normalized(monkeypatch):
+    """A user typing comma-separated GIDs in the form sends a string;
+    the API parses + re-joins it so a non-integer fragment surfaces as
+    a 400 instead of being silently dropped by the scanner."""
+    monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: "/fake")
+    captured = {}
+
+    def _fake(argv, password="", key_passphrase="", timeout=15):
+        captured["argv"] = argv
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout='{"ok":true}\n', stderr="")
+
+    monkeypatch.setattr(source_tester, "_run_scanner", _fake)
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e", "auth_aux_gids": "27, 100",
+    })
+    assert res.ok is True
+    argv = captured["argv"]
+    # Whitespace stripped, normalized form.
+    assert argv[argv.index("--auth-aux-gids") + 1] == "27,100"
+
+
+def test_nfs_aux_gids_string_with_garbage_rejected():
+    """Non-integer fragments surface as 400, not silently dropped."""
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e", "auth_aux_gids": "27, admin, 100",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "integers" in res.error
+
+
+def test_nfs_rejects_non_integer_uid():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e", "auth_uid": "notanumber",
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "auth_uid" in res.error
+
+
+def test_nfs_rejects_out_of_range_timeout():
+    res = _test_connection("nfs", {
+        "host": "h", "export_path": "/e", "probe_timeout_seconds": 999,
+    })
+    assert res.ok is False
+    assert res.step == "config"
+    assert "between 1 and 60" in res.error
 
 
 def test_nfs_missing_required():
