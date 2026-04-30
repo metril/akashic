@@ -54,6 +54,12 @@ const STATUS_COLOR: Record<string, string> = {
   error: "bg-rose-500",
 };
 
+// Drawer width: "xl" = max-w-4xl. Live log lines are dense and
+// path-heavy (see "current: <SMB share path/Season/Episode>" lines);
+// cramming them into the default 672 px caused user-reported cutoff
+// where text jammed against the right edge with no breathing room.
+const DRAWER_WIDTH = "xl";
+
 export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanelProps) {
   const stream = useScanStream(scanId, open);
   const [tab, setTab] = useState<Tab>("activity");
@@ -140,9 +146,15 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
           )}
         </div>
       }
-      width="lg"
+      width={DRAWER_WIDTH}
     >
-      <div className="flex flex-col h-full">
+      {/* px-5 py-4 gives the entire panel — status pill, tabs, log
+          tail — consistent breathing room from the drawer edges.
+          Without this, status / tab elements sat flush against the
+          left edge while only the log container had its own p-3,
+          producing the lopsided "stuck to the right edge" look the
+          user was reporting on long path lines. */}
+      <div className="flex flex-col h-full px-5 py-4">
         {/* Status pill + Stop / autoscroll toggle */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -213,11 +225,16 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
           </button>
         </div>
 
-        {/* Tail */}
+        {/* Tail. px-4 py-3 (was p-3) plus a min-w-0 + pr-2 on the
+            message span below = three layers of breathing room from
+            the right edge. Without these, long path lines wrapped
+            via break-all would jam right up against the gray-50 box
+            border with zero gutter, which is what the user was
+            reporting as "text close to the edge, prone to cutoff". */}
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto bg-gray-50 rounded-md font-mono text-xs leading-snug p-3 border border-gray-200"
+          className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto bg-gray-50 rounded-md font-mono text-xs leading-snug px-4 py-3 border border-gray-200"
         >
           {hiddenOlder > 0 && (
             <p className="text-[11px] text-gray-400 italic mb-1">
@@ -250,7 +267,12 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                     </span>
                   )}
                   <span
-                    className={`whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-gray-800"}`}
+                    // min-w-0 lets the flex item shrink below its
+                    // intrinsic content width so break-all actually
+                    // wraps; pr-2 reserves a small right gutter so
+                    // wrapped text never lands flush against the
+                    // gray-50 container border.
+                    className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-gray-800"}`}
                   >
                     {display.text}
                     {display.truncated && (
