@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 
@@ -25,6 +26,20 @@ func (c *LocalConnector) Walk(_ context.Context, root string, excludePatterns []
 
 func (c *LocalConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	return os.Open(path)
+}
+
+// Delete removes a regular file. Refuses directories defensively — the
+// duplicates flow never targets a directory, so anything reaching this
+// path with a dir is a logic bug somewhere upstream.
+func (c *LocalConnector) Delete(_ context.Context, path string) error {
+	st, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("refusing to delete directory %q", path)
+	}
+	return os.Remove(path)
 }
 
 func (c *LocalConnector) Close() error {

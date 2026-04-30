@@ -165,6 +165,21 @@ func (c *S3Connector) ReadFile(ctx context.Context, path string) (io.ReadCloser,
 	return output.Body, nil
 }
 
+// Delete removes an object from the bucket. Note: on versioned buckets
+// this writes a delete marker rather than purging history — that's the
+// safer default. Callers wanting to actually purge versions need to
+// handle versioning explicitly (out of scope here).
+func (c *S3Connector) Delete(ctx context.Context, path string) error {
+	if c.client == nil {
+		return fmt.Errorf("not connected")
+	}
+	_, err := c.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(path),
+	})
+	return err
+}
+
 func (c *S3Connector) Close() error {
 	return nil
 }

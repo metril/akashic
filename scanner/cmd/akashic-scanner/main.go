@@ -36,6 +36,9 @@ func main() {
 		case "fetch":
 			runFetch(os.Args[2:])
 			return
+		case "delete":
+			runDelete(os.Args[2:])
+			return
 		}
 	}
 

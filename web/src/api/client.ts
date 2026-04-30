@@ -165,6 +165,23 @@ export const api = {
   me() {
     return request<{ id: number; username: string; email: string }>("/users/me");
   },
+
+  // Phase 2 — bulk delete in Duplicates. Returns per-entry success/failure
+  // so the UI can mark which copies survived vs. failed (permission
+  // denied is the common case).
+  deleteDuplicateCopies(
+    contentHash: string,
+    keepEntryId: string,
+    deleteEntryIds: string[],
+  ) {
+    return request<{
+      deleted: { entry_id: string; path: string; ok: boolean }[];
+      failed: { entry_id: string; path: string; ok: boolean; step: string; message: string }[];
+    }>(`/duplicates/${contentHash}/delete-copies`, {
+      method: "POST",
+      body: { keep_entry_id: keepEntryId, delete_entry_ids: deleteEntryIds },
+    });
+  },
 };
 
 export default api;
