@@ -122,3 +122,50 @@ async def get_scan(
         raise HTTPException(status_code=404, detail="Scan not found")
     await check_source_access(scan.source_id, user, db)
     return scan
+
+
+class CancelResponse(BaseModel):
+    scan_id: uuid.UUID
+    status: str
+
+
+@router.post("/{scan_id}/cancel", response_model=CancelResponse)
+async def cancel_scan(
+    scan_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark a running scan as cancelled. The next heartbeat from the
+    scanner will receive HTTP 409 and exit cleanly. Idempotent: calling
+    cancel on an already-terminal scan returns the current status
+    without raising.
+
+    The source's status flips back to 'online' so subsequent triggers
+    work without waiting for the watchdog. The actual scanner process
+    won't terminate instantly — it learns about the cancellation on its
+    next heartbeat tick (≤1 s)."""
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    await check_source_access(scan.source_id, user, db, required_level="write")
+
+    if scan.status in {"pending", "running"}:
+        scan.status = "cancelled"
+        if scan.completed_at is None:
+            scan.completed_at = datetime.now(timezone.utc)
+        scan.error_message = "Cancelled by user"
+
+        # Flip the source back to online so the user can immediately
+        # retrigger. If the scanner is mid-flight it'll keep posting
+        # heartbeats for a few seconds — the heartbeat endpoint refuses
+        # those (409) and the scanner exits.
+        source_result = await db.execute(select(Source).where(Source.id == scan.source_id))
+        source = source_result.scalar_one_or_none()
+        if source is not None and source.status == "scanning":
+            source.status = "online"
+
+        await db.commit()
+    return CancelResponse(scan_id=scan.id, status=scan.status)
