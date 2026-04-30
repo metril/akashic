@@ -37,8 +37,10 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
         />
       )}
       <p className="text-xs text-gray-600 bg-gray-50 rounded-md p-2">
-        Test probes TCP reachability of the NFS port (default 2049). Export
-        path validity isn't verified — that's checked when the scan mounts.
+        Test probes the export end-to-end via MOUNT3 / NFSv4 with AUTH_SYS
+        (uid 0). The success indicator below tells you which protocol path
+        validated the mount; a "tcp" tier means the server is reachable
+        but neither v3 nor v4 could be fully validated.
       </p>
     </div>
   );
