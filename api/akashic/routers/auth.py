@@ -15,11 +15,13 @@ import secrets
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_access_token
 from akashic.config import settings
 from akashic.database import get_db
+from akashic.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,11 @@ class ProvidersResponse(BaseModel):
     local: bool = True
     oidc: bool
     ldap: bool
+    # True when the users table is empty — bootstrap registration via
+    # POST /api/users/register is open. Flips to False the moment the
+    # first user is created and stays False forever (the register
+    # endpoint enforces the same one-way door).
+    setup_required: bool
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +81,16 @@ def _require_ldap() -> None:
 
 
 @router.get("/providers", response_model=ProvidersResponse)
-async def get_providers() -> ProvidersResponse:
-    """Return which authentication providers are currently enabled."""
+async def get_providers(db: AsyncSession = Depends(get_db)) -> ProvidersResponse:
+    """Return which authentication providers are currently enabled, plus
+    whether bootstrap registration is still open (no users yet)."""
+    count_result = await db.execute(select(func.count(User.id)))
+    user_count = count_result.scalar() or 0
     return ProvidersResponse(
         local=True,
         oidc=settings.oidc_enabled,
         ldap=settings.ldap_enabled,
+        setup_required=user_count == 0,
     )
 
 

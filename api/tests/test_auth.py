@@ -77,3 +77,35 @@ async def test_protected_endpoint_with_token(client):
     response = await client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["username"] == "authed"
+
+
+# ── /api/auth/providers — bootstrap detection ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_providers_setup_required_on_empty_db(client):
+    """Fresh deployment: zero users → setup_required=True so the web
+    login page can flip into 'create the admin account' mode."""
+    response = await client.get("/api/auth/providers")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["local"] is True
+    assert body["setup_required"] is True
+    # OIDC/LDAP keys are present even when disabled — UI relies on them.
+    assert "oidc" in body
+    assert "ldap" in body
+
+
+@pytest.mark.asyncio
+async def test_providers_setup_required_flips_after_first_user(client):
+    """The flag flips False the moment any user exists, mirroring the
+    one-way door enforced by POST /api/users/register."""
+    register = await client.post("/api/users/register", json={
+        "username": "firstadmin",
+        "password": "testpass123",
+        "email": "admin@local",
+    })
+    assert register.status_code == 201
+    response = await client.get("/api/auth/providers")
+    assert response.status_code == 200
+    assert response.json()["setup_required"] is False
