@@ -44,6 +44,68 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
   const reconnectTimer = useRef<number | null>(null);
   const attemptRef = useRef(0);
 
+  // Inbound-event coalescing buffer. A burst of WS messages (common with
+  // a chatty stderr relay or a fast scan) used to trigger one setState
+  // per message — each rebuilding a 1000-line array and forcing a full
+  // re-render of the log panel. With per-message setState that's a
+  // layout-thrash death spiral. We instead batch: append events to a
+  // pending ref and flush once per animation frame (≤16 ms cadence).
+  // The DOM gets updated at most once per paint regardless of how many
+  // messages arrived in between.
+  const pendingRef = useRef<{
+    progress: ScanProgressEvent | null;
+    snapshot: ScanSnapshot | null;
+    appendLines: ScanLogLine[];
+    replaceLines: ScanLogLine[] | null; // set by snapshot — replaces buffer
+  }>({ progress: null, snapshot: null, appendLines: [], replaceLines: null });
+  const flushScheduledRef = useRef(false);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushScheduledRef.current) return;
+    flushScheduledRef.current = true;
+    requestAnimationFrame(() => {
+      flushScheduledRef.current = false;
+      const pending = pendingRef.current;
+      pendingRef.current = {
+        progress: null,
+        snapshot: null,
+        appendLines: [],
+        replaceLines: null,
+      };
+      if (
+        !pending.progress &&
+        !pending.snapshot &&
+        pending.appendLines.length === 0 &&
+        pending.replaceLines === null
+      ) {
+        return;
+      }
+      setState((s) => {
+        let lines = s.lines;
+        let lastEventTs = s.lastEventTs;
+        if (pending.replaceLines !== null) {
+          lines = capLines(pending.replaceLines);
+          if (lines.length > 0) lastEventTs = lines[lines.length - 1].ts;
+        }
+        if (pending.appendLines.length > 0) {
+          lines = capLines([...lines, ...pending.appendLines]);
+          lastEventTs =
+            pending.appendLines[pending.appendLines.length - 1].ts ?? lastEventTs;
+        }
+        if (pending.progress) {
+          lastEventTs = pending.progress.ts ?? lastEventTs;
+        }
+        return {
+          ...s,
+          snapshot: pending.snapshot ?? s.snapshot,
+          progress: pending.progress ?? s.progress,
+          lines,
+          lastEventTs,
+        };
+      });
+    });
+  }, []);
+
   // Latest line ts for reconnect backfill. Stored in a ref so `connect`
   // can read it without re-creating itself on every state update.
   const sinceRef = useRef<string | null>(null);
@@ -92,11 +154,8 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
           if (resp.ok) {
             const lines: ScanLogLine[] = await resp.json();
             if (lines.length) {
-              setState((s) => ({
-                ...s,
-                lines: capLines([...s.lines, ...lines]),
-                lastEventTs: lines[lines.length - 1]?.ts ?? s.lastEventTs,
-              }));
+              pendingRef.current.appendLines.push(...lines);
+              scheduleFlush();
             }
           }
         } catch {
@@ -114,32 +173,26 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       }
       if (event.kind === "ping") return;
 
-      setState((s) => {
-        if (event.kind === "snapshot") {
-          return {
-            ...s,
-            snapshot: event,
-            lines: capLines(event.recent_lines ?? []),
-            lastEventTs:
-              event.recent_lines && event.recent_lines.length > 0
-                ? event.recent_lines[event.recent_lines.length - 1].ts
-                : s.lastEventTs,
-          };
+      // Accumulate into the per-frame buffer rather than calling
+      // setState directly. A burst of 50 stderr messages becomes ONE
+      // re-render at the next animation frame, not 50.
+      if (event.kind === "snapshot") {
+        pendingRef.current.snapshot = event;
+        pendingRef.current.replaceLines = event.recent_lines ?? [];
+        // Snapshot replaces the buffer, so any pre-snapshot appends
+        // queued in the same frame would just get overwritten. Drop them
+        // to make that explicit.
+        pendingRef.current.appendLines = [];
+      } else if (event.kind === "progress") {
+        pendingRef.current.progress = event;
+      } else if (event.kind === "log" || event.kind === "stderr") {
+        if (event.lines && event.lines.length > 0) {
+          pendingRef.current.appendLines.push(...event.lines);
         }
-        if (event.kind === "progress") {
-          return {
-            ...s,
-            progress: event,
-            lastEventTs: event.ts ?? s.lastEventTs,
-          };
-        }
-        if (event.kind === "log" || event.kind === "stderr") {
-          const next = capLines([...s.lines, ...(event.lines ?? [])]);
-          const lastTs = event.lines?.[event.lines.length - 1]?.ts ?? s.lastEventTs;
-          return { ...s, lines: next, lastEventTs: lastTs };
-        }
-        return s;
-      });
+      } else {
+        return;
+      }
+      scheduleFlush();
     };
 
     ws.onclose = () => {

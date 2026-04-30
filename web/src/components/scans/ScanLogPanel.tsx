@@ -11,6 +11,17 @@ interface ScanLogPanelProps {
 
 type Tab = "activity" | "stderr";
 
+// Per-line display cap. The scanner's stderr relay batches up to 4 KB per
+// chunk, and a single such chunk rendered with `whitespace-pre-wrap
+// break-all` is enough to lock up the layout engine when 50 of them
+// arrive at once. The full message stays in memory; only the rendered
+// node is bounded. Users who need the full text can copy/expand later.
+const DISPLAY_LINE_CAP = 1024;
+function truncateForDisplay(s: string): { text: string; truncated: boolean } {
+  if (s.length <= DISPLAY_LINE_CAP) return { text: s, truncated: false };
+  return { text: s.slice(0, DISPLAY_LINE_CAP), truncated: true };
+}
+
 const LEVEL_COLOR: Record<string, string> = {
   info: "text-gray-700",
   warn: "text-amber-700",
@@ -38,18 +49,36 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const visibleLines = useMemo(() => {
-    if (tab === "activity") {
-      return stream.lines.filter((l) => l.level !== "stderr");
+  // Single pass over the buffer to compute both filtered subsets AND
+  // their counts. The previous impl called .filter() three times per
+  // render (twice for the count badges, once for the visible list);
+  // with a chatty stream that adds up.
+  const { activityLines, stderrLines } = useMemo(() => {
+    const activity: typeof stream.lines = [];
+    const stderr: typeof stream.lines = [];
+    for (const line of stream.lines) {
+      if (line.level === "stderr") stderr.push(line);
+      else activity.push(line);
     }
-    return stream.lines.filter((l) => l.level === "stderr");
-  }, [stream.lines, tab]);
+    return { activityLines: activity, stderrLines: stderr };
+  }, [stream.lines]);
 
+  const visibleLines = tab === "activity" ? activityLines : stderrLines;
+
+  // Auto-scroll without forcing a layout pass on every render. We only
+  // touch scrollTop if visibleLines actually changed, and we read
+  // scrollHeight inside a rAF so it batches with the paint that just
+  // rendered the new rows. The previous effect ran on a length change,
+  // which triggered scrollHeight reads inside React's commit phase —
+  // exactly when layout is most expensive.
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [visibleLines.length, autoScroll]);
+    if (!autoScroll || !scrollRef.current) return;
+    const el = scrollRef.current;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [visibleLines, autoScroll]);
 
   function onScroll() {
     if (!scrollRef.current) return;
@@ -111,7 +140,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
           >
             Activity
             <span className="ml-1.5 text-xs text-gray-400">
-              ({stream.lines.filter((l) => l.level !== "stderr").length})
+              ({activityLines.length})
             </span>
           </button>
           <button
@@ -125,7 +154,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
           >
             Raw stderr
             <span className="ml-1.5 text-xs text-gray-400">
-              ({stream.lines.filter((l) => l.level === "stderr").length})
+              ({stderrLines.length})
             </span>
           </button>
         </div>
@@ -141,29 +170,37 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               {stream.status === "open" ? "Waiting for output…" : "No log lines yet."}
             </p>
           ) : (
-            visibleLines.map((line) => (
-              <div key={line.id} className="flex gap-2">
-                <span className="text-gray-400 shrink-0 w-20">
-                  {new Date(line.ts).toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  })}
-                </span>
-                {tab === "activity" && (
-                  <span
-                    className={`shrink-0 w-12 uppercase font-semibold ${LEVEL_COLOR[line.level] ?? "text-gray-700"}`}
-                  >
-                    {line.level}
+            visibleLines.map((line) => {
+              const display = truncateForDisplay(line.message);
+              return (
+                <div key={line.id} className="flex gap-2">
+                  <span className="text-gray-400 shrink-0 w-20">
+                    {new Date(line.ts).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
                   </span>
-                )}
-                <span
-                  className={`whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-gray-800"}`}
-                >
-                  {line.message}
-                </span>
-              </div>
-            ))
+                  {tab === "activity" && (
+                    <span
+                      className={`shrink-0 w-12 uppercase font-semibold ${LEVEL_COLOR[line.level] ?? "text-gray-700"}`}
+                    >
+                      {line.level}
+                    </span>
+                  )}
+                  <span
+                    className={`whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-gray-800"}`}
+                  >
+                    {display.text}
+                    {display.truncated && (
+                      <span className="text-gray-400 italic ml-1">
+                        … (+{(line.message.length - DISPLAY_LINE_CAP).toLocaleString()} chars)
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
