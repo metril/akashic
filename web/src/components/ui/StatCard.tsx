@@ -20,25 +20,25 @@ export function StatCard({
   className,
 }: StatCardProps) {
   return (
-    <Card padding="md" className={cn("flex items-start gap-4", className)}>
+    <Card padding="sm" className={cn("flex items-start gap-3", className)}>
       {icon && (
-        <div className="h-9 w-9 rounded-lg bg-accent-50 text-accent-600 flex items-center justify-center flex-shrink-0">
+        <div className="h-8 w-8 rounded-lg bg-accent-50 text-accent-600 flex items-center justify-center flex-shrink-0">
           {icon}
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+        <div className="text-[11px] font-medium text-fg-muted uppercase tracking-wide">
           {label}
         </div>
         {loading ? (
-          <Skeleton className="h-7 w-20 mt-2" />
+          <Skeleton className="h-7 w-20 mt-1.5" />
         ) : (
-          <div className="text-2xl font-semibold text-gray-900 mt-1 tabular-nums">
+          <div className="text-2xl font-semibold text-fg mt-0.5 tabular-nums">
             {value}
           </div>
         )}
         {subtext && (
-          <div className="text-xs text-gray-500 mt-1">{subtext}</div>
+          <div className="text-xs text-fg-muted mt-0.5">{subtext}</div>
         )}
       </div>
     </Card>

@@ -105,9 +105,9 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
             className={`rounded-md p-2 text-xs ${
               testResult.ok
                 ? testResult.warn
-                  ? "bg-amber-50 text-amber-900"
-                  : "bg-emerald-50 text-emerald-800"
-                : "bg-rose-50 text-rose-800"
+                  ? "bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-300"
+                  : "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300"
+                : "bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-300"
             }`}
             role="status"
           >

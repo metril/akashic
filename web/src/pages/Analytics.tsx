@@ -16,10 +16,12 @@ import {
   Table,
   Skeleton,
   EmptyState,
+  Page,
 } from "../components/ui";
 import type { Column } from "../components/ui";
 import { formatBytes, formatNumber } from "../lib/format";
 import { useMemo } from "react";
+import { useChartColors } from "../hooks/useChartColors";
 
 const CHART_COLORS = [
   "#6366f1",
@@ -86,14 +88,14 @@ export default function Analytics() {
       key: "filename",
       header: "Name",
       render: (f) => (
-        <span className="font-medium text-gray-900">{f.filename}</span>
+        <span className="font-medium text-fg">{f.filename}</span>
       ),
     },
     {
       key: "size",
       header: "Size",
       render: (f) => (
-        <span className="tabular-nums text-gray-700">
+        <span className="tabular-nums text-fg">
           {formatBytes(f.size_bytes)}
         </span>
       ),
@@ -102,7 +104,7 @@ export default function Analytics() {
       key: "source",
       header: "Source",
       render: (f) => (
-        <span className="text-gray-500">
+        <span className="text-fg-muted">
           {sourceMap.get(f.source_id) ?? f.source_id.slice(0, 8)}
         </span>
       ),
@@ -111,7 +113,7 @@ export default function Analytics() {
       key: "path",
       header: "Path",
       render: (f) => (
-        <span className="text-xs text-gray-400 font-mono break-all">
+        <span className="text-xs text-fg-subtle font-mono break-all">
           {f.path}
         </span>
       ),
@@ -119,16 +121,11 @@ export default function Analytics() {
   ];
 
   return (
-    <div className="px-8 py-7 max-w-7xl">
-      <div className="mb-7">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-          Analytics
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Storage and file distribution across the index.
-        </p>
-      </div>
-
+    <Page
+      title="Analytics"
+      description="Where your storage is going, broken down by axis."
+      width="wide"
+    >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <Card padding="md">
           <CardHeader
@@ -172,7 +169,7 @@ export default function Analytics() {
           emptyTitle="No files indexed"
         />
       </Card>
-    </div>
+    </Page>
   );
 }
 
@@ -183,6 +180,7 @@ interface ChartDatum {
 }
 
 function ChartCard({ data }: { data: ChartDatum[] }) {
+  const c = useChartColors();
   return (
     <div className="h-64 -mx-2">
       <ResponsiveContainer width="100%" height="100%">
@@ -194,7 +192,7 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
           <XAxis
             type="number"
             tickFormatter={(v) => formatBytes(v)}
-            stroke="#9ca3af"
+            stroke={c.axis}
             fontSize={11}
             tickLine={false}
             axisLine={false}
@@ -203,19 +201,19 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
             type="category"
             dataKey="label"
             width={110}
-            stroke="#6b7280"
+            stroke={c.axisLabel}
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <Tooltip
-            cursor={{ fill: "rgba(99,102,241,0.06)" }}
+            cursor={{ fill: c.cursorFill }}
             contentStyle={{
-              background: "white",
-              border: "1px solid #e5e7eb",
+              background: c.tooltipBg,
+              border: `1px solid ${c.tooltipBorder}`,
               borderRadius: 8,
               fontSize: 13,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
             }}
             formatter={(value: number, _name, item) => [
               `${formatBytes(value)} · ${formatNumber(item.payload.count)} files`,

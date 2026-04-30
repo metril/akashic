@@ -50,7 +50,7 @@ export function ContentTab({ entry }: Props) {
     <div className="space-y-3">
       {isPreviewable ? (
         preview.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2 text-xs text-fg-muted">
             <Spinner /> Loading preview…
           </div>
         ) : preview.isError ? (
@@ -60,15 +60,15 @@ export function ContentTab({ entry }: Props) {
               : "Failed to load preview"}
           </p>
         ) : preview.data?.binary ? (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-fg-muted">
             File reads as binary; preview unavailable.
           </p>
         ) : (
           <>
-            <pre className="text-xs bg-gray-50 border border-gray-200 rounded-md p-3 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-gray-800">
+            <pre className="text-xs bg-app border border-line rounded-md p-3 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-fg">
               {preview.data?.text ?? ""}
             </pre>
-            <div className="flex items-center justify-between text-[11px] text-gray-500">
+            <div className="flex items-center justify-between text-[11px] text-fg-muted">
               <span>
                 {preview.data?.encoding ?? "unknown"} ·{" "}
                 {formatBytes(preview.data?.byte_size_total ?? 0)}
@@ -82,7 +82,7 @@ export function ContentTab({ entry }: Props) {
           </>
         )
       ) : (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-fg-muted">
           No inline preview for{" "}
           <code className="font-mono">{entry.mime_type ?? "this type"}</code>.
           Use Download to fetch the full file.

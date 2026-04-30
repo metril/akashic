@@ -39,7 +39,7 @@ export function BrandMark({ className, showWordmark = false }: BrandMarkProps) {
         </svg>
       </div>
       {showWordmark && (
-        <span className="text-base font-semibold text-gray-900 tracking-tight">
+        <span className="text-base font-semibold text-fg tracking-tight">
           Akashic
         </span>
       )}

@@ -99,11 +99,11 @@ export default function Login() {
   // brand chrome so we don't get a flash-of-empty-page.
   if (!providers && !providersError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-app px-4">
         <Card padding="lg" className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-7">
             <BrandMark className="mb-4" />
-            <p className="text-sm text-gray-500">Loading…</p>
+            <p className="text-sm text-fg-muted">Loading…</p>
           </div>
         </Card>
       </div>
@@ -112,11 +112,11 @@ export default function Login() {
 
   if (providersError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-app px-4">
         <Card padding="lg" className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-4">
             <BrandMark className="mb-4" />
-            <h1 className="text-xl font-semibold text-gray-900">Akashic</h1>
+            <h1 className="text-xl font-semibold text-fg">Akashic</h1>
           </div>
           <p className="text-sm text-red-600 mt-2">
             Couldn't reach the API: {providersError}
@@ -131,14 +131,14 @@ export default function Login() {
 
   if (setupRequired) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-app px-4">
         <Card padding="lg" className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-7">
             <BrandMark className="mb-4" />
-            <h1 className="text-xl font-semibold text-gray-900">
+            <h1 className="text-xl font-semibold text-fg">
               Welcome to Akashic
             </h1>
-            <p className="text-sm text-gray-500 mt-1 text-center">
+            <p className="text-sm text-fg-muted mt-1 text-center">
               No accounts exist yet. Create the admin account to get started.
             </p>
           </div>
@@ -201,14 +201,14 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-app px-4">
       <Card padding="lg" className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-7">
           <BrandMark className="mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900">
+          <h1 className="text-xl font-semibold text-fg">
             Sign in to Akashic
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-fg-muted mt-1">
             Universal file index
           </p>
         </div>

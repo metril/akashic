@@ -55,23 +55,23 @@ export function Drawer({
         role="dialog"
         aria-modal="true"
         className={cn(
-          "absolute right-0 top-0 h-full w-full bg-white shadow-2xl",
-          "border-l border-gray-200 flex flex-col",
+          "absolute right-0 top-0 h-full w-full bg-surface shadow-2xl",
+          "border-l border-line flex flex-col",
           "transition-transform duration-200 ease-out",
           widthMap[width],
           open ? "translate-x-0" : "translate-x-full",
         )}
       >
         {(title || description) && (
-          <header className="flex items-start justify-between gap-4 px-6 py-4 border-b border-gray-100">
+          <header className="flex items-start justify-between gap-4 px-6 py-4 border-b border-line-subtle">
             <div className="min-w-0">
               {title && (
-                <h2 className="text-base font-semibold text-gray-900 truncate">
+                <h2 className="text-base font-semibold text-fg truncate">
                   {title}
                 </h2>
               )}
               {description && (
-                <p className="text-xs text-gray-500 mt-0.5 truncate">
+                <p className="text-xs text-fg-muted mt-0.5 truncate">
                   {description}
                 </p>
               )}
@@ -80,7 +80,7 @@ export function Drawer({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+              className="flex-shrink-0 p-1.5 rounded-md text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

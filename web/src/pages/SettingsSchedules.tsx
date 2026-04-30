@@ -6,6 +6,7 @@ import {
   Input,
   Button,
   Badge,
+  Page,
 } from "../components/ui";
 import { useSources, useUpdateSource } from "../hooks/useSources";
 import type { Source } from "../types";
@@ -56,12 +57,12 @@ function ScheduleRow({ source }: RowProps) {
     <li className="flex items-center gap-3 px-4 py-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900 truncate">
+          <span className="text-sm font-medium text-fg truncate">
             {source.name}
           </span>
           <Badge variant="neutral">{source.type}</Badge>
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <p className="text-xs text-fg-muted mt-0.5">
           Last scan: {formatDate(source.last_scan_at)}
         </p>
       </div>
@@ -105,18 +106,13 @@ export default function SettingsSchedules() {
   const sources = sourcesQ.data ?? [];
 
   return (
-    <div className="px-8 py-7 max-w-4xl">
-      <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">
-        Schedules
-      </h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Cron expressions that drive automatic scans for each source. Leave
-        blank to disable scheduled scans for a source — manual scans still
-        work from the Sources page.
-      </p>
-
+    <Page
+      title="Schedules"
+      description="Cron expressions that drive automatic scans for each source. Leave blank to disable scheduled scans — manual scans still work from the Sources page."
+      width="default"
+    >
       {sourcesQ.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-gray-400">
+        <div className="flex items-center justify-center py-12 text-fg-subtle">
           <Spinner />
         </div>
       ) : sourcesQ.isError ? (
@@ -126,7 +122,7 @@ export default function SettingsSchedules() {
             : "Failed to load sources"}
         </div>
       ) : sources.length === 0 ? (
-        <div className="border border-gray-200 rounded py-12">
+        <div className="border border-line rounded py-12">
           <EmptyState
             title="No sources yet"
             description="Add a source first; schedules attach to existing sources."
@@ -134,7 +130,7 @@ export default function SettingsSchedules() {
         </div>
       ) : (
         <Card padding="none">
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-line-subtle">
             {sources.map((s) => (
               <ScheduleRow key={s.id} source={s} />
             ))}
@@ -142,10 +138,10 @@ export default function SettingsSchedules() {
         </Card>
       )}
 
-      <p className="mt-4 text-xs text-gray-400">
+      <p className="mt-4 text-xs text-fg-subtle">
         Cron format: <code>m h dom mon dow</code> — e.g.{" "}
-        <code className="text-gray-600">0 3 * * *</code> runs at 03:00 every day.
+        <code className="text-fg-muted">0 3 * * *</code> runs at 03:00 every day.
       </p>
-    </div>
+    </Page>
   );
 }

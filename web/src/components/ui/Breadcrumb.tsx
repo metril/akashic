@@ -16,7 +16,7 @@ const Separator = () => (
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 20 20"
     fill="currentColor"
-    className="h-3.5 w-3.5 text-gray-300 flex-shrink-0"
+    className="h-3.5 w-3.5 text-fg-subtle flex-shrink-0"
     aria-hidden="true"
   >
     <path
@@ -32,7 +32,7 @@ export function Breadcrumb({ segments, className }: BreadcrumbProps) {
     <nav
       aria-label="Breadcrumb"
       className={cn(
-        "flex items-center gap-1.5 text-sm text-gray-500 min-w-0",
+        "flex items-center gap-1.5 text-sm text-fg-muted min-w-0",
         className,
       )}
     >
@@ -45,7 +45,7 @@ export function Breadcrumb({ segments, className }: BreadcrumbProps) {
               <button
                 type="button"
                 onClick={seg.onClick}
-                className="text-gray-500 hover:text-accent-700 hover:underline truncate"
+                className="text-fg-muted hover:text-accent-700 hover:underline truncate"
               >
                 {seg.label}
               </button>
@@ -53,7 +53,7 @@ export function Breadcrumb({ segments, className }: BreadcrumbProps) {
               <span
                 className={cn(
                   "truncate",
-                  isLast ? "text-gray-900 font-medium" : "text-gray-500",
+                  isLast ? "text-fg font-medium" : "text-fg-muted",
                 )}
               >
                 {seg.label}

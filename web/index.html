@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Akashic</title>
+    <script>
+      // Apply the saved theme before React mounts. Without this the
+      // page paints in light first, then flips to dark a frame later.
+      // Mirror of the `useTheme` resolution logic in src/hooks/useTheme.ts.
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var dark =
+            saved === "dark" ||
+            ((saved === "system" || !saved) &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* storage blocked — default light is fine */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

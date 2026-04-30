@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { useSources } from "../hooks/useSources";
 import { useActiveScans } from "../hooks/useActiveScans";
 import {
@@ -6,6 +8,7 @@ import {
   Badge,
   Skeleton,
   EmptyState,
+  Page,
 } from "../components/ui";
 import type { BadgeVariant } from "../components/ui";
 import type { Scan, Source } from "../types";
@@ -52,16 +55,21 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
     if (!activeScan) return;
     if (stopping) return;
     setStopping(true);
+    const p = api.cancelScan(activeScan.id);
+    toast.promise(p, {
+      loading: "Stopping scan…",
+      success: "Scan stopped.",
+      error: (e: unknown) =>
+        `Couldn't stop scan: ${e instanceof Error ? e.message : "unknown error"}`,
+    });
     try {
-      await api.cancelScan(activeScan.id);
+      await p;
       // Re-fetch sources + scans so the card snaps to "online" without
       // waiting for the next polling tick.
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
       await queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
     } catch {
-      // Surfacing the failure inline would require a toast we don't
-      // have wired here; for now leave the button in its default state.
-      // The user can retry.
+      // Toast already surfaced the error.
     } finally {
       setStopping(false);
     }
@@ -81,20 +89,20 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
       <button
         type="button"
         onClick={onOpen}
-        className="text-left flex flex-col grow"
+        className="text-left flex flex-col grow rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-1"
       >
         <div className="flex items-start justify-between gap-3 mb-1">
-          <h3 className="text-base font-semibold text-gray-900 truncate">
+          <h3 className="text-base font-semibold text-fg truncate">
             {source.name}
           </h3>
           <Badge variant={statusVariant(source.status)}>
             {statusLabel(source.status)}
           </Badge>
         </div>
-        <p className="text-xs text-gray-500 break-all mb-3">{summary}</p>
+        <p className="text-xs text-fg-muted break-all mb-3">{summary}</p>
 
         {progressLine && (
-          <div className="mb-3 rounded-md bg-blue-50 border border-blue-100 px-2.5 py-2">
+          <div className="mb-3 rounded-md bg-blue-50 border border-blue-100 dark:bg-blue-500/10 dark:border-blue-500/30 px-2.5 py-2">
             <p className="text-xs text-blue-900 font-medium">{progressLine.summary}</p>
             {progressLine.currentPath && (
               <p className="text-[11px] text-blue-700 font-mono mt-0.5 truncate">
@@ -105,19 +113,19 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
         )}
 
         {errorMessage && (
-          <div className="mb-3 rounded-md bg-rose-50 border border-rose-100 px-2.5 py-2">
+          <div className="mb-3 rounded-md bg-rose-50 border border-rose-100 dark:bg-rose-500/10 dark:border-rose-500/30 px-2.5 py-2">
             <p className="text-xs text-rose-800 font-medium">Last scan failed</p>
-            <p className="text-[11px] text-rose-700 mt-0.5">{errorMessage}</p>
+            <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">{errorMessage}</p>
           </div>
         )}
 
-        <dl className="text-xs text-gray-500 space-y-1 mt-auto">
+        <dl className="text-xs text-fg-muted space-y-1 mt-auto">
           <div className="flex gap-2">
-            <dt className="text-gray-400">Type</dt>
+            <dt className="text-fg-subtle">Type</dt>
             <dd>{source.type}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="text-gray-400">Last scan</dt>
+            <dt className="text-fg-subtle">Last scan</dt>
             <dd>{formatDate(source.last_scan_at)}</dd>
           </div>
         </dl>
@@ -128,7 +136,7 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
           (edit, scan now, delete) live inside the drawer to keep the
           card minimal. */}
       {isScanning && activeScan && (
-        <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-3">
+        <div className="mt-3 pt-2 border-t border-line-subtle flex items-center gap-3">
           <button
             type="button"
             onClick={(e) => {
@@ -193,6 +201,20 @@ export default function Sources() {
   const { data: activeScans } = useActiveScans(sources);
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [logScanId, setLogScanId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep-link entry: dashboard rows navigate to /sources?open=<id> to
+  // open the detail drawer for a specific source. Strip the param after
+  // reading so a back-nav doesn't keep re-opening the drawer.
+  useEffect(() => {
+    const openParam = searchParams.get("open");
+    if (openParam && openParam !== openSourceId) {
+      setOpenSourceId(openParam);
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams, openSourceId]);
 
   const openSource = openSourceId
     ? sources?.find((s) => s.id === openSourceId) ?? null
@@ -206,18 +228,11 @@ export default function Sources() {
     : undefined;
 
   return (
-    <div className="px-8 py-7 max-w-7xl">
-      <div className="mb-7 flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-            Sources
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Filesystem locations Akashic indexes and watches. Click a card to view details, edit, or scan.
-          </p>
-        </div>
-      </div>
-
+    <Page
+      title="Sources"
+      description="Filesystem locations Akashic indexes and watches. Click a card to view details, edit, or scan."
+      width="wide"
+    >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-4">
           {isLoading ? (
@@ -273,6 +288,6 @@ export default function Sources() {
         scanId={logScanId}
         sourceName={logScanSourceName}
       />
-    </div>
+    </Page>
   );
 }

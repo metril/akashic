@@ -67,7 +67,7 @@ export function SshFields({ value, onChange }: FieldsProps<SshConfig>) {
         placeholder="/etc/ssh/known_hosts"
         required
       />
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-fg-muted">
         Strict host-key checking by default — known_hosts must contain the
         target's key fingerprint.
       </p>

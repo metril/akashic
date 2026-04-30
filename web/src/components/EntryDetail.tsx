@@ -24,12 +24,12 @@ function Section({
   empty?: boolean;
 }) {
   return (
-    <section className="px-6 py-4 border-b border-gray-100 last:border-b-0">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-3">
+    <section className="px-6 py-4 border-b border-line-subtle last:border-b-0">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-3">
         {title}
       </h3>
       {empty ? (
-        <p className="text-sm text-gray-400 italic">None</p>
+        <p className="text-sm text-fg-subtle italic">None</p>
       ) : (
         children
       )}
@@ -40,14 +40,14 @@ function Section({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline gap-3 text-sm py-1">
-      <dt className="w-32 flex-shrink-0 text-xs text-gray-500">{label}</dt>
-      <dd className="min-w-0 flex-1 text-gray-800 break-words">{children}</dd>
+      <dt className="w-32 flex-shrink-0 text-xs text-fg-muted">{label}</dt>
+      <dd className="min-w-0 flex-1 text-fg break-words">{children}</dd>
     </div>
   );
 }
 
 const Mono = ({ children }: { children: React.ReactNode }) => (
-  <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">
+  <code className="font-mono text-xs bg-surface-muted px-1.5 py-0.5 rounded text-fg">
     {children}
   </code>
 );
@@ -63,7 +63,7 @@ export function EntryDetail({ entryId }: Props) {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center justify-center h-40 text-gray-400">
+      <div className="flex items-center justify-center h-40 text-fg-subtle">
         <Spinner />
       </div>
     );
@@ -84,7 +84,7 @@ export function EntryDetail({ entryId }: Props) {
   if (!entry) return null;
 
   return (
-    <div className="divide-y divide-gray-100">
+    <div className="divide-y divide-line-subtle">
       <S3ExposureBanner source={entry.source as import("../types").Source | undefined} />
       <Section title="Identity">
         <dl>
@@ -114,22 +114,22 @@ export function EntryDetail({ entryId }: Props) {
       <Section title="Permissions">
         <dl>
           <Row label="Mode">
-            <span className="font-mono text-sm text-gray-900">
+            <span className="font-mono text-sm text-fg">
               {formatMode(entry.mode)}
             </span>{" "}
-            <span className="text-xs text-gray-400 ml-2">
+            <span className="text-xs text-fg-subtle ml-2">
               ({formatOctal(entry.mode)})
             </span>
           </Row>
           <Row label="Owner">
             {entry.owner_name || "—"}
-            <span className="text-xs text-gray-400 ml-1.5">
+            <span className="text-xs text-fg-subtle ml-1.5">
               (uid {entry.uid ?? "?"})
             </span>
           </Row>
           <Row label="Group">
             {entry.group_name || "—"}
-            <span className="text-xs text-gray-400 ml-1.5">
+            <span className="text-xs text-fg-subtle ml-1.5">
               (gid {entry.gid ?? "?"})
             </span>
           </Row>
@@ -149,7 +149,7 @@ export function EntryDetail({ entryId }: Props) {
             {Object.entries(entry.xattrs).map(([k, v]) => (
               <div key={k} className="text-sm">
                 <Mono>{k}</Mono>{" "}
-                <span className="text-gray-700 break-all">{v}</span>
+                <span className="text-fg break-all">{v}</span>
               </div>
             ))}
           </dl>
@@ -162,7 +162,7 @@ export function EntryDetail({ entryId }: Props) {
             {entry.size_bytes != null && (
               <Row label="Size">
                 {formatBytes(entry.size_bytes)}{" "}
-                <span className="text-xs text-gray-400 ml-1.5">
+                <span className="text-xs text-fg-subtle ml-1.5">
                   ({entry.size_bytes.toLocaleString()} bytes)
                 </span>
               </Row>
@@ -224,11 +224,11 @@ export function EntryDetail({ entryId }: Props) {
                   key={v.id}
                   className="border-l-2 border-accent-200 pl-3 py-0.5"
                 >
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-fg-muted">
                     {formatDateTime(v.detected_at)}
                   </div>
                   {label && (
-                    <div className="text-sm text-gray-800 mt-0.5">{label}</div>
+                    <div className="text-sm text-fg mt-0.5">{label}</div>
                   )}
                   {aclChanged && prev && (
                     <ACLDiff prev={prev.acl} curr={v.acl} />

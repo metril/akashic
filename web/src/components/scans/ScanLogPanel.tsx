@@ -34,10 +34,10 @@ function truncateForDisplay(s: string): { text: string; truncated: boolean } {
 }
 
 const LEVEL_COLOR: Record<string, string> = {
-  info: "text-gray-700",
+  info: "text-fg",
   warn: "text-amber-700",
-  error: "text-rose-700",
-  stderr: "text-gray-600",
+  error: "text-rose-700 dark:text-rose-300",
+  stderr: "text-fg-muted",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -142,7 +142,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
         <div className="flex items-center gap-2">
           <span>Live scan log</span>
           {sourceName && (
-            <span className="text-sm font-normal text-gray-500">· {sourceName}</span>
+            <span className="text-sm font-normal text-fg-muted">· {sourceName}</span>
           )}
         </div>
       }
@@ -161,7 +161,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
             <span
               className={`inline-block h-2 w-2 rounded-full ${STATUS_COLOR[stream.status]}`}
             />
-            <span className="text-xs text-gray-600">{STATUS_LABEL[stream.status]}</span>
+            <span className="text-xs text-fg-muted">{STATUS_LABEL[stream.status]}</span>
           </div>
           <div className="flex items-center gap-3">
             {/* Stop button shows whenever the stream is open — i.e., the
@@ -185,7 +185,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                   scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
                 }
               }}
-              className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
+              className="text-xs text-fg-muted hover:text-fg underline disabled:opacity-50"
               disabled={autoScroll}
             >
               {autoScroll ? "Auto-scrolling" : "Resume tail"}
@@ -194,18 +194,18 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-2 text-sm">
+        <div className="flex border-b border-line mb-2 text-sm">
           <button
             type="button"
             onClick={() => setTab("activity")}
             className={`px-3 py-1.5 -mb-px border-b-2 ${
               tab === "activity"
-                ? "border-gray-900 text-gray-900 font-medium"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-gray-900 text-fg font-medium"
+                : "border-transparent text-fg-muted hover:text-fg"
             }`}
           >
             Activity
-            <span className="ml-1.5 text-xs text-gray-400">
+            <span className="ml-1.5 text-xs text-fg-subtle">
               ({activityLines.length})
             </span>
           </button>
@@ -214,12 +214,12 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
             onClick={() => setTab("stderr")}
             className={`px-3 py-1.5 -mb-px border-b-2 ${
               tab === "stderr"
-                ? "border-gray-900 text-gray-900 font-medium"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-gray-900 text-fg font-medium"
+                : "border-transparent text-fg-muted hover:text-fg"
             }`}
           >
             Raw stderr
-            <span className="ml-1.5 text-xs text-gray-400">
+            <span className="ml-1.5 text-xs text-fg-subtle">
               ({stderrLines.length})
             </span>
           </button>
@@ -234,17 +234,17 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto bg-gray-50 rounded-md font-mono text-xs leading-snug px-4 py-3 border border-gray-200"
+          className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto bg-app rounded-md font-mono text-xs leading-snug px-4 py-3 border border-line"
         >
           {hiddenOlder > 0 && (
-            <p className="text-[11px] text-gray-400 italic mb-1">
+            <p className="text-[11px] text-fg-subtle italic mb-1">
               Showing the most recent {visibleLines.length.toLocaleString()} of{" "}
               {(visibleLines.length + hiddenOlder).toLocaleString()} lines.
               Older lines are still in memory; refresh narrows nothing.
             </p>
           )}
           {visibleLines.length === 0 ? (
-            <p className="text-gray-400 italic">
+            <p className="text-fg-subtle italic">
               {stream.status === "open" ? "Waiting for output…" : "No log lines yet."}
             </p>
           ) : (
@@ -252,7 +252,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               const display = truncateForDisplay(line.message);
               return (
                 <div key={line.id} className="flex gap-2">
-                  <span className="text-gray-400 shrink-0 w-20">
+                  <span className="text-fg-subtle shrink-0 w-20">
                     {new Date(line.ts).toLocaleTimeString(undefined, {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -261,7 +261,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                   </span>
                   {tab === "activity" && (
                     <span
-                      className={`shrink-0 w-12 uppercase font-semibold ${LEVEL_COLOR[line.level] ?? "text-gray-700"}`}
+                      className={`shrink-0 w-12 uppercase font-semibold ${LEVEL_COLOR[line.level] ?? "text-fg"}`}
                     >
                       {line.level}
                     </span>
@@ -272,11 +272,11 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                     // wraps; pr-2 reserves a small right gutter so
                     // wrapped text never lands flush against the
                     // gray-50 container border.
-                    className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-gray-800"}`}
+                    className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-fg"}`}
                   >
                     {display.text}
                     {display.truncated && (
-                      <span className="text-gray-400 italic ml-1">
+                      <span className="text-fg-subtle italic ml-1">
                         … (+{(line.message.length - DISPLAY_LINE_CAP).toLocaleString()} chars)
                       </span>
                     )}

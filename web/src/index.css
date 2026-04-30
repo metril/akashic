@@ -5,6 +5,40 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme tokens. Values picked in oklch() so the dark variant a
+     few lines below reads as a perceptual sibling, not a slapped-on
+     inversion. */
+  :root {
+    --color-app: oklch(98% 0 0);
+    --color-surface: #ffffff;
+    --color-surface-muted: oklch(96% 0 0);
+    --color-fg: oklch(20% 0 0);
+    --color-fg-muted: oklch(45% 0 0);
+    /* Tertiary/decorative — sits comfortably above WCAG AA against
+       both surfaces. Promoted from gray-400 (~3:1) to ~5:1. */
+    --color-fg-subtle: oklch(55% 0 0);
+    --color-border: oklch(91% 0 0);
+    --color-border-subtle: oklch(95% 0 0);
+
+    color-scheme: light;
+  }
+
+  :root.dark {
+    /* App < surface < surface-muted gives an L-shaped layering: cards
+       sit slightly proud of the page; chips/badges sit slightly proud
+       of cards. Same intent as light mode, just inverted. */
+    --color-app: oklch(15% 0.01 250);
+    --color-surface: oklch(20% 0.01 250);
+    --color-surface-muted: oklch(25% 0.01 250);
+    --color-fg: oklch(95% 0 0);
+    --color-fg-muted: oklch(72% 0 0);
+    --color-fg-subtle: oklch(60% 0 0);
+    --color-border: oklch(30% 0.01 250);
+    --color-border-subtle: oklch(25% 0.01 250);
+
+    color-scheme: dark;
+  }
+
   html,
   body,
   #root {
@@ -12,7 +46,7 @@
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+    @apply bg-app text-fg font-sans antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }

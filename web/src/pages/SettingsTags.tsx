@@ -9,6 +9,7 @@ import {
   EmptyState,
   Spinner,
   Badge,
+  Page,
 } from "../components/ui";
 
 interface Tag {
@@ -33,7 +34,7 @@ function TagPill({ tag }: { tag: Tag }) {
     return <Badge variant="neutral">{tag.name}</Badge>;
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-app px-2 py-0.5 text-xs font-medium text-fg">
       <span
         className="size-2 rounded-full"
         style={{ backgroundColor: tag.color }}
@@ -88,18 +89,15 @@ export default function SettingsTags() {
   }
 
   return (
-    <div className="px-8 py-7 max-w-3xl">
-      <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">
-        Tags
-      </h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Custom labels you can apply to entries for filter and search.
-      </p>
-
+    <Page
+      title="Tags"
+      description="Custom labels you can apply to entries for filter and search."
+      width="compact"
+    >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="md:col-span-2">
           {tagsQ.isLoading ? (
-            <div className="flex items-center justify-center py-12 text-gray-400">
+            <div className="flex items-center justify-center py-12 text-fg-subtle">
               <Spinner />
             </div>
           ) : tagsQ.isError ? (
@@ -109,7 +107,7 @@ export default function SettingsTags() {
                 : "Failed to load tags"}
             </div>
           ) : (tagsQ.data ?? []).length === 0 ? (
-            <div className="border border-gray-200 rounded py-12">
+            <div className="border border-line rounded py-12">
               <EmptyState
                 title="No tags yet"
                 description="Create one on the right. Tags can be applied to entries from the Browse drawer."
@@ -117,7 +115,7 @@ export default function SettingsTags() {
             </div>
           ) : (
             <Card padding="none">
-              <ul className="divide-y divide-gray-100">
+              <ul className="divide-y divide-line-subtle">
                 {(tagsQ.data ?? []).map((tag) => (
                   <li
                     key={tag.id}
@@ -150,7 +148,7 @@ export default function SettingsTags() {
               required
             />
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">
+              <label className="block text-xs font-medium text-fg-muted mb-1.5">
                 Color
               </label>
               <div className="flex flex-wrap gap-2">
@@ -162,7 +160,7 @@ export default function SettingsTags() {
                     className={`size-7 rounded-full border-2 transition-colors ${
                       color === c.value
                         ? "border-gray-700"
-                        : "border-transparent hover:border-gray-300"
+                        : "border-transparent hover:border-line"
                     }`}
                     style={{ backgroundColor: c.value || "#e5e7eb" }}
                     aria-label={c.label}
@@ -185,6 +183,6 @@ export default function SettingsTags() {
           </form>
         </Card>
       </div>
-    </div>
+    </Page>
   );
 }

@@ -19,8 +19,8 @@ const EVENT_LABEL: Record<string, string> = {
 const EVENT_COLOR: Record<string, string> = {
   source_created: "bg-emerald-100 text-emerald-800",
   source_updated: "bg-blue-100 text-blue-800",
-  source_deleted: "bg-rose-100 text-rose-800",
-  source_test_run: "bg-gray-100 text-gray-700",
+  source_deleted: "bg-rose-100 text-rose-800 dark:text-rose-300",
+  source_test_run: "bg-surface-muted text-fg",
 };
 
 export function SourceAuditTab({ sourceId, visible }: SourceAuditTabProps) {
@@ -29,7 +29,7 @@ export function SourceAuditTab({ sourceId, visible }: SourceAuditTabProps) {
 
   if (!visible) return null;
   if (isLoading) {
-    return <p className="text-sm text-gray-500">Loading history…</p>;
+    return <p className="text-sm text-fg-muted">Loading history…</p>;
   }
   if (error) {
     return (
@@ -41,7 +41,7 @@ export function SourceAuditTab({ sourceId, visible }: SourceAuditTabProps) {
   const items = data?.items ?? [];
   if (items.length === 0) {
     return (
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-fg-muted">
         No history yet. Edits, scans, and config changes will appear here.
       </p>
     );
@@ -71,29 +71,29 @@ function AuditRow({
   onToggle: () => void;
 }) {
   const label = EVENT_LABEL[event.event_type] ?? event.event_type;
-  const colorClass = EVENT_COLOR[event.event_type] ?? "bg-gray-100 text-gray-700";
+  const colorClass = EVENT_COLOR[event.event_type] ?? "bg-surface-muted text-fg";
 
   return (
-    <li className="border border-gray-200 rounded-md overflow-hidden">
+    <li className="border border-line rounded-md overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-muted"
       >
         <span
           className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}
         >
           {label}
         </span>
-        <span className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+        <span className="flex-1 min-w-0 text-xs text-fg truncate">
           {summaryFor(event)}
         </span>
-        <span className="shrink-0 text-xs text-gray-400">
+        <span className="shrink-0 text-xs text-fg-subtle">
           {formatDateTime(event.occurred_at)}
         </span>
       </button>
       {expanded && (
-        <div className="bg-gray-50 border-t border-gray-200 px-3 py-2 text-xs">
+        <div className="bg-app border-t border-line px-3 py-2 text-xs">
           <DiffOrPayload event={event} />
         </div>
       )}
@@ -128,7 +128,7 @@ function DiffOrPayload({ event }: { event: AuditEvent }) {
     }
   }
   return (
-    <pre className="font-mono text-[11px] text-gray-700 whitespace-pre-wrap break-all">
+    <pre className="font-mono text-[11px] text-fg whitespace-pre-wrap break-all">
       {JSON.stringify(event.payload, null, 2)}
     </pre>
   );
@@ -142,7 +142,7 @@ function FieldDiff({ diff }: { diff: Record<string, unknown> }) {
         if (field === "connection_config" && change && typeof change === "object") {
           return (
             <div key={field}>
-              <dt className="font-medium text-gray-700">connection_config</dt>
+              <dt className="font-medium text-fg">connection_config</dt>
               <dd className="ml-3">
                 <FieldDiff diff={change as Record<string, unknown>} />
               </dd>
@@ -158,16 +158,16 @@ function FieldDiff({ diff }: { diff: Record<string, unknown> }) {
           const c = change as { before: unknown; after: unknown };
           return (
             <div key={field} className="flex flex-wrap items-baseline gap-2">
-              <dt className="font-medium text-gray-700">{field}</dt>
+              <dt className="font-medium text-fg">{field}</dt>
               <dd className="text-rose-700 line-through">{format(c.before)}</dd>
-              <span className="text-gray-400">→</span>
+              <span className="text-fg-subtle">→</span>
               <dd className="text-emerald-700">{format(c.after)}</dd>
             </div>
           );
         }
         return (
           <div key={field}>
-            <dt className="font-medium text-gray-700">{field}</dt>
+            <dt className="font-medium text-fg">{field}</dt>
             <dd>{JSON.stringify(change)}</dd>
           </div>
         );

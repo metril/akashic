@@ -5,8 +5,8 @@ import { formatNfsV4Mask, formatAceFlag } from "../../lib/aclLabels";
 function ACERow({ ace, index }: { ace: NfsV4ACE; index: number }) {
   return (
     <tr>
-      <td className="py-1.5 text-gray-400 tabular-nums">{index + 1}</td>
-      <td className="py-1.5 text-gray-800">{ace.principal}</td>
+      <td className="py-1.5 text-fg-subtle tabular-nums">{index + 1}</td>
+      <td className="py-1.5 text-fg">{ace.principal}</td>
       <td className="py-1.5">
         <Chip variant={ace.ace_type === "deny" ? "deny" : "allow"}>
           {ace.ace_type}
@@ -17,7 +17,7 @@ function ACERow({ ace, index }: { ace: NfsV4ACE; index: number }) {
           {ace.flags.map((f) => (
             <Chip key={f} variant="muted">{formatAceFlag(f)}</Chip>
           ))}
-          {ace.flags.length === 0 && <span className="text-gray-400">—</span>}
+          {ace.flags.length === 0 && <span className="text-fg-subtle">—</span>}
         </div>
       </td>
       <td className="py-1.5">
@@ -35,7 +35,7 @@ export function NfsV4ACL({ acl }: { acl: NfsV4ACLType }) {
   return (
     <table className="w-full text-sm">
       <thead>
-        <tr className="text-[11px] text-gray-400 uppercase tracking-wide">
+        <tr className="text-[11px] text-fg-subtle uppercase tracking-wide">
           <th className="text-left py-1 font-semibold">#</th>
           <th className="text-left py-1 font-semibold">Principal</th>
           <th className="text-left py-1 font-semibold">Type</th>
@@ -43,7 +43,7 @@ export function NfsV4ACL({ acl }: { acl: NfsV4ACLType }) {
           <th className="text-left py-1 font-semibold">Permissions</th>
         </tr>
       </thead>
-      <tbody className="divide-y divide-gray-100">
+      <tbody className="divide-y divide-line-subtle">
         {acl.entries.map((a, i) => (
           <ACERow key={i} ace={a} index={i} />
         ))}

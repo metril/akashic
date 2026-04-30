@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, Drawer } from "../ui";
+import { toast } from "sonner";
+import { Badge, Button, Drawer, ConfirmDialog } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import { useUpdateSource, useDeleteSource } from "../../hooks/useSources";
@@ -48,9 +49,9 @@ export function SourceDetail({ source, open, onClose, activeScanId }: SourceDeta
         </div>
       }
     >
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full px-6 py-5">
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-3 text-sm shrink-0">
+        <div className="flex border-b border-line mb-3 text-sm shrink-0">
           <TabButton active={tab === "details"} onClick={() => setTab("details")}>
             Details
           </TabButton>
@@ -93,8 +94,8 @@ function TabButton({
       onClick={onClick}
       className={`px-3 py-1.5 -mb-px border-b-2 ${
         active
-          ? "border-gray-900 text-gray-900 font-medium"
-          : "border-transparent text-gray-500 hover:text-gray-700"
+          ? "border-gray-900 text-fg font-medium"
+          : "border-transparent text-fg-muted hover:text-fg"
       }`}
     >
       {children}
@@ -122,6 +123,7 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
   const [draftSchedule, setDraftSchedule] = useState<string>(source.scan_schedule ?? "");
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // When `source` changes (drawer reopened with a different row), reset
   // edit state.
@@ -152,7 +154,7 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
       cleaned[k] = v;
     }
     try {
-      const updated = await updateSource.mutateAsync({
+      const promise = updateSource.mutateAsync({
         id: source.id,
         data: {
           name: draftName,
@@ -160,6 +162,13 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
           scan_schedule: draftSchedule || null,
         },
       });
+      toast.promise(promise, {
+        loading: "Saving…",
+        success: "Source updated.",
+        error: (e: unknown) =>
+          `Save failed: ${e instanceof Error ? e.message : "unknown error"}`,
+      });
+      const updated = await promise;
       // Seed local draft state from the PATCH response (the latest
       // server state with secrets re-masked) so a subsequent
       // Edit→Cancel doesn't roll back to the now-stale `source` prop
@@ -197,11 +206,18 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
   }
 
   async function handleScanNow() {
+    const p = api.post("/scans/trigger", {
+      source_id: source.id,
+      scan_type: "incremental",
+    });
+    toast.promise(p, {
+      loading: "Triggering scan…",
+      success: "Scan started.",
+      error: (e: unknown) =>
+        `Couldn't start scan: ${e instanceof Error ? e.message : "unknown error"}`,
+    });
     try {
-      await api.post("/scans/trigger", {
-        source_id: source.id,
-        scan_type: "incremental",
-      });
+      await p;
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
     } catch (e) {
@@ -209,10 +225,17 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
     }
   }
 
-  async function handleDelete() {
-    if (!confirm(`Delete source "${source.name}"? This cannot be undone.`)) return;
+  async function handleDeleteConfirmed() {
+    const p = deleteSource.mutateAsync(source.id);
+    toast.promise(p, {
+      loading: "Deleting source…",
+      success: `Deleted "${source.name}".`,
+      error: (e: unknown) =>
+        `Delete failed: ${e instanceof Error ? e.message : "unknown error"}`,
+    });
     try {
-      await deleteSource.mutateAsync(source.id);
+      await p;
+      setConfirmDelete(false);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
@@ -239,8 +262,8 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
         <div
           className={`rounded-md p-2 text-xs ${
             testResult.ok
-              ? "bg-emerald-50 text-emerald-800"
-              : "bg-rose-50 text-rose-800"
+              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300"
+              : "bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-300"
           }`}
         >
           {testResult.ok
@@ -251,7 +274,7 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
 
-      <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-line-subtle">
         {!editing ? (
           <>
             {isAdmin && (
@@ -271,14 +294,14 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
               <Button
                 size="sm"
                 variant="danger"
-                onClick={handleDelete}
+                onClick={() => setConfirmDelete(true)}
                 loading={deleteSource.isPending}
               >
                 Delete
               </Button>
             )}
             {!isAdmin && (
-              <p className="text-xs text-gray-500 italic w-full mt-1">
+              <p className="text-xs text-fg-muted italic w-full mt-1">
                 Read-only — admin permission required to edit or delete.
               </p>
             )}
@@ -320,6 +343,17 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete source "${source.name}"?`}
+        description="This removes the source from Akashic and purges its indexed entries. The actual files on disk are not touched. This cannot be undone."
+        confirmLabel="Delete source"
+        destructive
+        loading={deleteSource.isPending}
+        onConfirm={handleDeleteConfirmed}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }
@@ -338,25 +372,25 @@ function DisplayRows({ source }: { source: Source }) {
       <Row label="Summary"><span className="font-mono text-xs">{summary}</span></Row>
       <Row label="Status"><span>{source.status}</span></Row>
       <Row label="Last scan">
-        <span className="text-gray-600">{formatDateTime(source.last_scan_at)}</span>
+        <span className="text-fg-muted">{formatDateTime(source.last_scan_at)}</span>
       </Row>
       {source.scan_schedule && (
         <Row label="Schedule">
           <span className="font-mono text-xs">{source.scan_schedule}</span>
         </Row>
       )}
-      <div className="pt-2 border-t border-gray-100">
-        <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">
+      <div className="pt-2 border-t border-line-subtle">
+        <p className="text-xs uppercase tracking-wide text-fg-subtle mb-2">
           Connection config
         </p>
         <dl className="space-y-1">
           {fieldRows.length === 0 && (
-            <p className="text-xs text-gray-500 italic">(empty)</p>
+            <p className="text-xs text-fg-muted italic">(empty)</p>
           )}
           {fieldRows.map(([k, v]) => (
             <Row key={k} label={k}>
               {v === "***" ? (
-                <span className="text-xs text-gray-500 italic">(set, masked)</span>
+                <span className="text-xs text-fg-muted italic">(set, masked)</span>
               ) : (
                 <span className="font-mono text-xs break-all">
                   {typeof v === "string" ? v : JSON.stringify(v)}
@@ -373,7 +407,7 @@ function DisplayRows({ source }: { source: Source }) {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 text-sm">
-      <dt className="shrink-0 w-32 text-xs uppercase tracking-wide text-gray-400 pt-0.5">
+      <dt className="shrink-0 w-32 text-xs uppercase tracking-wide text-fg-subtle pt-0.5">
         {label}
       </dt>
       <dd className="flex-1 min-w-0">{children}</dd>
@@ -403,12 +437,12 @@ function EditRows({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
+        <label className="block text-xs font-medium text-fg mb-1">Name</label>
         <input
           type="text"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
         />
       </div>
       <div className="rounded-md bg-amber-50 border border-amber-100 px-2.5 py-1.5">
@@ -418,7 +452,7 @@ function EditRows({
       </div>
       <SourceFieldSet type={type} value={config} onChange={onConfigChange} />
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
+        <label className="block text-xs font-medium text-fg mb-1">
           Scan schedule (cron, optional)
         </label>
         <input
@@ -426,7 +460,7 @@ function EditRows({
           value={schedule}
           onChange={(e) => onScheduleChange(e.target.value)}
           placeholder="0 2 * * *"
-          className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
         />
       </div>
     </div>
@@ -441,7 +475,7 @@ function InlineLogPanel({ scanId, sourceName }: { scanId: string; sourceName: st
   const [open, setOpen] = useState(true);
   return (
     <>
-      <p className="text-sm text-gray-600 mb-3">
+      <p className="text-sm text-fg-muted mb-3">
         Live scan output for{" "}
         <span className="font-medium">{sourceName}</span>:
       </p>

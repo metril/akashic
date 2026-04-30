@@ -43,19 +43,19 @@ export function SearchAsForm({
       <div className="flex flex-wrap items-end gap-2 text-xs">
         <select
           value={type} onChange={(e) => setType(e.target.value as PrincipalType)}
-          className="border border-amber-200 rounded px-2 py-1 bg-white"
+          className="border border-amber-200 rounded px-2 py-1 bg-surface"
         >
           {PRINCIPAL_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <input
           type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)}
           placeholder="identifier (e.g. 1000 or S-1-5-…)"
-          className="flex-1 min-w-[160px] font-mono border border-amber-200 rounded px-2 py-1 bg-white"
+          className="flex-1 min-w-[160px] font-mono border border-amber-200 rounded px-2 py-1 bg-surface"
         />
         <input
           type="text" value={groupsRaw} onChange={(e) => setGroupsRaw(e.target.value)}
           placeholder="groups (comma-sep)"
-          className="w-48 font-mono border border-amber-200 rounded px-2 py-1 bg-white"
+          className="w-48 font-mono border border-amber-200 rounded px-2 py-1 bg-surface"
         />
         <button
           type="button" onClick={apply}

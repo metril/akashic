@@ -16,4 +16,7 @@ export { Breadcrumb } from "./Breadcrumb";
 export type { BreadcrumbSegment } from "./Breadcrumb";
 export { Icon } from "./Icon";
 export type { IconName } from "./Icon";
+export { Page } from "./Page";
+export { ThemeToggle } from "./ThemeToggle";
+export { ConfirmDialog } from "./ConfirmDialog";
 export { cn } from "./cn";

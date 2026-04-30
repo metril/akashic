@@ -59,7 +59,7 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
         required
       />
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
+        <label className="block text-xs font-medium text-fg mb-1">
           Authentication
         </label>
         <div className="flex flex-wrap gap-2">
@@ -68,8 +68,8 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
               key={opt.id}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs cursor-pointer ${
                 authMethod === opt.id
-                  ? "border-blue-500 bg-blue-50 text-blue-900"
-                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  ? "border-blue-500 bg-blue-50 text-blue-900 dark:text-blue-200"
+                  : "border-line bg-surface text-fg hover:bg-surface-muted"
               }`}
               title={opt.help}
             >
@@ -85,15 +85,15 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
             </label>
           ))}
         </div>
-        <p className="text-[11px] text-gray-500 mt-1">
+        <p className="text-[11px] text-fg-muted mt-1">
           Most exports use AUTH_SYS. Use krb5 when the export is configured
           with <code>sec=krb5</code> in <code>/etc/exports</code>.
         </p>
       </div>
 
       {showKrb5 && (
-        <div className="space-y-3 rounded-md border border-gray-200 p-3 bg-gray-50">
-          <p className="text-[11px] text-gray-600">
+        <div className="space-y-3 rounded-md border border-line p-3 bg-app">
+          <p className="text-[11px] text-fg-muted">
             Kerberos auth uses RPCSEC_GSS over NFSv4 only. The scanner host
             must reach the KDC and the NFS server. Provide either a keytab
             file <em>on the scanner host</em> or a password (sent over stdin,
@@ -128,7 +128,7 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
             onChange={(e) => onChange({ ...value, krb5_service_principal: e.target.value })}
             placeholder={`nfs/${value.host || "<host>"}`}
           />
-          <p className="text-[11px] text-gray-500 -mt-1">
+          <p className="text-[11px] text-fg-muted -mt-1">
             Defaults to <code>nfs/&lt;host&gt;</code>. Override only if the
             server uses a non-standard SPN.
           </p>
@@ -156,7 +156,7 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
             placeholder="(unchanged — type to replace)"
             autoComplete="new-password"
           />
-          <p className="text-[11px] text-gray-500 -mt-1">
+          <p className="text-[11px] text-fg-muted -mt-1">
             Provide a keytab path <em>or</em> a password, not both.
           </p>
           <Input
@@ -171,12 +171,12 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
       <button
         type="button"
         onClick={() => setShowAdvanced((s) => !s)}
-        className="text-xs text-gray-500 hover:text-gray-700 underline"
+        className="text-xs text-fg-muted hover:text-fg underline"
       >
         {showAdvanced ? "Hide" : "Show"} advanced options
       </button>
       {showAdvanced && (
-        <div className="space-y-3 rounded-md border border-gray-200 p-3">
+        <div className="space-y-3 rounded-md border border-line p-3">
           <Input
             label="Port"
             type="number"
@@ -223,7 +223,7 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
               placeholder="0"
             />
           </div>
-          <p className="text-[11px] text-gray-500 -mt-1">
+          <p className="text-[11px] text-fg-muted -mt-1">
             UID/GID are presented as the AUTH_SYS identity to the NFS server.
             For exports configured with <code>root_squash</code> (the Linux
             default), use a non-root UID that has access to the share.
@@ -236,7 +236,7 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
             onBlur={() => commitAuxText(auxText)}
             placeholder="27, 100"
           />
-          <p className="text-[11px] text-gray-500 -mt-1">
+          <p className="text-[11px] text-fg-muted -mt-1">
             Comma-separated supplementary group IDs (max 16). Useful when the
             export is restricted to a particular group.
           </p>
@@ -262,13 +262,13 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
             }}
             placeholder="5"
           />
-          <p className="text-[11px] text-gray-500 -mt-1">
+          <p className="text-[11px] text-fg-muted -mt-1">
             Per-RPC timeout, 1–60 seconds (default 5). Raise this when the
             server is across a slow or congested link.
           </p>
         </div>
       )}
-      <p className="text-xs text-gray-600 bg-gray-50 rounded-md p-2">
+      <p className="text-xs text-fg-muted bg-app rounded-md p-2">
         {authMethod === "sys" ? (
           <>
             Test probes the export end-to-end via MOUNT3 / NFSv4 with AUTH_SYS.

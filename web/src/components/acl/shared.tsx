@@ -10,12 +10,12 @@ export function Section({
   empty?: boolean;
 }) {
   return (
-    <section className="px-6 py-4 border-b border-gray-100 last:border-b-0">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-3">
+    <section className="px-6 py-4 border-b border-line-subtle last:border-b-0">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-subtle mb-3">
         {title}
       </h3>
       {empty ? (
-        <p className="text-sm text-gray-400 italic">None</p>
+        <p className="text-sm text-fg-subtle italic">None</p>
       ) : (
         children
       )}
@@ -25,7 +25,7 @@ export function Section({
 
 export function Subheader({ children }: { children: React.ReactNode }) {
   return (
-    <h4 className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mt-4 mb-2">
+    <h4 className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mt-4 mb-2">
       {children}
     </h4>
   );
@@ -33,7 +33,7 @@ export function Subheader({ children }: { children: React.ReactNode }) {
 
 export function Mono({ children }: { children: React.ReactNode }) {
   return (
-    <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">
+    <code className="font-mono text-xs bg-surface-muted px-1.5 py-0.5 rounded text-fg">
       {children}
     </code>
   );
@@ -47,10 +47,10 @@ export function Chip({
   variant?: "neutral" | "allow" | "deny" | "muted";
 }) {
   const styles: Record<string, string> = {
-    neutral: "bg-gray-100 text-gray-700",
-    allow:   "bg-emerald-50 text-emerald-700",
+    neutral: "bg-surface-muted text-fg",
+    allow:   "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
     deny:    "bg-red-50 text-red-700",
-    muted:   "bg-gray-50 text-gray-500",
+    muted:   "bg-app text-fg-muted",
   };
   return (
     <span

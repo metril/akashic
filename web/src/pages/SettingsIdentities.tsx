@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { EmptyState, Spinner } from "../components/ui";
+import { EmptyState, Spinner, Page } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -33,15 +33,13 @@ export default function SettingsIdentities() {
   });
 
   return (
-    <div className="px-8 py-7 max-w-3xl">
-      <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Identities</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Tell akashic who you are on each source. Search results filter by what
-        these identities can read.
-      </p>
-
+    <Page
+      title="Identities"
+      description="Tell Akashic who you are on each source. Search results filter by what these identities can read."
+      width="compact"
+    >
       {personsQ.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-gray-400">
+        <div className="flex items-center justify-center py-12 text-fg-subtle">
           <Spinner />
         </div>
       ) : personsQ.isError ? (
@@ -51,7 +49,7 @@ export default function SettingsIdentities() {
             : "Failed to load identities"}
         </div>
       ) : (personsQ.data ?? []).length === 0 ? (
-        <div className="border border-gray-200 rounded py-12 mb-4">
+        <div className="border border-line rounded py-12 mb-4">
           <EmptyState
             title="No identities yet"
             description="Add one below to filter search by what you can read."
@@ -71,7 +69,7 @@ export default function SettingsIdentities() {
       )}
 
       <AddPersonForm onSubmit={(body) => createPerson.mutate(body)} pending={createPerson.isPending} />
-    </div>
+    </Page>
   );
 }
 
@@ -94,9 +92,9 @@ function PersonCard({
   });
 
   return (
-    <li className="border border-gray-200 rounded p-4 bg-white">
+    <li className="border border-line rounded p-4 bg-surface">
       <div className="flex items-center justify-between mb-3">
-        <div className="font-medium text-gray-900">
+        <div className="font-medium text-fg">
           {person.label}
           {person.is_primary && (
             <span className="ml-2 text-xs uppercase tracking-wider text-accent-700">primary</span>
@@ -104,31 +102,31 @@ function PersonCard({
         </div>
         <button
           type="button" onClick={onDelete}
-          className="text-xs text-gray-400 hover:text-red-600"
+          className="text-xs text-fg-subtle hover:text-red-600"
         >Delete identity</button>
       </div>
 
       {person.bindings.length === 0 && (
-        <p className="text-xs text-gray-400 italic mb-2">No bindings yet.</p>
+        <p className="text-xs text-fg-subtle italic mb-2">No bindings yet.</p>
       )}
       <ul className="space-y-1">
         {person.bindings.map((b) => {
           const source = sources.find((s) => s.id === b.source_id);
           return (
             <li key={b.id} className="flex items-center gap-3 text-sm">
-              <span className="font-medium text-gray-700 w-32 truncate">
+              <span className="font-medium text-fg w-32 truncate">
                 {source?.name ?? b.source_id.slice(0, 8)}
               </span>
-              <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+              <code className="font-mono text-xs bg-surface-muted px-1.5 py-0.5 rounded">
                 {b.identity_type}:{b.identifier}
               </code>
               {b.groups.length > 0 && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-fg-muted">
                   groups: {b.groups.join(", ")}
                 </span>
               )}
               {b.groups_resolved_at && b.groups_source === "auto" && (
-                <span className="text-[10px] text-gray-400">
+                <span className="text-[10px] text-fg-subtle">
                   auto · {new Date(b.groups_resolved_at).toLocaleDateString()}
                 </span>
               )}
@@ -143,7 +141,7 @@ function PersonCard({
               </button>
               <button
                 type="button" onClick={() => deleteBinding.mutate(b.id)}
-                className="ml-auto text-xs text-gray-400 hover:text-red-600"
+                className="ml-auto text-xs text-fg-subtle hover:text-red-600"
                 aria-label="Remove binding"
               >×</button>
             </li>
@@ -184,9 +182,9 @@ function AddPersonForm({
       <input
         type="text" value={label} onChange={(e) => setLabel(e.target.value)}
         placeholder="My Work Account"
-        className="flex-1 border border-gray-200 rounded px-2 py-1"
+        className="flex-1 border border-line rounded px-2 py-1"
       />
-      <label className="text-xs text-gray-500 flex items-center gap-1">
+      <label className="text-xs text-fg-muted flex items-center gap-1">
         <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
         Primary
       </label>
@@ -231,25 +229,25 @@ function AddBindingForm({
     >
       <select
         value={sourceId} onChange={(e) => setSourceId(e.target.value)}
-        className="border border-gray-200 rounded px-2 py-1"
+        className="border border-line rounded px-2 py-1"
       >
         {available.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
       </select>
       <select
         value={type} onChange={(e) => setType(e.target.value as PrincipalType)}
-        className="border border-gray-200 rounded px-2 py-1"
+        className="border border-line rounded px-2 py-1"
       >
         {PRINCIPAL_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
       </select>
       <input
         type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)}
         placeholder="identifier (e.g. 1000 or S-1-5-…)"
-        className="flex-1 font-mono border border-gray-200 rounded px-2 py-1"
+        className="flex-1 font-mono border border-line rounded px-2 py-1"
       />
       <input
         type="text" value={groupsRaw} onChange={(e) => setGroupsRaw(e.target.value)}
         placeholder="groups (comma-sep)"
-        className="w-48 font-mono border border-gray-200 rounded px-2 py-1"
+        className="w-48 font-mono border border-line rounded px-2 py-1"
       />
       <button
         type="submit" disabled={!identifier.trim() || pending}
