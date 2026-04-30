@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanResponse
+from akashic.services.scan_runner import spawn_scan
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 
@@ -33,13 +34,19 @@ class ScanTriggerResponse(BaseModel):
 @router.post("/trigger", response_model=ScanTriggerResponse)
 async def trigger_scan(
     data: ScanTriggerRequest,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create a scan record and return the info needed to run the scanner.
+    """Create a scan record AND spawn the scanner subprocess.
 
-    The caller (CLI, HA integration, or scheduler) uses the returned scan_id
-    and source config to invoke the Go scanner binary.
+    Pre-fix this endpoint just inserted a `pending` Scan row and
+    expected an external orchestrator (HA integration, CLI, etc.) to
+    actually run the binary. That meant the UI's "Scan now" button was
+    a dead end on a vanilla install — no logs, no progress, no
+    completion. The runner now spawns the bundled scanner via
+    BackgroundTasks so the trigger response returns immediately and
+    the scan begins within ~the request roundtrip.
     """
     if not data.source_name and not data.source_id:
         raise HTTPException(status_code=400, detail="source_name or source_id required")
@@ -68,6 +75,14 @@ async def trigger_scan(
     source.status = "scanning"
     await db.commit()
     await db.refresh(scan)
+
+    # Snapshot the fields spawn_scan needs while we still have the
+    # Source row attached to the session, then schedule the subprocess
+    # to start after the response is sent. BackgroundTasks runs
+    # *after* `await db.commit()`, so the scanner-side first heartbeat
+    # is guaranteed to find the row.
+    await db.refresh(source)
+    background.add_task(spawn_scan, source, scan, user)
 
     return ScanTriggerResponse(
         scan_id=scan.id,
