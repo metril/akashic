@@ -17,6 +17,17 @@ export type NfsConfig = {
   host: string;
   export_path: string;
   mount_options?: string;
+  // Phase 3b — AUTH_SYS identity to present to the server. Defaults
+  // (uid=0, gid=0, no aux GIDs) work for most exports configured with
+  // `no_root_squash` or readable by anyone. Servers with `root_squash`
+  // (the Linux default) need a non-root uid here.
+  port?: number;
+  auth_uid?: number;
+  auth_gid?: number;
+  auth_aux_gids?: number[];
+  // Per-probe timeout in seconds, [1, 60]. Empty/zero = use scanner
+  // default (5s). Useful when the server lives across a slow link.
+  probe_timeout_seconds?: number;
 };
 
 export type SshConfig = {
