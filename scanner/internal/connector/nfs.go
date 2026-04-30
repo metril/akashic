@@ -29,6 +29,10 @@ func (c *NFSConnector) ReadFile(ctx context.Context, path string) (io.ReadCloser
 	return c.local.ReadFile(ctx, path)
 }
 
+func (c *NFSConnector) Delete(ctx context.Context, path string) error {
+	return c.local.Delete(ctx, path)
+}
+
 func (c *NFSConnector) Close() error {
 	return nil
 }

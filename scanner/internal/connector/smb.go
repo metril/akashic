@@ -203,6 +203,24 @@ func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, 
 	return c.smbShare.Open(path)
 }
 
+// Delete removes a file from the SMB share. The bound user needs the
+// DELETE access right on the file (mapped from the NT ACL). go-smb2
+// surfaces permission failures as smb-status-code wrapped errors —
+// callers see them verbatim as the "step:reason" message.
+func (c *SMBConnector) Delete(_ context.Context, path string) error {
+	if c.smbShare == nil {
+		return fmt.Errorf("not connected")
+	}
+	st, err := c.smbShare.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("refusing to delete directory %q", path)
+	}
+	return c.smbShare.Remove(path)
+}
+
 func (c *SMBConnector) Close() error {
 	if c.lsaClient != nil {
 		_ = c.lsaClient.Close()

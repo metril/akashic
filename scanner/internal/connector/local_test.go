@@ -72,3 +72,39 @@ func TestLocalConnector_Type(t *testing.T) {
 		t.Errorf("expected type 'local', got '%s'", c.Type())
 	}
 }
+
+func TestLocalConnector_Delete(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(path, []byte("doomed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewLocalConnector()
+	if err := c.Delete(context.Background(), path); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("file should be gone, got err=%v", err)
+	}
+}
+
+// Regression: directories must not be deletable. The duplicates flow
+// only ever passes file paths, so anything reaching Delete with a dir
+// is a bug — fail loudly rather than rmdir.
+func TestLocalConnector_DeleteRefusesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewLocalConnector()
+	err := c.Delete(context.Background(), sub)
+	if err == nil {
+		t.Fatal("expected error when Delete is given a directory")
+	}
+	if _, statErr := os.Stat(sub); statErr != nil {
+		t.Fatalf("directory should still exist, got err=%v", statErr)
+	}
+}

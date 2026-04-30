@@ -187,6 +187,24 @@ func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, 
 	return c.sftpClient.Open(path)
 }
 
+// Delete removes a file via SFTP. The pkg/sftp client distinguishes
+// directories from files — Lstat first so we never mistakenly call
+// Remove on a directory (which the server would reject anyway, but the
+// error is more legible if we own the rejection).
+func (c *SSHConnector) Delete(_ context.Context, path string) error {
+	if c.sftpClient == nil {
+		return fmt.Errorf("not connected")
+	}
+	st, err := c.sftpClient.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("refusing to delete directory %q", path)
+	}
+	return c.sftpClient.Remove(path)
+}
+
 func (c *SSHConnector) Close() error {
 	var firstErr error
 	if c.sftpClient != nil {
