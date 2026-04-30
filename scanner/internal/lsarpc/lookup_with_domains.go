@@ -145,17 +145,46 @@ func parseLookupSids2WithDomains(body []byte) ([]LookupResult, uint32, error) {
 	return out, status, nil
 }
 
-// readDomainsTable is a parsing variant of skipDomains() that captures
-// the domain Name strings instead of discarding them. Same wire shape;
-// see skipDomains for the field-by-field commentary.
+// readDomainsTable parses an LSAPR_REFERENCED_DOMAIN_LIST and returns
+// the domain Name strings. The wire shape (per MS-DTYP §2.2.7 plus the
+// NDR encoding rules of MS-RPCE §2.2.4):
+//
+//	OUTER REF (caller already consumed)        u32   pointer ref-id
+//	Entries                                    u32   count of domains
+//	Domains pointer ref-id                     u32   non-zero => non-NULL
+//	MaxEntries                                 u32   struct's third field
+//	[deferred buffer for the Domains pointer]
+//	    conformance count                      u32   max_is value
+//	    array of LSAPR_TRUST_INFORMATION       12 bytes per entry:
+//	        Length              u16
+//	        MaximumLength       u16
+//	        Buffer ref-id       u32
+//	        Sid    ref-id       u32
+//	    [per-entry deferred buffers]
+//	        for each entry with non-NULL Buffer:
+//	            max_count u32, offset u32, actual_count u32, chars[*2], pad to 4
+//	        for each entry with non-NULL Sid:
+//	            sub_authority_count u32, sid bytes, pad to 4
+//
+// Two NDR fields were missing in the original implementation: the
+// deferred-array conformance count (between MaxEntries and the entry
+// headers), AND the parser also incorrectly treated MaxEntries as a
+// trailing footer. Both errors compounded into 4-byte-shifted reads
+// that returned empty names for every entry — the bug masked by the
+// prior LookupSids2 request itself faulting before the response got
+// this far.
 func readDomainsTable(r *dcerpc.Reader) []string {
 	domPtr := r.U32()
 	if domPtr == 0 {
 		return nil
 	}
 	entries := r.U32()
-	r.U32() // domains array referent ptr
-	r.U32() // max count
+	r.U32() // Domains pointer ref-id
+	r.U32() // MaxEntries — last field of the LSAPR_REFERENCED_DOMAIN_LIST struct
+
+	// NDR conformance count for the deferred Domains array. Always
+	// equals Entries in well-formed responses; we don't validate.
+	r.U32()
 
 	type entryHdr struct {
 		length, maxLen  uint16
@@ -184,6 +213,7 @@ func readDomainsTable(r *dcerpc.Reader) []string {
 			r.AlignTo(4)
 		}
 	}
-	r.U32() // MaxEntries footer of LSAPR_REFERENCED_DOMAIN_LIST
+	// No trailing MaxEntries here — that field was already read as the
+	// third top-level u32 of LSAPR_REFERENCED_DOMAIN_LIST.
 	return out
 }

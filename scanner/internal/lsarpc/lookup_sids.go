@@ -47,6 +47,15 @@ func BuildLookupSids2Request(callID uint32, h PolicyHandle, sids [][]byte) ([]by
 	body = binary.LittleEndian.AppendUint16(body, 1)
 	body = append(body, 0, 0)
 	body = binary.LittleEndian.AppendUint32(body, 0)
+	// LookupOptions — MS-LSAT §3.1.4.11 — 0 = LSAP_LOOKUP_OPTION_ALL
+	// (translate everything LSA can find, including well-known and
+	// foreign-domain SIDs). Omitting this u32 was the source of the
+	// "RPC_X_INVALID_TAG" fault every domain-SID lookup returned: the
+	// server read our ClientRevision as LookupOptions, then ran out of
+	// bytes for ClientRevision and bailed before LSA logic even ran.
+	// Well-known SIDs masked the bug because the resolver short-
+	// circuits them in the WellKnownSIDName table before any RPC.
+	body = binary.LittleEndian.AppendUint32(body, 0)
 	body = binary.LittleEndian.AppendUint32(body, 2)
 
 	return dcerpc.WrapRequest(callID, OpnumLsarLookupSids2, body), nil
