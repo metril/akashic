@@ -7,13 +7,16 @@ interface DrawerProps {
   title?: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
-  width?: "sm" | "md" | "lg";
+  width?: "sm" | "md" | "lg" | "xl";
 }
 
 const widthMap = {
   sm: "max-w-md",
   md: "max-w-lg",
   lg: "max-w-2xl",
+  // Wider for long, code-like content (live scan log paths). At 896px
+  // a typical SMB path no longer wraps mid-segment on a 1080p screen.
+  xl: "max-w-4xl",
 };
 
 export function Drawer({
