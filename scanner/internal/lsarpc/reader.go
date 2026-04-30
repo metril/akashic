@@ -5,14 +5,19 @@ import "github.com/akashic-project/akashic/scanner/internal/dcerpc"
 // skipDomains consumes a referenced_domains payload completely so the
 // next reads in the LSARPC response land on translated_names.
 //
-// This handles the deferred name strings and SID payloads that follow
-// the conformant trust-information array (per MS-LSAT §2.2.12 +
-// MS-DTYP §2.2.7). It's specific to LSARPC's response shape, hence
-// per-package rather than in dcerpc.
+// Wire shape: see readDomainsTable in lookup_with_domains.go for the
+// full annotated layout. Two NDR fields were missing in the original
+// version of this function (the deferred-array conformance count, and
+// it incorrectly treated MaxEntries as a trailing footer rather than
+// the struct's third top-level field). Both errors compounded to
+// shift every subsequent translated_names read by 4 bytes — masked
+// in production because the prior LsarLookupSids2 request itself
+// faulted before responses got this far.
 func skipDomains(r *dcerpc.Reader) {
 	entries := r.U32()
-	r.U32() // domains array referent ptr (we already entered the deferred buffer)
-	r.U32() // max count of conformant array
+	r.U32() // Domains pointer ref-id
+	r.U32() // MaxEntries (3rd top-level field of LSAPR_REFERENCED_DOMAIN_LIST)
+	r.U32() // NDR conformance count for the deferred Domains array
 
 	type entryHdr struct {
 		length, maxLen  uint16
@@ -43,6 +48,5 @@ func skipDomains(r *dcerpc.Reader) {
 			r.AlignTo(4)
 		}
 	}
-	// MaxEntries at end of LSAPR_REFERENCED_DOMAIN_LIST struct.
-	r.U32()
+	// No trailing MaxEntries — already consumed as the third top-level u32.
 }
