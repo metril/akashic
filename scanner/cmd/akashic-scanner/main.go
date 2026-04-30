@@ -27,6 +27,9 @@ func main() {
 		case "resolve-groups":
 			runResolveGroups(os.Args[2:])
 			return
+		case "resolve-sids":
+			runResolveSids(os.Args[2:])
+			return
 		case "test-connection":
 			runTestConnection(os.Args[2:])
 			return

@@ -12,7 +12,17 @@ const TITLE: Record<ACLType, string> = {
   s3:    "S3 ACL",
 };
 
-export function ACLSection({ acl }: { acl: ACL | null }) {
+interface ACLSectionProps {
+  acl: ACL | null;
+  // sourceId is required for NT ACLs — needed for the on-demand SID
+  // resolver to know which domain controller to ask via the scanner.
+  // Other ACL flavors don't need it (POSIX/NFSv4 carry uid/gid
+  // directly; S3 has names already), so it's optional. EntryDetail
+  // always passes it; older callers that only render POSIX can omit.
+  sourceId?: string;
+}
+
+export function ACLSection({ acl, sourceId }: ACLSectionProps) {
   if (!acl) {
     return <Section title="ACL" empty>None</Section>;
   }
@@ -20,7 +30,7 @@ export function ACLSection({ acl }: { acl: ACL | null }) {
   switch (acl.type) {
     case "posix": return <Section title={title}><PosixACL acl={acl} /></Section>;
     case "nfsv4": return <Section title={title}><NfsV4ACL acl={acl} /></Section>;
-    case "nt":    return <Section title={title}><NtACL    acl={acl} /></Section>;
+    case "nt":    return <Section title={title}><NtACL    acl={acl} sourceId={sourceId} /></Section>;
     case "s3":    return <Section title={title}><S3ACL    acl={acl} /></Section>;
   }
 }
