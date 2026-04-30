@@ -31,6 +31,9 @@ class TestSourceRequest(BaseModel):
 _AUDITABLE_KEYS = {
     "host", "port", "share", "domain", "bucket", "region",
     "endpoint", "username", "export_path", "path", "access_key_id",
+    # Phase 3b — NFS AUTH_SYS identity. Operational, not secret.
+    # Audit needs these to answer "which uid did the test run as?"
+    "auth_uid", "auth_gid", "auth_aux_gids", "probe_timeout_seconds",
 }
 
 
