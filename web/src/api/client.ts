@@ -119,6 +119,18 @@ export const api = {
     );
   },
 
+  // setup_required is true on a fresh deployment with zero users — the
+  // login page uses this to flip into "create the admin account" mode
+  // instead of showing a dead-end sign-in form.
+  getProviders() {
+    return request<{
+      local: boolean;
+      oidc: boolean;
+      ldap: boolean;
+      setup_required: boolean;
+    }>("/auth/providers", { skipAuth: true });
+  },
+
   me() {
     return request<{ id: number; username: string; email: string }>("/users/me");
   },
