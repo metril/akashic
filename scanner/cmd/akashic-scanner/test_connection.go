@@ -50,14 +50,22 @@ func runTestConnection(args []string) {
 	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
 	authAuxGIDs := fs.String("auth-aux-gids", "", "NFS AUTH_SYS auxiliary GIDs, comma-separated (max 16)")
 	probeTimeout := fs.Int("timeout", 0, "Per-probe timeout in seconds (default 5; clamped to [1,60])")
+	authMethod := fs.String("auth-method", "sys", "NFS auth method: sys | krb5 | krb5i | krb5p (krb5i/krb5p not yet implemented)")
+	krb5Principal := fs.String("krb5-principal", "", "NFS krb5 user-side principal (no @realm)")
+	krb5Realm := fs.String("krb5-realm", "", "NFS krb5 realm (uppercase by convention)")
+	krb5SPN := fs.String("krb5-service-principal", "", "NFS krb5 service principal name (default: nfs/<host>)")
+	krb5Keytab := fs.String("krb5-keytab", "", "NFS krb5 keytab path (mutually exclusive with stdin password)")
+	krb5Config := fs.String("krb5-config", "", "Alternate krb5.conf path (default: /etc/krb5.conf, then DNS-discovery fallback)")
 	_ = fs.Parse(args)
 
 	pw := *password
 	keyPassphrase := ""
+	krb5Password := ""
 	if *passwordStdin {
 		creds := readCredsFromStdin()
 		pw = creds.Password
 		keyPassphrase = creds.KeyPassphrase
+		krb5Password = creds.Krb5Password
 	}
 
 	var ok bool
@@ -87,7 +95,22 @@ func runTestConnection(args []string) {
 		// carries an extra `tier` field naming which protocol path
 		// validated the export (mount3 / nfsv4 / tcp). Done in-line
 		// rather than via the (ok, step, msg) shape used by the others.
-		runTestNFS(*host, p, *exportPath, uint32(*authUID), uint32(*authGID), parseAuxGIDs(*authAuxGIDs), *probeTimeout)
+		runTestNFS(nfsTestArgs{
+			Host:                 *host,
+			Port:                 p,
+			ExportPath:           *exportPath,
+			AuthUID:              uint32(*authUID),
+			AuthGID:              uint32(*authGID),
+			AuxGIDs:              parseAuxGIDs(*authAuxGIDs),
+			TimeoutSeconds:       *probeTimeout,
+			AuthMethod:           *authMethod,
+			Krb5Principal:        *krb5Principal,
+			Krb5Realm:            *krb5Realm,
+			Krb5ServicePrincipal: *krb5SPN,
+			Krb5KeytabPath:       *krb5Keytab,
+			Krb5Password:         krb5Password,
+			Krb5ConfigPath:       *krb5Config,
+		})
 		return
 	default:
 		fmt.Fprintln(os.Stderr, "config:unsupported type "+*srcType)
@@ -211,6 +234,27 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 	return true, "", ""
 }
 
+// nfsTestArgs is the input shape to runTestNFS. Bundling the krb5
+// fields keeps the call site readable now that AUTH_SYS and krb5* are
+// both supported.
+type nfsTestArgs struct {
+	Host           string
+	Port           int
+	ExportPath     string
+	AuthUID        uint32
+	AuthGID        uint32
+	AuxGIDs        []uint32
+	TimeoutSeconds int
+
+	AuthMethod           string
+	Krb5Principal        string
+	Krb5Realm            string
+	Krb5ServicePrincipal string
+	Krb5KeytabPath       string
+	Krb5Password         string
+	Krb5ConfigPath       string
+}
+
 // runTestNFS dispatches to the nfsprobe cascade and writes its own
 // success/failure to stdout/stderr, then exits. Done out-of-band from
 // the (ok, step, msg) shape because the success JSON carries an
@@ -220,10 +264,8 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 // hung server can block the source-creation form. The outer context
 // gets ~3× the per-RPC timeout because the cascade may make multiple
 // RPC round-trips.
-func runTestNFS(
-	host string, port int, exportPath string,
-	authUID, authGID uint32, auxGIDs []uint32, timeoutSeconds int,
-) {
+func runTestNFS(a nfsTestArgs) {
+	timeoutSeconds := a.TimeoutSeconds
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 5
 	}
@@ -234,17 +276,38 @@ func runTestNFS(
 		timeoutSeconds = 60
 	}
 	perRPCTimeout := time.Duration(timeoutSeconds) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), 3*perRPCTimeout)
+
+	method := nfsprobe.AuthMethod(a.AuthMethod)
+	if method == "" {
+		method = nfsprobe.AuthSys
+	}
+
+	// Krb5 setup typically requires more time: TGS_REQ to the KDC,
+	// followed by INIT exchange, followed by LOOKUP — three serial round
+	// trips minimum. We give it 5× the per-RPC timeout instead of 3×
+	// for non-krb5; still bounded by the API-side subprocess kill.
+	outerMultiplier := 3
+	if method == nfsprobe.AuthKrb5 || method == nfsprobe.AuthKrb5Integrity || method == nfsprobe.AuthKrb5Privacy {
+		outerMultiplier = 5
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(outerMultiplier)*perRPCTimeout)
 	defer cancel()
+
 	res, err := nfsprobe.Probe(ctx, nfsprobe.ProbeOptions{
-		Host:        host,
-		Port:        uint32(port),
-		ExportPath:  exportPath,
-		AuthMethod:  nfsprobe.AuthSys,
-		AuthUID:     authUID,
-		AuthGID:     authGID,
-		AuthAuxGIDs: auxGIDs,
-		Timeout:     perRPCTimeout,
+		Host:                 a.Host,
+		Port:                 uint32(a.Port),
+		ExportPath:           a.ExportPath,
+		AuthMethod:           method,
+		AuthUID:              a.AuthUID,
+		AuthGID:              a.AuthGID,
+		AuthAuxGIDs:          a.AuxGIDs,
+		Timeout:              perRPCTimeout,
+		Krb5Principal:        a.Krb5Principal,
+		Krb5Realm:            a.Krb5Realm,
+		Krb5ServicePrincipal: a.Krb5ServicePrincipal,
+		Krb5KeytabPath:       a.Krb5KeytabPath,
+		Krb5Password:         a.Krb5Password,
+		Krb5ConfigPath:       a.Krb5ConfigPath,
 	})
 	if err != nil {
 		var pe *nfsprobe.ProbeError

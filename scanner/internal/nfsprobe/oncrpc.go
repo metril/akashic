@@ -129,7 +129,12 @@ func doRPCExchange(
 ) ([]byte, error) {
 	xid := newXID()
 
-	// Build the call body.
+	// Build the call body. For RPCSEC_GSS the verifier is computed over
+	// the call header bytes from xid through cred — so signingAuthBuilder
+	// hands us BOTH the cred and a closure that signs the header. The
+	// cred's seq_num and the MIC token's seqnum are captured together,
+	// so a builder shared across goroutines never desyncs the two.
+	// AUTH_NONE/AUTH_SYS take the simpler cred()/verifier() path.
 	w := newXDRWriter()
 	w.writeUint32(xid)
 	w.writeUint32(rpcCall)
@@ -137,8 +142,21 @@ func doRPCExchange(
 	w.writeUint32(prog)
 	w.writeUint32(vers)
 	w.writeUint32(proc)
-	writeAuthBody(w, auth.cred())
-	writeAuthBody(w, auth.verifier())
+	var verifier authBody
+	if sb, ok := auth.(signingAuthBuilder); ok {
+		cred, sign := sb.credAndSign()
+		writeAuthBody(w, cred)
+		headerBytes := append([]byte(nil), w.bytes()...) // snapshot before verifier
+		v, err := sign(headerBytes)
+		if err != nil {
+			return nil, &rpcError{kind: rpcErrSend, msg: err.Error()}
+		}
+		verifier = v
+	} else {
+		writeAuthBody(w, auth.cred())
+		verifier = auth.verifier()
+	}
+	writeAuthBody(w, verifier)
 	w.buf = append(w.buf, args...)
 	body := w.bytes()
 
