@@ -18,7 +18,16 @@ type AuthMethod string
 
 const (
 	AuthSys AuthMethod = "sys"
-	// Future: AuthKrb5, AuthKrb5i, AuthKrb5p (Phase 3c).
+	// Krb5 — RPCSEC_GSS with service=NONE: client identity proven via
+	// the AP_REQ exchanged at context-init; per-call MIC verifier on the
+	// RPC header. Args are not wrapped.
+	AuthKrb5 AuthMethod = "krb5"
+	// Krb5Integrity (krb5i) — args wrapped with GSS MIC token. Not yet
+	// implemented in this build; surfaces as a config-step error.
+	AuthKrb5Integrity AuthMethod = "krb5i"
+	// Krb5Privacy (krb5p) — args wrapped with GSS Wrap token (encrypted).
+	// Not yet implemented in this build; surfaces as a config-step error.
+	AuthKrb5Privacy AuthMethod = "krb5p"
 )
 
 // ProbeOptions is the input to Probe(). Constructed from CLI flags
@@ -32,6 +41,15 @@ type ProbeOptions struct {
 	AuthUID     uint32 // default 0 (root); Phase 3b makes this configurable per-source
 	AuthGID     uint32
 	AuthAuxGIDs []uint32
+
+	// Kerberos / RPCSEC_GSS fields. Only consulted when AuthMethod is
+	// one of krb5/krb5i/krb5p.
+	Krb5Principal        string // user-side principal (e.g., "akashic-svc")
+	Krb5Realm            string // realm in canonical UPPERCASE form
+	Krb5ServicePrincipal string // SPN; defaults to "nfs/<host>"
+	Krb5KeytabPath       string // path to keytab; mutually exclusive with password
+	Krb5Password         string // password (passed via stdin); mutually exclusive with keytab
+	Krb5ConfigPath       string // alternate krb5.conf; default /etc/krb5.conf
 
 	Timeout time.Duration // per-RPC timeout; total can be ~3× this
 }
@@ -110,6 +128,15 @@ func Probe(ctx context.Context, opts ProbeOptions) (*Result, error) {
 	if opts.AuthMethod == "" {
 		opts.AuthMethod = AuthSys
 	}
+
+	// Kerberos paths take a separate branch — they need a context
+	// established before any DATA call, only run against the NFS
+	// daemon (not mountd), and currently support only krb5 (not krb5i
+	// or krb5p, which would also wrap the args).
+	if isKerberos(opts.AuthMethod) {
+		return probeKrb5(ctx, opts)
+	}
+
 	auth := buildAuth(opts)
 
 	// 1+2. MOUNT3 path: portmap → EXPORT → MNT → UMNT.
@@ -173,11 +200,97 @@ func buildAuth(opts ProbeOptions) authBuilder {
 	case AuthSys:
 		return newAuthSys("akashic-probe", opts.AuthUID, opts.AuthGID, opts.AuthAuxGIDs)
 	default:
-		// Future Kerberos flavors land here. For now an unknown method
-		// falls back to AUTH_SYS — the cascade still works, just not
-		// with the requested credential.
+		// Unknown method falls back to AUTH_SYS — the cascade still
+		// works, just not with the requested credential. Kerberos
+		// methods are intercepted before this call (probeKrb5).
 		return newAuthSys("akashic-probe", opts.AuthUID, opts.AuthGID, opts.AuthAuxGIDs)
 	}
+}
+
+func isKerberos(m AuthMethod) bool {
+	return m == AuthKrb5 || m == AuthKrb5Integrity || m == AuthKrb5Privacy
+}
+
+// probeKrb5 handles AuthMethod=krb5*. Sequence:
+//   1. Reject krb5i / krb5p (deferred to a future phase — args need
+//      MIC/Wrap framing).
+//   2. Build a gokrb5 client (TGT acquired via keytab or password).
+//   3. Establish a GSS context against the NFS daemon (NFSv4 NULLPROC).
+//   4. Run NFSv4 LOOKUP using the GSS-protected RPC.
+//
+// MOUNT3-over-krb5 is not exercised: modern Linux NFSv4 stacks don't
+// run mountd over GSS, and the v4 path is the authoritative one for
+// any export configured for sec=krb5.
+func probeKrb5(ctx context.Context, opts ProbeOptions) (*Result, error) {
+	if opts.AuthMethod == AuthKrb5Integrity || opts.AuthMethod == AuthKrb5Privacy {
+		return nil, &ProbeError{
+			Step: StepConfig,
+			Msg:  fmt.Sprintf("auth_method=%s not supported in this build (only sec=krb5 auth-only)", opts.AuthMethod),
+		}
+	}
+	if opts.Krb5Principal == "" || opts.Krb5Realm == "" {
+		return nil, &ProbeError{Step: StepConfig, Msg: "krb5 requires principal and realm"}
+	}
+	if opts.Krb5KeytabPath == "" && opts.Krb5Password == "" {
+		return nil, &ProbeError{Step: StepConfig, Msg: "krb5 requires keytab_path or password"}
+	}
+
+	kc, err := newKrb5Client(opts.Host, krb5Options{
+		Principal:        opts.Krb5Principal,
+		Realm:            opts.Krb5Realm,
+		ServicePrincipal: opts.Krb5ServicePrincipal,
+		KeytabPath:       opts.Krb5KeytabPath,
+		Password:         opts.Krb5Password,
+		ConfigPath:       opts.Krb5ConfigPath,
+	})
+	if err != nil {
+		return nil, &ProbeError{Step: StepAuth, Msg: err.Error()}
+	}
+
+	addr := fmt.Sprintf("%s:%d", opts.Host, opts.Port)
+	gssAuth, err := establishGSSContext(ctx, addr, kc, opts.Timeout)
+	if err != nil {
+		// Establishment failures land in StepAuth — they're auth-side
+		// regardless of the underlying cause (KDC unreachable, ticket
+		// expired, server doesn't support krb5, etc.).
+		return nil, &ProbeError{Step: StepAuth, Msg: err.Error()}
+	}
+
+	fh, err := nfs4LookupPath(ctx, opts.Host, opts.Port, gssAuth, opts.ExportPath, opts.Timeout)
+	if err != nil {
+		var e4 *nfs4Error
+		if errors.As(err, &e4) {
+			switch e4.code {
+			case nfs4ErrNoEnt:
+				return nil, &ProbeError{Step: StepList, Msg: fmt.Sprintf("export path not found on server (%s)", e4.Error())}
+			case nfs4ErrNotDir, nfs4ErrInval, nfs4ErrBadHandle:
+				return nil, &ProbeError{Step: StepList, Msg: fmt.Sprintf("export path invalid (%s)", e4.Error())}
+			case nfs4ErrAccess, nfs4ErrPerm:
+				return nil, &ProbeError{Step: StepAuth, Msg: fmt.Sprintf("client denied by server access rules (%s)", e4.Error())}
+			}
+		}
+		// RPC-transport failures (TCP refused/timeout, NFS service not
+		// running) shouldn't read as auth errors — the krb5 context is
+		// already established at this point. Connect-class failures map
+		// to StepConnect; auth/reject failures from RPCSEC_GSS itself
+		// map to StepAuth.
+		var rerr *rpcError
+		if errors.As(err, &rerr) {
+			switch rerr.kind {
+			case rpcErrConnect:
+				return nil, &ProbeError{Step: StepConnect, Msg: rerr.msg}
+			case rpcErrAccept:
+				if rerr.code == rpcProgUnavail {
+					return nil, &ProbeError{Step: StepConnect, Msg: "NFSv4 not available on server"}
+				}
+			}
+		}
+		return nil, &ProbeError{Step: StepAuth, Msg: err.Error()}
+	}
+	if len(fh) == 0 {
+		return nil, &ProbeError{Step: StepList, Msg: "NFSv4 LOOKUP succeeded but returned an empty filehandle"}
+	}
+	return &Result{OK: true, Tier: TierNFSv4, AuthMethod: opts.AuthMethod}, nil
 }
 
 // tryMount3 attempts the MOUNT3 path. Three return shapes:

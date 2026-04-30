@@ -13,6 +13,8 @@ export type LocalConfig = {
   path: string;
 };
 
+export type NfsAuthMethod = "sys" | "krb5" | "krb5i" | "krb5p";
+
 export type NfsConfig = {
   host: string;
   export_path: string;
@@ -28,6 +30,21 @@ export type NfsConfig = {
   // Per-probe timeout in seconds, [1, 60]. Empty/zero = use scanner
   // default (5s). Useful when the server lives across a slow link.
   probe_timeout_seconds?: number;
+  // Phase 3c — Kerberos / RPCSEC_GSS. Only consulted when auth_method is
+  // krb5/krb5i/krb5p. krb5i and krb5p are accepted as values but the
+  // current scanner build implements only sec=krb5 (auth-only); the
+  // other two surface as a config-step error from the test endpoint.
+  auth_method?: NfsAuthMethod;
+  krb5_principal?: string;
+  krb5_realm?: string;
+  // SPN; defaults to "nfs/<host>" when empty.
+  krb5_service_principal?: string;
+  // Path to a keytab on the scanner host; mutually exclusive with password.
+  krb5_keytab_path?: string;
+  // Password — sent over stdin to the scanner so it never appears in argv.
+  krb5_password?: string;
+  // Alternate krb5.conf path; default /etc/krb5.conf with DNS fallback.
+  krb5_config_path?: string;
 };
 
 export type SshConfig = {
@@ -85,10 +102,37 @@ export function validateSourceConfig(
   switch (type) {
     case "local":
       return isStr("path") ? null : "Path is required";
-    case "nfs":
+    case "nfs": {
       if (!isStr("host")) return "Host is required";
       if (!isStr("export_path")) return "Export path is required";
+      const method = (c["auth_method"] as NfsAuthMethod | undefined) ?? "sys";
+      if (method !== "sys") {
+        if (!isStr("krb5_principal")) return "Kerberos principal is required";
+        if (!isStr("krb5_realm")) return "Kerberos realm is required";
+        // "***" is the API's masked-secret sentinel — it represents "the
+        // saved value is being preserved", not "the user entered ***".
+        // Treat it as no-input for either-or validation so a user editing
+        // a saved keytab-auth source can switch to password (or vice
+        // versa) by typing into one field while the other still displays
+        // the masked sentinel.
+        const isProvided = (k: string) =>
+          isStr(k) && c[k] !== "***";
+        const hasKeytab = isProvided("krb5_keytab_path");
+        const hasPassword = isProvided("krb5_password");
+        // Either field having ANY value (provided or sentinel) keeps the
+        // user covered — they're either saving a new value or preserving
+        // an existing one.
+        const hasAny =
+          isStr("krb5_keytab_path") || isStr("krb5_password");
+        if (!hasAny) {
+          return "Kerberos requires either a keytab path or a password";
+        }
+        if (hasKeytab && hasPassword) {
+          return "Provide either a keytab path or a password, not both";
+        }
+      }
       return null;
+    }
     case "ssh": {
       if (!isStr("host")) return "Host is required";
       if (!isStr("username")) return "Username is required";

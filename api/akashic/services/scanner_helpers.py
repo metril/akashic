@@ -22,8 +22,16 @@ def scanner_binary_path() -> str | None:
     return shutil.which("akashic-scanner")
 
 
-def stdin_creds_payload(password: str = "", key_passphrase: str = "") -> str:
+def stdin_creds_payload(
+    password: str = "",
+    key_passphrase: str = "",
+    krb5_password: str = "",
+) -> str:
     """Returns the JSON line the scanner reads from stdin for password +
-    passphrase credentials. Both fields are always included so /proc/<pid>/cmdline
-    never sees them."""
-    return json.dumps({"password": password, "key_passphrase": key_passphrase}) + "\n"
+    passphrase + krb5 password credentials. All fields are always included
+    so /proc/<pid>/cmdline never sees them."""
+    return json.dumps({
+        "password": password,
+        "key_passphrase": key_passphrase,
+        "krb5_password": krb5_password,
+    }) + "\n"
