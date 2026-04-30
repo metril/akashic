@@ -34,6 +34,15 @@ _AUDITABLE_KEYS = {
     # Phase 3b — NFS AUTH_SYS identity. Operational, not secret.
     # Audit needs these to answer "which uid did the test run as?"
     "auth_uid", "auth_gid", "auth_aux_gids", "probe_timeout_seconds",
+    # Phase 3c — Kerberos / RPCSEC_GSS. Principal/realm/SPN/keytab path
+    # /config path are operational and useful for debugging "did the
+    # test use the right service account?". The actual password and
+    # keytab CONTENTS are never reachable here — _scrub_config strips
+    # `krb5_password`, and `krb5_keytab_path` is a filesystem path, not
+    # the keytab bytes.
+    "auth_method",
+    "krb5_principal", "krb5_realm", "krb5_service_principal",
+    "krb5_keytab_path", "krb5_config_path",
 }
 
 

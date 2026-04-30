@@ -101,6 +101,12 @@ func runResolveGroups(args []string) {
 type stdinCreds struct {
 	Password      string `json:"password"`
 	KeyPassphrase string `json:"key_passphrase"`
+	// Krb5Password is sent for NFS sources whose auth_method is krb5*
+	// and which were configured with a password rather than a keytab.
+	// Kept distinct from Password so the SSH/SMB password and the
+	// kerberos password don't collide on a future shared-creds source
+	// type.
+	Krb5Password string `json:"krb5_password"`
 }
 
 func readCredsFromStdin() stdinCreds {
