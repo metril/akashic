@@ -63,6 +63,13 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// from "the scanner isn't running at all".
 	s.info("connecting to source at %s", s.opts.Root)
 	if err := s.connector.Connect(ctx); err != nil {
+		// Surface the failure through the structured log sink BEFORE
+		// returning. Without this, a connection error reaches
+		// main.go's log.Fatalf and the user sees the panel go silent
+		// for 60 s before the watchdog fires "scan failed" with a
+		// generic timeout message — the actual cause stays hidden in
+		// the api container log.
+		s.warn("connect failed: %v", err)
 		return nil, fmt.Errorf("connect: %w", err)
 	}
 	defer s.connector.Close()
@@ -138,6 +145,12 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			firstBatch = false
 		}
 		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
+			// Same reasoning as the Connect path above: emit through
+			// the LogSink before returning so the user sees WHY the
+			// scan died, not just that it did. The api side typically
+			// returns a structured error (HTTP status + body); SendBatch
+			// folds those into the err string, so logging %v is enough.
+			s.warn("send batch failed: %v", err)
 			return fmt.Errorf("send batch: %w", err)
 		}
 		result.BatchesSent++

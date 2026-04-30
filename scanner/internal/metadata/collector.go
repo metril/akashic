@@ -76,10 +76,10 @@ func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *Ow
 		entry.CreatedAt = &ctime
 	} else {
 		// Non-Linux fallback (tests on macOS/Windows, or remote
-		// connectors that don't expose Stat_t). Mask Go's high-bit
-		// flags down to permission + setuid/setgid/sticky bits so we
-		// at least don't ship a value that overflows INT32.
-		mode := uint32(info.Mode().Perm() | (info.Mode() & (fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)))
+		// connectors that don't expose Stat_t). SafeMode masks Go's
+		// high-bit flags down to the 12 POSIX bits so we don't ship a
+		// value that overflows INT32 on the api side.
+		mode := SafeMode(info)
 		entry.Mode = &mode
 	}
 
