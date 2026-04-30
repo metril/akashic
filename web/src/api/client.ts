@@ -126,6 +126,30 @@ export const api = {
     );
   },
 
+  // PR2 — on-demand SID resolution. NtACL renderer calls this for the
+  // SIDs in an entry's ACL that the scanner couldn't translate at
+  // scan time (DC unreachable, etc.). The api caches per (source,
+  // sid) so repeat opens are free; first open is one round-trip plus
+  // an LSARPC call from the scanner host.
+  resolvePrincipals(sourceId: string, sids: string[]) {
+    return request<{
+      resolved: Record<
+        string,
+        {
+          sid: string;
+          name: string | null;
+          domain: string | null;
+          kind: string | null;
+          status: "resolved" | "unresolved" | "skipped" | "error";
+          last_attempt_at: string | null;
+        }
+      >;
+    }>(`/principals/resolve`, {
+      method: "POST",
+      body: { source_id: sourceId, sids },
+    });
+  },
+
   // setup_required is true on a fresh deployment with zero users — the
   // login page uses this to flip into "create the admin account" mode
   // instead of showing a dead-end sign-in form.
