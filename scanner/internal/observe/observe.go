@@ -105,6 +105,14 @@ type Reporter struct {
 	// Stop coordination.
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// External cancellation. SetUserCancel registers a callback that
+	// fires when the API tells us the scan was cancelled by the user
+	// (heartbeat returns 409). The caller is expected to cancel the
+	// outer context, which propagates through the connector and walker.
+	// Fired at most once per Reporter lifetime via cancelOnce.
+	userCancel     func()
+	cancelOnce     sync.Once
 }
 
 // New builds a Reporter. apiURL is the base (e.g., "http://api:8000"),
@@ -129,6 +137,23 @@ func New(apiURL, apiKey, scanID string, state *State) *Reporter {
 // LogSink returns the sink that callers should use for structured log
 // lines. Safe to use before Start() — lines just queue up.
 func (r *Reporter) LogSink() *LogSink { return r.logSink }
+
+// SetUserCancel registers a callback the heartbeat goroutine fires when
+// the API returns HTTP 409 from a heartbeat post (the cancel signal).
+// Idempotent — only the first 409 in a Reporter's lifetime triggers
+// the callback. Typically wired to the same cancel func that the
+// caller's context uses, so the connector and walker both unwind.
+func (r *Reporter) SetUserCancel(fn func()) { r.userCancel = fn }
+
+// signalCancel is called from inside heartbeat post handling. Wraps
+// the user callback in sync.Once so we don't recurse on every 409 the
+// API keeps returning until the process exits.
+func (r *Reporter) signalCancel() {
+	if r.userCancel == nil {
+		return
+	}
+	r.cancelOnce.Do(r.userCancel)
+}
 
 // Start launches the heartbeat goroutine and the log-drain goroutine.
 // stderr relay is opt-in via StartStderrRelay since it replaces os.Stderr

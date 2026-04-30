@@ -119,6 +119,13 @@ export const api = {
     );
   },
 
+  cancelScan(scanId: string) {
+    return request<{ scan_id: string; status: string }>(
+      `/scans/${scanId}/cancel`,
+      { method: "POST" }
+    );
+  },
+
   // setup_required is true on a fresh deployment with zero users — the
   // login page uses this to flip into "create the admin account" mode
   // instead of showing a dead-end sign-in form.

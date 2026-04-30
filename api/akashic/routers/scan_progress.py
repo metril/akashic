@@ -58,6 +58,15 @@ async def post_heartbeat(
     user: User = Depends(get_current_user),
 ) -> None:
     scan = await _load_scan_with_write(scan_id, user, db)
+
+    # Cancellation signal: if a user marked this scan as cancelled, tell
+    # the scanner to stop with HTTP 409. The scanner's heartbeat poster
+    # treats 409 as "exit cleanly" — the scan record stays cancelled,
+    # the source.status was already flipped to online by /cancel, and
+    # any in-flight batches arriving after this point also get refused.
+    if scan.status in {"cancelled", "completed", "failed"}:
+        raise HTTPException(status_code=409, detail=f"scan is {scan.status}")
+
     now = datetime.now(timezone.utc)
 
     if body.current_path is not None:

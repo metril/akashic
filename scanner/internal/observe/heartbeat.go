@@ -56,5 +56,14 @@ func (r *Reporter) postHeartbeat(ctx context.Context) {
 		// flood the log if the API is down for an extended period.
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+
+	// 409 is the API's "this scan was cancelled — please stop"
+	// signal. We pull the trigger on the cancel-callback exactly once;
+	// subsequent 409s (which will keep arriving until our process
+	// exits) are no-ops.
+	if resp.StatusCode == http.StatusConflict {
+		r.logSink.Warn("scan cancelled by user; exiting")
+		r.signalCancel()
+	}
 }

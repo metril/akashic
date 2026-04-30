@@ -15,6 +15,8 @@ import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ScanLogPanel } from "../components/scans/ScanLogPanel";
 import { SourceDetail } from "../components/sources/SourceDetail";
+import { api } from "../api/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
   "online",
@@ -43,6 +45,27 @@ interface SourceCardProps {
 function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) {
   const summary = formatSourceSummary(source);
   const isScanning = source.status === "scanning";
+  const queryClient = useQueryClient();
+  const [stopping, setStopping] = useState(false);
+
+  async function handleStop() {
+    if (!activeScan) return;
+    if (stopping) return;
+    setStopping(true);
+    try {
+      await api.cancelScan(activeScan.id);
+      // Re-fetch sources + scans so the card snaps to "online" without
+      // waiting for the next polling tick.
+      await queryClient.invalidateQueries({ queryKey: ["sources"] });
+      await queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
+    } catch {
+      // Surfacing the failure inline would require a toast we don't
+      // have wired here; for now leave the button in its default state.
+      // The user can retry.
+    } finally {
+      setStopping(false);
+    }
+  }
 
   // Compose progress subtitle for in-flight scans.
   const progressLine = isScanning && activeScan ? buildProgressLine(activeScan) : null;
@@ -105,7 +128,7 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
           (edit, scan now, delete) live inside the drawer to keep the
           card minimal. */}
       {isScanning && activeScan && (
-        <div className="mt-3 pt-2 border-t border-gray-100">
+        <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-3">
           <button
             type="button"
             onClick={(e) => {
@@ -115,6 +138,17 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
             className="text-xs text-blue-700 hover:text-blue-900 font-medium"
           >
             View live log →
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleStop();
+            }}
+            disabled={stopping}
+            className="text-xs text-rose-700 hover:text-rose-900 font-medium disabled:opacity-50"
+          >
+            {stopping ? "Stopping…" : "Stop scan"}
           </button>
         </div>
       )}

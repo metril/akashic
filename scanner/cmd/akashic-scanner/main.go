@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -125,7 +126,8 @@ func main() {
 		sid = uuid.New().String()
 	}
 
-	ctx := context.Background()
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
 
 	// Phase 1 — observability. Disabled when --no-observe (standalone /
 	// CI runs) or when no API key is configured (the heartbeat / log POSTs
@@ -139,6 +141,11 @@ func main() {
 	if !*noObserve && cfg.APIKey != "" {
 		state = observe.NewState()
 		reporter = observe.New(cfg.APIUrl, cfg.APIKey, sid, state)
+		// User-cancel: a 409 from heartbeat means the user pressed Stop
+		// in the UI. Cancel the outer context so the connector and
+		// walker both unwind. scanner.Run returns ctx.Err() which we
+		// log as a non-fatal exit below.
+		reporter.SetUserCancel(cancelCtx)
 		reporter.Start(ctx)
 		// Stderr relay AFTER Start so the goroutines are draining when the
 		// pipe replaces os.Stderr — avoids losing the very first chunk
@@ -172,6 +179,14 @@ func main() {
 	}
 
 	if err != nil {
+		// Cancellation isn't a crash: the API has already marked the
+		// scan as cancelled and the source as online. Exit 0 with a
+		// log line so any orchestrator (cron, HA, etc.) doesn't treat
+		// "user pressed Stop" as a transient failure to retry.
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			log.Printf("scan cancelled")
+			return
+		}
 		log.Fatalf("scan failed: %v", err)
 	}
 
