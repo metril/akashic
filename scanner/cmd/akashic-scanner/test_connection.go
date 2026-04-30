@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/nfsprobe"
 )
 
 // runTestConnection handles the `test-connection` subcommand. It performs a
@@ -76,7 +78,12 @@ func runTestConnection(args []string) {
 		if p == 0 {
 			p = 2049
 		}
-		ok, step, msg = testNFS(*host, p, *exportPath)
+		// NFS handles its own stdout/stderr because the success JSON
+		// carries an extra `tier` field naming which protocol path
+		// validated the export (mount3 / nfsv4 / tcp). Done in-line
+		// rather than via the (ok, step, msg) shape used by the others.
+		runTestNFS(*host, p, *exportPath)
+		return
 	default:
 		fmt.Fprintln(os.Stderr, "config:unsupported type "+*srcType)
 		os.Exit(1)
@@ -199,24 +206,58 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 	return true, "", ""
 }
 
-// testNFS performs a TCP reachability probe against the NFS service port
-// (default 2049). It does NOT validate that the export path is mountable,
-// authenticate, or attempt an ONC-RPC MOUNT/COMPOUND — those would require
-// a much larger client. The probe still catches the common failure modes:
-// wrong host, firewall, server down, port mismatch.
+// runTestNFS dispatches to the nfsprobe cascade and writes its own
+// success/failure to stdout/stderr, then exits. Done out-of-band from
+// the (ok, step, msg) shape because the success JSON carries an
+// additional `tier` field that the API surfaces to the UI.
+func runTestNFS(host string, port int, exportPath string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	res, err := nfsprobe.Probe(ctx, nfsprobe.ProbeOptions{
+		Host:       host,
+		Port:       uint32(port),
+		ExportPath: exportPath,
+		AuthMethod: nfsprobe.AuthSys,
+		AuthUID:    0,
+		AuthGID:    0,
+		Timeout:    5 * time.Second,
+	})
+	if err != nil {
+		var pe *nfsprobe.ProbeError
+		if errors.As(err, &pe) {
+			fmt.Fprintf(os.Stderr, "%s:%s\n", string(pe.Step), pe.Msg)
+		} else {
+			fmt.Fprintf(os.Stderr, "connect:%s\n", err.Error())
+		}
+		os.Exit(1)
+	}
+	if res != nil && res.OK {
+		out := fmt.Sprintf(`{"ok":true,"tier":%q}`, string(res.Tier))
+		if res.Warning != "" {
+			out = fmt.Sprintf(`{"ok":true,"tier":%q,"warn":%q}`,
+				string(res.Tier), res.Warning)
+		}
+		fmt.Fprintln(os.Stdout, out)
+		return
+	}
+	// Defensive: nfsprobe.Probe should always return either a typed
+	// error or a non-nil success result. Reaching here means a bug.
+	fmt.Fprintln(os.Stderr, "connect:nfsprobe returned no result")
+	os.Exit(1)
+}
+
+// _legacyTCPNFS is the pre-Phase-3a TCP-only probe. Kept for one
+// release as a reference / fallback we could swap back to; remove
+// after Phase 3 soaks.
 //
-// Returning ok=true here means: a TCP server is listening on host:port. The
-// UI surfaces a note clarifying that export validity is unverified.
-func testNFS(host string, port int, _exportPath string) (ok bool, step, msg string) {
+//goland:noinspection GoUnusedFunction
+func _legacyTCPNFS(host string, port int, _exportPath string) (ok bool, step, msg string) {
 	if host == "" {
 		return false, "config", "host required"
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
-		// Strip the "dial tcp host:port:" wrap that net always adds, plus
-		// the redundant syscall-op prefix ("connect: ", "read: "). The UI
-		// already shows host/port; the step prefix already says "connect".
 		s := err.Error()
 		if i := strings.LastIndex(s, ": "); i > 0 && strings.HasPrefix(s, "dial tcp") {
 			s = s[i+2:]

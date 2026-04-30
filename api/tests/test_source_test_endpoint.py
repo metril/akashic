@@ -286,7 +286,9 @@ async def test_endpoint_local_ok(client: AsyncClient, tmp_path):
     })
     assert r.status_code == 200
     body = r.json()
-    assert body == {"ok": True, "step": None, "error": None}
+    assert body["ok"] is True
+    assert body["step"] is None
+    assert body["error"] is None
 
 
 @pytest.mark.asyncio

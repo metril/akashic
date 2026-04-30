@@ -104,14 +104,25 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           <div
             className={`rounded-md p-2 text-xs ${
               testResult.ok
-                ? "bg-emerald-50 text-emerald-800"
+                ? testResult.warn
+                  ? "bg-amber-50 text-amber-900"
+                  : "bg-emerald-50 text-emerald-800"
                 : "bg-rose-50 text-rose-800"
             }`}
             role="status"
           >
-            {testResult.ok
-              ? "Connection OK"
-              : `${testResult.step ?? "error"}: ${testResult.error ?? "unknown"}`}
+            {testResult.ok ? (
+              <>
+                {testResult.tier
+                  ? `Connection OK · validated via ${testResult.tier}`
+                  : "Connection OK"}
+                {testResult.warn && (
+                  <p className="mt-1 text-[11px] text-amber-800">{testResult.warn}</p>
+                )}
+              </>
+            ) : (
+              `${testResult.step ?? "error"}: ${testResult.error ?? "unknown"}`
+            )}
           </div>
         )}
 

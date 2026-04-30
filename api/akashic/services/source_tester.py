@@ -32,6 +32,12 @@ class TestResult(BaseModel):
     ok: bool
     step: Optional[Step] = None
     error: Optional[str] = None
+    # Phase 3a — for NFS, the cascade reports which protocol path
+    # validated the export. UI surfaces this so users know whether the
+    # success was strong (mount3 / nfsv4) or warning-level (tcp
+    # fallback). None for non-NFS source types.
+    tier: Optional[str] = None
+    warn: Optional[str] = None
 
 
 def _scanner_binary_path() -> str | None:
@@ -74,7 +80,25 @@ def _test_via_scanner(
         return TestResult(ok=False, step="config", error=f"scanner spawn: {exc}")
 
     if proc.returncode == 0:
-        return TestResult(ok=True)
+        # Parse the stdout JSON to capture optional `tier` / `warn`
+        # fields the NFS path emits. If the JSON has unexpected shape
+        # or missing fields, we still return ok=true; the UI can fall
+        # back to a generic "Connection OK" without the tier breadcrumb.
+        import json
+        tier: str | None = None
+        warn: str | None = None
+        try:
+            payload = json.loads((proc.stdout or "").strip() or "{}")
+            if isinstance(payload, dict):
+                t = payload.get("tier")
+                if isinstance(t, str):
+                    tier = t
+                w = payload.get("warn")
+                if isinstance(w, str):
+                    warn = w
+        except json.JSONDecodeError:
+            pass
+        return TestResult(ok=True, tier=tier, warn=warn)
 
     err = (proc.stderr or "").strip()
     step: Step | None = None
