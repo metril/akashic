@@ -49,12 +49,12 @@ export function Table<T>({
     <div className={cn("overflow-x-auto", className)}>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200">
+          <tr className="border-b border-line">
             {columns.map((col) => (
               <th
                 key={col.key}
                 className={cn(
-                  "text-left text-xs font-semibold text-gray-500 uppercase tracking-wide py-2.5 px-3",
+                  "text-left text-xs font-semibold text-fg-muted uppercase tracking-wide py-2.5 px-3",
                   col.headerClassName,
                 )}
               >
@@ -63,16 +63,16 @@ export function Table<T>({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-line-subtle">
           {data.map((row) => (
             <tr
               key={rowKey(row)}
-              className="hover:bg-gray-50/60 transition-colors"
+              className="hover:bg-surface-muted/60 transition-colors"
             >
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  className={cn("py-3 px-3 text-gray-700", col.className)}
+                  className={cn("py-3 px-3 text-fg", col.className)}
                 >
                   {col.render(row)}
                 </td>

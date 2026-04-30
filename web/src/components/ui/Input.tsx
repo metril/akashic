@@ -18,14 +18,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       {label && (
         <label
           htmlFor={inputId}
-          className="block text-xs font-medium text-gray-600 mb-1.5"
+          className="block text-xs font-medium text-fg-muted mb-1.5"
         >
           {label}
         </label>
       )}
       <div className="relative">
         {leftIcon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none">
             {leftIcon}
           </span>
         )}
@@ -34,10 +34,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           id={inputId}
           {...rest}
           className={cn(
-            "w-full h-10 rounded-lg border border-gray-300 bg-white",
-            "px-3 text-sm text-gray-900 placeholder:text-gray-400",
+            "w-full h-10 rounded-lg border border-line bg-surface",
+            "px-3 text-sm text-fg placeholder:text-fg-subtle",
             "focus:outline-none focus:ring-2 focus:ring-accent-500/30 focus:border-accent-500",
-            "disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed",
+            "disabled:bg-app disabled:text-fg-muted disabled:cursor-not-allowed",
             leftIcon ? "pl-9" : undefined,
             error && "border-rose-400 focus:ring-rose-500/30 focus:border-rose-500",
             className,

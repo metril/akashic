@@ -9,6 +9,7 @@ import {
   Badge,
   Spinner,
   EmptyState,
+  Page,
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
@@ -99,21 +100,16 @@ export default function Search() {
   const results = searchQuery.data?.results ?? [];
 
   return (
-    <div className="px-8 py-7 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-          Search
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Find files by name, path, or filter alone.
-        </p>
-      </div>
-
+    <Page
+      title="Search"
+      description="Find files by name, path, or filter alone."
+      width="default"
+    >
       <div className="flex items-center justify-end mb-2">
         <button
           type="button"
           onClick={() => setShowSearchAs((v) => !v)}
-          className="text-xs text-gray-500 hover:text-gray-700"
+          className="text-xs text-fg-muted hover:text-fg"
         >
           {showSearchAs ? "▾" : "▸"} Search as…
         </button>
@@ -174,7 +170,7 @@ export default function Search() {
           />
         </Card>
       ) : searchQuery.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-gray-400">
+        <div className="flex items-center justify-center py-12 text-fg-subtle">
           <Spinner size="md" />
         </div>
       ) : searchQuery.isError ? (
@@ -194,7 +190,7 @@ export default function Search() {
         </Card>
       ) : (
         <>
-          <div className="text-xs text-gray-500 mb-3">
+          <div className="text-xs text-fg-muted mb-3">
             {searchQuery.data?.total.toLocaleString()} result
             {searchQuery.data?.total !== 1 && "s"}
             {searchAs && (
@@ -203,42 +199,43 @@ export default function Search() {
               </span>
             )}
           </div>
-          <div className="space-y-2">
-            {results.map((file) => (
-              <Card
-                key={file.id}
-                padding="none"
-                className="px-4 py-3 hover:border-accent-200 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-medium text-gray-900 truncate">
-                        {file.filename}
-                      </span>
-                      {file.extension && (
-                        <Badge variant="neutral">.{file.extension}</Badge>
-                      )}
+          <Card padding="none">
+            <ul className="divide-y divide-line-subtle">
+              {results.map((file) => (
+                <li
+                  key={file.id}
+                  className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors"
+                >
+                  <div className="flex items-baseline justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-fg truncate">
+                          {file.filename}
+                        </span>
+                        {file.extension && (
+                          <Badge variant="neutral">.{file.extension}</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
+                        {file.path}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 font-mono truncate">
-                      {file.path}
+                    <div className="flex flex-col items-end flex-shrink-0 text-right">
+                      <div className="text-sm font-medium text-fg tabular-nums">
+                        {formatBytes(file.size_bytes)}
+                      </div>
+                      <div className="text-xs text-fg-muted mt-0.5">
+                        {sourceMap.get(file.source_id) ??
+                          file.source_id.slice(0, 8)}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end flex-shrink-0">
-                    <div className="text-sm font-medium text-gray-700 tabular-nums">
-                      {formatBytes(file.size_bytes)}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {sourceMap.get(file.source_id) ??
-                        file.source_id.slice(0, 8)}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
         </>
       )}
-    </div>
+    </Page>
   );
 }

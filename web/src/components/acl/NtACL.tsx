@@ -34,7 +34,7 @@ function UnresolvedSid({ sid, resolved }: { sid: string; resolved?: ResolvedPrin
       "domain that the queried server can't translate.";
   }
   return (
-    <span className="italic text-gray-500" title={title}>
+    <span className="italic text-fg-muted" title={title}>
       <Mono>{sid}</Mono>
     </span>
   );
@@ -65,12 +65,12 @@ function PrincipalRow({
   const name = displayName(p.name, p.sid, map);
   return (
     <div className="flex items-baseline gap-3 text-sm py-1">
-      <dt className="w-20 flex-shrink-0 text-xs text-gray-500">{label}</dt>
-      <dd className="min-w-0 flex-1 text-gray-800 break-words">
+      <dt className="w-20 flex-shrink-0 text-xs text-fg-muted">{label}</dt>
+      <dd className="min-w-0 flex-1 text-fg break-words">
         {name ? (
           <>
             <span className="font-medium">{name}</span>
-            <span className="text-xs text-gray-400 ml-2"><Mono>{p.sid}</Mono></span>
+            <span className="text-xs text-fg-subtle ml-2"><Mono>{p.sid}</Mono></span>
           </>
         ) : (
           <UnresolvedSid sid={p.sid} resolved={map[p.sid]} />
@@ -95,8 +95,8 @@ function ACERow({
   const name = displayName(ace.name, ace.sid, map);
   return (
     <tr>
-      <td className="py-1.5 text-gray-400 tabular-nums">{index + 1}</td>
-      <td className="py-1.5 text-gray-800">
+      <td className="py-1.5 text-fg-subtle tabular-nums">{index + 1}</td>
+      <td className="py-1.5 text-fg">
         {name ? name : <UnresolvedSid sid={ace.sid} resolved={map[ace.sid]} />}
         {count && count > 1 ? (
           <span
@@ -118,7 +118,7 @@ function ACERow({
       <td className="py-1.5">
         <div className="flex flex-wrap gap-1">
           {ace.flags.map((f) => (<Chip key={f} variant="muted">{formatAceFlag(f)}</Chip>))}
-          {ace.flags.length === 0 && <span className="text-gray-400">—</span>}
+          {ace.flags.length === 0 && <span className="text-fg-subtle">—</span>}
         </div>
       </td>
       <td className="py-1.5">
@@ -177,7 +177,7 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
       )}
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-[11px] text-gray-400 uppercase tracking-wide">
+          <tr className="text-[11px] text-fg-subtle uppercase tracking-wide">
             <th className="text-left py-1 font-semibold">#</th>
             <th className="text-left py-1 font-semibold">Principal</th>
             <th className="text-left py-1 font-semibold">Type</th>
@@ -185,7 +185,7 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
             <th className="text-left py-1 font-semibold">Permissions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-line-subtle">
           {directGroups.map((g, i) => (
             <ACERow
               key={`d${i}`}

@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { cn } from "./cn";
 import { Spinner } from "./Spinner";
 
@@ -15,11 +16,11 @@ const variantMap: Record<Variant, string> = {
   primary:
     "bg-accent-600 text-white hover:bg-accent-700 active:bg-accent-700 disabled:bg-accent-600/60",
   secondary:
-    "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-60",
+    "bg-surface text-fg border border-line hover:bg-surface-muted active:bg-surface-muted disabled:opacity-60",
   danger:
-    "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 active:bg-rose-200 disabled:opacity-60",
+    "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 active:bg-rose-200 disabled:opacity-60 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30 dark:hover:bg-rose-500/20",
   ghost:
-    "bg-transparent text-gray-600 hover:bg-gray-100 active:bg-gray-200 disabled:opacity-60",
+    "bg-transparent text-fg-muted hover:bg-surface-muted active:bg-surface-muted disabled:opacity-60",
 };
 
 const sizeMap: Record<Size, string> = {
@@ -28,18 +29,22 @@ const sizeMap: Record<Size, string> = {
   lg: "h-11 px-5 text-[15px] gap-2",
 };
 
-export function Button({
-  variant = "primary",
-  size = "md",
-  loading,
-  leftIcon,
-  children,
-  className,
-  disabled,
-  ...rest
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "primary",
+    size = "md",
+    loading,
+    leftIcon,
+    children,
+    className,
+    disabled,
+    ...rest
+  },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       {...rest}
       disabled={disabled || loading}
       className={cn(
@@ -60,4 +65,4 @@ export function Button({
       {children}
     </button>
   );
-}
+});

@@ -28,10 +28,10 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+        <div className="min-h-screen flex items-center justify-center bg-app p-6">
           <Card padding="lg" className="w-full max-w-md">
             <div className="flex items-center gap-3 mb-3">
-              <div className="h-9 w-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+              <div className="h-9 w-9 rounded-full bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300 flex items-center justify-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-5 w-5"
@@ -45,14 +45,14 @@ export class ErrorBoundary extends Component<Props, State> {
                   />
                 </svg>
               </div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-fg">
                 Something went wrong
               </h2>
             </div>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-fg-muted mb-4">
               The page hit an unexpected error. Reloading usually clears it.
             </p>
-            <pre className="text-xs bg-gray-50 border border-gray-200 rounded-md p-3 mb-4 overflow-auto max-h-40 text-rose-700 font-mono">
+            <pre className="text-xs bg-app border border-line rounded-md p-3 mb-4 overflow-auto max-h-40 text-rose-700 font-mono">
               {this.state.error.message}
             </pre>
             <Button onClick={this.reset} className="w-full">

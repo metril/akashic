@@ -13,13 +13,13 @@ const ICON: Record<ACLDiffItem["kind"], string> = {
 };
 
 const COLOR: Record<ACLDiffItem["kind"], string> = {
-  type_changed:  "text-gray-600",
+  type_changed:  "text-fg-muted",
   added:         "text-emerald-700",
   removed:       "text-red-700",
   modified:      "text-amber-700",
   reordered:     "text-violet-700",
-  owner_changed: "text-blue-700",
-  group_changed: "text-blue-700",
+  owner_changed: "text-blue-700 dark:text-blue-300",
+  group_changed: "text-blue-700 dark:text-blue-300",
 };
 
 function itemText(item: ACLDiffItem): string {
@@ -71,7 +71,7 @@ export function ACLDiff({ prev, curr }: { prev: ACL | null; curr: ACL | null }) 
           <button
             type="button"
             onClick={() => setShowInherited((v) => !v)}
-            className="text-xs text-gray-500 hover:text-gray-700"
+            className="text-xs text-fg-muted hover:text-fg"
           >
             {showInherited ? "▾" : "▸"} Inherited changes ({inherited.length})
           </button>

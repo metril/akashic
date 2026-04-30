@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Card } from "../components/ui";
+import { Card, Page } from "../components/ui";
 
 interface Tile {
   to: string;
@@ -30,31 +30,30 @@ const tiles: Tile[] = [
 
 export default function Settings() {
   return (
-    <div className="px-8 py-7 max-w-5xl">
-      <div className="mb-7">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-          Settings
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Configure how akashic behaves across sources.
-        </p>
-      </div>
-
+    <Page
+      title="Settings"
+      description="Configure how Akashic behaves across sources."
+      width="default"
+    >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {tiles.map((tile) => (
-          <Link key={tile.label} to={tile.to} className="block">
+          <Link
+            key={tile.label}
+            to={tile.to}
+            className="block rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-1"
+          >
             <Card
               padding="md"
-              className="h-full hover:shadow-md transition-shadow"
+              className="h-full hover:shadow-md hover:border-accent-200 transition-[box-shadow,border-color] active:scale-[0.99]"
             >
-              <h3 className="text-base font-semibold text-gray-900 mb-2">
+              <h3 className="text-base font-semibold text-fg mb-2">
                 {tile.label}
               </h3>
-              <p className="text-sm text-gray-500">{tile.description}</p>
+              <p className="text-sm text-fg-muted">{tile.description}</p>
             </Card>
           </Link>
         ))}
       </div>
-    </div>
+    </Page>
   );
 }

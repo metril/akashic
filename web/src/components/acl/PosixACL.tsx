@@ -5,17 +5,17 @@ function ACETable({ entries }: { entries: PosixACE[] }) {
   return (
     <table className="w-full text-sm">
       <thead>
-        <tr className="text-[11px] text-gray-400 uppercase tracking-wide">
+        <tr className="text-[11px] text-fg-subtle uppercase tracking-wide">
           <th className="text-left py-1 font-semibold">Tag</th>
           <th className="text-left py-1 font-semibold">Qualifier</th>
           <th className="text-left py-1 font-semibold">Perms</th>
         </tr>
       </thead>
-      <tbody className="divide-y divide-gray-100">
+      <tbody className="divide-y divide-line-subtle">
         {entries.map((a, i) => (
           <tr key={i}>
             <td className="py-1.5"><Mono>{a.tag}</Mono></td>
-            <td className="py-1.5 text-gray-700">{a.qualifier || "—"}</td>
+            <td className="py-1.5 text-fg">{a.qualifier || "—"}</td>
             <td className="py-1.5"><Mono>{a.perms}</Mono></td>
           </tr>
         ))}

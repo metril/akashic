@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import { isAuthenticated } from "./api/client";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
@@ -30,7 +31,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function PageLoader() {
   return (
-    <div className="flex items-center justify-center py-24 text-gray-400">
+    <div className="flex items-center justify-center py-24 text-fg-subtle">
       <Spinner />
     </div>
   );
@@ -38,8 +39,16 @@ function PageLoader() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
+    <>
+      <Toaster
+        position="bottom-right"
+        // Pull theme from <html class="dark"> via "system" — sonner reads
+        // the class on render. The useTheme hook keeps that class in sync.
+        theme="system"
+        toastOptions={{ className: "rounded-lg" }}
+      />
+      <Routes>
+        <Route path="/login" element={<Login />} />
       <Route
         path="/"
         element={
@@ -142,7 +151,8 @@ export default function App() {
           }
         />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </>
   );
 }

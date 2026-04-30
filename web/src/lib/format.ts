@@ -35,6 +35,24 @@ export function formatDateTime(iso: string | null | undefined): string {
   });
 }
 
+// "5m ago", "2h ago", "3d ago" — coarse, single-unit, low-noise. Used in
+// dashboard rows where space is tight and exact timestamps are
+// available on hover. Returns "—" for missing inputs and "just now" for
+// anything under a minute.
+export function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "—";
+  const elapsed = (Date.now() - t) / 1000;
+  if (elapsed < 0) return "just now";
+  if (elapsed < 60) return "just now";
+  if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
+  if (elapsed < 86400) return `${Math.floor(elapsed / 3600)}h ago`;
+  if (elapsed < 86400 * 30) return `${Math.floor(elapsed / 86400)}d ago`;
+  if (elapsed < 86400 * 365) return `${Math.floor(elapsed / (86400 * 30))}mo ago`;
+  return `${Math.floor(elapsed / (86400 * 365))}y ago`;
+}
+
 export function formatDuration(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "—";
   if (seconds < 60) return `${Math.round(seconds)}s`;

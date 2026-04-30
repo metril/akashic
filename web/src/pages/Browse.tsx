@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { BrowseChild, BrowseResponse, Source } from "../types";
 import {
@@ -12,6 +13,8 @@ import {
   Drawer,
   Badge,
   Input,
+  Page,
+  Button,
 } from "../components/ui";
 import type { BreadcrumbSegment } from "../components/ui";
 import { formatBytes, formatDate } from "../lib/format";
@@ -68,9 +71,9 @@ function compareEntries(a: BrowseChild, b: BrowseChild, sort: SortState): number
 }
 
 function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <span className="text-gray-300 ml-1">↕</span>;
+  if (!active) return <span className="text-fg-subtle ml-1">↕</span>;
   return (
-    <span className="text-gray-700 ml-1" aria-hidden>
+    <span className="text-fg ml-1" aria-hidden>
       {dir === "asc" ? "▲" : "▼"}
     </span>
   );
@@ -78,6 +81,7 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 
 export default function Browse() {
   const [params, setParams] = useSearchParams();
+  const routerNav = useNavigate();
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -203,16 +207,11 @@ export default function Browse() {
   const totalEntries = browseQuery.data?.entries.length ?? 0;
 
   return (
-    <div className="px-8 py-7 max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-          Browse
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Walk the indexed file tree and inspect per-entry permissions.
-        </p>
-      </div>
-
+    <Page
+      title="Browse"
+      description="Walk the indexed file tree and inspect per-entry permissions."
+      width="full"
+    >
       <Card padding="md" className="mb-4">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           <div className="md:w-64">
@@ -236,7 +235,7 @@ export default function Browse() {
               type="button"
               onClick={goUp}
               disabled={path === "/"}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-line text-sm text-fg hover:bg-surface-muted disabled:opacity-50 disabled:cursor-not-allowed"
               title="Up one directory"
             >
               <Icon name="arrow-left" className="size-4" />
@@ -258,7 +257,7 @@ export default function Browse() {
               />
             </div>
             {filter && (
-              <span className="text-xs text-gray-500 tabular-nums">
+              <span className="text-xs text-fg-muted tabular-nums">
                 {visibleEntries.length.toLocaleString()} of{" "}
                 {totalEntries.toLocaleString()} match
               </span>
@@ -269,13 +268,18 @@ export default function Browse() {
 
       <Card padding="none">
         {browseQuery.isLoading || sourcesQuery.isLoading ? (
-          <div className="flex justify-center items-center h-40 text-gray-400">
+          <div className="flex justify-center items-center h-40 text-fg-subtle">
             <Spinner />
           </div>
         ) : sources.length === 0 ? (
           <EmptyState
             title="No sources yet"
             description="Add a source on the Sources page to start browsing."
+            action={
+              <Button size="sm" onClick={() => routerNav("/sources")}>
+                Add a source
+              </Button>
+            }
           />
         ) : browseQuery.isError ? (
           <div className="p-6">
@@ -296,136 +300,27 @@ export default function Browse() {
                 ? "This source has no indexed entries yet. Trigger a scan from the Sources page."
                 : "No entries in this folder."
             }
+            action={
+              path === "/" ? (
+                <Button
+                  size="sm"
+                  onClick={() => routerNav("/sources")}
+                >
+                  Open Sources
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">
-                  <th className="text-left font-semibold py-2.5 px-4">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("name")}
-                      className="inline-flex items-center hover:text-gray-700"
-                    >
-                      Name
-                      <SortIndicator active={sort.field === "name"} dir={sort.dir} />
-                    </button>
-                  </th>
-                  <th className="text-left font-semibold py-2.5 px-4 hidden md:table-cell">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("size")}
-                      className="inline-flex items-center hover:text-gray-700"
-                    >
-                      Size
-                      <SortIndicator active={sort.field === "size"} dir={sort.dir} />
-                    </button>
-                  </th>
-                  <th className="text-left font-semibold py-2.5 px-4 hidden lg:table-cell">
-                    Owner
-                  </th>
-                  <th className="text-left font-semibold py-2.5 px-4 hidden lg:table-cell">
-                    Mode
-                  </th>
-                  <th className="text-left font-semibold py-2.5 px-4 hidden md:table-cell">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("modified")}
-                      className="inline-flex items-center hover:text-gray-700"
-                    >
-                      Modified
-                      <SortIndicator active={sort.field === "modified"} dir={sort.dir} />
-                    </button>
-                  </th>
-                  <th className="text-right font-semibold py-2.5 px-4 w-12">
-                    {/* actions column */}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {visibleEntries.length === 0 && filter && (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-sm text-gray-500">
-                      No entries match{" "}
-                      <code className="font-mono text-xs">{filter}</code> in this folder.
-                    </td>
-                  </tr>
-                )}
-                {visibleEntries.map((child) => (
-                  <tr
-                    key={child.id}
-                    onClick={() => handleRowClick(child)}
-                    className={`hover:bg-accent-50/40 cursor-pointer transition-colors ${
-                      selectedEntryId === child.id ? "bg-accent-50/60" : ""
-                    }`}
-                  >
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <Icon
-                          path={iconPathForKind(child.kind, child.extension)}
-                          className={`size-4 ${
-                            child.kind === "directory"
-                              ? "text-accent-600"
-                              : "text-gray-400"
-                          }`}
-                        />
-                        <span className="truncate text-gray-900 font-medium">
-                          {child.name}
-                        </span>
-                        {child.kind === "directory" &&
-                          child.child_count != null && (
-                            <Badge variant="neutral">
-                              {child.child_count}
-                            </Badge>
-                          )}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-600 tabular-nums hidden md:table-cell">
-                      {child.kind === "directory"
-                        ? "—"
-                        : formatBytes(child.size_bytes)}
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-600 hidden lg:table-cell">
-                      {child.owner_name ?? "—"}
-                      {child.group_name && (
-                        <span className="text-gray-400">
-                          :{child.group_name}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-4 hidden lg:table-cell">
-                      <code className="font-mono text-xs text-gray-600">
-                        {formatMode(child.mode)}
-                      </code>
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-500 hidden md:table-cell">
-                      {formatDate(child.fs_modified_at)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right">
-                      {child.kind === "file" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            downloadEntryContent(child.id, child.name).catch(
-                              (err) =>
-                                console.error("Download failed:", err),
-                            );
-                          }}
-                          aria-label={`Download ${child.name}`}
-                          title="Download"
-                          className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-                        >
-                          <Icon name="download" className="size-4" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <BrowseList
+            entries={visibleEntries}
+            filterActive={!!filter}
+            filterText={filter}
+            sort={sort}
+            toggleSort={toggleSort}
+            selectedEntryId={selectedEntryId}
+            onRowClick={handleRowClick}
+          />
         )}
       </Card>
 
@@ -438,6 +333,218 @@ export default function Browse() {
       >
         <EntryDetail entryId={selectedEntryId} />
       </Drawer>
-    </div>
+    </Page>
+  );
+}
+
+// Estimated row height drives the virtualizer's initial layout. Real
+// rows measure in via `measureElement`; the estimate just controls the
+// pre-measurement scrollbar size.
+const ROW_HEIGHT = 44;
+
+// Grid template that mirrors the legacy table's `hidden md:table-cell`
+// and `hidden lg:table-cell` semantics. Defined here so header and row
+// share one source of truth.
+const GRID_BASE = "minmax(0,1fr) 36px";
+const GRID_MD = "md:[grid-template-columns:minmax(0,1fr)_96px_140px_36px]";
+const GRID_LG =
+  "lg:[grid-template-columns:minmax(0,1fr)_96px_120px_88px_140px_36px]";
+
+interface BrowseListProps {
+  entries: BrowseChild[];
+  filterActive: boolean;
+  filterText: string;
+  sort: SortState;
+  toggleSort: (field: SortField) => void;
+  selectedEntryId: string | null;
+  onRowClick: (child: BrowseChild) => void;
+}
+
+function BrowseList({
+  entries,
+  filterActive,
+  filterText,
+  sort,
+  toggleSort,
+  selectedEntryId,
+  onRowClick,
+}: BrowseListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
+
+  if (entries.length === 0 && filterActive) {
+    return (
+      <>
+        <div className={`grid ${GRID_BASE} ${GRID_MD} ${GRID_LG} px-4 py-2.5 border-b border-line text-[11px] uppercase tracking-wide text-fg-muted font-semibold`}>
+          <span>Name</span>
+          <span className="hidden md:block">Size</span>
+          <span className="hidden lg:block">Owner</span>
+          <span className="hidden lg:block">Mode</span>
+          <span className="hidden md:block">Modified</span>
+          <span />
+        </div>
+        <div className="py-12 px-6 text-center text-sm text-fg-muted">
+          No entries match{" "}
+          <code className="font-mono text-xs">{filterText}</code> in this folder.
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {/* Sticky-ish header (sticky inside the scroll container). The
+          column widths must match the per-row template exactly. */}
+      <div
+        className={`grid ${GRID_BASE} ${GRID_MD} ${GRID_LG} gap-x-3 px-4 py-2.5 border-b border-line text-[11px] uppercase tracking-wide text-fg-muted font-semibold`}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSort("name")}
+          className="text-left inline-flex items-center hover:text-fg"
+        >
+          Name
+          <SortIndicator active={sort.field === "name"} dir={sort.dir} />
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleSort("size")}
+          className="hidden md:inline-flex items-center text-left hover:text-fg"
+        >
+          Size
+          <SortIndicator active={sort.field === "size"} dir={sort.dir} />
+        </button>
+        <span className="hidden lg:block">Owner</span>
+        <span className="hidden lg:block">Mode</span>
+        <button
+          type="button"
+          onClick={() => toggleSort("modified")}
+          className="hidden md:inline-flex items-center text-left hover:text-fg"
+        >
+          Modified
+          <SortIndicator active={sort.field === "modified"} dir={sort.dir} />
+        </button>
+        <span />
+      </div>
+
+      {/* Virtualized scroll region. max-height clamps to viewport so
+          very large folders get a fixed pane; below max, the container
+          fits the inner positioned div's height. Do NOT add `contain:
+          strict` here — it strips intrinsic sizing and the scrollbox
+          collapses to 0 px (rows then never appear). */}
+      <div
+        ref={scrollRef}
+        className="max-h-[calc(100vh-280px)] overflow-y-auto"
+      >
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((vi) => {
+            const child = entries[vi.index];
+            const selected = selectedEntryId === child.id;
+            return (
+              <div
+                key={child.id}
+                tabIndex={0}
+                onClick={() => onRowClick(child)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onRowClick(child);
+                  }
+                }}
+                className={`grid ${GRID_BASE} ${GRID_MD} ${GRID_LG} gap-x-3 items-center px-4 border-b border-line-subtle cursor-pointer transition-colors outline-none hover:bg-accent-50/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 ${
+                  selected ? "bg-accent-50/60" : ""
+                }`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: vi.size,
+                  transform: `translateY(${vi.start}px)`,
+                }}
+              >
+                {/* Name (always visible, truncates) */}
+                <div className="flex items-center gap-2.5 min-w-0 text-sm">
+                  <Icon
+                    path={iconPathForKind(child.kind, child.extension)}
+                    className={`size-4 flex-shrink-0 ${
+                      child.kind === "directory"
+                        ? "text-accent-600"
+                        : "text-fg-subtle"
+                    }`}
+                  />
+                  <span className="truncate text-fg font-medium">
+                    {child.name}
+                  </span>
+                  {child.kind === "directory" &&
+                    child.child_count != null && (
+                      <Badge variant="neutral" className="flex-shrink-0">
+                        {child.child_count}
+                      </Badge>
+                    )}
+                </div>
+
+                {/* Size (md+) */}
+                <div className="hidden md:block text-sm text-fg-muted tabular-nums whitespace-nowrap">
+                  {child.kind === "directory"
+                    ? "—"
+                    : formatBytes(child.size_bytes)}
+                </div>
+
+                {/* Owner (lg+) */}
+                <div className="hidden lg:block text-sm text-fg-muted whitespace-nowrap truncate">
+                  {child.owner_name ?? "—"}
+                  {child.group_name && (
+                    <span className="text-fg-subtle">:{child.group_name}</span>
+                  )}
+                </div>
+
+                {/* Mode (lg+) */}
+                <div className="hidden lg:block whitespace-nowrap">
+                  <code className="font-mono text-xs text-fg-muted">
+                    {formatMode(child.mode)}
+                  </code>
+                </div>
+
+                {/* Modified (md+) */}
+                <div className="hidden md:block text-sm text-fg-muted whitespace-nowrap">
+                  {formatDate(child.fs_modified_at)}
+                </div>
+
+                {/* Action — download for files only */}
+                <div className="text-right">
+                  {child.kind === "file" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadEntryContent(child.id, child.name).catch(
+                          (err) => console.error("Download failed:", err),
+                        );
+                      }}
+                      aria-label={`Download ${child.name}`}
+                      title="Download"
+                      className="p-1.5 rounded text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                    >
+                      <Icon name="download" className="size-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
