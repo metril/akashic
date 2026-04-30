@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +45,11 @@ func runTestConnection(args []string) {
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
 	endpoint := fs.String("endpoint", "", "S3 endpoint URL (non-AWS)")
-	exportPath := fs.String("export-path", "", "NFS export path (informational; not validated by reachability probe)")
+	exportPath := fs.String("export-path", "", "NFS export path to validate")
+	authUID := fs.Int("auth-uid", 0, "NFS AUTH_SYS uid (default 0; servers with root_squash may require a non-root uid)")
+	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
+	authAuxGIDs := fs.String("auth-aux-gids", "", "NFS AUTH_SYS auxiliary GIDs, comma-separated (max 16)")
+	probeTimeout := fs.Int("timeout", 0, "Per-probe timeout in seconds (default 5; clamped to [1,60])")
 	_ = fs.Parse(args)
 
 	pw := *password
@@ -82,7 +87,7 @@ func runTestConnection(args []string) {
 		// carries an extra `tier` field naming which protocol path
 		// validated the export (mount3 / nfsv4 / tcp). Done in-line
 		// rather than via the (ok, step, msg) shape used by the others.
-		runTestNFS(*host, p, *exportPath)
+		runTestNFS(*host, p, *exportPath, uint32(*authUID), uint32(*authGID), parseAuxGIDs(*authAuxGIDs), *probeTimeout)
 		return
 	default:
 		fmt.Fprintln(os.Stderr, "config:unsupported type "+*srcType)
@@ -210,17 +215,36 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 // success/failure to stdout/stderr, then exits. Done out-of-band from
 // the (ok, step, msg) shape because the success JSON carries an
 // additional `tier` field that the API surfaces to the UI.
-func runTestNFS(host string, port int, exportPath string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+//
+// timeout is per-RPC; clamped to [1, 60] seconds to bound how long a
+// hung server can block the source-creation form. The outer context
+// gets ~3× the per-RPC timeout because the cascade may make multiple
+// RPC round-trips.
+func runTestNFS(
+	host string, port int, exportPath string,
+	authUID, authGID uint32, auxGIDs []uint32, timeoutSeconds int,
+) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 5
+	}
+	if timeoutSeconds < 1 {
+		timeoutSeconds = 1
+	}
+	if timeoutSeconds > 60 {
+		timeoutSeconds = 60
+	}
+	perRPCTimeout := time.Duration(timeoutSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 3*perRPCTimeout)
 	defer cancel()
 	res, err := nfsprobe.Probe(ctx, nfsprobe.ProbeOptions{
-		Host:       host,
-		Port:       uint32(port),
-		ExportPath: exportPath,
-		AuthMethod: nfsprobe.AuthSys,
-		AuthUID:    0,
-		AuthGID:    0,
-		Timeout:    5 * time.Second,
+		Host:        host,
+		Port:        uint32(port),
+		ExportPath:  exportPath,
+		AuthMethod:  nfsprobe.AuthSys,
+		AuthUID:     authUID,
+		AuthGID:     authGID,
+		AuthAuxGIDs: auxGIDs,
+		Timeout:     perRPCTimeout,
 	})
 	if err != nil {
 		var pe *nfsprobe.ProbeError
@@ -244,6 +268,34 @@ func runTestNFS(host string, port int, exportPath string) {
 	// error or a non-nil success result. Reaching here means a bug.
 	fmt.Fprintln(os.Stderr, "connect:nfsprobe returned no result")
 	os.Exit(1)
+}
+
+// parseAuxGIDs converts a comma-separated GID list into the uint32
+// slice the probe's AUTH_SYS builder expects. Whitespace and empty
+// fragments are tolerated (e.g., "27, 100,," parses as [27, 100]).
+// Non-numeric fragments are silently dropped — the form-side validator
+// is the right place to surface those, not the scanner CLI.
+//
+// Surplus entries beyond 16 are NOT trimmed here; the probe's
+// authSysBuilder enforces the RFC 5531 cap.
+func parseAuxGIDs(raw string) []uint32 {
+	if raw == "" {
+		return nil
+	}
+	fields := strings.Split(raw, ",")
+	out := make([]uint32, 0, len(fields))
+	for _, f := range fields {
+		s := strings.TrimSpace(f)
+		if s == "" {
+			continue
+		}
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			continue
+		}
+		out = append(out, uint32(v))
+	}
+	return out
 }
 
 // _legacyTCPNFS is the pre-Phase-3a TCP-only probe. Kept for one

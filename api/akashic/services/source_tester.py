@@ -63,7 +63,10 @@ def _run_scanner(
 
 
 def _test_via_scanner(
-    scanner_argv: list[str], password: str = "", key_passphrase: str = "",
+    scanner_argv: list[str],
+    password: str = "",
+    key_passphrase: str = "",
+    timeout: int = 15,
 ) -> TestResult:
     binary = _scanner_binary_path()
     if not binary:
@@ -73,7 +76,7 @@ def _test_via_scanner(
         )
     argv = [binary] + scanner_argv
     try:
-        proc = _run_scanner(argv, password=password, key_passphrase=key_passphrase)
+        proc = _run_scanner(argv, password=password, key_passphrase=key_passphrase, timeout=timeout)
     except subprocess.TimeoutExpired:
         return TestResult(ok=False, step="connect", error="scanner timeout")
     except OSError as exc:
@@ -196,13 +199,78 @@ def test_nfs(cfg: dict) -> TestResult:
         return TestResult(
             ok=False, step="config", error="host and export_path required",
         )
+
+    # AUTH_SYS uid/gid plumbing — Phase 3b. Defaults match the probe's
+    # built-in defaults (uid 0 / gid 0 / no aux gids), so an unset
+    # source_config behaves exactly like Phase 3a.
+    try:
+        auth_uid = int(cfg.get("auth_uid", 0) or 0)
+        auth_gid = int(cfg.get("auth_gid", 0) or 0)
+    except (TypeError, ValueError):
+        return TestResult(
+            ok=False, step="config",
+            error="auth_uid and auth_gid must be integers",
+        )
+    raw_aux = cfg.get("auth_aux_gids")
+    if isinstance(raw_aux, list):
+        try:
+            aux_str = ",".join(str(int(x)) for x in raw_aux if str(x).strip())
+        except (TypeError, ValueError):
+            return TestResult(
+                ok=False, step="config",
+                error="auth_aux_gids must be a list of integers",
+            )
+    elif isinstance(raw_aux, str):
+        # Validate string-form input the same way as list form so a
+        # form-side bug or hand-built API call can't smuggle non-integer
+        # fragments through the silent-drop in the scanner.
+        parts = [p.strip() for p in raw_aux.split(",") if p.strip()]
+        try:
+            aux_str = ",".join(str(int(p)) for p in parts)
+        except ValueError:
+            return TestResult(
+                ok=False, step="config",
+                error="auth_aux_gids must be a comma-separated list of integers",
+            )
+    else:
+        aux_str = ""
+
+    raw_timeout = cfg.get("probe_timeout_seconds", 0)
+    try:
+        timeout_seconds = int(raw_timeout or 0)
+    except (TypeError, ValueError):
+        return TestResult(
+            ok=False, step="config",
+            error="probe_timeout_seconds must be an integer",
+        )
+    if timeout_seconds and (timeout_seconds < 1 or timeout_seconds > 60):
+        return TestResult(
+            ok=False, step="config",
+            error="probe_timeout_seconds must be between 1 and 60",
+        )
+
     argv = [
         "test-connection", "--type=nfs",
         "--host", host,
         "--port", str(int(cfg.get("port") or 2049)),
         "--export-path", export_path,
+        "--auth-uid", str(auth_uid),
+        "--auth-gid", str(auth_gid),
     ]
-    return _test_via_scanner(argv)
+    if aux_str:
+        argv += ["--auth-aux-gids", aux_str]
+    if timeout_seconds:
+        argv += ["--timeout", str(timeout_seconds)]
+
+    # Subprocess timeout matches the scanner's own outer context (3 ×
+    # per-RPC for the 3-RPC cascade) plus a small reap margin. Multiplying
+    # again at the API layer would mean a `probe_timeout_seconds=60`
+    # config could hang the form for 5 minutes — at that point the user
+    # has lost trust that the test button works. The Go side self-cancels
+    # at 3× per-RPC; the subprocess kill is a hard ceiling, not a goal.
+    per_rpc = timeout_seconds or 5
+    sub_timeout = per_rpc * 3 + 5
+    return _test_via_scanner(argv, timeout=sub_timeout)
 
 
 _DISPATCH = {
