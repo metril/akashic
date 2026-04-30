@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { NtACL as NtACLType, NtACE, NtPrincipal } from "../../types";
 import { Chip, Mono } from "./shared";
 import { formatNtMask, formatAceFlag, formatNtControl } from "../../lib/aclLabels";
+import { dedupeAces } from "../../lib/aclDedupe";
 import { useResolvePrincipals } from "../../hooks/useResolvePrincipals";
 import type { PrincipalMap, ResolvedPrincipal } from "../../hooks/useResolvePrincipals";
 
@@ -80,10 +81,15 @@ function PrincipalRow({
 }
 
 function ACERow({
-  ace, index, map,
+  ace, index, count, map,
 }: {
   ace: NtACE;
   index: number;
+  // count > 1 means this row represents N bit-for-bit identical ACEs
+  // collapsed by dedupeAces. The "(×N)" badge after the principal
+  // name signals that the underlying ACL is dirty without us
+  // pretending the duplication isn't there.
+  count?: number;
   map: PrincipalMap;
 }) {
   const name = displayName(ace.name, ace.sid, map);
@@ -92,6 +98,19 @@ function ACERow({
       <td className="py-1.5 text-gray-400 tabular-nums">{index + 1}</td>
       <td className="py-1.5 text-gray-800">
         {name ? name : <UnresolvedSid sid={ace.sid} resolved={map[ace.sid]} />}
+        {count && count > 1 ? (
+          <span
+            className="ml-2 text-xs text-amber-700 font-medium"
+            title={
+              `This identical ACE appears ${count} times in the source security ` +
+              `descriptor. Common on shares that survived a domain migration; ` +
+              `the duplicates grant no extra access — they're noise. Clean up ` +
+              `at the source with icacls or the Windows security editor.`
+            }
+          >
+            ×{count}
+          </span>
+        ) : null}
       </td>
       <td className="py-1.5">
         <Chip variant={ace.ace_type === "deny" ? "deny" : "allow"}>{ace.ace_type}</Chip>
@@ -130,6 +149,13 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
   const inherited = acl.entries.filter(a => a.flags.includes("inherited"));
   const direct = acl.entries.filter(a => !a.flags.includes("inherited"));
 
+  // Dedupe direct + inherited separately. Don't cross-merge: a direct
+  // ACE and an inherited ACE with otherwise-identical fields are
+  // semantically different (one is enforced here, the other inherited
+  // from a parent), so collapsing them would mislead the reader.
+  const directGroups = useMemo(() => dedupeAces(direct), [direct]);
+  const inheritedGroups = useMemo(() => dedupeAces(inherited), [inherited]);
+
   // Resolve any SIDs the scanner couldn't translate. The hook is a
   // no-op (returns EMPTY) when there are zero unresolved SIDs or no
   // sourceId — both mean "nothing to ask the api about".
@@ -160,19 +186,33 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {direct.map((a, i) => <ACERow key={i} ace={a} index={i} map={principalMap} />)}
-          {showInherited && inherited.map((a, i) => (
-            <ACERow key={`i${i}`} ace={a} index={direct.length + i} map={principalMap} />
+          {directGroups.map((g, i) => (
+            <ACERow
+              key={`d${i}`}
+              ace={g.ace}
+              index={i}
+              count={g.count}
+              map={principalMap}
+            />
+          ))}
+          {showInherited && inheritedGroups.map((g, i) => (
+            <ACERow
+              key={`i${i}`}
+              ace={g.ace}
+              index={directGroups.length + i}
+              count={g.count}
+              map={principalMap}
+            />
           ))}
         </tbody>
       </table>
-      {inherited.length > 0 && (
+      {inheritedGroups.length > 0 && (
         <button
           type="button"
           onClick={() => setShowInherited(!showInherited)}
           className="mt-2 text-xs text-accent-600 hover:underline"
         >
-          {showInherited ? "Hide" : "Show"} {inherited.length} inherited entr{inherited.length === 1 ? "y" : "ies"}
+          {showInherited ? "Hide" : "Show"} {inheritedGroups.length} inherited entr{inheritedGroups.length === 1 ? "y" : "ies"}
         </button>
       )}
     </div>
