@@ -106,6 +106,16 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	var batch []models.EntryRecord
 	firstBatch := true
 
+	// Progress-log throttle: emit a "scanned N files (current path)" line
+	// no more than once per progressLogInterval. Without this, long
+	// scans go silent for minutes between the "walk starting" and "scan
+	// complete" messages, and the user reasonably wonders if the
+	// scanner is doing anything. Threshold is per-message-type, not a
+	// per-event count, so a fast NVMe and a slow SMB share both produce
+	// readable cadence.
+	const progressLogInterval = 3 * time.Second
+	var lastProgressLog time.Time
+
 	flush := func(final bool) error {
 		if len(batch) == 0 && !final {
 			return nil
@@ -164,6 +174,12 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		}
 
 		batch = append(batch, *entry)
+
+		if now := time.Now(); now.Sub(lastProgressLog) >= progressLogInterval {
+			s.info("scanned %d files, %d dirs · current: %s",
+				result.FilesFound, result.DirsFound, entry.Path)
+			lastProgressLog = now
+		}
 
 		if len(batch) >= s.opts.BatchSize {
 			return flush(false)
