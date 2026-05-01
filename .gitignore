@@ -21,6 +21,9 @@ web/dist/
 # Playwright MCP scratch
 .playwright-mcp/
 
+# Local agent state
+.claude/
+
 # Environment
 .env
 *.local

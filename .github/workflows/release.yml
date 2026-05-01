@@ -1,0 +1,246 @@
+name: Release
+
+# Tag-driven releases. Push a `vX.Y.Z` tag and this workflow:
+#   1. Re-runs the full test matrix (api / scanner / web).
+#   2. Builds and publishes `akashic-api` + `akashic-web` Docker images
+#      to GHCR with both `:vX.Y.Z` and `:latest` tags (multi-arch).
+#   3. Cross-compiles the scanner CLI for linux-amd64, linux-arm64, and
+#      darwin-arm64; tarballs each binary; uploads them to a GitHub
+#      Release with auto-generated notes from commits since the previous
+#      tag.
+#
+# Versioning: tags must match the `v*.*.*` pattern, with optional
+# `-prerelease` suffix (e.g. `v0.1.0-rc.1`). The `prerelease` flag on
+# the GitHub Release is set automatically when the tag has a hyphen.
+
+on:
+  push:
+    tags: [ "v*.*.*" ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist)"
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/${{ github.repository_owner }}/akashic-api
+  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/akashic-web
+
+jobs:
+  test-api:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: akashic
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: akashic_test
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: api/pyproject.toml
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libldap2-dev libsasl2-dev
+      - working-directory: api
+        run: pip install -e ".[dev]"
+      - working-directory: api
+        env:
+          TEST_DB_URL: postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test
+        run: python -m pytest --tb=short -q
+
+  test-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: scanner/go.sum
+      - working-directory: scanner
+        run: go test ./...
+
+  test-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: npm ci
+      - working-directory: web
+        run: npx tsc --noEmit
+      - working-directory: web
+        run: npx vitest run
+
+  build-images:
+    name: Build + publish images
+    needs: [ test-api, test-scanner, test-web ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve tag
+        id: meta
+        run: |
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${REF#v}"
+          IS_PRE=false
+          case "$VERSION" in
+            *-*) IS_PRE=true ;;
+          esac
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
+      - name: Build + push api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # Pre-releases (e.g. v0.1.0-rc.1) skip the `:latest` tag so a
+          # `docker pull akashic-api:latest` still resolves to the most
+          # recent stable release.
+          tags: |
+            ${{ env.IMAGE_API }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_API }}:v${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE_API) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_API }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_API }}:buildcache,mode=max
+      - name: Build + push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_WEB }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_WEB }}:v${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE_WEB) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache,mode=max
+
+  build-scanner:
+    name: Cross-compile scanner (${{ matrix.target.os }}/${{ matrix.target.arch }})
+    needs: [ test-scanner ]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: linux,  arch: amd64 }
+          - { os: linux,  arch: arm64 }
+          - { os: darwin, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: scanner/go.sum
+      - name: Build
+        # CGO_ENABLED=0 keeps the binary statically linked — no glibc
+        # version pinning at the deployment target.
+        working-directory: scanner
+        env:
+          GOOS: ${{ matrix.target.os }}
+          GOARCH: ${{ matrix.target.arch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p ../dist
+          OUT="../dist/akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}"
+          go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" \
+            -o "${OUT}" ./cmd/akashic-scanner
+          (cd ../dist && tar -czf "akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz" \
+            "akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}")
+          (cd ../dist && sha256sum "akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz" \
+            > "akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: |
+            dist/akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz
+            dist/akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [ build-images, build-scanner ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so release-notes can diff back to the previous tag
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Determine prerelease
+        id: meta
+        run: |
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          IS_PRE=false
+          case "${REF#v}" in
+            *-*) IS_PRE=true ;;
+          esac
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          files: |
+            dist/akashic-scanner-*.tar.gz
+            dist/akashic-scanner-*.tar.gz.sha256
+          body: |
+            ## Container images
+
+            ```
+            docker pull ${{ env.IMAGE_API }}:${{ steps.meta.outputs.tag }}
+            docker pull ${{ env.IMAGE_WEB }}:${{ steps.meta.outputs.tag }}
+            ```
+
+            ## Scanner CLI
+
+            Binaries below are statically linked (CGO_ENABLED=0). Verify
+            via the matching `.sha256` file:
+
+            ```
+            sha256sum -c akashic-scanner-linux-amd64.tar.gz.sha256
+            ```

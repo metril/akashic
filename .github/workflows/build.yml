@@ -1,0 +1,180 @@
+name: Build
+
+# Continuous build — every push to main and every PR builds the api +
+# web Docker images and runs the test suites. Pushes to main also tag
+# the resulting images with `latest` and the short commit SHA in the
+# project's GitHub Container Registry namespace; PRs build but do not
+# publish.
+#
+# Tagged releases (v*) are handled by release.yml, which extends this
+# pipeline with version tagging, multi-arch scanner binaries, and a
+# GitHub Release.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Cancel any in-flight build for the same ref when a new push lands —
+# avoids two concurrent CI runs racing each other to publish `:latest`.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/${{ github.repository_owner }}/akashic-api
+  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/akashic-web
+
+jobs:
+  test-api:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: akashic
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: akashic_test
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: api/pyproject.toml
+      - name: System deps
+        # python-ldap needs libldap2 + libsasl2 to compile its C extension.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libldap2-dev libsasl2-dev
+      - name: Install api package
+        working-directory: api
+        run: pip install -e ".[dev]"
+      - name: Run pytest
+        working-directory: api
+        env:
+          TEST_DB_URL: postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test
+        run: python -m pytest --tb=short -q
+
+  test-scanner:
+    name: Scanner tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: scanner/go.sum
+      - name: Run go test
+        working-directory: scanner
+        run: go test ./...
+
+  test-web:
+    name: Web tests + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Typecheck
+        working-directory: web
+        run: npx tsc --noEmit
+      - name: Vitest
+        working-directory: web
+        run: npx vitest run
+
+  build-api:
+    name: Build api image
+    needs: [ test-api, test-scanner ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        # Skip on PRs from forks where GITHUB_TOKEN can't write packages.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: tags
+        # On main: publish `latest` + the short SHA. On PR: a single
+        # SHA-tagged image, not pushed (load=true makes it available to
+        # subsequent steps in the runner, useful for testing).
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "tags=${IMAGE_API}:latest,${IMAGE_API}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${IMAGE_API}:pr-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push }}
+          tags: ${{ steps.tags.outputs.tags }}
+          # Layer cache via the registry — first build is slow, every
+          # subsequent run reuses the previous main build's layers.
+          cache-from: type=registry,ref=${{ env.IMAGE_API }}:buildcache
+          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_API) || '' }}
+
+  build-web:
+    name: Build web image
+    needs: [ test-web ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "tags=${IMAGE_WEB}:latest,${IMAGE_WEB}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${IMAGE_WEB}:pr-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache
+          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_WEB) || '' }}
