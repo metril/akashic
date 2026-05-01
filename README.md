@@ -9,9 +9,38 @@ Universal file index — hybrid Go scanner + Python API + Meilisearch + React we
 - **Web** (React + Vite + Tailwind) — admin dashboard.
 - **Storage** — PostgreSQL, Meilisearch, Redis (extraction queue), Tika (text extraction).
 
-## Run
+## Install — pre-built images
 
-Bring everything up with the bundled compose stack:
+Tagged releases publish multi-arch (`linux/amd64`, `linux/arm64`) images to
+[GitHub Container Registry](https://github.com/metril/akashic/pkgs/container/akashic-api)
+and statically-linked scanner binaries to the
+[Releases page](https://github.com/metril/akashic/releases).
+
+```sh
+# Pull the latest stable release of both images:
+docker pull ghcr.io/metril/akashic-api:latest
+docker pull ghcr.io/metril/akashic-web:latest
+
+# Pin a specific version:
+docker pull ghcr.io/metril/akashic-api:v0.1.0
+docker pull ghcr.io/metril/akashic-web:v0.1.0
+```
+
+Use the bundled `compose.release.yaml` to bring up the full stack against
+those pre-built images:
+
+```sh
+# Latest stable (default):
+docker compose -f compose.release.yaml up -d
+
+# Pinned release:
+AKASHIC_VERSION=v0.1.0 docker compose -f compose.release.yaml up -d
+```
+
+## Run from source
+
+If you want to build locally instead, the bundled `compose.yaml` will build
+both images from this checkout:
 
 ```sh
 make up         # docker compose up -d
@@ -71,3 +100,26 @@ docker compose exec api python -c "from passlib.context import CryptContext; pri
 docker compose exec postgres psql -U akashic -d akashic \
   -c "UPDATE users SET password_hash = '<paste hash>' WHERE username = 'admin';"
 ```
+
+## Releases
+
+CI runs on every push to `main` (build + test) and on every `v*.*.*` tag
+(build + test + publish). The full pipeline lives under
+[.github/workflows](.github/workflows).
+
+Cutting a release:
+
+```sh
+# 1. Tag the commit you want to ship (semver; pre-releases use a hyphen, e.g. v0.1.0-rc.1):
+git tag -a v0.1.0 -m "v0.1.0"
+git push github v0.1.0
+
+# 2. The release workflow runs the test matrix, then:
+#    - Publishes ghcr.io/metril/akashic-api:v0.1.0  (and :latest for stable)
+#    - Publishes ghcr.io/metril/akashic-web:v0.1.0  (and :latest for stable)
+#    - Cross-compiles akashic-scanner for linux-amd64, linux-arm64, darwin-arm64
+#    - Creates a GitHub Release with auto-generated notes + scanner tarballs
+```
+
+`-rc`, `-beta`, etc. (anything with a hyphen) are flagged as pre-releases
+and skip the `:latest` Docker tag, so consumers stay on the last stable.
