@@ -158,10 +158,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux-only for now — internal/metadata/collector.go reads
+        # `syscall.Stat_t.Atim/Ctim`, which only exists on Linux. Adding
+        # darwin/arm64 needs build-tagged shims (Atimespec/Ctimespec on
+        # Darwin, plus an OpenBSD/FreeBSD path); out of scope for v0.1.0.
         target:
-          - { os: linux,  arch: amd64 }
-          - { os: linux,  arch: arm64 }
-          - { os: darwin, arch: arm64 }
+          - { os: linux, arch: amd64 }
+          - { os: linux, arch: arm64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
