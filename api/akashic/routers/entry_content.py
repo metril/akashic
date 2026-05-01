@@ -54,6 +54,12 @@ async def _load_entry_and_source(
     if entry is None or entry.kind != "file" or entry.is_deleted:
         raise HTTPException(status_code=404, detail="entry not found or not a file")
     await check_source_access(entry.source_id, user, db, "read")
+    # Phase-5 per-user ACL trim — content/preview must respect the same
+    # filter as Browse and the entry detail. 404 (not 403) so an
+    # unviewable entry's existence isn't leaked through the status code.
+    from akashic.services.access_query import user_can_view
+    if not await user_can_view(entry, user, db):
+        raise HTTPException(status_code=404, detail="entry not found or not a file")
     source = await db.get(Source, entry.source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="source not found")

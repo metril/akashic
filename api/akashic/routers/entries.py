@@ -19,6 +19,7 @@ from akashic.schemas.entry import (
     EntryVersionResponse,
     _EntrySourceRef,
 )
+from akashic.services.access_query import user_can_view
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -89,6 +90,12 @@ async def get_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     await check_source_access(entry.source_id, user, db)
+    # Same filter Browse applies — and 404 (not 403) when the user
+    # can't see the entry. SharePoint-correct: not-found denies the
+    # existence-inference attack ("if I get 403 here, the entry
+    # exists; if I get 404, it doesn't").
+    if not await user_can_view(entry, user, db):
+        raise HTTPException(status_code=404, detail="Entry not found")
 
     versions_result = await db.execute(
         select(EntryVersion)
@@ -140,6 +147,8 @@ async def get_entry_versions(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     await check_source_access(entry.source_id, user, db)
+    if not await user_can_view(entry, user, db):
+        raise HTTPException(status_code=404, detail="Entry not found")
 
     result = await db.execute(
         select(EntryVersion)
