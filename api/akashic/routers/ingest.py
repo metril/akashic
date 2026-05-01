@@ -72,6 +72,38 @@ def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
         logger.warning("Failed to enqueue extraction jobs: %s", exc)
 
 
+async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
+    """Background task: write a scan_snapshot row at scan completion.
+
+    Done in the background (not in the ingest transaction) because the
+    aggregates run a few SQL passes over the entries table, which we
+    don't want blocking the final batch's response. Failure is logged
+    but does not propagate — a missing snapshot row degrades analytics
+    charts, but must not fail the scan."""
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+
+    from akashic.services.snapshot_writer import write_snapshot
+
+    engine = create_async_engine(db_url)
+    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with session() as db:
+            await write_snapshot(db, uuid.UUID(source_id), uuid.UUID(scan_id))
+            await db.commit()
+        logger.info("scan_snapshot written for scan_id=%s source_id=%s", scan_id, source_id)
+    except Exception as exc:
+        logger.warning(
+            "scan_snapshot write failed for scan_id=%s source_id=%s: %s",
+            scan_id, source_id, exc,
+        )
+    finally:
+        await engine.dispose()
+
+
 async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_url: str):
     """Background task: dispatch webhooks for scan events.
 
@@ -336,6 +368,12 @@ async def ingest_batch(
         )
 
     if batch.is_final:
+        background_tasks.add_task(
+            _write_scan_snapshot,
+            str(batch.scan_id),
+            str(batch.source_id),
+            settings.database_url,
+        )
         background_tasks.add_task(
             _dispatch_scan_webhooks,
             str(batch.scan_id),

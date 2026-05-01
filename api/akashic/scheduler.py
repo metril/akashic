@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _scheduler_task: asyncio.Task | None = None
 _retention_task: asyncio.Task | None = None
 _log_cleanup_task: asyncio.Task | None = None
+_snapshot_task: asyncio.Task | None = None
 
 # Phase 1 — log entries are kept for 7 days after the parent scan completes.
 # Long-running scans never expire while in flight; only completed/failed
@@ -211,6 +212,62 @@ async def _scan_log_cleanup_loop():
         await asyncio.sleep(3600)  # hourly
 
 
+async def _snapshot_fallback_loop():
+    """Daily: write a scan_snapshot for any source whose latest snapshot is
+    older than 24 hours.
+
+    Per Phase 1 plan: snapshots are normally written at scan-completion
+    (in ingest.py). For sources scanned weekly or less, this fallback
+    ensures the growth chart still has daily resolution. Sources that
+    have never been scanned successfully (no rows in the entries table
+    for them) are skipped — there's nothing to aggregate.
+    """
+    from sqlalchemy import func as _func
+
+    from akashic.models.scan_snapshot import ScanSnapshot
+    from akashic.services.snapshot_writer import write_snapshot
+
+    while True:
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            async with async_session() as db:
+                # For each source, find the latest snapshot's taken_at.
+                # If older than cutoff (or NULL = never), enqueue a fresh
+                # snapshot. Done as one query so we don't fan out N reads.
+                latest = (
+                    select(
+                        ScanSnapshot.source_id,
+                        _func.max(ScanSnapshot.taken_at).label("latest_at"),
+                    )
+                    .group_by(ScanSnapshot.source_id)
+                    .subquery()
+                )
+                stale_rows = (
+                    await db.execute(
+                        select(Source.id)
+                        .outerjoin(latest, latest.c.source_id == Source.id)
+                        .where(
+                            (latest.c.latest_at.is_(None)) | (latest.c.latest_at < cutoff),
+                        )
+                    )
+                ).all()
+                stale_ids = [r.id for r in stale_rows]
+
+            for source_id in stale_ids:
+                try:
+                    async with async_session() as db:
+                        await write_snapshot(db, source_id)
+                        await db.commit()
+                    logger.info("Nightly snapshot written for source %s", source_id)
+                except Exception as exc:
+                    logger.warning(
+                        "Nightly snapshot for source %s failed: %s", source_id, exc,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("snapshot fallback pass failed: %s", exc)
+        await asyncio.sleep(24 * 3600)  # daily
+
+
 async def _audit_retention_loop():
     """Daily: delete audit events older than `settings.audit_retention_days`.
     No-op when the setting is 0."""
@@ -238,7 +295,7 @@ async def _audit_retention_loop():
 
 def start_scheduler():
     """Start the background scheduler tasks."""
-    global _scheduler_task, _retention_task, _log_cleanup_task
+    global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
@@ -248,14 +305,19 @@ def start_scheduler():
     if _log_cleanup_task is None or _log_cleanup_task.done():
         _log_cleanup_task = asyncio.create_task(_scan_log_cleanup_loop())
         logger.info("Scan-log cleanup scheduler started")
+    if _snapshot_task is None or _snapshot_task.done():
+        _snapshot_task = asyncio.create_task(_snapshot_fallback_loop())
+        logger.info("Snapshot fallback scheduler started")
 
 
 def stop_scheduler():
     """Stop the background scheduler tasks."""
-    global _scheduler_task, _retention_task, _log_cleanup_task
+    global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
     if _retention_task and not _retention_task.done():
         _retention_task.cancel()
     if _log_cleanup_task and not _log_cleanup_task.done():
         _log_cleanup_task.cancel()
+    if _snapshot_task and not _snapshot_task.done():
+        _snapshot_task.cancel()
