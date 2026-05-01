@@ -173,7 +173,11 @@ jobs:
         with:
           context: web
           file: web/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # linux/amd64 only — arm64 trips the npm optional-deps bug
+          # for rollup's native binary (lockfile is x64-resolved).
+          # Same caveat as release.yml; revisit when web/Dockerfile is
+          # updated to drop package-lock.json before `npm install`.
+          platforms: linux/amd64
           push: ${{ steps.tags.outputs.push }}
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache

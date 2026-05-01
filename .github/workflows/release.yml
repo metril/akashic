@@ -138,7 +138,13 @@ jobs:
         with:
           context: web
           file: web/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # linux/amd64 only for now — arm64 hits the well-known npm
+          # optional-deps bug where `package-lock.json` (generated on
+          # x64) pins out `@rollup/rollup-linux-arm64-musl`, so vite's
+          # build step can't load rollup's native binary on arm64. The
+          # fix is in the Dockerfile (drop the lockfile before
+          # `npm install`); revisit as a follow-up.
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.IMAGE_WEB }}:${{ steps.meta.outputs.tag }}
