@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard
+from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(principals.router)
     app.include_router(access.router)
     app.include_router(dashboard.router)
+    app.include_router(storage_explorer.router)
     return app
 
 

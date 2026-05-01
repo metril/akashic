@@ -29,6 +29,7 @@ const sections: NavSection[] = [
     items: [
       { to: "/browse",     label: "Browse",     iconName: "folder" },
       { to: "/search",     label: "Search",     iconName: "search" },
+      { to: "/storage",    label: "Storage",    iconName: "box" },
       { to: "/duplicates", label: "Duplicates", iconName: "duplicates" },
       { to: "/analytics",  label: "Analytics",  iconName: "analytics" },
     ],

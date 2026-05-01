@@ -76,6 +76,35 @@ def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
         logger.warning("Failed to enqueue extraction jobs: %s", exc)
 
 
+async def _rollup_subtree_aggregates(source_id: str, db_url: str):
+    """Background task: refresh subtree_size / file_count / dir_count
+    on every directory in the source after an ingest's final batch
+    has settled. Cheap on incremental scans (most aggregates didn't
+    change), bounded by directory count on full scans. Failures are
+    logged but don't propagate — the StorageExplorer treemap will
+    just look stale until the next scan."""
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+
+    from akashic.services.subtree_rollup import rollup_source
+
+    engine = create_async_engine(db_url)
+    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with session() as db:
+            await rollup_source(db, uuid.UUID(source_id))
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "subtree rollup failed for source_id=%s: %s", source_id, exc,
+        )
+    finally:
+        await engine.dispose()
+
+
 async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
     """Background task: write a scan_snapshot row at scan completion.
 
@@ -384,6 +413,15 @@ async def ingest_batch(
         )
 
     if batch.is_final:
+        # Order matters: rollup runs BEFORE the snapshot writer so the
+        # snapshot's totals see the freshly-computed subtree aggregates.
+        # Both run in the background — the user sees the ScanBatchResponse
+        # immediately and these settle asynchronously.
+        background_tasks.add_task(
+            _rollup_subtree_aggregates,
+            str(batch.source_id),
+            settings.database_url,
+        )
         background_tasks.add_task(
             _write_scan_snapshot,
             str(batch.scan_id),
