@@ -6,15 +6,21 @@ and Browse permission filtering: one FsPerson per OIDC user, one
 FsBinding per matching source. Identities the IdP gave us but no source
 matches go into fs_unbound_identities so an admin can see the gap.
 
-See docs/oidc-authentik.md for the deployment guide. Phase 2b adds the
-ldap_fallback path here; this file's contract is stable across both
-sub-PRs.
+Phase 2a covers the `claim` and `name_match` strategies. Phase 2b adds
+`ldap_fallback`: when the IdP doesn't emit objectSid claims, Akashic
+binds to the configured AD over LDAP at login and pulls objectSid plus
+group memberships directly. A simple in-process circuit breaker
+prevents an AD outage from locking everyone out.
+
+See docs/oidc-authentik.md for the deployment guide.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -161,6 +167,222 @@ def _from_claim_strategy(
     return out
 
 
+# ── Strategy: ldap_fallback ────────────────────────────────────────────────
+
+
+@dataclass
+class _LdapLookup:
+    """Result of a successful AD lookup. SID is canonical (`S-1-5-…`) and
+    groups are SIDs in the same form. Empty groups list means the user
+    exists in AD but is in no groups (rare but possible)."""
+
+    sid: str
+    groups: list[str]
+
+
+# Circuit-breaker state for the LDAP fallback path. AD outages happen;
+# without a breaker, every login retries the bind and stacks up timeouts.
+# The breaker opens after _BREAKER_FAILURE_THRESHOLD consecutive failures
+# inside a window, then short-circuits future bind attempts for
+# _BREAKER_COOLDOWN_S seconds. After cooldown the next call is allowed
+# through (half-open); success resets state, failure re-opens.
+_BREAKER_FAILURE_THRESHOLD = 3
+_BREAKER_WINDOW_S = 60.0
+_BREAKER_COOLDOWN_S = 60.0
+_LDAP_TIMEOUT_S = 10.0
+
+
+class _LdapBreaker:
+    def __init__(self) -> None:
+        self.failures: list[float] = []  # monotonic timestamps
+        self.open_until: float = 0.0
+
+    def is_open(self, now: float | None = None) -> bool:
+        if now is None:
+            now = time.monotonic()
+        return now < self.open_until
+
+    def record_success(self) -> None:
+        self.failures.clear()
+        self.open_until = 0.0
+
+    def record_failure(self, now: float | None = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        self.failures = [t for t in self.failures if now - t <= _BREAKER_WINDOW_S]
+        self.failures.append(now)
+        if len(self.failures) >= _BREAKER_FAILURE_THRESHOLD:
+            self.open_until = now + _BREAKER_COOLDOWN_S
+
+
+# Module-level singleton — sized for one Akashic api process. Tests reset
+# via reset_ldap_breaker() to keep failures from leaking across tests.
+_breaker = _LdapBreaker()
+
+
+def reset_ldap_breaker() -> None:
+    """Clear circuit-breaker state. Tests use this; production never does."""
+    _breaker.failures.clear()
+    _breaker.open_until = 0.0
+
+
+def _decode_binary_sid(raw: bytes) -> str | None:
+    """Decode a 28-byte LDAP wire-format objectSid into S-1-5-… form.
+    Distinct from `_decode_object_sid` which accepts string/base64 inputs;
+    LDAP returns raw bytes."""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) < 8:
+        return None
+    revision = raw[0]
+    sub_auth_count = raw[1]
+    expected_len = 8 + 4 * sub_auth_count
+    if len(raw) != expected_len or sub_auth_count > 15:
+        return None
+    ident_auth = int.from_bytes(raw[2:8], "big")
+    parts = [str(revision), str(ident_auth)]
+    for i in range(sub_auth_count):
+        offset = 8 + 4 * i
+        parts.append(str(int.from_bytes(raw[offset:offset + 4], "little")))
+    return "S-" + "-".join(parts)
+
+
+def _lookup_user_in_ad(
+    settings: Settings, claims: dict,
+) -> _LdapLookup | None:
+    """Bind to the configured AD over LDAP and pull objectSid + group SIDs
+    for the user identified by the claims. Synchronous (uses python-ldap),
+    so callers must dispatch via run_in_executor. Returns None on any
+    failure path; the caller falls through to name_match.
+
+    The discriminator we filter by depends on what the IdP emitted:
+      1. `oidc_dn_claim` (default `ldap_dn`) — the user's full DN. Skips
+         search and binds directly.
+      2. `oidc_email_claim` (default `email`) — searched as
+         `mail` or `userPrincipalName` against `ldap_user_base`.
+      3. `oidc_username_claim` (default `preferred_username`) — searched
+         as `sAMAccountName`.
+    """
+    if not settings.ldap_server or not settings.ldap_bind_dn:
+        return None
+
+    import ldap  # python-ldap; lazy-imported because dev hosts may not have it
+    import ldap.filter
+
+    dn = claims.get(settings.oidc_dn_claim)
+    email = claims.get(settings.oidc_email_claim)
+    username = claims.get(settings.oidc_username_claim)
+
+    conn = ldap.initialize(settings.ldap_server)
+    conn.set_option(ldap.OPT_NETWORK_TIMEOUT, _LDAP_TIMEOUT_S)
+    conn.set_option(ldap.OPT_TIMEOUT, _LDAP_TIMEOUT_S)
+
+    try:
+        conn.simple_bind_s(settings.ldap_bind_dn, settings.ldap_bind_password)
+
+        user_dn: str | None = None
+        attrs: dict[str, list[bytes]] | None = None
+
+        if dn:
+            # Direct DN lookup — one search at base scope.
+            results = conn.search_s(dn, ldap.SCOPE_BASE, attrlist=["objectSid", "memberOf"])
+            if results:
+                user_dn, attrs = results[0]
+
+        if not attrs and (email or username):
+            base = settings.ldap_user_base
+            parts = []
+            if email:
+                e = ldap.filter.escape_filter_chars(str(email))
+                parts.append(f"(mail={e})")
+                parts.append(f"(userPrincipalName={e})")
+            if username:
+                u = ldap.filter.escape_filter_chars(str(username))
+                parts.append(f"(sAMAccountName={u})")
+            filterstr = "(|" + "".join(parts) + ")" if len(parts) > 1 else parts[0]
+            results = conn.search_s(
+                base, ldap.SCOPE_SUBTREE, filterstr,
+                attrlist=["objectSid", "memberOf"],
+            )
+            if results:
+                user_dn, attrs = results[0]
+
+        if not attrs:
+            return None
+
+        sid_raw = (attrs.get("objectSid") or [None])[0]
+        sid = _decode_binary_sid(sid_raw) if isinstance(sid_raw, (bytes, bytearray)) else None
+        if not sid:
+            return None
+
+        member_of_raw = attrs.get("memberOf") or []
+        member_dns = [
+            (m.decode("utf-8") if isinstance(m, (bytes, bytearray)) else str(m))
+            for m in member_of_raw
+        ]
+
+        # Second query: pull objectSid for every group the user is in.
+        # Done as a single OR filter to bound LDAP round-trips.
+        group_sids: list[str] = []
+        if member_dns:
+            esc = [ldap.filter.escape_filter_chars(d) for d in member_dns]
+            group_filter = "(|" + "".join(f"(distinguishedName={d})" for d in esc) + ")"
+            group_results = conn.search_s(
+                settings.ldap_user_base, ldap.SCOPE_SUBTREE, group_filter,
+                attrlist=["objectSid"],
+            )
+            for _gdn, gattrs in group_results:
+                gsid_raw = (gattrs.get("objectSid") or [None])[0]
+                if isinstance(gsid_raw, (bytes, bytearray)):
+                    gsid = _decode_binary_sid(gsid_raw)
+                    if gsid:
+                        group_sids.append(gsid)
+
+        return _LdapLookup(sid=sid, groups=group_sids)
+    finally:
+        try:
+            conn.unbind_s()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _from_ldap_fallback_strategy(
+    claims: dict, settings: Settings,
+) -> list[ExtractedIdentity]:
+    """Bind to AD at login, pull objectSid + group SIDs, return as a
+    `claim`-shape identity but tagged with confidence='ldap'.
+
+    Wrapped in the circuit breaker so a sustained AD outage doesn't
+    pile up timeouts on every login. Synchronous python-ldap is
+    dispatched via run_in_executor."""
+    if _breaker.is_open():
+        logger.warning("LDAP fallback skipped — circuit breaker open")
+        return []
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _lookup_user_in_ad, settings, claims),
+            timeout=_LDAP_TIMEOUT_S + 2.0,
+        )
+    except (asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+        logger.warning("LDAP fallback bind failed: %s", exc)
+        _breaker.record_failure()
+        return []
+
+    if result is None:
+        # Bind succeeded but the user wasn't found / lacked attrs. Don't
+        # count as a circuit failure — it's a config/data issue, not
+        # an outage.
+        return []
+
+    _breaker.record_success()
+    return [ExtractedIdentity(
+        identity_type="sid",
+        identifier=result.sid,
+        groups=result.groups,
+        confidence="ldap",
+    )]
+
+
 # ── Strategy: name_match ────────────────────────────────────────────────────
 
 
@@ -194,14 +416,18 @@ def _from_name_match_strategy(
 # ── Public extraction ──────────────────────────────────────────────────────
 
 
-def extract_identities(
+async def extract_identities(
     claims: dict, settings: Settings,
 ) -> list[ExtractedIdentity]:
     """Apply the configured strategy and return the candidate set.
 
-    Phase 2a covers `claim` and `name_match` paths. The `ldap_fallback`
-    path is a Phase 2b extension — `auto` falls through to `name_match`
-    until that lands."""
+    `auto` runs claim → ldap_fallback → name_match in order, taking the
+    first non-empty result. `ldap_fallback` requires `ldap_server` /
+    `ldap_bind_dn` to be configured; if not, it short-circuits to []
+    and the caller falls through.
+
+    Async because the ldap_fallback path dispatches python-ldap via
+    run_in_executor."""
     strategy = settings.oidc_strategy
 
     if strategy == "claim":
@@ -209,17 +435,22 @@ def extract_identities(
     if strategy == "name_match":
         return _from_name_match_strategy(claims, settings)
     if strategy == "ldap_fallback":
-        # Phase 2b. Until that ships, fall back to claim+name so
-        # deployments setting this strategy keep working at name-match
-        # precision rather than 401-ing.
-        return _from_claim_strategy(claims, settings) or _from_name_match_strategy(claims, settings)
+        return (
+            await _from_ldap_fallback_strategy(claims, settings)
+            or _from_claim_strategy(claims, settings)
+            or _from_name_match_strategy(claims, settings)
+        )
 
-    # auto: claim → ldap_fallback → name_match. Try claim first; if
-    # it returns anything, use it (claims trump fallbacks). Otherwise
-    # fall through to name_match.
+    # auto: claim → ldap_fallback → name_match. Claims trump fallbacks
+    # because the IdP is the authoritative source when it bothered to
+    # emit them; LDAP is more authoritative than name_match because it
+    # produces real SIDs vs string-name matches.
     claim_results = _from_claim_strategy(claims, settings)
     if claim_results:
         return claim_results
+    ldap_results = await _from_ldap_fallback_strategy(claims, settings)
+    if ldap_results:
+        return ldap_results
     return _from_name_match_strategy(claims, settings)
 
 
@@ -311,6 +542,11 @@ async def _upsert_binding(
         )
     ).scalar_one_or_none()
     now = datetime.now(timezone.utc)
+    # Record the provenance so the SettingsIdentities UI can badge each
+    # binding with how it got its groups: claim (best — IdP issued the
+    # SIDs directly), ldap (Akashic bound to AD itself), name (string
+    # matching only). This replaces the older catch-all "auto" value
+    # which lost the precision of the path that produced the row.
     if existing is None:
         db.add(FsBinding(
             fs_person_id=person.id,
@@ -318,7 +554,7 @@ async def _upsert_binding(
             identity_type=identity.identity_type,
             identifier=identity.identifier,
             groups=identity.groups,
-            groups_source="auto",
+            groups_source=identity.confidence,
             groups_resolved_at=now,
         ))
         return
@@ -327,7 +563,7 @@ async def _upsert_binding(
     existing.identity_type = identity.identity_type
     existing.identifier = identity.identifier
     existing.groups = identity.groups
-    existing.groups_source = "auto"
+    existing.groups_source = identity.confidence
     existing.groups_resolved_at = now
 
 
@@ -374,7 +610,7 @@ async def sync_fs_bindings_from_claims(
     logged and swallowed — a bad claims payload must not block the
     user's login."""
     try:
-        identities = extract_identities(claims, settings)
+        identities = await extract_identities(claims, settings)
     except Exception:  # noqa: BLE001
         logger.exception("OIDC identity extraction failed for user %s", user.id)
         return

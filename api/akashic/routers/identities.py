@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -243,25 +243,42 @@ async def delete_binding(
     )
 
 
-# ── Unbound identities (Phase 2a) ─────────────────────────────────────────
+# ── Unbound identities (Phase 2a/2b) ──────────────────────────────────────
 
 
 @router.get("/unbound")
 async def list_unbound(
     user_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ) -> list[dict]:
     """OIDC identities Akashic couldn't bind to a source at login.
 
-    Admin-only — exposes identity claims across all users so the
-    operator can spot "this whole org has SIDs in domain X but no
-    Akashic source uses domain X." Optional user_id filter narrows
-    to a single user. Ordered by last-seen descending so the most
-    recently-encountered claims surface first."""
+    Default scope is the requesting user's own unbound identities — so
+    a regular OIDC user landing on Settings → Identities sees "your AD
+    account has SID claim X but no Akashic source uses that domain"
+    without needing admin rights.
+
+    Admins additionally pass `?user_id=<uuid>` to see anyone's, or
+    leave it unset to see the entire backlog (`spot the user with the
+    weirdest unbound claims`). Non-admins passing `user_id` get a 403
+    rather than a silent filter to their own — surfacing rights bugs
+    is more important than hiding them. Ordered by last-seen
+    descending."""
+    is_admin = user.role == "admin"
+
+    if user_id is not None and not is_admin and user_id != user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can view another user's unbound identities",
+        )
+
     stmt = select(FsUnboundIdentity).order_by(FsUnboundIdentity.last_seen_at.desc())
     if user_id is not None:
         stmt = stmt.where(FsUnboundIdentity.user_id == user_id)
+    elif not is_admin:
+        # Non-admin without explicit user_id sees their own only.
+        stmt = stmt.where(FsUnboundIdentity.user_id == user.id)
     rows = (await db.execute(stmt)).scalars().all()
     return [
         {

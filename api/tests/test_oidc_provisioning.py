@@ -14,6 +14,7 @@ and hits external services; this file isolates the post-token logic
 that's pure-Python.
 """
 import base64
+import uuid as uuid_module
 
 import pytest
 from sqlalchemy import select
@@ -79,14 +80,15 @@ def test_decode_invalid_returns_none():
 # ── extract_identities — claim strategy ────────────────────────────────────
 
 
-def test_claim_strategy_emits_sid_and_groups():
+@pytest.mark.asyncio
+async def test_claim_strategy_emits_sid_and_groups():
     settings = _settings(strategy="claim")
     claims = {
         "preferred_username": "alice",
         "onprem_sid": "S-1-5-21-DOMAIN-1001",
         "groups": ["S-1-5-21-DOMAIN-1500", "S-1-5-21-DOMAIN-1501"],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert len(out) == 1
     assert out[0].identity_type == "sid"
     assert out[0].identifier == "S-1-5-21-DOMAIN-1001"
@@ -94,13 +96,15 @@ def test_claim_strategy_emits_sid_and_groups():
     assert out[0].confidence == "claim"
 
 
-def test_claim_strategy_with_no_sid_returns_empty():
+@pytest.mark.asyncio
+async def test_claim_strategy_with_no_sid_returns_empty():
     settings = _settings(strategy="claim")
     claims = {"preferred_username": "alice"}
-    assert extract_identities(claims, settings) == []
+    assert await extract_identities(claims, settings) == []
 
 
-def test_claim_strategy_attribute_nesting():
+@pytest.mark.asyncio
+async def test_claim_strategy_attribute_nesting():
     """Authentik can put SIDs under attributes.<claim> rather than at the
     token's top level. The extractor handles both."""
     settings = _settings(strategy="claim")
@@ -109,18 +113,19 @@ def test_claim_strategy_attribute_nesting():
         "attributes": {"onprem_sid": "S-1-5-21-X-1001"},
         "groups": [],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert out[0].identifier == "S-1-5-21-X-1001"
 
 
-def test_claim_strategy_includes_posix_uid_when_present():
+@pytest.mark.asyncio
+async def test_claim_strategy_includes_posix_uid_when_present():
     settings = _settings(strategy="claim")
     claims = {
         "preferred_username": "bob",
         "uidNumber": 1001,
         "groups": ["engineers"],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     # SID claim missing → only the posix_uid identity.
     assert len(out) == 1
     assert out[0].identity_type == "posix_uid"
@@ -128,27 +133,29 @@ def test_claim_strategy_includes_posix_uid_when_present():
     assert out[0].groups == ["engineers"]
 
 
-def test_claim_strategy_groups_format_name():
+@pytest.mark.asyncio
+async def test_claim_strategy_groups_format_name():
     settings = _settings(strategy="claim", oidc_groups_format="name")
     claims = {
         "preferred_username": "carol",
         "onprem_sid": "S-1-5-21-X-1001",
         "groups": ["Engineering", "Admins"],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert out[0].groups == ["Engineering", "Admins"]
 
 
 # ── extract_identities — name_match strategy ──────────────────────────────
 
 
-def test_name_match_strategy_emits_synthetic_posix_binding():
+@pytest.mark.asyncio
+async def test_name_match_strategy_emits_synthetic_posix_binding():
     settings = _settings(strategy="name_match", oidc_groups_format="name")
     claims = {
         "preferred_username": "dave",
         "groups": ["finance", "operations"],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert len(out) == 1
     assert out[0].identity_type == "posix_uid"
     assert out[0].identifier == "-1"
@@ -156,30 +163,168 @@ def test_name_match_strategy_emits_synthetic_posix_binding():
     assert out[0].confidence == "name"
 
 
-def test_name_match_strategy_returns_empty_with_no_groups():
+@pytest.mark.asyncio
+async def test_name_match_strategy_returns_empty_with_no_groups():
     settings = _settings(strategy="name_match")
-    assert extract_identities({"preferred_username": "x"}, settings) == []
+    assert await extract_identities({"preferred_username": "x"}, settings) == []
 
 
 # ── extract_identities — auto strategy ────────────────────────────────────
 
 
-def test_auto_prefers_claim_when_sid_present():
+@pytest.mark.asyncio
+async def test_auto_prefers_claim_when_sid_present():
     settings = _settings(strategy="auto")
     claims = {
         "preferred_username": "eve",
         "onprem_sid": "S-1-5-21-X-1001",
         "groups": ["S-1-5-21-X-1500"],
     }
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert out[0].confidence == "claim"
 
 
-def test_auto_falls_through_to_name_match_when_no_sid():
+@pytest.mark.asyncio
+async def test_auto_falls_through_to_name_match_when_no_sid():
     settings = _settings(strategy="auto", oidc_groups_format="name")
     claims = {"preferred_username": "frank", "groups": ["devs"]}
-    out = extract_identities(claims, settings)
+    out = await extract_identities(claims, settings)
     assert out[0].confidence == "name"
+
+
+# ── extract_identities — ldap_fallback strategy ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ldap_fallback_uses_lookup_result_when_claim_missing(monkeypatch):
+    """In `auto` mode, when the claim path returns nothing, ldap_fallback
+    runs and produces an `ldap`-confidence identity."""
+    from akashic.auth import oidc_provisioning
+
+    oidc_provisioning.reset_ldap_breaker()
+
+    async def _fake_run_in_executor(executor, fn, *args, **kw):
+        return oidc_provisioning._LdapLookup(
+            sid="S-1-5-21-FROM-LDAP-1001",
+            groups=["S-1-5-21-FROM-LDAP-2001"],
+        )
+
+    settings = _settings(
+        strategy="auto",
+        ldap_server="ldap://example.com",
+        ldap_bind_dn="cn=svc,dc=example,dc=com",
+        ldap_bind_password="x",
+    )
+    monkeypatch.setattr(
+        "asyncio.get_running_loop",
+        lambda: type("L", (), {"run_in_executor": _fake_run_in_executor})(),
+    )
+
+    out = await extract_identities({"email": "alice@example.com"}, settings)
+    assert len(out) == 1
+    assert out[0].identifier == "S-1-5-21-FROM-LDAP-1001"
+    assert out[0].confidence == "ldap"
+    assert out[0].groups == ["S-1-5-21-FROM-LDAP-2001"]
+
+
+@pytest.mark.asyncio
+async def test_ldap_fallback_falls_through_to_name_match_when_lookup_fails(monkeypatch):
+    from akashic.auth import oidc_provisioning
+
+    oidc_provisioning.reset_ldap_breaker()
+
+    async def _failing_run_in_executor(executor, fn, *args, **kw):
+        raise RuntimeError("AD is down")
+
+    settings = _settings(
+        strategy="auto",
+        ldap_server="ldap://example.com",
+        ldap_bind_dn="cn=svc,dc=example,dc=com",
+        ldap_bind_password="x",
+        oidc_groups_format="name",
+    )
+    monkeypatch.setattr(
+        "asyncio.get_running_loop",
+        lambda: type("L", (), {"run_in_executor": _failing_run_in_executor})(),
+    )
+
+    out = await extract_identities(
+        {"preferred_username": "g", "groups": ["engineers"]}, settings,
+    )
+    # Falls through to name_match, not 401-ing.
+    assert len(out) == 1
+    assert out[0].confidence == "name"
+
+
+@pytest.mark.asyncio
+async def test_ldap_fallback_circuit_breaker_opens_after_failures(monkeypatch):
+    from akashic.auth import oidc_provisioning
+
+    oidc_provisioning.reset_ldap_breaker()
+    call_count = {"n": 0}
+
+    async def _failing(executor, fn, *args, **kw):
+        call_count["n"] += 1
+        raise RuntimeError("AD down")
+
+    settings = _settings(
+        strategy="ldap_fallback",
+        ldap_server="ldap://example.com",
+        ldap_bind_dn="cn=svc,dc=example,dc=com",
+        ldap_bind_password="x",
+        oidc_groups_format="name",
+    )
+    monkeypatch.setattr(
+        "asyncio.get_running_loop",
+        lambda: type("L", (), {"run_in_executor": _failing})(),
+    )
+
+    # Drive 3 consecutive failures — threshold is 3.
+    for _ in range(3):
+        await extract_identities(
+            {"preferred_username": "g", "groups": []}, settings,
+        )
+    assert call_count["n"] == 3
+    # Breaker is now open. The 4th call must skip the lookup entirely.
+    await extract_identities({"preferred_username": "g", "groups": []}, settings)
+    assert call_count["n"] == 3  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_ldap_fallback_no_op_when_ldap_not_configured(monkeypatch):
+    """If ldap_server / ldap_bind_dn are blank, the lookup short-circuits
+    to None without attempting to import python-ldap. This is the path
+    deployments take when they pin to ldap_fallback but haven't filled
+    in the LDAP config yet."""
+    from akashic.auth import oidc_provisioning
+
+    oidc_provisioning.reset_ldap_breaker()
+    settings = _settings(strategy="ldap_fallback", ldap_server="", ldap_bind_dn="")
+
+    out = await extract_identities(
+        {"preferred_username": "g", "groups": ["engineers"]}, settings,
+    )
+    # Falls through to name_match.
+    assert out[0].confidence == "name"
+
+
+def test_decode_binary_sid_round_trip():
+    """The binary-SID decoder used during LDAP lookups produces the same
+    canonical S-1-5-… form as the base64 path in oidc_provisioning."""
+    from akashic.auth.oidc_provisioning import _decode_binary_sid
+
+    blob = bytes([1, 5, 0, 0, 0, 0, 0, 5])
+    for sa in [21, 1, 2, 3, 1001]:
+        blob += sa.to_bytes(4, "little")
+    assert _decode_binary_sid(blob) == "S-1-5-21-1-2-3-1001"
+
+
+def test_decode_binary_sid_rejects_truncated():
+    from akashic.auth.oidc_provisioning import _decode_binary_sid
+    assert _decode_binary_sid(b"") is None
+    assert _decode_binary_sid(b"\x01\x05\x00") is None
+    # Length doesn't match sub-auth count.
+    assert _decode_binary_sid(b"\x01\x05" + b"\x00" * 6 + b"\x00" * 12) is None
 
 
 # ── _source_matches ────────────────────────────────────────────────────────
@@ -285,7 +430,9 @@ async def test_sync_creates_person_and_binding_for_matching_source(db_session):
     assert b.identity_type == "sid"
     assert b.identifier == "S-1-5-21-DOMAIN-1001"
     assert b.groups == ["S-1-5-21-DOMAIN-1500"]
-    assert b.groups_source == "auto"
+    # Phase 2b: groups_source captures the strategy that produced
+    # the binding (claim / ldap / name), not the catch-all "auto".
+    assert b.groups_source == "claim"
 
     # Nothing went unbound.
     unbound = (await db_session.execute(
@@ -393,9 +540,11 @@ async def _register_login(client, username="admin", password="testpass123"):
 
 
 @pytest.mark.asyncio
-async def test_unbound_endpoint_admin_only(client, db_session):
+async def test_unbound_endpoint_self_scope_for_non_admin(client, db_session):
+    """A non-admin calling /unbound with no user_id sees only THEIR own
+    unbound rows. A non-admin passing somebody else's user_id is 403'd."""
     admin_token = await _register_login(client)
-    # regular user
+    # Make a regular user.
     await client.post(
         "/api/users/create",
         json={"username": "regular", "password": "testpass123", "role": "user"},
@@ -407,8 +556,17 @@ async def test_unbound_endpoint_admin_only(client, db_session):
     )
     user_token = login.json()["access_token"]
 
+    # Default scope is self; empty list when nothing seeded.
     r = await client.get(
         "/api/identities/unbound",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    assert r.status_code == 200
+    assert r.json() == []
+
+    # Trying to peek at someone else's unbound is 403.
+    r = await client.get(
+        f"/api/identities/unbound?user_id={uuid_module.uuid4()}",
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 403

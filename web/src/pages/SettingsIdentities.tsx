@@ -1,9 +1,48 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { EmptyState, Spinner, Page } from "../components/ui";
+import { Badge, EmptyState, Spinner, Page } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
+
+interface UnboundIdentity {
+  id: string;
+  user_id: string;
+  identity_type: string;
+  identifier: string;
+  confidence: "claim" | "ldap" | "name";
+  groups: string[];
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+/** Per-binding "where did this come from?" badge.
+ *
+ * - manual: user added this binding by hand. No badge — the absence
+ *   reads as "you own this row".
+ * - claim: IdP issued the SID/group claims directly. Strongest signal.
+ * - ldap: Akashic bound to AD itself to fetch the SID. Strong but
+ *   slower than claims.
+ * - name: only group names matched; no SIDs in play. Weakest — file-
+ *   permission filtering will be name-based, which works for POSIX
+ *   sources but rarely for SMB shares. Surface this so admins know
+ *   to push the IdP toward emitting real SIDs.
+ * - auto: legacy "groups were auto-resolved by the resolver service",
+ *   not by OIDC. Pre-Phase-2a bindings still carry this.
+ */
+function BindingSourceBadge({ source }: { source: string }) {
+  if (source === "manual") return null;
+  if (source === "claim") {
+    return <Badge variant="online" className="text-[10px]">claim</Badge>;
+  }
+  if (source === "ldap") {
+    return <Badge variant="info" className="text-[10px]">ldap</Badge>;
+  }
+  if (source === "name") {
+    return <Badge variant="neutral" className="text-[10px]">name</Badge>;
+  }
+  return <Badge variant="neutral" className="text-[10px]">auto</Badge>;
+}
 
 const PRINCIPAL_TYPES: { value: PrincipalType; label: string }[] = [
   { value: "posix_uid",        label: "POSIX UID" },
@@ -22,6 +61,13 @@ export default function SettingsIdentities() {
     queryKey: ["sources"],
     queryFn:  () => api.get<Source[]>("/sources"),
   });
+  // Default scope is self; backend filters to current user without a
+  // user_id param. Admin viewers can still query the raw endpoint via
+  // /admin/identities (Phase 2b future) for the cross-user view.
+  const unboundQ = useQuery<UnboundIdentity[]>({
+    queryKey: ["identities", "unbound"],
+    queryFn:  () => api.get<UnboundIdentity[]>("/identities/unbound"),
+  });
 
   const createPerson = useMutation<FsPerson, Error, FsPersonInput>({
     mutationFn: (body) => api.post<FsPerson>("/identities", body),
@@ -38,6 +84,8 @@ export default function SettingsIdentities() {
       description="Tell Akashic who you are on each source. Search results filter by what these identities can read."
       width="compact"
     >
+      <UnboundPanel rows={unboundQ.data ?? []} />
+
       {personsQ.isLoading ? (
         <div className="flex items-center justify-center py-12 text-fg-subtle">
           <Spinner />
@@ -125,9 +173,10 @@ function PersonCard({
                   groups: {b.groups.join(", ")}
                 </span>
               )}
-              {b.groups_resolved_at && b.groups_source === "auto" && (
+              <BindingSourceBadge source={b.groups_source} />
+              {b.groups_resolved_at && (
                 <span className="text-[10px] text-fg-subtle">
-                  auto · {new Date(b.groups_resolved_at).toLocaleDateString()}
+                  {new Date(b.groups_resolved_at).toLocaleDateString()}
                 </span>
               )}
               <button
@@ -254,5 +303,51 @@ function AddBindingForm({
         className="bg-accent-600 text-white rounded px-2 py-1 disabled:opacity-50 hover:bg-accent-700"
       >+ Add binding</button>
     </form>
+  );
+}
+
+
+/** Unbound identities: claims an OIDC IdP gave us at login that didn't
+ * match any source's principal_domain.
+ *
+ * Renders nothing when there's nothing unbound — the panel is a problem
+ * surface, not a feature. When it's non-empty, the user typically
+ * needs to ask an admin to add their AD domain's SID prefix to a
+ * source's connection_config.principal_domain.
+ */
+function UnboundPanel({ rows }: { rows: UnboundIdentity[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-0.5 text-amber-600 dark:text-amber-400">⚠</div>
+        <div className="flex-1">
+          <div className="font-medium text-fg mb-1">Unbound identities</div>
+          <p className="text-xs text-fg-muted mb-3">
+            Your OIDC token contained {rows.length} identity claim
+            {rows.length === 1 ? "" : "s"} Akashic couldn't bind to any
+            source — typically because no source has a matching{" "}
+            <code className="font-mono">principal_domain</code> set. Permission
+            filtering won't recognise these identities until an admin
+            attaches them.
+          </p>
+          <ul className="space-y-1 text-xs">
+            {rows.map((r) => (
+              <li key={r.id} className="flex items-center gap-2">
+                <code className="font-mono bg-surface px-1.5 py-0.5 rounded border border-line">
+                  {r.identity_type}:{r.identifier}
+                </code>
+                <BindingSourceBadge source={r.confidence} />
+                {r.groups.length > 0 && (
+                  <span className="text-fg-subtle">
+                    · {r.groups.length} group{r.groups.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
