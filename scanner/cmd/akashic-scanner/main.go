@@ -39,6 +39,9 @@ func main() {
 		case "delete":
 			runDelete(os.Args[2:])
 			return
+		case "agent":
+			runAgent(os.Args[2:])
+			return
 		}
 	}
 
