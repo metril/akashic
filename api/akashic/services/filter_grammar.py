@@ -86,6 +86,15 @@ class PathPred(BaseModel):
     value: str  # path-prefix; "/" matches everything, empty is a no-op
 
 
+class TagPred(BaseModel):
+    """User-applied tag filter — matches every entry that carries the
+    named tag (direct or inherited from a tagged ancestor; inheritance
+    is invisible to the filter — see services/tag_inheritance.py)."""
+
+    kind: Literal["tag"]
+    value: str
+
+
 Predicate = Annotated[
     Union[
         ExtensionPred,
@@ -96,6 +105,7 @@ Predicate = Annotated[
         SizePred,
         MtimePred,
         PathPred,
+        TagPred,
     ],
     Field(discriminator="kind"),
 ]
@@ -186,6 +196,12 @@ def to_meili(preds: list[Predicate]) -> str:
             # index would let us emit `path_prefix = ".../X/"` here; out
             # of scope for this phase.
             continue
+        elif isinstance(p, TagPred):
+            # Meili's `tags` is filterable + multi-valued. Inheritance
+            # is materialised onto the entry's row before indexing, so
+            # the filter behaves identically whether the tag was direct
+            # or inherited.
+            parts.append(f'tags = "{_meili_escape(p.value)}"')
     return " AND ".join(parts)
 
 
@@ -247,6 +263,19 @@ def to_sqlalchemy(preds: list[Predicate]) -> list:
             v = v.rstrip("/") or "/"
             # Match the entry itself OR any descendant.
             clauses.append((Entry.path == v) | (Entry.path.startswith(v + "/")))
+        elif isinstance(p, TagPred):
+            from akashic.models.tag import EntryTag
+            from sqlalchemy import select
+
+            # EXISTS subquery — keeps the outer SELECT row-shape stable
+            # (no JOIN multiplying rows when an entry has multiple tag
+            # rows for the same string from different origins).
+            clauses.append(
+                select(EntryTag.id)
+                .where(EntryTag.entry_id == Entry.id)
+                .where(EntryTag.tag == p.value)
+                .exists()
+            )
     return clauses
 
 

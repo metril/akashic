@@ -16,6 +16,7 @@ from akashic.services.filter_grammar import (
     PrincipalPred,
     SizePred,
     SourcePred,
+    TagPred,
     has_meili_inexpressible_predicate,
     has_principal_predicate,
     parse,
@@ -215,3 +216,42 @@ def test_has_meili_inexpressible_false_for_basic_predicates():
         ExtensionPred(kind="extension", value="pdf"),
         SizePred(kind="size", op="gte", value=1),
     ]) is False
+
+
+# ── TagPred (Phase C) ──────────────────────────────────────────────────────
+
+
+def test_tag_predicate_round_trip():
+    preds = [TagPred(kind="tag", value="quarterly")]
+    decoded = parse(serialize(preds))
+    assert len(decoded) == 1 and decoded[0].value == "quarterly"
+
+
+def test_tag_predicate_to_meili_emits_filter():
+    """Tags is filterable + multi-valued in Meili — direct emission,
+    no SQL fallback dance like PathPred needs."""
+    out = to_meili([TagPred(kind="tag", value="archive")])
+    assert out == 'tags = "archive"'
+
+
+def test_tag_predicate_meili_is_expressible():
+    """Tags don't force the SQL fallback — they ride through Meili."""
+    assert has_meili_inexpressible_predicate(
+        [TagPred(kind="tag", value="archive")]
+    ) is False
+
+
+def test_tag_predicate_to_sqlalchemy_emits_exists_subquery():
+    """SQL fallback path uses an EXISTS so multiple tag rows for the
+    same name (direct + inherited from two ancestors) don't multiply
+    out the result set."""
+    clauses = to_sqlalchemy([TagPred(kind="tag", value="archive")])
+    assert len(clauses) == 1
+    sql = str(clauses[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "EXISTS" in sql.upper()
+    assert "archive" in sql
+
+
+def test_tag_predicate_escapes_quotes_in_meili():
+    out = to_meili([TagPred(kind="tag", value='legal "hold"')])
+    assert out == 'tags = "legal \\"hold\\""'

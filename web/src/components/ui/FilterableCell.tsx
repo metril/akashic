@@ -102,5 +102,6 @@ export function predicateLabel(p: Predicate): string {
     case "size":      return `size ${p.op === "gte" ? "≥" : p.op === "lte" ? "≤" : "="} ${p.value}`;
     case "mtime":     return `modified ${p.op === "gte" ? "≥" : "≤"} ${p.value}`;
     case "path":      return `under ${p.value}`;
+    case "tag":       return `tag: ${p.value}`;
   }
 }

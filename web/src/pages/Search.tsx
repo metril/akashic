@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
 import {
+  Button,
   Card,
   Input,
   Select,
@@ -15,6 +16,7 @@ import {
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
+import { useAuth } from "../hooks/useAuth";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
@@ -52,6 +54,37 @@ export default function Search() {
   const [showSearchAs, setShowSearchAs] = useState(false);
   const { openEntry } = useEntryDetail();
   const { filters } = useFilterUrlState();
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+
+  const bulkApplyMut = useMutation({
+    mutationFn: (tags: string[]) =>
+      api.post<void>("/tags/bulk-apply", {
+        entry_ids: Array.from(selectedIds),
+        tags,
+      }),
+    onSuccess: () => {
+      // Each tagged entry's drawer query needs to refresh.
+      for (const id of selectedIds) {
+        queryClient.invalidateQueries({ queryKey: ["entry", id] });
+      }
+      setSelectedIds(new Set());
+      setTagDialogOpen(false);
+      setTagDraft("");
+    },
+  });
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -204,13 +237,23 @@ export default function Search() {
         </Card>
       ) : (
         <>
-          <div className="text-xs text-fg-muted mb-3">
-            {searchQuery.data?.total.toLocaleString()} result
-            {searchQuery.data?.total !== 1 && "s"}
-            {searchAs && (
-              <span className="ml-2 text-amber-700">
-                (filtered as {searchAs.type}:{searchAs.identifier})
-              </span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-fg-muted">
+              {searchQuery.data?.total.toLocaleString()} result
+              {searchQuery.data?.total !== 1 && "s"}
+              {searchAs && (
+                <span className="ml-2 text-amber-700">
+                  (filtered as {searchAs.type}:{searchAs.identifier})
+                </span>
+              )}
+            </div>
+            {isAdmin && selectedIds.size > 0 && (
+              <Button
+                size="sm"
+                onClick={() => setTagDialogOpen(true)}
+              >
+                Tag selected ({selectedIds.size})
+              </Button>
             )}
           </div>
           <Card padding="none">
@@ -229,6 +272,16 @@ export default function Search() {
                   className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
                 >
                   <div className="flex items-baseline justify-between gap-4">
+                    {isAdmin && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(file.id)}
+                        onChange={() => toggleSelected(file.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 flex-shrink-0"
+                        aria-label={`Select ${file.filename}`}
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-fg truncate">
@@ -265,6 +318,65 @@ export default function Search() {
             </ul>
           </Card>
         </>
+      )}
+
+      {tagDialogOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setTagDialogOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-md p-5"
+          >
+            <h2 className="text-base font-semibold text-fg mb-2">
+              Tag {selectedIds.size} selected
+            </h2>
+            <p className="text-xs text-fg-muted mb-3">
+              Comma-separated. Tagging a directory inherits to every
+              descendant.
+            </p>
+            <Input
+              autoFocus
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              placeholder="archive, fy26"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const items = tagDraft
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  if (items.length > 0) bulkApplyMut.mutate(items);
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setTagDialogOpen(false);
+                  setTagDraft("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const items = tagDraft
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  if (items.length > 0) bulkApplyMut.mutate(items);
+                }}
+                loading={bulkApplyMut.isPending}
+                disabled={!tagDraft.trim()}
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </Page>
   );

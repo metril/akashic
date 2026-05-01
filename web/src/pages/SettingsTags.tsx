@@ -18,6 +18,13 @@ interface Tag {
   color: string | null;
 }
 
+interface TagUsage {
+  name: string;
+  color: string | null;
+  direct_count: number;
+  inherited_count: number;
+}
+
 const COLOR_PRESETS = [
   { value: "",        label: "default" },
   { value: "#6366f1", label: "indigo" },
@@ -52,14 +59,26 @@ export default function SettingsTags() {
     queryFn: () => api.get<Tag[]>("/tags"),
   });
 
+  const usageQ = useQuery<TagUsage[]>({
+    queryKey: ["tags", "usage"],
+    queryFn: () => api.get<TagUsage[]>("/tags/usage"),
+  });
+  const usageByName = new Map((usageQ.data ?? []).map((u) => [u.name, u]));
+
   const createTag = useMutation<Tag, Error, { name: string; color: string | null }>({
     mutationFn: (body) => api.post<Tag>("/tags", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tags"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tags"] });
+      qc.invalidateQueries({ queryKey: ["tags", "usage"] });
+    },
   });
 
   const deleteTag = useMutation<void, Error, string>({
     mutationFn: (id) => api.delete<void>(`/tags/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tags"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tags"] });
+      qc.invalidateQueries({ queryKey: ["tags", "usage"] });
+    },
   });
 
   const [name, setName] = useState("");
@@ -116,22 +135,35 @@ export default function SettingsTags() {
           ) : (
             <Card padding="none">
               <ul className="divide-y divide-line-subtle">
-                {(tagsQ.data ?? []).map((tag) => (
-                  <li
-                    key={tag.id}
-                    className="flex items-center justify-between px-4 py-2.5"
-                  >
-                    <TagPill tag={tag} />
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => handleDelete(tag)}
-                      loading={deleteTag.isPending && deleteTag.variables === tag.id}
+                {(tagsQ.data ?? []).map((tag) => {
+                  const usage = usageByName.get(tag.name);
+                  return (
+                    <li
+                      key={tag.id}
+                      className="flex items-center justify-between px-4 py-2.5"
                     >
-                      Delete
-                    </Button>
-                  </li>
-                ))}
+                      <div className="flex items-center gap-3">
+                        <TagPill tag={tag} />
+                        {usage && (
+                          <span className="text-xs text-fg-muted">
+                            {usage.direct_count} direct
+                            {usage.inherited_count > 0 && (
+                              <> · {usage.inherited_count} inherited</>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => handleDelete(tag)}
+                        loading={deleteTag.isPending && deleteTag.variables === tag.id}
+                      >
+                        Delete
+                      </Button>
+                    </li>
+                  );
+                })}
               </ul>
             </Card>
           )}

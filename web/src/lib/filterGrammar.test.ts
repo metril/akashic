@@ -127,4 +127,24 @@ describe("sameTarget", () => {
       ),
     ).toBe(false);
   });
+
+  it("round-trips a tag predicate", () => {
+    const preds: Predicate[] = [{ kind: "tag", value: "quarterly" }];
+    expect(deserialize(serialize(preds))).toEqual(preds);
+  });
+
+  it("matches two tag predicates with the same value", () => {
+    expect(
+      sameTarget(
+        { kind: "tag", value: "archive" },
+        { kind: "tag", value: "archive" },
+      ),
+    ).toBe(true);
+    expect(
+      sameTarget(
+        { kind: "tag", value: "archive" },
+        { kind: "tag", value: "report" },
+      ),
+    ).toBe(false);
+  });
 });
