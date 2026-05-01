@@ -88,6 +88,31 @@ services:
         - action: rebuild
           path: ./web/nginx.conf
 
+  # Phase 2 multi-scanner — the api stopped spawning the bundled
+  # binary in routers/scans.py, so a scanner agent has to run
+  # somewhere for /api/scans/trigger to actually do work. Mint a
+  # `default`-pool scanner via Settings → Scanners (or `make
+  # bootstrap-scanner`), drop the issued private key into
+  # secrets/default-scanner/scanner.key, set SCANNER_ID in your
+  # .env, then `docker compose up -d scanner` brings this up.
+  scanner:
+    build:
+      context: .
+      dockerfile: scanner/Dockerfile
+    command:
+      - agent
+      - --api=http://api:8000
+      - --scanner-id=${SCANNER_ID:-}
+      - --key=/secrets/scanner.key
+    volumes:
+      - ./secrets/default-scanner:/secrets:ro
+    depends_on:
+      api:
+        condition: service_started
+    # Don't auto-start — the secret has to exist first. `docker
+    # compose up scanner` brings it up explicitly.
+    profiles: ["scanner"]
+
 volumes:
   pgdata:
   msdata:

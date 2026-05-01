@@ -80,6 +80,25 @@ services:
     depends_on:
       - api
 
+  # Multi-scanner: register a scanner via Settings → Scanners (or
+  # `make bootstrap-scanner` in dev), put the issued private key at
+  # ./secrets/default-scanner/scanner.key, set SCANNER_ID in .env,
+  # then `docker compose -f compose.release.yaml up -d scanner` to
+  # bring the agent up. Profile-gated so other services can come up
+  # before the secret exists.
+  scanner:
+    image: ghcr.io/metril/akashic-scanner:${AKASHIC_VERSION:-latest}
+    command:
+      - agent
+      - --api=http://api:8000
+      - --scanner-id=${SCANNER_ID:-}
+      - --key=/secrets/scanner.key
+    volumes:
+      - ./secrets/default-scanner:/secrets:ro
+    depends_on:
+      - api
+    profiles: ["scanner"]
+
 volumes:
   pgdata:
   msdata:

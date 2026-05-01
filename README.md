@@ -101,6 +101,80 @@ docker compose exec postgres psql -U akashic -d akashic \
   -c "UPDATE users SET password_hash = '<paste hash>' WHERE username = 'admin';"
 ```
 
+## Scanners
+
+Scans run on **scanner agents**, not on the api host. The api enqueues
+a pending scan; an agent registered with that source's pool picks it
+up via [`POST /api/scans/lease`](api/akashic/routers/scanners.py).
+Agents can run anywhere with HTTP reach to the api, so:
+
+- **Multi-site:** put one agent in each site's network (e.g. `pool=hq`,
+  `pool=site-amsterdam`) and tag each source with the matching pool.
+  The agent only needs to see its local data; the api never touches
+  the share directly.
+- **Parallel throughput:** put N agents in the same pool. They race
+  for jobs via Postgres `FOR UPDATE SKIP LOCKED`, so each pending
+  scan is claimed exactly once.
+- **Permissive routing:** sources with no `preferred_pool` can be
+  claimed by any registered agent; sources with a pool tag are
+  pinned to that pool.
+
+### Provisioning a scanner
+
+Each agent has its own Ed25519 keypair. The api stores only the
+public key; the private key is shown **once** at registration and
+must be saved to the agent host.
+
+```sh
+# 1. In the dashboard: Settings → Scanners → "Register a scanner".
+#    Pick a name + pool ("default" if you don't care about routing).
+#    Save the issued private key (downloadable as .pem) and copy the
+#    scanner UUID.
+
+# 2. On the agent host (could be the same machine, could be remote):
+docker run -d --restart=unless-stopped \
+  -v /etc/akashic:/secrets:ro \
+  ghcr.io/metril/akashic-scanner:latest \
+  agent \
+    --api=https://akashic.example.com \
+    --scanner-id=<uuid-from-step-1> \
+    --key=/secrets/scanner.key
+
+# 3. Within ~30 s the agent shows online in Settings → Scanners and
+#    starts claiming queued scans.
+```
+
+For local-dev single-host installs, `make bootstrap-scanner`
+automates steps 1+2 against the running api: it mints a
+`default`-pool scanner, writes the private key to
+`secrets/default-scanner/scanner.key`, and stamps `SCANNER_ID` into
+`.env` so `make scanner` brings up the bundled agent service.
+
+### Authentication model
+
+Every agent → api request carries a `Bearer` JWT signed with the
+scanner's private key (EdDSA / Ed25519). The api verifies the
+signature against the registered public key and rejects on
+fingerprint mismatch, expiry (5-minute window, ±30 s clock skew),
+or wrong issuer. Compromise of one private key is bounded to that
+one scanner; rotate it from the UI's "Rotate keys" button — the old
+key stops authenticating immediately.
+
+### Migration from v0.1.0
+
+The bundled subprocess-spawn flow is gone. v0.1.0 deployments need
+to register at least one scanner before any new scan will run:
+
+1. Pull v0.2.0: `docker compose -f compose.release.yaml pull`.
+2. Bring up `api` (the schema migration runs on startup).
+3. Settings → Scanners → register a scanner; copy its key.
+4. `docker compose --profile scanner up -d scanner` (or run the
+   binary on a remote host, see above).
+5. Trigger a scan. The api enqueues; the agent picks it up.
+
+Existing pending scans from v0.1.0 will be picked up by the first
+agent that registers — they're ordinary `pending` rows.
+
 ## Releases
 
 CI runs on every push to `main` (build + test) and on every `v*.*.*` tag

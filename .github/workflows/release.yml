@@ -25,8 +25,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_API: ghcr.io/${{ github.repository_owner }}/akashic-api
-  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/akashic-web
+  IMAGE_API:     ghcr.io/${{ github.repository_owner }}/akashic-api
+  IMAGE_WEB:     ghcr.io/${{ github.repository_owner }}/akashic-web
+  IMAGE_SCANNER: ghcr.io/${{ github.repository_owner }}/akashic-scanner
 
 jobs:
   test-api:
@@ -156,6 +157,25 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache,mode=max
+      - name: Build + push scanner image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: scanner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_SCANNER }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_SCANNER }}:v${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE_SCANNER) || '' }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_SCANNER }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_SCANNER }}:buildcache,mode=max
 
   build-scanner:
     name: Cross-compile scanner (${{ matrix.target.os }}/${{ matrix.target.arch }})
@@ -250,6 +270,7 @@ jobs:
             ```
             docker pull ${{ env.IMAGE_API }}:${{ steps.meta.outputs.tag }}
             docker pull ${{ env.IMAGE_WEB }}:${{ steps.meta.outputs.tag }}
+            docker pull ${{ env.IMAGE_SCANNER }}:${{ steps.meta.outputs.tag }}
             ```
 
             ## Scanner CLI

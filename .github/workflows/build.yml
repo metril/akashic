@@ -25,8 +25,9 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_API: ghcr.io/${{ github.repository_owner }}/akashic-api
-  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/akashic-web
+  IMAGE_API:     ghcr.io/${{ github.repository_owner }}/akashic-api
+  IMAGE_WEB:     ghcr.io/${{ github.repository_owner }}/akashic-web
+  IMAGE_SCANNER: ghcr.io/${{ github.repository_owner }}/akashic-scanner
 
 jobs:
   test-api:
@@ -182,3 +183,46 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:buildcache
           cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_WEB) || '' }}
+
+  build-scanner:
+    name: Build scanner image
+    needs: [ test-scanner ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "tags=${IMAGE_SCANNER}:latest,${IMAGE_SCANNER}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${IMAGE_SCANNER}:pr-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@v6
+        with:
+          # The scanner Dockerfile lives in scanner/ but its build context
+          # is the repo root because go.mod's `replace` directive points
+          # at internal/vendor/go-smb2 alongside the source tree (same
+          # constraint as the api scanner-builder stage).
+          context: .
+          file: scanner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=registry,ref=${{ env.IMAGE_SCANNER }}:buildcache
+          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE_SCANNER) || '' }}
