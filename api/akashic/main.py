@@ -11,15 +11,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    from akashic.database import Base, engine
-    # Import all models so create_all sees them.
+    # Import all models so Alembic's `target_metadata` (env.py) sees them.
     from akashic import models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    from akashic.database import apply_inline_alters
-    await apply_inline_alters()
-    logger.info("Database schema ensured")
+    from akashic.database import ensure_schema
+    await ensure_schema()
 
     try:
         from akashic.services.search import ensure_index
