@@ -11,7 +11,7 @@
  * URL state owns navigation: ?source=, ?path=, ?color=. A bookmark of
  * the URL restores the exact view.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
@@ -102,23 +102,37 @@ export default function StorageExplorer() {
   // Resize: the SVG treemap is purely a function of (data, w, h). A
   // callback ref drives the ResizeObserver so the observer attaches
   // exactly when the container element mounts (not "once on first
-  // render" — the first render typically shows a Spinner while the
-  // query resolves, the container div doesn't exist yet, and a normal
-  // useEffect with `[]` deps would silently no-op).
+  // render" — first render typically shows a Spinner while the query
+  // resolves, the container div doesn't exist yet, and `useLayoutEffect`
+  // with `[]` deps would silently no-op).
+  //
+  // Stable identity via useCallback is mandatory: React calls a
+  // callback ref(null) then ref(el) whenever the function reference
+  // changes between renders. Without useCallback the observer would
+  // detach + reattach on every render, and each reattach fires
+  // setSize with a fresh `{w,h}` object — same numbers but different
+  // identity — forcing another render in an infinite loop (React
+  // error #185).
   const [size, setSize] = useState({ w: 0, h: 0 });
   const observerRef = useRef<ResizeObserver | null>(null);
-  const setContainerRef = (el: HTMLDivElement | null) => {
+  const setContainerRef = useCallback((el: HTMLDivElement | null) => {
     if (observerRef.current) {
       observerRef.current.disconnect();
       observerRef.current = null;
     }
     if (!el) return;
-    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    const update = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      // Bail out when nothing actually changed — paranoid guard in
+      // case a parent layout flips back to identical dimensions.
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     observerRef.current = ro;
-  };
+  }, []);
 
   const setPath = (newPath: string) => {
     const next = new URLSearchParams(params);
