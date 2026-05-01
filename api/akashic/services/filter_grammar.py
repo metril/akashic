@@ -75,6 +75,17 @@ class MtimePred(BaseModel):
     value: str
 
 
+class PathPred(BaseModel):
+    """Path-prefix filter — matches the entry at `value` and everything
+    beneath it. Emitted by the StorageExplorer's "Filter Search to this
+    folder" right-click action so a click on a treemap rectangle becomes
+    a Search-scoped query.
+    """
+
+    kind: Literal["path"]
+    value: str  # path-prefix; "/" matches everything, empty is a no-op
+
+
 Predicate = Annotated[
     Union[
         ExtensionPred,
@@ -84,6 +95,7 @@ Predicate = Annotated[
         MimePred,
         SizePred,
         MtimePred,
+        PathPred,
     ],
     Field(discriminator="kind"),
 ]
@@ -164,7 +176,24 @@ def to_meili(preds: list[Predicate]) -> str:
             cmp_ = {"gte": ">=", "lte": "<="}[p.op]
             ts = int(datetime.fromisoformat(p.value).timestamp())
             parts.append(f'fs_modified_at {cmp_} {ts}')
+        elif isinstance(p, PathPred):
+            # Meilisearch's filter language has no path-prefix operator,
+            # and `path` isn't a filterable attribute today. Skip — the
+            # search router falls through to the SQL path when grammar
+            # predicates can't be expressed in Meili.
+            #
+            # Adding a `path_prefix` filterable attribute on the Meili
+            # index would let us emit `path_prefix = ".../X/"` here; out
+            # of scope for this phase.
+            continue
     return " AND ".join(parts)
+
+
+def has_meili_inexpressible_predicate(preds: list[Predicate]) -> bool:
+    """True when the predicate list contains kinds that to_meili() can't
+    render. The Search router uses this to pick the SQL path when a
+    grammar predicate (currently: `path`) can't ride through Meili."""
+    return any(isinstance(p, PathPred) for p in preds)
 
 
 def to_sqlalchemy(preds: list[Predicate]) -> list:
@@ -209,6 +238,15 @@ def to_sqlalchemy(preds: list[Predicate]) -> list:
                 clauses.append(col >= dt)
             else:  # lte
                 clauses.append(col <= dt)
+        elif isinstance(p, PathPred):
+            v = p.value or ""
+            if not v:
+                continue  # empty value is a no-op
+            if v == "/":
+                continue  # root-prefix matches everything → no-op
+            v = v.rstrip("/") or "/"
+            # Match the entry itself OR any descendant.
+            clauses.append((Entry.path == v) | (Entry.path.startswith(v + "/")))
     return clauses
 
 
