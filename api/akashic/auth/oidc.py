@@ -155,6 +155,11 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
 
     The *sub* claim from the ID token is stored as ``external_id``.
     New users are given the ``viewer`` role.
+
+    After the user record is created/found, FsBindings are synced from
+    the claims so Search/Browse permission filtering activates on the
+    very first request — see api/akashic/auth/oidc_provisioning.py and
+    docs/oidc-authentik.md.
     """
     sub = id_token_claims.get("sub")
     if not sub:
@@ -198,5 +203,14 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
         db.add(user)
         await db.commit()
         await db.refresh(user)
+
+    # Sync FsBindings from claims. The provisioning module is defensive
+    # — it logs and swallows on bad claim shapes, so a malformed token
+    # falls through to "you can log in but Browse/Search show
+    # everything" rather than 500'ing the callback.
+    from akashic.auth.oidc_provisioning import sync_fs_bindings_from_claims
+
+    await sync_fs_bindings_from_claims(db, user, id_token_claims, settings)
+    await db.commit()
 
     return user

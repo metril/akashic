@@ -7,6 +7,7 @@ from akashic.models.tag import Tag, EntryTag
 from akashic.models.user import User, SourcePermission, APIKey
 from akashic.models.webhook import Webhook, PurgeLog
 from akashic.models.fs_person import FsPerson, FsBinding
+from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.audit_event import AuditEvent
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
@@ -28,6 +29,7 @@ __all__ = [
     "PurgeLog",
     "FsPerson",
     "FsBinding",
+    "FsUnboundIdentity",
     "AuditEvent",
     "PrincipalGroupsCache",
     "PrincipalsCache",
