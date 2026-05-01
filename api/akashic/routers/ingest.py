@@ -14,7 +14,11 @@ from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanBatchIn, ScanBatchResponse
-from akashic.services.ingest import entry_state_changed, serialize_acl
+from akashic.services.ingest import (
+    compute_viewable_buckets,
+    entry_state_changed,
+    serialize_acl,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +182,12 @@ def _apply_entry_fields(target: Entry, src):
     target.fs_created_at = src.fs_created_at
     target.fs_modified_at = src.fs_modified_at
     target.fs_accessed_at = src.fs_accessed_at
+    # Denormalize ACL → CRUDS token arrays. Same call also feeds the Meili
+    # doc in build_entry_doc — kept in lockstep via compute_viewable_buckets.
+    buckets = compute_viewable_buckets(src.acl, src.mode, src.uid, src.gid)
+    target.viewable_by_read = buckets["read"]
+    target.viewable_by_write = buckets["write"]
+    target.viewable_by_delete = buckets["delete"]
 
 
 def _snapshot_version(entry: Entry, scan_id) -> EntryVersion:
@@ -261,6 +271,9 @@ async def ingest_batch(
             existing.is_deleted = False
             existing.deleted_at = None
         else:
+            buckets = compute_viewable_buckets(
+                incoming.acl, incoming.mode, incoming.uid, incoming.gid
+            )
             new_entry = Entry(
                 source_id=batch.source_id,
                 kind=incoming.kind,
@@ -278,6 +291,9 @@ async def ingest_batch(
                 group_name=incoming.group_name,
                 acl=serialize_acl(incoming.acl),
                 xattrs=incoming.xattrs,
+                viewable_by_read=buckets["read"],
+                viewable_by_write=buckets["write"],
+                viewable_by_delete=buckets["delete"],
                 fs_created_at=incoming.fs_created_at,
                 fs_modified_at=incoming.fs_modified_at,
                 fs_accessed_at=incoming.fs_accessed_at,

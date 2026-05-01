@@ -11,12 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
 from akashic.database import get_db
 from akashic.models.entry import Entry
-from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.user import User
 from akashic.schemas.audit import SearchAsOverride
 from akashic.schemas.search import SearchResults
-from akashic.services.acl_denorm import (
-    ANYONE, AUTH, posix_uid, posix_gid, sid, nfsv4_user, nfsv4_group, s3_user,
+from akashic.services.access_query import (
+    override_tokens,
+    user_has_any_bindings,
+    user_principal_tokens,
+    viewable_clause,
 )
 from akashic.services.audit import record_event
 
@@ -32,45 +34,6 @@ def _escape_meili_value(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-async def _user_has_any_bindings(user: User, db: AsyncSession) -> bool:
-    result = await db.execute(
-        select(FsPerson.id).where(FsPerson.user_id == user.id).limit(1)
-    )
-    return result.scalar_one_or_none() is not None
-
-
-def _binding_to_tokens(binding: FsBinding) -> list[str]:
-    """Translate one FsBinding into the identifier vocabulary tokens that
-    represent it (self + groups)."""
-    tokens: list[str] = []
-    if binding.identity_type == "posix_uid":
-        tokens.append(posix_uid(binding.identifier))
-        tokens.extend(posix_gid(g) for g in binding.groups)
-    elif binding.identity_type == "sid":
-        tokens.append(sid(binding.identifier))
-        tokens.extend(sid(g) for g in binding.groups)
-    elif binding.identity_type == "nfsv4_principal":
-        tokens.append(nfsv4_user(binding.identifier))
-        tokens.extend(nfsv4_group(g) for g in binding.groups)
-    elif binding.identity_type == "s3_canonical":
-        tokens.append(s3_user(binding.identifier))
-    return tokens
-
-
-async def _user_principal_tokens(user: User, db: AsyncSession) -> list[str]:
-    """Returns ALL identifier tokens that represent the user across every
-    binding, plus the implicit `*` and `auth`."""
-    bindings = (await db.execute(
-        select(FsBinding)
-        .join(FsPerson, FsBinding.fs_person_id == FsPerson.id)
-        .where(FsPerson.user_id == user.id)
-    )).scalars().all()
-    tokens: set[str] = {ANYONE, AUTH}
-    for b in bindings:
-        tokens.update(_binding_to_tokens(b))
-    return sorted(tokens)
-
-
 def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
     if raw is None:
         return None
@@ -78,23 +41,6 @@ def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
         return SearchAsOverride.model_validate(json.loads(raw))
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=f"Invalid search_as: {exc}")
-
-
-def _override_tokens(override: SearchAsOverride) -> list[str]:
-    """Return identifier tokens that represent the override principal."""
-    tokens: set[str] = {ANYONE, AUTH}
-    if override.type == "posix_uid":
-        tokens.add(posix_uid(override.identifier))
-        tokens.update(posix_gid(g) for g in override.groups)
-    elif override.type == "sid":
-        tokens.add(sid(override.identifier))
-        tokens.update(sid(g) for g in override.groups)
-    elif override.type == "nfsv4_principal":
-        tokens.add(nfsv4_user(override.identifier))
-        tokens.update(nfsv4_group(g) for g in override.groups)
-    elif override.type == "s3_canonical":
-        tokens.add(s3_user(override.identifier))
-    return sorted(tokens)
 
 
 @router.get("", response_model=SearchResults)
@@ -129,7 +75,7 @@ async def search(
         if override is not None:
             permission_filter = "readable"
         else:
-            permission_filter = "readable" if await _user_has_any_bindings(user, db) else "all"
+            permission_filter = "readable" if await user_has_any_bindings(user, db) else "all"
 
     try:
         from akashic.services.search import search_files
@@ -149,9 +95,9 @@ async def search(
 
         if permission_filter in ("readable", "writable"):
             if override is not None:
-                tokens = _override_tokens(override)
+                tokens = override_tokens(override)
             else:
-                tokens = await _user_principal_tokens(user, db)
+                tokens = await user_principal_tokens(user, db)
             field = "viewable_by_read" if permission_filter == "readable" else "viewable_by_write"
             tok_clause = " OR ".join(f'{field} = "{_escape_meili_value(t)}"' for t in tokens)
             filters.append(f"({tok_clause})")
@@ -184,8 +130,10 @@ async def search(
     except HTTPException:
         raise
     except Exception:
-        # DB fallback — does NOT apply permission_filter (no denorm in DB).
-        # The Meili path is the source of truth for permission filtering.
+        # DB fallback — applies the same permission filter as the Meili
+        # path via the `entries.viewable_by_*` columns (Phase 4). Before
+        # those columns existed this branch was an escape hatch around the
+        # filter; it isn't anymore.
         conditions = [
             Entry.kind == "file",
             Entry.is_deleted == False,  # noqa: E712
@@ -201,6 +149,14 @@ async def search(
             conditions.append(Entry.size_bytes >= min_size)
         if max_size is not None:
             conditions.append(Entry.size_bytes <= max_size)
+        if permission_filter in ("readable", "writable"):
+            tokens = (
+                override_tokens(override)
+                if override is not None
+                else await user_principal_tokens(user, db)
+            )
+            right = "read" if permission_filter == "readable" else "write"
+            conditions.append(viewable_clause(tokens, right))
 
         query_stmt = select(Entry).where(and_(*conditions)).offset(offset).limit(limit)
         result = await db.execute(query_stmt)

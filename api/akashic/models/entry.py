@@ -15,10 +15,11 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from akashic.database import Base
@@ -32,6 +33,21 @@ class Entry(Base):
         UniqueConstraint("source_id", "path", name="uq_entries_source_path"),
         Index("ix_entries_browse", "source_id", "parent_path", "kind"),
         Index("ix_entries_content_hash", "content_hash"),
+        Index(
+            "ix_entries_viewable_read_gin",
+            "viewable_by_read",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_entries_viewable_write_gin",
+            "viewable_by_write",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_entries_viewable_delete_gin",
+            "viewable_by_delete",
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -60,6 +76,20 @@ class Entry(Base):
     group_name: Mapped[str | None] = mapped_column(String, nullable=True)
     acl: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     xattrs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Denormalized ACL projections — array of canonical principal tokens
+    # (`posix:uid:N`, `sid:S-…`, `*`, `auth`, etc.) granted each right.
+    # Populated at ingest from `denormalize_acl(...)`. Indexed with GIN so
+    # `viewable_by_read && ARRAY[…]::text[]` is an index scan, not a seqscan.
+    viewable_by_read: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    viewable_by_write: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    viewable_by_delete: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
 
     # Filesystem timestamps
     fs_created_at: Mapped[datetime | None] = mapped_column(
