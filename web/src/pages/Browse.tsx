@@ -10,19 +10,22 @@ import {
   Breadcrumb,
   EmptyState,
   Spinner,
-  Drawer,
   Badge,
   Input,
   Page,
   Button,
+  FilterableCell,
+  FilterChips,
 } from "../components/ui";
 import type { BreadcrumbSegment } from "../components/ui";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatMode, iconPathForKind } from "../lib/perms";
-import { EntryDetail } from "../components/EntryDetail";
 import { downloadEntryContent } from "../lib/downloadEntry";
 import { Icon } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
+import { useEntryDetail } from "../hooks/useEntryDetail";
+import { useFilterUrlState } from "../hooks/useFilterUrlState";
+import { serialize as serializeFilters } from "../lib/filterGrammar";
 
 interface EffectiveCounts {
   visible: number;
@@ -116,7 +119,10 @@ export default function Browse() {
 
   const sourceId = params.get("source") ?? "";
   const path = params.get("path") ?? "/";
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  // Phase-6 lifted-to-Layout drawer. Browse no longer owns the
+  // <Drawer/> directly; it dispatches openEntry() and Layout renders.
+  const { openEntry, openEntryId: selectedEntryId } = useEntryDetail();
+  const { filters } = useFilterUrlState();
 
   // Sort + filter live in component state, not the URL. Persisting them
   // would break the "click breadcrumb to navigate up" flow (the new path
@@ -165,12 +171,13 @@ export default function Browse() {
   );
 
   const showAllParam = isAdmin && showAll ? "&show_all=1" : "";
+  const filtersParam = filters.length > 0 ? `&filters=${serializeFilters(filters)}` : "";
 
   const browseQuery = useQuery<BrowseResponse>({
-    queryKey: ["browse", sourceId, path, showAllParam],
+    queryKey: ["browse", sourceId, path, showAllParam, filtersParam],
     queryFn: () =>
       api.get<BrowseResponse>(
-        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}`,
+        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}${filtersParam}`,
       ),
     enabled: !!sourceId,
   });
@@ -189,12 +196,12 @@ export default function Browse() {
 
   const navigate = (newPath: string) => {
     setParams({ source: sourceId, path: newPath });
-    setSelectedEntryId(null);
+    openEntry(null);
   };
 
   const handleSourceChange = (id: string) => {
     setParams({ source: id, path: "/" });
-    setSelectedEntryId(null);
+    openEntry(null);
   };
 
   const segments: BreadcrumbSegment[] = useMemo(() => {
@@ -217,7 +224,7 @@ export default function Browse() {
     if (child.kind === "directory") {
       navigate(child.path);
     } else {
-      setSelectedEntryId(child.id);
+      openEntry(child.id);
     }
   };
 
@@ -226,10 +233,6 @@ export default function Browse() {
     const idx = path.lastIndexOf("/");
     navigate(idx <= 0 ? "/" : path.slice(0, idx));
   };
-
-  const selectedEntry = browseQuery.data?.entries.find(
-    (e) => e.id === selectedEntryId,
-  );
 
   // Filtered + sorted view of the current folder. The full entry list
   // stays in browseQuery.data; we only re-render this derived array on
@@ -322,6 +325,8 @@ export default function Browse() {
         )}
       </Card>
 
+      <FilterChips showSwitchToSearch className="mb-3" />
+
       <Card padding="none">
         {browseQuery.isLoading || sourcesQuery.isLoading ? (
           <div className="flex justify-center items-center h-40 text-fg-subtle">
@@ -404,15 +409,6 @@ export default function Browse() {
           )}
       </Card>
 
-      <Drawer
-        open={!!selectedEntryId}
-        onClose={() => setSelectedEntryId(null)}
-        title={selectedEntry?.name}
-        description={selectedEntry?.path}
-        width="lg"
-      >
-        <EntryDetail entryId={selectedEntryId} />
-      </Drawer>
     </Page>
   );
 }
@@ -581,11 +577,21 @@ function BrowseList({
                     : formatBytes(child.size_bytes)}
                 </div>
 
-                {/* Owner (lg+) */}
+                {/* Owner (lg+) — click to filter to entries owned by
+                    this name in the current folder; ⌘-click to take
+                    the filter to Search across sources. */}
                 <div className="hidden lg:block text-sm text-fg-muted whitespace-nowrap truncate">
-                  {child.owner_name ?? "—"}
-                  {child.group_name && (
-                    <span className="text-fg-subtle">:{child.group_name}</span>
+                  {child.owner_name ? (
+                    <FilterableCell
+                      predicate={{ kind: "owner", value: child.owner_name }}
+                    >
+                      {child.owner_name}
+                      {child.group_name && (
+                        <span className="text-fg-subtle">:{child.group_name}</span>
+                      )}
+                    </FilterableCell>
+                  ) : (
+                    <>—</>
                   )}
                 </div>
 

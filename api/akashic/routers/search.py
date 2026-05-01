@@ -21,6 +21,11 @@ from akashic.services.access_query import (
     viewable_clause,
 )
 from akashic.services.audit import record_event
+from akashic.services.filter_grammar import (
+    parse as parse_filters,
+    to_meili,
+    to_sqlalchemy as filters_to_sqlalchemy,
+)
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -52,6 +57,7 @@ async def search(
     max_size: int | None = None,
     permission_filter: PermissionFilter | None = None,
     search_as: str | None = Query(default=None),
+    filters: str | None = Query(default=None, description="base64url(json) predicate list"),
     offset: int = 0,
     limit: int = 20,
     request: Request = None,
@@ -60,6 +66,15 @@ async def search(
 ):
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
+
+    # Phase-6 grammar predicates ride alongside the legacy individual
+    # query params. Both styles are AND'd so a query string with both
+    # `extension=pdf` and a base64url-encoded extension predicate is the
+    # same trim applied twice — harmless. Stale URLs decode to [].
+    try:
+        grammar_preds = parse_filters(filters) if filters else []
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     override = _parse_search_as(search_as)
 
@@ -101,6 +116,11 @@ async def search(
             field = "viewable_by_read" if permission_filter == "readable" else "viewable_by_write"
             tok_clause = " OR ".join(f'{field} = "{_escape_meili_value(t)}"' for t in tokens)
             filters.append(f"({tok_clause})")
+
+        if grammar_preds:
+            grammar_str = to_meili(grammar_preds)
+            if grammar_str:
+                filters.append(f"({grammar_str})")
 
         filter_str = " AND ".join(filters) if filters else None
         meili_results = await search_files(q, filters=filter_str, offset=offset, limit=limit)
@@ -157,6 +177,9 @@ async def search(
             )
             right = "read" if permission_filter == "readable" else "write"
             conditions.append(viewable_clause(tokens, right))
+
+        if grammar_preds:
+            conditions.extend(filters_to_sqlalchemy(grammar_preds))
 
         query_stmt = select(Entry).where(and_(*conditions)).offset(offset).limit(limit)
         result = await db.execute(query_stmt)

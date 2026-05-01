@@ -19,6 +19,11 @@ from akashic.services.access_query import (
     viewable_clause,
 )
 from akashic.services.audit import record_event
+from akashic.services.filter_grammar import (
+    SourcePred,
+    parse as parse_filters,
+    to_sqlalchemy as filters_to_sqlalchemy,
+)
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -53,11 +58,25 @@ async def browse(
     sort: Literal["name", "size", "modified"] = "name",
     order: Literal["asc", "desc"] = "asc",
     show_all: bool = Query(default=False),
+    filters: str | None = Query(default=None, description="base64url(json) predicate list"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     await check_source_access(source_id, user, db)
+
+    # Phase-6 grammar predicates. Browse is single-source-scoped, so a
+    # `source` predicate is a category error — those queries belong in
+    # Search. 400 with a hint instead of silently dropping.
+    try:
+        grammar_preds = parse_filters(filters) if filters else []
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if any(isinstance(p, SourcePred) for p in grammar_preds):
+        raise HTTPException(
+            status_code=400,
+            detail="Cross-source filters belong in Search; remove the `source` predicate or open Search.",
+        )
 
     source_result = await db.execute(select(Source).where(Source.id == source_id))
     source = source_result.scalar_one_or_none()
@@ -87,6 +106,9 @@ async def browse(
         tokens = await user_principal_tokens(user, db)
         perm_filter = viewable_clause(tokens, "read")
         base_filter.append(perm_filter)
+
+    if grammar_preds:
+        base_filter.extend(filters_to_sqlalchemy(grammar_preds))
 
     stmt = (
         select(Entry)
