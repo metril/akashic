@@ -48,6 +48,16 @@ class Entry(Base):
             "viewable_by_delete",
             postgresql_using="gin",
         ),
+        # Treemap "top-N children of parent_path by subtree size" — the
+        # query that runs on every drill-down. The composite index
+        # answers it as one ordered range scan with no extra sort.
+        Index(
+            "ix_entries_subtree_topN",
+            "source_id",
+            "parent_path",
+            "subtree_size_bytes",
+            postgresql_using="btree",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -90,6 +100,13 @@ class Entry(Base):
     viewable_by_delete: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
     )
+
+    # Phase 9 — directory-only aggregates. NULL on file rows; populated
+    # post-scan by a bottom-up CTE in scan_runner. Treemap queries read
+    # these directly so no recursive traversal happens at request time.
+    subtree_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    subtree_file_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    subtree_dir_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Filesystem timestamps
     fs_created_at: Mapped[datetime | None] = mapped_column(

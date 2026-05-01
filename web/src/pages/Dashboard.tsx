@@ -94,7 +94,7 @@ export default function Dashboard() {
     >
       {/* Row 1 — headline stats. Click-through to deeper context. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <Link to="/analytics" className="contents" aria-label="Storage trends">
+        <Link to="/storage" className="contents" aria-label="Storage explorer">
           <StatCard
             label="Total storage"
             value={data ? formatBytes(data.storage.total_bytes) : "—"}
