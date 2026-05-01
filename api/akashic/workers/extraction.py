@@ -80,4 +80,11 @@ async def _extract(entry_id: str):
                         )
 
         from akashic.services.search import build_entry_doc
-        await index_file(build_entry_doc(entry, content_text=content_text))
+        from akashic.services.tag_inheritance import get_tags_for_entries
+
+        tag_map = await get_tags_for_entries(db, entry_ids=[entry.id])
+        await index_file(build_entry_doc(
+            entry,
+            content_text=content_text,
+            tags=tag_map.get(entry.id, []),
+        ))

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from akashic.config import settings
 from akashic.models.entry import Entry
 from akashic.services.search import build_entry_doc, ensure_index, index_files_batch
+from akashic.services.tag_inheritance import get_tags_for_entries
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,13 @@ async def _reindex(batch_size: int) -> int:
                 )).scalars().all()
                 if not rows:
                     break
-                docs = [build_entry_doc(e) for e in rows]
+                tag_map = await get_tags_for_entries(
+                    db, entry_ids=[e.id for e in rows],
+                )
+                docs = [
+                    build_entry_doc(e, tags=tag_map.get(e.id, []))
+                    for e in rows
+                ]
                 await index_files_batch(docs)
                 total += len(rows)
                 offset += len(rows)

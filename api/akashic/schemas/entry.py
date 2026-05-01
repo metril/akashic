@@ -91,6 +91,19 @@ class EntryVersionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class EntryTagAssignment(BaseModel):
+    """One tag on an entry, with origin metadata. Direct tags (the user
+    applied this tag here) carry `inherited=False, inherited_from_path=None`;
+    inherited tags carry `inherited=True` and the ancestor directory's
+    path so the UI can render "Inherited from /Reports" tooltips and let
+    the user navigate to the source.
+    """
+
+    tag: str
+    inherited: bool = False
+    inherited_from_path: str | None = None
+
+
 class EntryDetailResponse(EntryResponse):
     """Full entry detail; includes ACL, xattrs, version history."""
 
@@ -100,6 +113,7 @@ class EntryDetailResponse(EntryResponse):
     fs_accessed_at: datetime | None = None
     versions: list[EntryVersionResponse] = Field(default_factory=list)
     source: _EntrySourceRef | None = None
+    tags: list[EntryTagAssignment] = Field(default_factory=list)
 
 
 class BrowseEntry(BaseModel):

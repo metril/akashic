@@ -343,6 +343,13 @@ export interface EntryDetail {
     type: string;
     security_metadata: SourceSecurityMetadata | null;
   } | null;
+  tags: EntryTagAssignment[];
+}
+
+export interface EntryTagAssignment {
+  tag: string;
+  inherited: boolean;
+  inherited_from_path: string | null;
 }
 
 export interface LargestFile {

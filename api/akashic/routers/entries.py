@@ -16,10 +16,12 @@ from akashic.models.user import User
 from akashic.schemas.entry import (
     EntryDetailResponse,
     EntryResponse,
+    EntryTagAssignment,
     EntryVersionResponse,
     _EntrySourceRef,
 )
 from akashic.services.access_query import user_can_view
+from akashic.services.tag_inheritance import get_tags_for_entry
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -107,6 +109,9 @@ async def get_entry(
     source_result = await db.execute(select(Source).where(Source.id == entry.source_id))
     source = source_result.scalar_one_or_none()
 
+    raw_tags = await get_tags_for_entry(db, entry_id=entry.id)
+    tags = [EntryTagAssignment(**t) for t in raw_tags]
+
     return EntryDetailResponse(
         id=entry.id,
         source_id=entry.source_id,
@@ -133,6 +138,7 @@ async def get_entry(
         is_deleted=entry.is_deleted,
         versions=[EntryVersionResponse.model_validate(v) for v in versions],
         source=_EntrySourceRef.model_validate(source) if source else None,
+        tags=tags,
     )
 
 

@@ -19,6 +19,10 @@ from akashic.services.ingest import (
     entry_state_changed,
     serialize_acl,
 )
+from akashic.services.tag_inheritance import (
+    propagate_to_new_entry,
+    rebalance_on_move,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +49,19 @@ async def _index_files_to_meilisearch(entry_ids: list[str], db_url: str):
 
     try:
         async with session() as db:
-            for entry_id in entry_ids:
-                result = await db.execute(
-                    select(Entry).where(Entry.id == uuid.UUID(entry_id))
-                )
+            from akashic.services.search import build_entry_doc
+            from akashic.services.tag_inheritance import get_tags_for_entries
+
+            uuids = [uuid.UUID(i) for i in entry_ids]
+            tag_map = await get_tags_for_entries(db, entry_ids=uuids)
+            for eid in uuids:
+                result = await db.execute(select(Entry).where(Entry.id == eid))
                 e = result.scalar_one_or_none()
                 if not e or e.kind != "file":
                     continue
-
-                from akashic.services.search import build_entry_doc
-                await index_files_batch([build_entry_doc(e)])
+                await index_files_batch([
+                    build_entry_doc(e, tags=tag_map.get(e.id, [])),
+                ])
     except Exception as exc:
         logger.warning("Meilisearch indexing failed: %s", exc)
     finally:
@@ -356,6 +363,16 @@ async def ingest_batch(
             await db.flush()
             # Seed a v0 row so version history starts on first observation.
             db.add(_snapshot_version(new_entry, batch.scan_id))
+
+            # Phase C — a new entry under a tagged ancestor inherits the
+            # ancestor's tags. Cheap on the common case (no tagged
+            # ancestors); one indexed SELECT either way.
+            await propagate_to_new_entry(
+                db,
+                entry_id=new_entry.id,
+                source_id=batch.source_id,
+                path=new_entry.path,
+            )
 
             if incoming.kind == "file":
                 new_file_ids.append(str(new_entry.id))

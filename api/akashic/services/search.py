@@ -30,13 +30,25 @@ async def ensure_index():
     await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
 
 
-def build_entry_doc(entry: "Entry", content_text: str | None = None) -> dict:
+def build_entry_doc(
+    entry: "Entry",
+    content_text: str | None = None,
+    *,
+    tags: list[str] | None = None,
+) -> dict:
     """Builds the Meili document for an Entry, including denormalized ACL arrays.
 
     Reads the pre-computed `viewable_by_*` columns when populated (the
     common case after Phase 4 ingest), and falls back to recomputing from
     `acl/mode/uid/gid` only for legacy rows that haven't been backfilled
     yet — same source of truth either way.
+
+    `tags` carries the deduped union of direct + inherited tag strings
+    on this entry. Phase C callers fetch them from EntryTag rows via
+    `services/tag_inheritance.get_tags_for_entries`. Defaults to `[]`
+    for callers that don't pre-fetch (e.g. legacy code paths) — the
+    field stays present on the doc so the Meilisearch filterable
+    attribute schema doesn't fluctuate.
     """
     from akashic.services.ingest import compute_viewable_buckets
 
@@ -60,7 +72,7 @@ def build_entry_doc(entry: "Entry", content_text: str | None = None) -> dict:
         "group_name": entry.group_name,
         "fs_modified_at": int(entry.fs_modified_at.timestamp())
             if entry.fs_modified_at else None,
-        "tags": [],
+        "tags": list(tags or []),
         "viewable_by_read":   read,
         "viewable_by_write":  write,
         "viewable_by_delete": delete,

@@ -9,6 +9,7 @@ import { ACLDiff } from "./acl/ACLDiff";
 import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 import { EffectivePermissions } from "./acl/EffectivePermissions";
 import { ContentTab } from "./entry-detail/ContentTab";
+import { EntryTags } from "./entry-detail/EntryTags";
 
 interface Props {
   entryId: string | null;
@@ -86,6 +87,14 @@ export function EntryDetail({ entryId }: Props) {
   return (
     <div className="divide-y divide-line-subtle">
       <S3ExposureBanner source={entry.source as import("../types").Source | undefined} />
+      <Section title="Tags">
+        <EntryTags
+          entryId={entry.id}
+          sourceId={entry.source_id}
+          parentPath={entry.parent_path}
+          tags={entry.tags ?? []}
+        />
+      </Section>
       <Section title="Identity">
         <dl>
           <Row label="Path">
