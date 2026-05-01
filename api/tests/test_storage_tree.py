@@ -231,3 +231,64 @@ async def test_tree_missing_root_returns_null(
     )).json()
     assert body["root"] is None
     assert body["node_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_tree_synthesises_root_when_connector_has_no_literal_slash(
+    client: AsyncClient, db_session: AsyncSession,
+):
+    """SMB / SSH / S3 connectors emit top-level entries with
+    `parent_path = '/'` but no literal `path = '/'` row. The recursive
+    CTE used to anchor on `path = '/'` and return zero rows for these
+    sources — silently empty treemap.
+
+    With the secondary anchor in place, the CTE picks up the
+    de-facto first-level entries, the response synthesises a root
+    node, and the children attach to it.
+    """
+    _, token = await _admin_token(db_session)
+    src = Source(id=uuid.uuid4(), name="smb", type="smb", connection_config={})
+    db_session.add(src)
+    await db_session.commit()
+
+    # SMB-style layout: no path='/' row, top-level dirs are bare names
+    # with parent_path='/'.
+    await _add_entry(
+        db_session, source_id=src.id, kind="directory",
+        parent_path="/", path="Movies",
+    )
+    await _add_entry(
+        db_session, source_id=src.id, kind="directory",
+        parent_path="/", path="Music",
+    )
+    await _add_entry(
+        db_session, source_id=src.id, kind="file",
+        parent_path="Movies", path="Movies/big.mkv", size=4000,
+    )
+    await _add_entry(
+        db_session, source_id=src.id, kind="file",
+        parent_path="Music", path="Music/song.mp3", size=200,
+    )
+    await rollup_source(db_session, src.id)
+    await db_session.commit()
+
+    body = (await client.get(
+        f"/api/storage/tree?source_id={src.id}&path=/&max_nodes=100",
+        headers={"Authorization": f"Bearer {token}"},
+    )).json()
+
+    root = body["root"]
+    assert root is not None, "synthetic root should appear when no path='/' exists"
+    assert root["path"] == "/"
+    assert root["kind"] == "directory"
+
+    # Top-level kids attached to the synthetic root, sorted by size.
+    names = [c["name"] for c in root["children"]]
+    assert names == ["Movies", "Music"]
+
+    # Synthetic root's size_bytes is the sum of its children.
+    assert root["size_bytes"] == 4200
+
+    # Recursion still descends — Movies' file is in there.
+    movies = root["children"][0]
+    assert any(c["name"] == "big.mkv" for c in movies["children"])
