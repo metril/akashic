@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.fs_person import FsBinding, FsPerson
+from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.user import User
 from akashic.schemas.identity import (
     FsBindingIn,
@@ -240,3 +241,38 @@ async def delete_binding(
         payload=snapshot,
         request=request,
     )
+
+
+# ── Unbound identities (Phase 2a) ─────────────────────────────────────────
+
+
+@router.get("/unbound")
+async def list_unbound(
+    user_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> list[dict]:
+    """OIDC identities Akashic couldn't bind to a source at login.
+
+    Admin-only — exposes identity claims across all users so the
+    operator can spot "this whole org has SIDs in domain X but no
+    Akashic source uses domain X." Optional user_id filter narrows
+    to a single user. Ordered by last-seen descending so the most
+    recently-encountered claims surface first."""
+    stmt = select(FsUnboundIdentity).order_by(FsUnboundIdentity.last_seen_at.desc())
+    if user_id is not None:
+        stmt = stmt.where(FsUnboundIdentity.user_id == user_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "user_id": str(r.user_id),
+            "identity_type": r.identity_type,
+            "identifier": r.identifier,
+            "confidence": r.confidence,
+            "groups": list(r.groups or []),
+            "first_seen_at": r.first_seen_at.isoformat(),
+            "last_seen_at": r.last_seen_at.isoformat(),
+        }
+        for r in rows
+    ]

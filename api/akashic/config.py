@@ -22,6 +22,20 @@ class Settings(BaseSettings):
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
 
+    # OIDC → FsBinding bridge (Phase 2a). See docs/oidc-authentik.md.
+    # `auto` tries claim → ldap_fallback → name_match in that order; pin to a
+    # specific strategy for predictable behaviour. claim/ldap_fallback only
+    # apply when an AD-style SID actually exists; name_match is the
+    # last-resort POSIX-friendly path.
+    oidc_strategy: str = "auto"  # auto | claim | ldap_fallback | name_match
+    oidc_username_claim: str = "preferred_username"
+    oidc_email_claim: str = "email"
+    oidc_sid_claim: str = "onprem_sid"  # Authentik AD federation default after the mapper.
+    oidc_uid_claim: str = "uidNumber"  # POSIX UID, when the IdP federates LDAP/POSIX.
+    oidc_groups_claim: str = "groups"
+    oidc_groups_format: str = "sid"  # sid | name | dn
+    oidc_dn_claim: str = "ldap_dn"  # used by ldap_fallback to seed an AD bind
+
     group_cache_ttl_hours: int = 24
 
     # LDAP
