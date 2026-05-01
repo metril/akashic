@@ -19,4 +19,6 @@ export type { IconName } from "./Icon";
 export { Page } from "./Page";
 export { ThemeToggle } from "./ThemeToggle";
 export { ConfirmDialog } from "./ConfirmDialog";
+export { FilterableCell, predicateLabel } from "./FilterableCell";
+export { FilterChips } from "./FilterChips";
 export { cn } from "./cn";

@@ -10,9 +10,14 @@ import {
   Spinner,
   EmptyState,
   Page,
+  FilterableCell,
+  FilterChips,
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
+import { useEntryDetail } from "../hooks/useEntryDetail";
+import { useFilterUrlState } from "../hooks/useFilterUrlState";
+import { serialize as serializeFilters } from "../lib/filterGrammar";
 
 interface SearchResponse {
   results: SearchResult[];
@@ -45,6 +50,8 @@ export default function Search() {
   const [permissionFilter, setPermissionFilter] = useState<"all" | "readable" | "writable" | null>(null);
   const [searchAs, setSearchAs] = useState<SearchAsOverride | null>(null);
   const [showSearchAs, setShowSearchAs] = useState(false);
+  const { openEntry } = useEntryDetail();
+  const { filters } = useFilterUrlState();
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -77,12 +84,16 @@ export default function Search() {
     [sourcesQuery.data],
   );
 
+  // Phase-6 chip-driven filters from `?filters=` count toward "has any
+  // filter" — a query with just chips and no text/source still queries.
+  const filtersEncoded = filters.length > 0 ? serializeFilters(filters) : "";
+
   const hasFilter = Boolean(
-    query.trim() || sourceId || extension || minSize || maxSize,
+    query.trim() || sourceId || extension || minSize || maxSize || filtersEncoded,
   );
 
   const searchQuery = useQuery<SearchResponse>({
-    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs],
+    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded],
     queryFn: () => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -92,6 +103,7 @@ export default function Search() {
       if (maxSize) params.set("max_size", maxSize);
       params.set("permission_filter", effectivePermissionFilter);
       if (searchAs) params.set("search_as", JSON.stringify(searchAs));
+      if (filtersEncoded) params.set("filters", filtersEncoded);
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
     enabled: hasFilter,
@@ -162,6 +174,8 @@ export default function Search() {
         </div>
       </Card>
 
+      <FilterChips className="mb-3" />
+
       {!hasFilter ? (
         <Card padding="lg">
           <EmptyState
@@ -204,7 +218,15 @@ export default function Search() {
               {results.map((file) => (
                 <li
                   key={file.id}
-                  className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors"
+                  onClick={() => openEntry(file.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openEntry(file.id);
+                    }
+                  }}
+                  tabIndex={0}
+                  className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
                 >
                   <div className="flex items-baseline justify-between gap-4">
                     <div className="min-w-0 flex-1">
@@ -213,7 +235,11 @@ export default function Search() {
                           {file.filename}
                         </span>
                         {file.extension && (
-                          <Badge variant="neutral">.{file.extension}</Badge>
+                          <FilterableCell
+                            predicate={{ kind: "extension", value: file.extension }}
+                          >
+                            <Badge variant="neutral">.{file.extension}</Badge>
+                          </FilterableCell>
                         )}
                       </div>
                       <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
@@ -225,8 +251,12 @@ export default function Search() {
                         {formatBytes(file.size_bytes)}
                       </div>
                       <div className="text-xs text-fg-muted mt-0.5">
-                        {sourceMap.get(file.source_id) ??
-                          file.source_id.slice(0, 8)}
+                        <FilterableCell
+                          predicate={{ kind: "source", value: file.source_id }}
+                        >
+                          {sourceMap.get(file.source_id) ??
+                            file.source_id.slice(0, 8)}
+                        </FilterableCell>
                       </div>
                     </div>
                   </div>
