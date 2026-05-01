@@ -38,6 +38,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
+# Pytest auto-discovery would otherwise crawl `akashic/` and try to
+# collect any function named `test_*` it finds — including
+# `services/source_tester.test_connection`, which is application code
+# (a SourceTester probe), not a test. Pin collection to `tests/` so
+# CI doesn't trip on prefix-shaped helpers in the package.
+testpaths = ["tests"]
 # Per-test loop scope for both fixtures and tests so the autouse setup_db
 # fixture's engine creates and disposes asyncpg connections on the same
 # loop the test runs on. With session scope, fixtures end up holding
