@@ -12,9 +12,11 @@ from akashic.services.filter_grammar import (
     MimePred,
     MtimePred,
     OwnerPred,
+    PathPred,
     PrincipalPred,
     SizePred,
     SourcePred,
+    has_meili_inexpressible_predicate,
     has_principal_predicate,
     parse,
     serialize,
@@ -168,3 +170,48 @@ def test_has_principal_predicate_true_when_present():
         ])
         is True
     )
+
+
+# ── PathPred (Phase A) ─────────────────────────────────────────────────────
+
+
+def test_path_predicate_round_trip():
+    preds = [PathPred(kind="path", value="/Reports/Q3")]
+    decoded = parse(serialize(preds))
+    assert len(decoded) == 1 and decoded[0].value == "/Reports/Q3"
+
+
+def test_path_predicate_to_meili_skipped():
+    """Meili can't express path-prefix today; to_meili drops the
+    predicate and the Search router falls through to SQL via
+    has_meili_inexpressible_predicate()."""
+    preds = [
+        PathPred(kind="path", value="/x"),
+        ExtensionPred(kind="extension", value="pdf"),
+    ]
+    out = to_meili(preds)
+    # The extension predicate still emits.
+    assert out == 'extension = "pdf"'
+    assert has_meili_inexpressible_predicate(preds) is True
+
+
+def test_path_predicate_to_sqlalchemy_emits_match_or_descendant():
+    clauses = to_sqlalchemy([PathPred(kind="path", value="/Reports")])
+    assert len(clauses) == 1
+    sql = str(clauses[0].compile(compile_kwargs={"literal_binds": True}))
+    # Matches the directory itself OR any descendant.
+    assert "/Reports" in sql
+    assert "LIKE" in sql or "like" in sql
+
+
+def test_path_predicate_root_or_empty_is_no_op():
+    """`/` or empty string would match everything — emit no clause."""
+    assert to_sqlalchemy([PathPred(kind="path", value="/")]) == []
+    assert to_sqlalchemy([PathPred(kind="path", value="")]) == []
+
+
+def test_has_meili_inexpressible_false_for_basic_predicates():
+    assert has_meili_inexpressible_predicate([
+        ExtensionPred(kind="extension", value="pdf"),
+        SizePred(kind="size", op="gte", value=1),
+    ]) is False

@@ -22,6 +22,7 @@ from akashic.services.access_query import (
 )
 from akashic.services.audit import record_event
 from akashic.services.filter_grammar import (
+    has_meili_inexpressible_predicate,
     parse as parse_filters,
     to_meili,
     to_sqlalchemy as filters_to_sqlalchemy,
@@ -32,6 +33,12 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 
 PermissionFilter = Literal["all", "readable", "writable"]
+
+
+class _ForceSqlFallback(Exception):
+    """Marker exception — raised when a query has predicates Meilisearch
+    can't express, so the existing `except Exception` catches it and
+    re-runs the request through the SQL fallback path."""
 
 
 def _escape_meili_value(s: str) -> str:
@@ -91,6 +98,12 @@ async def search(
             permission_filter = "readable"
         else:
             permission_filter = "readable" if await user_has_any_bindings(user, db) else "all"
+
+    # Predicates Meilisearch can't express (today: `path` for path-prefix)
+    # force the SQL path so the filter actually applies. Raise to skip
+    # the Meili attempt cleanly.
+    if has_meili_inexpressible_predicate(grammar_preds):
+        raise _ForceSqlFallback()
 
     try:
         from akashic.services.search import search_files

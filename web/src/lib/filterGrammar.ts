@@ -21,7 +21,8 @@ export type Predicate =
   | { kind: "principal"; value: string; right?: Right }
   | { kind: "mime"; value: string }
   | { kind: "size"; op: "gte" | "lte" | "eq"; value: number }
-  | { kind: "mtime"; op: "gte" | "lte"; value: string };
+  | { kind: "mtime"; op: "gte" | "lte"; value: string }
+  | { kind: "path"; value: string };
 
 // ── Encoding ──────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ function isPredicate(p: unknown): p is Predicate {
     case "source":
     case "owner":
     case "mime":
+    case "path":
       return typeof o.value === "string";
     case "principal":
       return (
