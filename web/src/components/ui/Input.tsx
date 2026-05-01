@@ -4,12 +4,13 @@ import { cn } from "./cn";
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  hint?: string;
   leftIcon?: React.ReactNode;
   containerClassName?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, leftIcon, className, containerClassName, id, ...rest },
+  { label, error, hint, leftIcon, className, containerClassName, id, ...rest },
   ref,
 ) {
   const inputId = id || rest.name;
@@ -45,6 +46,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         />
       </div>
       {error && <p className="text-xs text-rose-600 mt-1.5">{error}</p>}
+      {!error && hint && (
+        <p className="text-[11px] text-fg-subtle mt-1">{hint}</p>
+      )}
     </div>
   );
 });
