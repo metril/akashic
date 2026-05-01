@@ -27,6 +27,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("local");
   const [config, setConfig] = useState<Partial<AnyConfig>>({});
+  const [preferredPool, setPreferredPool] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
 
@@ -69,9 +70,11 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         name,
         type,
         connection_config: config as Record<string, unknown>,
+        preferred_pool: preferredPool.trim() || null,
       });
       setName("");
       setConfig(type === "ssh" ? { auth: "password" } : ({} as Partial<AnyConfig>));
+      setPreferredPool("");
       setTestResult(null);
       onCreated?.();
     } catch (err) {
@@ -99,6 +102,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           options={SOURCE_TYPE_OPTIONS}
         />
         <SourceFieldSet type={type} value={config} onChange={setConfig} />
+        <Input
+          label="Preferred scanner pool"
+          value={preferredPool}
+          onChange={(e) => setPreferredPool(e.target.value)}
+          placeholder="default"
+          hint="Leave blank to let any registered scanner claim this source. Set to a pool tag (e.g. site-amsterdam) to lock it to scanners in that pool."
+        />
 
         {testResult && (
           <div

@@ -19,6 +19,7 @@ export function useCreateSource() {
       connection_config: Record<string, unknown>;
       scan_schedule?: string | null;
       exclude_patterns?: string[] | null;
+      preferred_pool?: string | null;
     }) => api.post<Source>("/sources", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });

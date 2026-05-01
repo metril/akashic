@@ -28,6 +28,7 @@ export interface Source {
   connection_config: Record<string, unknown>;
   scan_schedule: string | null;
   exclude_patterns: string[] | null;
+  preferred_pool: string | null;
   last_scan_at: string | null;
   status: string;
   created_at: string;

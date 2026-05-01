@@ -21,6 +21,7 @@ const Settings           = lazy(() => import("./pages/Settings"));
 const SettingsIdentities = lazy(() => import("./pages/SettingsIdentities"));
 const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
 const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
+const SettingsScanners   = lazy(() => import("./pages/SettingsScanners"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 
@@ -148,6 +149,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <SettingsSchedules />
+              </Suspense>
+            }
+          />
+          <Route
+            path="scanners"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <SettingsScanners />
               </Suspense>
             }
           />

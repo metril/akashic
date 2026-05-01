@@ -26,6 +26,12 @@ const tiles: Tile[] = [
     description:
       "Source scan cadences. One row per source with editable cron strings.",
   },
+  {
+    to: "/settings/scanners",
+    label: "Scanners",
+    description:
+      "Registered scanner agents. Mint keypairs, set pools, see online status. Scans queue here and a scanner picks them up.",
+  },
 ];
 
 export default function Settings() {
