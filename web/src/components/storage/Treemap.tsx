@@ -12,17 +12,24 @@
  *      from the API's `color_key`, directories outlined with a label
  *      band on top.
  *
+ * Visual treatment of directories (DaisyDisk-style polish):
+ *   - Depth-1 ancestor's name selects an accent from the shared palette
+ *     so all descendants of e.g. "Gintama" share a colour identity.
+ *   - Each directory rectangle gets a header band rect (filled with the
+ *     branch accent darkened by depth) + label text — a "folder tab"
+ *     visual cue, not just text-on-backplate.
+ *   - Backplate, border colour, and stroke width step with depth so
+ *     shallow dirs feel structural, deep dirs feel atomic.
+ *   - Hovering any rectangle lifts the stroke on every ancestor back to
+ *     the root so the eye can trace the path.
+ *
  * Click handlers route through props so the page owns navigation:
  *   - onLeafClick(leaf)   → page opens the entry-detail drawer
  *   - onDirClick(dir)     → page navigates to ?path=dir.path
  *   - onContextMenu(node, x, y) → page opens its context menu
- *
- * Resize: the parent supplies width/height; this component is pure
- * given (data, width, height, mode). The page wraps it in a
- * useResizeObserver-backed container so the layout recomputes when
- * the viewport changes.
+ *   - onHoverChange(node) → page updates the HoverSidebar
  */
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   hierarchy as d3Hierarchy,
   treemap as d3Treemap,
@@ -31,6 +38,7 @@ import {
 } from "d3-hierarchy";
 
 import type { ColorMode } from "../../pages/StorageExplorer.types";
+import { branchAccent, mix } from "./branchAccent";
 
 export interface TreeNode {
   // The shape returned by /api/storage/tree. Optional id for non-leaf
@@ -54,6 +62,7 @@ interface TreemapProps {
   onLeafClick?: (node: TreeNode) => void;
   onDirClick?: (node: TreeNode) => void;
   onContextMenu?: (node: TreeNode, x: number, y: number) => void;
+  onHoverChange?: (chain: TreeNode[] | null) => void;
 }
 
 const PALETTE = [
@@ -93,6 +102,34 @@ function paddingTopFor(d: HierarchyRectangularNode<TreeNode>): number {
   return h >= 28 ? 14 : 0;
 }
 
+/**
+ * Depth-aware directory chrome. Branch accent feeds the header band
+ * fill (darkened toward slate as you nest deeper); plate, border, and
+ * stroke width use a slate-only progression so the branch-accent
+ * shows through clearly on shallow dirs and gracefully fades on
+ * deeper ones.
+ */
+function dirStyle(depth: number, accent: string) {
+  const d = Math.max(1, depth);
+  const headerMix = Math.min(0.85, 0.10 + 0.10 * (d - 1));
+  const plateAlpha = Math.min(0.10, 0.04 + 0.015 * (d - 1));
+  const borderAlpha = Math.max(0.10, 0.32 - 0.05 * (d - 1));
+  const strokeWidth = Math.max(0.5, 2.5 - 0.5 * (d - 1));
+  return {
+    headerFill: mix(accent, "#0f172a", headerMix),
+    plateFill: `rgba(15, 23, 42, ${plateAlpha})`,
+    borderFill: `rgba(15, 23, 42, ${borderAlpha})`,
+    strokeWidth,
+  };
+}
+
+/** Walk up to the depth-1 ancestor; its name keys the branch accent. */
+function topLevelName(n: HierarchyRectangularNode<TreeNode>): string {
+  let cur: HierarchyRectangularNode<TreeNode> | null = n;
+  while (cur && cur.depth > 1 && cur.parent) cur = cur.parent;
+  return cur?.data.name ?? "/";
+}
+
 export function Treemap({
   root,
   width,
@@ -101,6 +138,7 @@ export function Treemap({
   onLeafClick,
   onDirClick,
   onContextMenu,
+  onHoverChange,
 }: TreemapProps) {
   // Layout is pure given (root, width, height) — useMemo is the right
   // shape so resize / colour-toggle / data-change all re-run cheaply.
@@ -120,11 +158,39 @@ export function Treemap({
 
   // Hover tooltip state. Local to keep the page free of mouse events.
   const [hover, setHover] = useState<{
-    node: TreeNode;
+    node: HierarchyRectangularNode<TreeNode>;
     x: number;
     y: number;
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // The set of paths that are ancestors of the hovered node. Used at
+  // render time to lift each ancestor's stroke + alpha so the eye can
+  // trace from the hovered tile back to the root.
+  const ancestorPaths = useMemo(() => {
+    if (!hover) return new Set<string>();
+    const set = new Set<string>();
+    let cur: HierarchyRectangularNode<TreeNode> | null = hover.node;
+    while (cur) { set.add(cur.data.path); cur = cur.parent ?? null; }
+    return set;
+  }, [hover]);
+
+  const setHoverNode = useCallback(
+    (n: HierarchyRectangularNode<TreeNode> | null, x: number, y: number) => {
+      if (!n) {
+        setHover(null);
+        onHoverChange?.(null);
+        return;
+      }
+      setHover({ node: n, x, y });
+      // Build the chain top-down so the sidebar reads root → leaf.
+      const chain: TreeNode[] = [];
+      let cur: HierarchyRectangularNode<TreeNode> | null = n;
+      while (cur) { chain.unshift(cur.data); cur = cur.parent ?? null; }
+      onHoverChange?.(chain);
+    },
+    [onHoverChange],
+  );
 
   if (!layout || width <= 0 || height <= 0) {
     return <div ref={containerRef} className="w-full h-full" />;
@@ -136,7 +202,7 @@ export function Treemap({
     <div
       ref={containerRef}
       className="relative w-full h-full"
-      onMouseLeave={() => setHover(null)}
+      onMouseLeave={() => setHoverNode(null, 0, 0)}
     >
       <svg
         width={width}
@@ -157,12 +223,21 @@ export function Treemap({
           const data = n.data;
           const isDir = data.kind === "directory" || data.kind === "hidden";
           const isLeaf = !isDir;
+          const accent = branchAccent(topLevelName(n));
+          const ds = isDir ? dirStyle(n.depth, accent) : null;
           const fill = isLeaf
             ? colorFor(data.color_key, mode)
-            : "rgba(15, 23, 42, 0.04)"; // soft directory backplate
-          const stroke = isDir ? "rgba(15, 23, 42, 0.20)" : "rgba(255,255,255,0.4)";
+            : ds!.plateFill;
+          const isAncestor = ancestorPaths.has(data.path);
+          const baseStroke = isDir ? ds!.borderFill : "rgba(255,255,255,0.55)";
+          const stroke = isAncestor ? accent : baseStroke;
+          const baseStrokeWidth = isDir ? ds!.strokeWidth : 0.5;
+          const strokeWidth = isAncestor
+            ? Math.max(baseStrokeWidth + 0.75, 1.5)
+            : baseStrokeWidth;
           const showLabel = w >= 60 && h >= 16 && !isRoot;
-          const showDirTitle = isDir && h >= 28 && w >= 60;
+          const showDirHeader = isDir && h >= 28 && w >= 60 && !isRoot;
+          const headerH = 14;
 
           const handleClick = (e: React.MouseEvent) => {
             // Synthetic / root rectangles aren't navigable.
@@ -189,7 +264,7 @@ export function Treemap({
             const rect = containerRef.current?.getBoundingClientRect();
             const px = rect ? e.clientX - rect.left : e.clientX;
             const py = rect ? e.clientY - rect.top : e.clientY;
-            setHover({ node: data, x: px, y: py });
+            setHoverNode(n, px, py);
           };
 
           const handleMove = (e: React.MouseEvent) => {
@@ -197,7 +272,9 @@ export function Treemap({
             const rect = containerRef.current?.getBoundingClientRect();
             const px = rect ? e.clientX - rect.left : e.clientX;
             const py = rect ? e.clientY - rect.top : e.clientY;
-            setHover((h) => (h ? { ...h, x: px, y: py } : null));
+            setHover((cur) =>
+              cur && cur.node === n ? { ...cur, x: px, y: py } : cur,
+            );
           };
 
           return (
@@ -214,6 +291,7 @@ export function Treemap({
                     : "pointer",
               }}
             >
+              {/* 1. plate (the directory backplate or file fill) */}
               <rect
                 x={x0}
                 y={y0}
@@ -221,13 +299,28 @@ export function Treemap({
                 height={h}
                 fill={fill}
                 stroke={stroke}
-                strokeWidth={isDir ? 1 : 0.5}
+                strokeWidth={strokeWidth}
               />
-              {showDirTitle && (
+              {/* 2. directory header band — drawn on top of the plate
+                  so children rectangles paint over the band's
+                  bottom-edge as they should. */}
+              {showDirHeader && (
+                <rect
+                  x={x0}
+                  y={y0}
+                  width={w}
+                  height={headerH}
+                  fill={ds!.headerFill}
+                  // No stroke — the plate's stroke draws the rectangle
+                  // outline; the header is just a filled tab inside it.
+                />
+              )}
+              {/* 3. label text */}
+              {showDirHeader && (
                 <text
                   x={x0 + 4}
                   y={y0 + 10}
-                  fill="rgba(15, 23, 42, 0.85)"
+                  fill="#ffffff"
                   fontSize={10}
                   fontWeight={600}
                   style={{
@@ -262,7 +355,7 @@ export function Treemap({
       </svg>
       {hover && (
         <Tooltip
-          node={hover.node}
+          node={hover.node.data}
           x={hover.x}
           y={hover.y}
           containerWidth={width}

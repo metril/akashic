@@ -30,8 +30,10 @@ import { useEntryDetail } from "../hooks/useEntryDetail";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
 import type { Predicate } from "../lib/filterGrammar";
 import { Treemap, type TreeNode } from "../components/storage/Treemap";
+import { Sunburst } from "../components/storage/Sunburst";
 import { ContextMenu, type ContextMenuItem } from "../components/storage/ContextMenu";
-import type { ColorMode } from "./StorageExplorer.types";
+import { HoverSidebar } from "../components/storage/HoverSidebar";
+import type { ColorMode, LayoutMode } from "./StorageExplorer.types";
 
 interface SourcesResponse {
   sources: {
@@ -66,6 +68,12 @@ export default function StorageExplorer() {
   const sourceId = params.get("source") ?? "";
   const path = params.get("path") ?? "/";
   const colorMode = (params.get("color") as ColorMode) ?? "type";
+  const layoutMode = (params.get("layout") as LayoutMode) ?? "treemap";
+
+  // Hover state lifted from the canvas so HoverSidebar can read the
+  // current path's breadcrumb chain. Both Treemap and Sunburst feed
+  // into the same setter via onHoverChange.
+  const [hoverChain, setHoverChain] = useState<TreeNode[] | null>(null);
 
   // Cross-source listing — used both for the initial route and to
   // trigger the auto-enter for single-source deployments.
@@ -174,6 +182,12 @@ export default function StorageExplorer() {
     setParams(next);
   };
 
+  const setLayoutMode = (mode: LayoutMode) => {
+    const next = new URLSearchParams(params);
+    next.set("layout", mode);
+    setParams(next);
+  };
+
   // Context-menu state — driven by Treemap's right-click callback.
   const [ctx, setCtx] = useState<{
     node: TreeNode;
@@ -254,6 +268,7 @@ export default function StorageExplorer() {
           </button>
           {breadcrumbs.length > 0 && <Breadcrumb segments={breadcrumbs} />}
           <div className="flex-1" />
+          <LayoutToggle value={layoutMode} onChange={setLayoutMode} />
           <ColorModeToggle
             value={colorMode}
             onChange={setColorMode}
@@ -300,31 +315,55 @@ export default function StorageExplorer() {
                 </div>
               )}
               <div
-                ref={setContainerRef}
-                className="relative w-full"
+                className="flex w-full"
                 style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
               >
-                <Treemap
-                  root={treeQ.data.root}
-                  width={size.w}
-                  height={size.h}
-                  mode={colorMode}
-                  onLeafClick={(node) => {
-                    if (node.id) openEntry(node.id);
-                  }}
-                  onDirClick={(node) => setPath(node.path)}
-                  onContextMenu={(node, x, y) => setCtx({ node, x, y })}
-                />
-                {ctx && (
-                  <ContextMenu
-                    x={ctx.x}
-                    y={ctx.y}
-                    items={ctxItems}
-                    onClose={() => setCtx(null)}
-                    containerWidth={size.w}
-                    containerHeight={size.h}
+                <div ref={setContainerRef} className="relative flex-1">
+                  {layoutMode === "sunburst" ? (
+                    <Sunburst
+                      root={treeQ.data.root}
+                      width={size.w}
+                      height={size.h}
+                      mode={colorMode}
+                      onLeafClick={(node) => {
+                        if (node.id) openEntry(node.id);
+                      }}
+                      onDirClick={(node) => setPath(node.path)}
+                      onContextMenu={(node, x, y) => setCtx({ node, x, y })}
+                      onHoverChange={setHoverChain}
+                    />
+                  ) : (
+                    <Treemap
+                      root={treeQ.data.root}
+                      width={size.w}
+                      height={size.h}
+                      mode={colorMode}
+                      onLeafClick={(node) => {
+                        if (node.id) openEntry(node.id);
+                      }}
+                      onDirClick={(node) => setPath(node.path)}
+                      onContextMenu={(node, x, y) => setCtx({ node, x, y })}
+                      onHoverChange={setHoverChain}
+                    />
+                  )}
+                  {ctx && (
+                    <ContextMenu
+                      x={ctx.x}
+                      y={ctx.y}
+                      items={ctxItems}
+                      onClose={() => setCtx(null)}
+                      containerWidth={size.w}
+                      containerHeight={size.h}
+                    />
+                  )}
+                </div>
+                <aside className="w-60 flex-shrink-0 border-l border-line-subtle bg-surface/40 overflow-y-auto">
+                  <HoverSidebar
+                    chain={hoverChain}
+                    sourceId={sourceId}
+                    onPathClick={setPath}
                   />
-                )}
+                </aside>
               </div>
             </>
           )}
@@ -410,6 +449,39 @@ function SourceList({ sources, loading, onPick, onEmpty }: SourceListProps) {
         ))}
       </ul>
     </Card>
+  );
+}
+
+function LayoutToggle({
+  value, onChange,
+}: {
+  value: LayoutMode;
+  onChange: (m: LayoutMode) => void;
+}) {
+  const modes: { id: LayoutMode; label: string }[] = [
+    { id: "treemap", label: "Treemap" },
+    { id: "sunburst", label: "Sunburst" },
+  ];
+  return (
+    <div role="radiogroup" className="inline-flex rounded-lg border border-line p-0.5 bg-surface text-sm">
+      {modes.map((m) => (
+        <button
+          key={m.id}
+          type="button"
+          role="radio"
+          aria-checked={value === m.id}
+          onClick={() => onChange(m.id)}
+          className={
+            "px-3 py-1 rounded-md transition-colors " +
+            (value === m.id
+              ? "bg-accent-100 text-accent-800 dark:bg-accent-500/20 dark:text-accent-200 font-medium"
+              : "text-fg-muted hover:text-fg")
+          }
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
