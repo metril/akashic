@@ -63,10 +63,16 @@ async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
         scan_type="incremental",
         status="pending",
         previous_scan_files=prev,
+        # Phase 2 multi-scanner: snapshot pool tag so the lease query
+        # routes this scan to a matching scanner.
+        pool=source.preferred_pool,
     )
     db.add(scan)
     await db.commit()
-    logger.info("Scheduled scan triggered for source '%s' (scan_id=%s)", source.name, scan.id)
+    logger.info(
+        "Scheduled scan enqueued for source '%s' (scan_id=%s, pool=%s)",
+        source.name, scan.id, source.preferred_pool or "<any>",
+    )
 
 
 async def _check_and_trigger_scans():
