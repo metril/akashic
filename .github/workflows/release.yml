@@ -215,6 +215,13 @@ jobs:
           fetch-depth: 0   # full history so release-notes can diff back to the previous tag
       - uses: actions/download-artifact@v4
         with:
+          # docker/build-push-action@v6 also uploads `*.dockerbuild`
+          # provenance artifacts on each call, which we don't need
+          # here (they don't go on the release). Filter to just the
+          # scanner tarballs and their sha256 sidecars; downloading
+          # the dockerbuild artifacts has been hitting flaky blob-
+          # storage timeouts.
+          pattern: scanner-*
           path: dist
           merge-multiple: true
       - name: Determine prerelease
