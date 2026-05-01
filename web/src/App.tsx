@@ -21,6 +21,7 @@ const SettingsIdentities = lazy(() => import("./pages/SettingsIdentities"));
 const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
 const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
+const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated()) {
@@ -147,6 +148,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <AdminAudit />
+            </Suspense>
+          }
+        />
+        <Route
+          path="admin/access"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <AdminAccess />
             </Suspense>
           }
         />

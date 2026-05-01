@@ -44,6 +44,7 @@ const sections: NavSection[] = [
     label: "Admin",
     adminOnly: true,
     items: [
+      { to: "/admin/access", label: "Access", iconName: "shield" },
       { to: "/admin/audit", label: "Audit log", iconName: "audit-log" },
     ],
   },
