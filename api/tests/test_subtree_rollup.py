@@ -123,3 +123,96 @@ async def test_rollup_ignores_deleted(db_session: AsyncSession):
     parent_row = (await db_session.execute(select(Entry).where(Entry.id == parent))).scalar_one()
     assert parent_row.subtree_size_bytes == 500  # 99999 ignored
     assert parent_row.subtree_file_count == 1
+
+
+# Phase B — null_only safety net mode ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rollup_null_only_skips_pre_populated_rows(db_session: AsyncSession):
+    """Connectors that emit subtree totals at scan time win — the
+    null_only=True mode of the post-scan rollup must not clobber them.
+    A subsequent rollup with null_only=False (manual admin re-rollup)
+    is expected to overwrite."""
+    src = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
+    db_session.add(src)
+    await db_session.commit()
+
+    # Two siblings: `scanner_set` has values from the connector;
+    # `legacy` has NULL columns and needs the safety net.
+    scanner_id = await _add_entry(
+        db_session, source_id=src.id, kind="directory",
+        parent_path="/", path="/scanner_set",
+    )
+    legacy_id = await _add_entry(
+        db_session, source_id=src.id, kind="directory",
+        parent_path="/", path="/legacy",
+    )
+    await _add_entry(
+        db_session, source_id=src.id, kind="file",
+        parent_path="/legacy", path="/legacy/x.bin", size=1000,
+    )
+
+    # Pretend the scanner already filled scanner_set with bogus values
+    # (an obvious sentinel no rollup would compute on its own — 99
+    # files clearly doesn't match this empty subtree).
+    scanner_row = (await db_session.execute(
+        select(Entry).where(Entry.id == scanner_id)
+    )).scalar_one()
+    scanner_row.subtree_size_bytes = 9999999
+    scanner_row.subtree_file_count = 99
+    scanner_row.subtree_dir_count = 9
+    await db_session.commit()
+
+    await rollup_source(db_session, src.id, null_only=True)
+    await db_session.commit()
+
+    legacy_row = (await db_session.execute(
+        select(Entry).where(Entry.id == legacy_id)
+    )).scalar_one()
+    scanner_row = (await db_session.execute(
+        select(Entry).where(Entry.id == scanner_id)
+    )).scalar_one()
+
+    # Legacy was NULL → safety net filled it from the file.
+    assert legacy_row.subtree_size_bytes == 1000
+    assert legacy_row.subtree_file_count == 1
+
+    # Scanner-set values were preserved verbatim — sentinel values
+    # untouched by the null_only run.
+    assert scanner_row.subtree_size_bytes == 9999999
+    assert scanner_row.subtree_file_count == 99
+    assert scanner_row.subtree_dir_count == 9
+
+
+@pytest.mark.asyncio
+async def test_rollup_full_recompute_overwrites_scanner_values(db_session: AsyncSession):
+    """The default null_only=False (backfill tool / manual admin path)
+    overwrites scanner values. This is the explicit re-derive everything
+    behaviour."""
+    src = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
+    db_session.add(src)
+    await db_session.commit()
+
+    parent_id = await _add_entry(
+        db_session, source_id=src.id, kind="directory",
+        parent_path="/", path="/p",
+    )
+    await _add_entry(
+        db_session, source_id=src.id, kind="file",
+        parent_path="/p", path="/p/x.bin", size=42,
+    )
+    parent_row = (await db_session.execute(
+        select(Entry).where(Entry.id == parent_id)
+    )).scalar_one()
+    parent_row.subtree_size_bytes = 9999999  # bogus scanner-set value
+    await db_session.commit()
+
+    await rollup_source(db_session, src.id, null_only=False)
+    await db_session.commit()
+
+    # Raw UPDATE bypasses the session's identity map; refresh so we
+    # read the disk state, not the cached attribute from before.
+    await db_session.refresh(parent_row)
+    # Full recompute overrode the bogus value.
+    assert parent_row.subtree_size_bytes == 42

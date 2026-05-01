@@ -40,6 +40,14 @@ class EntryIn(BaseModel):
     fs_modified_at: datetime | None = None
     fs_accessed_at: datetime | None = None
 
+    # Phase B — connectors that walk depth-first emit per-directory
+    # subtree totals. Optional; the API-side rollup CTE backfills NULL
+    # rows after ingest as a safety net for connectors that can't
+    # compute these cheaply.
+    subtree_size_bytes: int | None = None
+    subtree_file_count: int | None = None
+    subtree_dir_count: int | None = None
+
 
 class EntryResponse(BaseModel):
     id: uuid.UUID

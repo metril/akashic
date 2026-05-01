@@ -140,6 +140,14 @@ type EntryRecord struct {
 	CreatedAt  *time.Time `json:"fs_created_at,omitempty"`
 	ModifiedAt *time.Time `json:"fs_modified_at,omitempty"`
 	AccessedAt *time.Time `json:"fs_accessed_at,omitempty"`
+
+	// Phase B — directory-only post-order rollups. Set by connectors
+	// that walk depth-first; nil from connectors that can't compute
+	// them cheaply (the API-side rollup CTE backfills those as a
+	// NULL-only safety net).
+	SubtreeSizeBytes  *int64 `json:"subtree_size_bytes,omitempty"`
+	SubtreeFileCount  *int64 `json:"subtree_file_count,omitempty"`
+	SubtreeDirCount   *int64 `json:"subtree_dir_count,omitempty"`
 }
 
 func (e *EntryRecord) IsDir() bool { return e.Kind == "directory" }

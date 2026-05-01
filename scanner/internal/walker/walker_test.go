@@ -90,3 +90,79 @@ func TestWalk_WithHash(t *testing.T) {
 		t.Error("expected at least one file to have a hash")
 	}
 }
+
+// Phase B — directory records emit post-order with subtree totals.
+// Tree:
+//
+//	root/
+//	├── a/
+//	│   ├── x.txt   (5 bytes)
+//	│   └── y.txt   (5 bytes)
+//	└── b/
+//	    └── c/
+//	        └── z.bin (8 bytes)
+//
+// Expected:
+//
+//	a:    bytes=10, files=2, dirs=0
+//	c:    bytes=8,  files=1, dirs=0
+//	b:    bytes=8,  files=1, dirs=1
+func TestWalk_PostOrderSubtreeTotals(t *testing.T) {
+	dir := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(dir, "a"), 0o755))
+	must(os.MkdirAll(filepath.Join(dir, "b", "c"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "a", "x.txt"), []byte("hello"), 0o644))
+	must(os.WriteFile(filepath.Join(dir, "a", "y.txt"), []byte("world"), 0o644))
+	must(os.WriteFile(filepath.Join(dir, "b", "c", "z.bin"), []byte("12345678"), 0o644))
+
+	dirs := map[string]*models.EntryRecord{}
+	must(Walk(dir, nil, false, func(e *models.EntryRecord) error {
+		if e.IsDir() {
+			dirs[filepath.Base(e.Path)] = e
+		}
+		return nil
+	}))
+
+	for _, name := range []string{"a", "b", "c"} {
+		if _, ok := dirs[name]; !ok {
+			t.Fatalf("expected directory %q in walk output", name)
+		}
+		if dirs[name].SubtreeSizeBytes == nil {
+			t.Errorf("dir %q: SubtreeSizeBytes is nil; expected post-order rollup to fill it", name)
+		}
+	}
+
+	if got := *dirs["a"].SubtreeSizeBytes; got != 10 {
+		t.Errorf("a: SubtreeSizeBytes=%d, want 10", got)
+	}
+	if got := *dirs["a"].SubtreeFileCount; got != 2 {
+		t.Errorf("a: SubtreeFileCount=%d, want 2", got)
+	}
+	if got := *dirs["a"].SubtreeDirCount; got != 0 {
+		t.Errorf("a: SubtreeDirCount=%d, want 0", got)
+	}
+
+	if got := *dirs["c"].SubtreeSizeBytes; got != 8 {
+		t.Errorf("c: SubtreeSizeBytes=%d, want 8", got)
+	}
+	if got := *dirs["c"].SubtreeFileCount; got != 1 {
+		t.Errorf("c: SubtreeFileCount=%d, want 1", got)
+	}
+
+	// b inherits c's totals + 1 dir for c itself.
+	if got := *dirs["b"].SubtreeSizeBytes; got != 8 {
+		t.Errorf("b: SubtreeSizeBytes=%d, want 8", got)
+	}
+	if got := *dirs["b"].SubtreeFileCount; got != 1 {
+		t.Errorf("b: SubtreeFileCount=%d, want 1", got)
+	}
+	if got := *dirs["b"].SubtreeDirCount; got != 1 {
+		t.Errorf("b: SubtreeDirCount=%d, want 1", got)
+	}
+}

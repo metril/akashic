@@ -39,7 +39,12 @@ from akashic.models.entry import Entry
 logger = logging.getLogger(__name__)
 
 
-async def rollup_source(db: AsyncSession, source_id: uuid.UUID) -> int:
+async def rollup_source(
+    db: AsyncSession,
+    source_id: uuid.UUID,
+    *,
+    null_only: bool = False,
+) -> int:
     """Recompute subtree aggregates for every directory in `source_id`.
 
     Returns the number of directory rows updated. Caller is responsible
@@ -57,6 +62,12 @@ async def rollup_source(db: AsyncSession, source_id: uuid.UUID) -> int:
     Postgres cost: one UPDATE per depth level. The composite index
     `(source_id, parent_path, ...)` is what makes each step's join
     cheap.
+
+    When `null_only=True` (Phase B safety-net mode), only rows whose
+    `subtree_size_bytes IS NULL` are updated — used by the post-scan
+    background task so connectors that emit subtree totals at scan
+    time aren't clobbered by the API. The full-recompute path
+    (backfill tool, manual admin re-rollup) keeps `null_only=False`.
     """
     # Pre-flight: figure out the deepest directory in the source by
     # counting slashes in `path`. `length(path) - length(replace(path,'/',''))`
@@ -83,8 +94,12 @@ async def rollup_source(db: AsyncSession, source_id: uuid.UUID) -> int:
         # We use raw SQL via text() because mixing the slash-count
         # expression with SQLAlchemy ORM updates correlated to a
         # subquery is more verbose than helpful.
+        # null_only kicks in here — we add a filter to the `me` subquery
+        # so only NULL rows enter the update set. Children that were
+        # scanner-populated still aggregate up correctly because the
+        # LATERAL queries read their actual values regardless.
         update_sql = text(
-            """
+            f"""
             UPDATE entries AS e
             SET subtree_size_bytes = COALESCE(child_files.bytes, 0)
                                      + COALESCE(child_dirs.bytes, 0),
@@ -93,11 +108,12 @@ async def rollup_source(db: AsyncSession, source_id: uuid.UUID) -> int:
                 subtree_dir_count = COALESCE(child_dirs.n, 0)
                                     + COALESCE(child_dirs.dirs, 0)
             FROM (
-                SELECT id FROM entries
-                WHERE source_id = :source_id
-                  AND kind = 'directory'
-                  AND is_deleted = false
-                  AND length(path) - length(replace(path, '/', '')) = :depth
+                SELECT id FROM entries inner_e
+                WHERE inner_e.source_id = :source_id
+                  AND inner_e.kind = 'directory'
+                  AND inner_e.is_deleted = false
+                  AND length(inner_e.path) - length(replace(inner_e.path, '/', '')) = :depth
+                  {("AND inner_e.subtree_size_bytes IS NULL" if null_only else "")}
             ) AS me
             LEFT JOIN LATERAL (
                 SELECT SUM(size_bytes) AS bytes, COUNT(*) AS n
