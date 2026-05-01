@@ -12,6 +12,7 @@ from akashic.models.audit_event import AuditEvent
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.refresh_token import RefreshToken
+from akashic.models.scanner import Scanner
 
 __all__ = [
     "Source",
@@ -35,4 +36,5 @@ __all__ = [
     "PrincipalGroupsCache",
     "PrincipalsCache",
     "RefreshToken",
+    "Scanner",
 ]

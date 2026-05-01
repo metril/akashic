@@ -37,3 +37,18 @@ class Scan(Base):
     phase: Mapped[str | None] = mapped_column(String, nullable=True)
     # Snapshot of the last successful scan's files_found, captured at start.
     previous_scan_files: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Phase 2 multi-scanner — pool-tagged lease queue.
+    # `pool` is a snapshot of the source's preferred_pool at enqueue time
+    # (NULL = any scanner can claim). `assigned_scanner_id` + `lease_expires_at`
+    # track the current lease; nullable so an unleased pending scan is
+    # representable. The lease is renewed by per-scan heartbeat and released
+    # by /api/scans/{id}/complete or by the watchdog when expiry overruns.
+    pool: Mapped[str | None] = mapped_column(String, nullable=True)
+    assigned_scanner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scanners.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )

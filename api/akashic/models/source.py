@@ -20,5 +20,9 @@ class Source(Base):
     last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String, default="offline")
     security_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Optional pool restriction. NULL = any registered scanner may claim
+    # this source's scans. Set to a pool name (e.g. "site-amsterdam")
+    # to lock the source to scanners in that pool.
+    preferred_pool: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

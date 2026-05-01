@@ -92,6 +92,80 @@ async def _check_and_trigger_scans():
             logger.error("Scheduler error for source '%s': %s", source.name, exc)
 
 
+async def _requeue_orphan_leases():
+    """Phase-2 multi-scanner watchdog. Resets in-flight leases whose
+    `lease_expires_at` has passed back to `pending` so another scanner
+    can claim them — but only when there's at least one online scanner
+    in the right pool to pick the work up. If no scanner is online,
+    leave the row untouched and let `_check_stale_scans` fail it after
+    the longer threshold instead.
+
+    Online-ness uses the same window as routers/scanners.py
+    (last_seen_at within ONLINE_WINDOW_SECONDS = 90s).
+    """
+    from akashic.routers.scanners import ONLINE_WINDOW_SECONDS
+
+    now = datetime.now(timezone.utc)
+    online_cutoff = now - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+
+    async with async_session() as db:
+        # Pull all expired leases. Each row's `pool` decides whether
+        # we re-queue or wait for the failure path.
+        result = await db.execute(
+            select(Scan).where(
+                Scan.status == "running",
+                Scan.lease_expires_at.isnot(None),
+                Scan.lease_expires_at < now,
+            )
+        )
+        expired = list(result.scalars().all())
+        if not expired:
+            return
+
+        # One query for all distinct pools at risk → set of pools that
+        # currently have an online scanner. Permissive null-pool scans
+        # are eligible whenever ANY pool has an online scanner.
+        from sqlalchemy import distinct
+        from akashic.models.scanner import Scanner
+
+        any_online = (await db.execute(
+            select(Scanner.id).where(
+                Scanner.enabled.is_(True),
+                Scanner.last_seen_at.isnot(None),
+                Scanner.last_seen_at >= online_cutoff,
+            ).limit(1)
+        )).scalar_one_or_none() is not None
+
+        online_pools_rows = (await db.execute(
+            select(distinct(Scanner.pool)).where(
+                Scanner.enabled.is_(True),
+                Scanner.last_seen_at.isnot(None),
+                Scanner.last_seen_at >= online_cutoff,
+            )
+        )).all()
+        online_pools = {row[0] for row in online_pools_rows}
+
+        for scan in expired:
+            can_requeue = (
+                # Permissive null pool needs *any* online scanner.
+                (scan.pool is None and any_online)
+                # Pool-tagged scan needs an online scanner in that pool.
+                or (scan.pool is not None and scan.pool in online_pools)
+            )
+            if can_requeue:
+                scan.status = "pending"
+                scan.assigned_scanner_id = None
+                scan.lease_expires_at = None
+                logger.info(
+                    "Watchdog: re-queued orphan lease scan_id=%s (pool=%s)",
+                    scan.id, scan.pool,
+                )
+            # else: leave it; _check_stale_scans will fail it after
+            # the kill threshold.
+
+        await db.commit()
+
+
 async def _check_stale_scans():
     """Mark scans/sources stuck in pending|running|scanning past the threshold as failed.
 
@@ -104,6 +178,14 @@ async def _check_stale_scans():
     threshold_minutes = settings.stale_scan_threshold_minutes
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
     message = f"Watchdog: exceeded {threshold_minutes} min"
+
+    # Quick pass: re-queue any expired-but-recoverable lease before
+    # the slow kill-cutoff path runs. Recoverable means there's an
+    # online scanner that could pick it up.
+    try:
+        await _requeue_orphan_leases()
+    except Exception as exc:
+        logger.warning("orphan lease re-queue failed: %s", exc)
 
     async with async_session() as db:
         # 1) Active scans past the threshold. Prefer the heartbeat timestamp
