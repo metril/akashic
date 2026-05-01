@@ -95,7 +95,11 @@ async def _rollup_subtree_aggregates(source_id: str, db_url: str):
     session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with session() as db:
-            await rollup_source(db, uuid.UUID(source_id))
+            # Phase B safety net: only fill in NULL rows. Connectors
+            # that emit subtree totals at scan time (Local from Phase B
+            # onward) win; the rollup back-fills directories the
+            # connector couldn't compute (S3 streaming, legacy data).
+            await rollup_source(db, uuid.UUID(source_id), null_only=True)
             await db.commit()
     except Exception as exc:
         logger.warning(
@@ -217,6 +221,20 @@ def _apply_entry_fields(target: Entry, src):
     target.viewable_by_read = buckets["read"]
     target.viewable_by_write = buckets["write"]
     target.viewable_by_delete = buckets["delete"]
+    # Phase B — connectors that walk depth-first emit subtree totals
+    # alongside each directory record. Trust the scanner when present
+    # (zero is a valid value for an empty directory — `is not None`,
+    # not truthiness). The post-scan rollup CTE backfills NULL rows as
+    # a safety net for connectors that omit these.
+    sub_size = getattr(src, "subtree_size_bytes", None)
+    if sub_size is not None:
+        target.subtree_size_bytes = sub_size
+    sub_files = getattr(src, "subtree_file_count", None)
+    if sub_files is not None:
+        target.subtree_file_count = sub_files
+    sub_dirs = getattr(src, "subtree_dir_count", None)
+    if sub_dirs is not None:
+        target.subtree_dir_count = sub_dirs
 
 
 def _snapshot_version(entry: Entry, scan_id) -> EntryVersion:
@@ -323,6 +341,11 @@ async def ingest_batch(
                 viewable_by_read=buckets["read"],
                 viewable_by_write=buckets["write"],
                 viewable_by_delete=buckets["delete"],
+                # Phase B subtree totals — None for connectors that don't
+                # emit them; the post-scan rollup CTE backfills.
+                subtree_size_bytes=incoming.subtree_size_bytes,
+                subtree_file_count=incoming.subtree_file_count,
+                subtree_dir_count=incoming.subtree_dir_count,
                 fs_created_at=incoming.fs_created_at,
                 fs_modified_at=incoming.fs_modified_at,
                 fs_accessed_at=incoming.fs_accessed_at,
