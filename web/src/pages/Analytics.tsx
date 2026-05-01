@@ -13,6 +13,7 @@ import type { StorageByType, StorageBySource, LargestFile, Source } from "../typ
 import {
   Card,
   CardHeader,
+  Select,
   Table,
   Skeleton,
   EmptyState,
@@ -20,8 +21,16 @@ import {
 } from "../components/ui";
 import type { Column } from "../components/ui";
 import { formatBytes, formatNumber } from "../lib/format";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useChartColors } from "../hooks/useChartColors";
+import {
+  useStorageTimeseries,
+  useStorageForecast,
+  useExtensionTrend,
+} from "../hooks/useAnalyticsTimeseries";
+import { GrowthChart } from "../components/analytics/GrowthChart";
+import { ForecastChart } from "../components/analytics/ForecastChart";
+import { ExtensionTrendChart } from "../components/analytics/ExtensionTrendChart";
 
 const CHART_COLORS = [
   "#6366f1",
@@ -64,6 +73,30 @@ export default function Analytics() {
     for (const s of sourcesQuery.data ?? []) m.set(s.id, s.name);
     return m;
   }, [sourcesQuery.data]);
+
+  // Source picker for the time-series row. Defaults to the first
+  // source we know about so charts render without ceremony — admins
+  // open Analytics and immediately see *something*. The dropdown is
+  // hidden until at least one source exists.
+  const [selectedSource, setSelectedSource] = useState<string>("");
+  const effectiveSource =
+    selectedSource || sourcesQuery.data?.[0]?.id || "";
+
+  const timeseriesQuery = useStorageTimeseries(effectiveSource, "size", 90);
+  const forecastQuery = useStorageForecast(effectiveSource, 30, 90);
+
+  // Top-5 extensions globally drive the trend chart's series. Using the
+  // global top-5 (rather than per-source) keeps the legend stable as the
+  // user picks different sources to drill into.
+  const topExtensions = useMemo(
+    () =>
+      (typeQuery.data ?? [])
+        .filter((r) => r.extension)
+        .slice(0, 5)
+        .map((r) => r.extension!.toLowerCase()),
+    [typeQuery.data],
+  );
+  const extTrendQuery = useExtensionTrend(effectiveSource, topExtensions, 90);
 
   const typeData = (typeQuery.data ?? [])
     .slice(0, 10)
@@ -155,6 +188,95 @@ export default function Analytics() {
           )}
         </Card>
       </div>
+
+      {/* Time-series row: depends on scan_snapshots being populated.
+          Sources with zero snapshots render an empty state with a hint.
+          A scan-completed source gets its first snapshot immediately;
+          the nightly fallback fills in days where no scan ran. */}
+      {sourcesQuery.data && sourcesQuery.data.length > 0 && (
+        <div className="space-y-5 mb-5">
+          <Card padding="md">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-fg">Source insights</h3>
+                <p className="text-sm text-fg-muted">
+                  Storage growth, capacity forecast, and file-type trends per source.
+                </p>
+              </div>
+              <div className="w-56">
+                <Select
+                  value={effectiveSource}
+                  onChange={(e) => setSelectedSource(e.target.value)}
+                  options={sourcesQuery.data.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                  }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div>
+                <CardHeader
+                  title="Storage growth"
+                  description="Total indexed bytes over the last 90 days."
+                />
+                {timeseriesQuery.isLoading ? (
+                  <ChartSkeleton />
+                ) : (timeseriesQuery.data ?? []).length === 0 ? (
+                  <EmptyState
+                    title="No snapshots yet"
+                    description="Trigger a scan or wait for the nightly fallback to populate the growth chart."
+                  />
+                ) : (
+                  <GrowthChart data={timeseriesQuery.data!} metric="size" />
+                )}
+              </div>
+
+              <div>
+                <CardHeader
+                  title="Capacity forecast"
+                  description={
+                    forecastQuery.data?.forecast
+                      ? `${formatBytes(
+                          forecastQuery.data.forecast.slope_bytes_per_day,
+                        )}/day · ${forecastQuery.data.forecast.horizon_days}d horizon`
+                      : "Linear projection of recent growth."
+                  }
+                />
+                {forecastQuery.isLoading ? (
+                  <ChartSkeleton />
+                ) : forecastQuery.data?.forecast === null ? (
+                  <EmptyState
+                    title="Not enough history"
+                    description="Forecast needs at least 3 snapshots; check back after a few more scans."
+                  />
+                ) : forecastQuery.data ? (
+                  <ForecastChart data={forecastQuery.data} />
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <CardHeader
+                title="File-type trends"
+                description={
+                  topExtensions.length > 0
+                    ? `Top file types: ${topExtensions.join(", ")}`
+                    : "Top file types over time."
+                }
+              />
+              {extTrendQuery.isLoading ? (
+                <ChartSkeleton />
+              ) : Object.keys(extTrendQuery.data ?? {}).length === 0 ? (
+                <EmptyState title="No data" />
+              ) : (
+                <ExtensionTrendChart data={extTrendQuery.data!} />
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
 
       <Card padding="md">
         <CardHeader
