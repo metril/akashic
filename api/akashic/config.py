@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "changeme-secret-key"
     access_token_expire_minutes: int = 60
+    # Phase 8 — refresh tokens. Default 30 days matches typical SSO
+    # session lifetimes; deployments wanting shorter sessions tighten
+    # this without touching the access-token TTL above.
+    refresh_token_expire_days: int = 30
     tika_url: str = "http://localhost:9998"
 
     # Recover scans/sources stuck in pending|running|scanning after this many minutes.

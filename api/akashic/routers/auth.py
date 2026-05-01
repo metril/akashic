@@ -19,9 +19,33 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_access_token
+from akashic.auth import refresh as refresh_service
 from akashic.config import settings
 from akashic.database import get_db
 from akashic.models.user import User
+from akashic.services.audit import record_event
+
+
+REFRESH_COOKIE = "akashic_refresh"
+
+
+def _set_refresh_cookie(response: Response, plain_token: str) -> None:
+    """HttpOnly + SameSite=Lax cookie. Path=/api/auth so it's only
+    sent to refresh / logout — minimizes accidental exposure on
+    other endpoints."""
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=plain_token,
+        httponly=True,
+        samesite="lax",
+        secure=False,  # Deployments behind TLS should set Secure via reverse-proxy.
+        path="/api/auth",
+        max_age=settings.refresh_token_expire_days * 24 * 3600,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +149,15 @@ async def oidc_login() -> Response:
 
 @router.get("/oidc/callback", response_model=TokenResponse)
 async def oidc_callback(
+    response: Response,
     code: str = Query(..., description="Authorization code returned by the OIDC provider"),
     state: str | None = Query(None),
     oidc_state: str | None = Cookie(None),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Handle the OIDC callback: exchange the code for tokens and return a JWT."""
+    """Handle the OIDC callback: exchange the code for tokens, mint
+    access + refresh, set the refresh cookie, and return the access
+    token to the SPA."""
     _require_oidc()
 
     # Validate state parameter to prevent CSRF
@@ -160,13 +187,23 @@ async def oidc_callback(
             detail="User provisioning failed",
         ) from exc
 
+    plain_refresh, _ = await refresh_service.mint(user.id, db)
+    await record_event(
+        db=db, user=user,
+        event_type="oidc_login_success",
+        payload={"sub": claims.get("sub"), "preferred_username": claims.get("preferred_username")},
+    )
+    await db.commit()
+
     token = create_access_token({"sub": str(user.id)})
+    _set_refresh_cookie(response, plain_refresh)
     return TokenResponse(access_token=token)
 
 
 @router.post("/ldap/login", response_model=TokenResponse)
 async def ldap_login(
     data: LDAPLoginRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Authenticate via LDAP bind and return a JWT on success."""
@@ -201,5 +238,58 @@ async def ldap_login(
             detail="User provisioning failed",
         ) from exc
 
+    plain_refresh, _ = await refresh_service.mint(user.id, db)
+    await db.commit()
     token = create_access_token({"sub": str(user.id)})
+    _set_refresh_cookie(response, plain_refresh)
     return TokenResponse(access_token=token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    response: Response,
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Mint a new access token from a valid refresh cookie. Rotates the
+    refresh row on every call. Returns 401 on missing/expired/replayed
+    tokens — the web client treats that as a hard logout."""
+    if not akashic_refresh:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token",
+        )
+
+    rotated = await refresh_service.rotate(akashic_refresh, db)
+    if rotated is None:
+        # Could be expired, unknown, or replay-detected. Either way we
+        # clear the bad cookie so the next request doesn't re-trigger.
+        await db.commit()
+        _clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token invalid",
+        )
+
+    new_plain, new_row = rotated
+    await db.commit()
+    access = create_access_token({"sub": str(new_row.user_id)})
+    _set_refresh_cookie(response, new_plain)
+    return TokenResponse(access_token=access)
+
+
+@router.post("/logout")
+async def logout(
+    response: Response,
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Revoke the presented refresh token and clear the cookie. The
+    short-lived access JWT keeps working until its TTL expires; logout
+    only kills the long-lived chain. Idempotent — calling without a
+    cookie is a no-op success."""
+    if akashic_refresh:
+        await refresh_service.revoke(akashic_refresh, db)
+        await db.commit()
+    _clear_refresh_cookie(response)
+    return {"ok": True}

@@ -50,7 +50,12 @@ export function useAuth() {
     [navigate]
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Revoke the refresh chain before dropping the access token, so a
+    // future tab that still has the cookie can't extend a session the
+    // user explicitly ended. Errors are swallowed — local logout
+    // happens regardless.
+    await api.logoutServer();
     clearToken();
     navigate("/login");
   }, [navigate]);

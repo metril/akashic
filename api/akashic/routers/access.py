@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.acl import ACL
 from akashic.services.acl_denorm import denormalize_acl
+from akashic.services.audit import record_event
 from akashic.services.search import get_meili_client
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ def _token_kind(token: str) -> str:
 
 @router.get("")
 async def access_query(
+    request: Request,
     principal: str | None = Query(default=None),
     file: uuid.UUID | None = Query(default=None),
     right: str = Query(default="read", pattern="^(read|write|delete)$"),
@@ -134,10 +136,33 @@ async def access_query(
             detail="Pass exactly one of `principal` or `file`",
         )
 
+    # Audit every blast-radius lookup. The values here (a wildcard
+    # `*` principal returns the world-readable file list) are exactly
+    # the kind admins later want to ask "who looked at that?" — and
+    # the events table is already the right place.
+    audit_payload: dict = {"right": right, "offset": offset, "limit": limit}
+    if principal is not None:
+        audit_payload["principal"] = principal
     if file is not None:
-        return await _file_to_principals(file, right, db)
-    assert principal is not None
-    return await _principal_to_files(principal, right, source_id, offset, limit, db)
+        audit_payload["file_id"] = str(file)
+    if source_id is not None:
+        audit_payload["source_id"] = str(source_id)
+
+    if file is not None:
+        result = await _file_to_principals(file, right, db)
+    else:
+        assert principal is not None
+        result = await _principal_to_files(principal, right, source_id, offset, limit, db)
+
+    await record_event(
+        db=db, user=user,
+        event_type="access_lookup",
+        payload=audit_payload,
+        request=request,
+        source_id=source_id,
+    )
+    await db.commit()
+    return result
 
 
 async def _principal_to_files(
