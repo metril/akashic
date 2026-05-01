@@ -362,6 +362,18 @@ def _build_nested_tree(
         if r.path != root_path:
             children_of[r.parent_path].append(node)
 
+    # Synthesise the root when no row materialises at root_path. Happens
+    # when the connector emits top-level entries with `parent_path =
+    # root_path` but no literal `path = root_path` row (SMB/SSH/S3 all
+    # do this for their share root). The CTE's secondary anchor pulls
+    # those first-level entries in; we need a parent node for them to
+    # attach to.
+    if root_path not in by_path:
+        by_path[root_path] = {
+            "kind": "directory", "name": "/", "path": root_path,
+            "size_bytes": 0,  # filled from children sum below
+        }
+
     # Second pass — attach children, drop orphans (their parent wasn't kept).
     for path, kids in children_of.items():
         parent = by_path.get(path)
@@ -371,6 +383,14 @@ def _build_nested_tree(
         parent["children"] = sorted(
             kids, key=lambda n: n["size_bytes"], reverse=True,
         )
+
+    # Backfill the synthesised root's size from its children — the CTE
+    # never returned an aggregate for the synthetic node.
+    synthetic_root = by_path.get(root_path)
+    if synthetic_root is not None and synthetic_root.get("size_bytes") == 0:
+        kids = synthetic_root.get("children", [])
+        if kids:
+            synthetic_root["size_bytes"] = sum(k["size_bytes"] for k in kids)
 
     # Third pass — for each directory whose children's sum < its own
     # subtree_size_bytes, synthesise an <other> child so the visible
@@ -435,6 +455,12 @@ async def _fetch_tree_rows(
             rec_perm = " AND c.viewable_by_read && :perm_tokens"
             perm_params["perm_tokens"] = perm_tokens
 
+    # Anchor strategy: prefer a literal `path = :root_path` row when one
+    # exists. When it doesn't (the SMB / SSH / S3 connectors emit
+    # top-level entries with `parent_path = '/'` and no synthesised
+    # root), fall through to anchoring on `parent_path = :root_path` so
+    # the de-facto first-level entries seed the recursion. The
+    # synthesised root node is added in `_build_nested_tree`.
     sql = text(f"""
         WITH RECURSIVE walk AS (
             SELECT entries.id, entries.parent_path, entries.path,
@@ -445,8 +471,19 @@ async def _fetch_tree_rows(
                    0 AS depth
             FROM entries
             WHERE entries.source_id = :source_id
-              AND entries.path = :root_path
               AND entries.is_deleted = false
+              AND (
+                  entries.path = :root_path
+                  OR (
+                      entries.parent_path = :root_path
+                      AND NOT EXISTS (
+                          SELECT 1 FROM entries r
+                           WHERE r.source_id = :source_id
+                             AND r.path = :root_path
+                             AND r.is_deleted = false
+                      )
+                  )
+              )
               {anchor_perm}
             UNION ALL
             SELECT c.id, c.parent_path, c.path, c.name, c.kind,
