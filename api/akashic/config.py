@@ -38,6 +38,13 @@ class Settings(BaseSettings):
 
     group_cache_ttl_hours: int = 24
 
+    # Phase 5 — when on, Browse and entry-by-id apply the same per-user
+    # ACL filter Search has always applied. Defaults off so existing
+    # deployments don't suddenly hide files from existing users on
+    # upgrade; flip to true once the deployment has FsBindings set up
+    # (and ideally has run the Phase-4 backfill on existing entries).
+    browse_enforce_perms: bool = False
+
     # LDAP
     ldap_enabled: bool = False
     ldap_server: str = ""  # e.g. ldap://ldap.example.com:389

@@ -115,3 +115,30 @@ def viewable_clause(tokens: list[str], right: Right) -> ColumnElement[bool]:
     if not tokens:
         return false()
     return column.op("&&")(tokens)
+
+
+async def user_can_view(entry, user: User, db: AsyncSession) -> bool:
+    """Phase-5 per-user ACL check used by entry-detail / content / preview
+    endpoints. Returns True (allow) when:
+
+    - the deployment-wide feature flag is off,
+    - the caller is an admin (admins always see everything; the show_all
+      query param on Browse is a separate UX concern),
+    - the caller has no FsBindings (legacy users keep see-all behaviour
+      until an admin attaches one).
+
+    Otherwise returns whether the caller's tokens overlap the entry's
+    `viewable_by_read` array. Mirrors the semantics of `viewable_clause`
+    used by the SQL-side trim, just on a single already-loaded row.
+    """
+    from akashic.config import settings  # avoid module-load cycle
+
+    if not settings.browse_enforce_perms:
+        return True
+    if user.role == "admin":
+        return True
+    if not await user_has_any_bindings(user, db):
+        return True
+    tokens = await user_principal_tokens(user, db)
+    viewable = entry.viewable_by_read or []
+    return any(t in viewable for t in tokens)

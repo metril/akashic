@@ -22,6 +22,13 @@ import { formatMode, iconPathForKind } from "../lib/perms";
 import { EntryDetail } from "../components/EntryDetail";
 import { downloadEntryContent } from "../lib/downloadEntry";
 import { Icon } from "../components/ui";
+import { useAuth } from "../hooks/useAuth";
+
+interface EffectiveCounts {
+  visible: number;
+  hidden: number;
+  enforced: boolean;
+}
 
 function pathSegments(path: string): string[] {
   if (path === "/") return [];
@@ -82,6 +89,24 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 export default function Browse() {
   const [params, setParams] = useSearchParams();
   const routerNav = useNavigate();
+  const { isAdmin } = useAuth();
+  // Phase-5: admin opt-out for the per-user ACL trim. Off by default;
+  // toggling it sticks to localStorage so an admin debugging "what does
+  // user X see?" doesn't have to flip it on every navigation.
+  const [showAll, setShowAll] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("browse-show-all") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("browse-show-all", showAll ? "1" : "0");
+    } catch {
+      // storage may be blocked — preference resets next session.
+    }
+  }, [showAll]);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -139,11 +164,25 @@ export default function Browse() {
     [sources],
   );
 
+  const showAllParam = isAdmin && showAll ? "&show_all=1" : "";
+
   const browseQuery = useQuery<BrowseResponse>({
-    queryKey: ["browse", sourceId, path],
+    queryKey: ["browse", sourceId, path, showAllParam],
     queryFn: () =>
       api.get<BrowseResponse>(
-        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}`,
+        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}`,
+      ),
+    enabled: !!sourceId,
+  });
+
+  // Counts the user can/can't see. Drives the "X items hidden" footer.
+  // Cheap (two indexed COUNT(*)s) so we run it alongside the browse
+  // query rather than threading through the main response.
+  const countsQuery = useQuery<EffectiveCounts>({
+    queryKey: ["browse-counts", sourceId, path, showAllParam],
+    queryFn: () =>
+      api.get<EffectiveCounts>(
+        `/browse/effective-counts?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}`,
       ),
     enabled: !!sourceId,
   });
@@ -231,6 +270,23 @@ export default function Browse() {
             <Breadcrumb segments={segments} />
           </div>
           <div className="flex gap-2 md:pt-5">
+            {isAdmin && countsQuery.data?.enforced && (
+              // Admin-only opt-out for the per-user ACL trim. Visible
+              // only when filtering is actually being applied — no
+              // point offering the toggle when there's nothing to bypass.
+              <label
+                title="Show entries even if your bindings don't grant read"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-line text-sm text-fg-muted hover:bg-surface-muted cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={showAll}
+                  onChange={(e) => setShowAll(e.target.checked)}
+                  className="size-3.5"
+                />
+                Show all (admin)
+              </label>
+            )}
             <button
               type="button"
               onClick={goUp}
@@ -322,6 +378,30 @@ export default function Browse() {
             onRowClick={handleRowClick}
           />
         )}
+        {/* Hidden-count footer. Only renders when the per-user ACL
+            trim is on AND actually hid something — we deliberately
+            stay quiet for users with no bindings (they keep seeing
+            everything) and for admins with show_all toggled. */}
+        {countsQuery.data?.enforced &&
+          countsQuery.data.hidden > 0 && (
+            <div className="px-4 py-2.5 border-t border-line-subtle bg-surface-muted/40 text-xs text-fg-muted flex items-center gap-2">
+              <Icon name="shield" className="size-3.5 text-fg-subtle" />
+              <span>
+                {countsQuery.data.hidden.toLocaleString()} of{" "}
+                {(countsQuery.data.visible + countsQuery.data.hidden).toLocaleString()}{" "}
+                items hidden by your access permissions.
+              </span>
+              {isAdmin && !showAll && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="ml-auto text-accent-700 hover:underline"
+                >
+                  Show all
+                </button>
+              )}
+            </div>
+          )}
       </Card>
 
       <Drawer
