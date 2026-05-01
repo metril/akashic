@@ -12,7 +12,6 @@ from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanResponse
-from akashic.services.scan_runner import spawn_scan
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 
@@ -38,15 +37,19 @@ async def trigger_scan(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Create a scan record AND spawn the scanner subprocess.
+    """Enqueue a scan into the lease queue.
 
-    Pre-fix this endpoint just inserted a `pending` Scan row and
-    expected an external orchestrator (HA integration, CLI, etc.) to
-    actually run the binary. That meant the UI's "Scan now" button was
-    a dead end on a vanilla install — no logs, no progress, no
-    completion. The runner now spawns the bundled scanner via
-    BackgroundTasks so the trigger response returns immediately and
-    the scan begins within ~the request roundtrip.
+    Phase 2 multi-scanner: the api no longer spawns a subprocess on
+    its own host. We insert a `pending` Scan row tagged with the
+    source's preferred_pool (or NULL for any scanner); a registered
+    scanner agent picks it up via /api/scans/lease within a few
+    seconds. Returns 202-shaped success even though the scan hasn't
+    started — the UI watches the status field for "running" /
+    "completed" via the existing polling.
+
+    The `background` arg is retained for forward compatibility (e.g.
+    a future post-enqueue webhook) but currently unused — no work
+    runs on the api host as a result of this call.
     """
     if not data.source_name and not data.source_id:
         raise HTTPException(status_code=400, detail="source_name or source_id required")
@@ -70,19 +73,19 @@ async def trigger_scan(
         scan_type=data.scan_type,
         status="pending",
         previous_scan_files=prev,
+        # Snapshot the source's pool preference at enqueue time so
+        # later edits to Source.preferred_pool don't reroute an
+        # already-queued scan.
+        pool=source.preferred_pool,
     )
     db.add(scan)
     source.status = "scanning"
     await db.commit()
     await db.refresh(scan)
-
-    # Snapshot the fields spawn_scan needs while we still have the
-    # Source row attached to the session, then schedule the subprocess
-    # to start after the response is sent. BackgroundTasks runs
-    # *after* `await db.commit()`, so the scanner-side first heartbeat
-    # is guaranteed to find the row.
     await db.refresh(source)
-    background.add_task(spawn_scan, source, scan, user)
+
+    # `background` retained — see docstring. Linter happiness:
+    _ = background
 
     return ScanTriggerResponse(
         scan_id=scan.id,
