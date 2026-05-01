@@ -11,7 +11,7 @@
  * URL state owns navigation: ?source=, ?path=, ?color=. A bookmark of
  * the URL restores the exact view.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
@@ -99,22 +99,26 @@ export default function StorageExplorer() {
     enabled: !!sourceId,
   });
 
-  // Resize: the SVG treemap is purely a function of (data, w, h). The
-  // ResizeObserver-backed container reports its current size; we re-run
-  // the d3 layout via the Treemap component on every change.
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Resize: the SVG treemap is purely a function of (data, w, h). A
+  // callback ref drives the ResizeObserver so the observer attaches
+  // exactly when the container element mounts (not "once on first
+  // render" — the first render typically shows a Spinner while the
+  // query resolves, the container div doesn't exist yet, and a normal
+  // useEffect with `[]` deps would silently no-op).
   const [size, setSize] = useState({ w: 0, h: 0 });
-  useLayoutEffect(() => {
-    const el = containerRef.current;
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const setContainerRef = (el: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
     if (!el) return;
-    const update = () => {
-      setSize({ w: el.clientWidth, h: el.clientHeight });
-    };
+    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    observerRef.current = ro;
+  };
 
   const setPath = (newPath: string) => {
     const next = new URLSearchParams(params);
@@ -282,7 +286,7 @@ export default function StorageExplorer() {
                 </div>
               )}
               <div
-                ref={containerRef}
+                ref={setContainerRef}
                 className="relative w-full"
                 style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
               >
