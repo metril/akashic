@@ -1,5 +1,4 @@
 import asyncio
-from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -8,9 +7,16 @@ from akashic.config import settings
 from akashic.database import Base
 from akashic.models import *  # noqa: F401,F403
 
+# We deliberately do NOT call logging.config.fileConfig here. Alembic's
+# default boilerplate calls fileConfig(config.config_file_name) which
+# globally clobbers Python's logging configuration based on alembic.ini's
+# [loggers] section — fine for the standalone CLI, but disastrous when
+# the api invokes alembic in-process from its lifespan or from pytest.
+# Tests using caplog stop seeing log records once env.py has reconfigured
+# the root logger, and uvicorn loses its log formatting at startup.
+# Logging is the caller's responsibility.
+
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
