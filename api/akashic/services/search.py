@@ -31,23 +31,22 @@ async def ensure_index():
 
 
 def build_entry_doc(entry: "Entry", content_text: str | None = None) -> dict:
-    """Builds the Meili document for an Entry, including denormalized ACL arrays."""
-    from akashic.services.acl_denorm import denormalize_acl
-    from akashic.schemas.acl import ACL
-    from pydantic import TypeAdapter
+    """Builds the Meili document for an Entry, including denormalized ACL arrays.
 
-    acl_obj = None
-    if entry.acl:
-        try:
-            acl_obj = TypeAdapter(ACL).validate_python(entry.acl)
-        except Exception:
-            acl_obj = None
-    buckets = denormalize_acl(
-        acl=acl_obj,
-        base_mode=entry.mode,
-        base_uid=entry.uid,
-        base_gid=entry.gid,
-    )
+    Reads the pre-computed `viewable_by_*` columns when populated (the
+    common case after Phase 4 ingest), and falls back to recomputing from
+    `acl/mode/uid/gid` only for legacy rows that haven't been backfilled
+    yet — same source of truth either way.
+    """
+    from akashic.services.ingest import compute_viewable_buckets
+
+    if entry.viewable_by_read is not None:
+        read = entry.viewable_by_read
+        write = entry.viewable_by_write or []
+        delete = entry.viewable_by_delete or []
+    else:
+        buckets = compute_viewable_buckets(entry.acl, entry.mode, entry.uid, entry.gid)
+        read, write, delete = buckets["read"], buckets["write"], buckets["delete"]
 
     doc: dict = {
         "id": str(entry.id),
@@ -62,9 +61,9 @@ def build_entry_doc(entry: "Entry", content_text: str | None = None) -> dict:
         "fs_modified_at": int(entry.fs_modified_at.timestamp())
             if entry.fs_modified_at else None,
         "tags": [],
-        "viewable_by_read":   buckets["read"],
-        "viewable_by_write":  buckets["write"],
-        "viewable_by_delete": buckets["delete"],
+        "viewable_by_read":   read,
+        "viewable_by_write":  write,
+        "viewable_by_delete": delete,
     }
     if content_text is not None:
         doc["content_text"] = content_text
