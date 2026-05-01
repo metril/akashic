@@ -11,6 +11,7 @@ from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.audit_event import AuditEvent
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
+from akashic.models.refresh_token import RefreshToken
 
 __all__ = [
     "Source",
@@ -33,4 +34,5 @@ __all__ = [
     "AuditEvent",
     "PrincipalGroupsCache",
     "PrincipalsCache",
+    "RefreshToken",
 ]

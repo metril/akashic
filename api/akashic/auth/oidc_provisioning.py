@@ -591,6 +591,20 @@ async def _record_unbound(
             first_seen_at=now,
             last_seen_at=now,
         ))
+        # First time we've seen this claim go unmatched. Logging here
+        # surfaces the gap to admins via the existing audit feed —
+        # they can attach the binding before next login. Subsequent
+        # logins refresh the row silently (no audit spam).
+        from akashic.services.audit import record_event  # avoid module cycle
+        await record_event(
+            db=db, user=user,
+            event_type="oidc_unbound_identity_created",
+            payload={
+                "identity_type": identity.identity_type,
+                "identifier": identity.identifier,
+                "confidence": identity.confidence,
+            },
+        )
     else:
         existing.confidence = identity.confidence
         existing.groups = identity.groups
