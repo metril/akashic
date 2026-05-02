@@ -31,6 +31,7 @@ import {
   formatRelative,
 } from "../lib/format";
 import { useAuth } from "../hooks/useAuth";
+import { useDashboardLiveRefresh } from "../hooks/useDashboardLiveRefresh";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
 
 interface DashboardSummary {
@@ -82,6 +83,9 @@ export default function Dashboard() {
     queryKey: ["dashboard", "summary"],
     queryFn: () => api.get<DashboardSummary>("/dashboard/summary"),
   });
+  // Phase-2 multi-scanner: tiles refresh on /ws/scans events instead
+  // of waiting for a manual reload.
+  useDashboardLiveRefresh();
 
   const data = summaryQ.data;
   const loading = summaryQ.isLoading;

@@ -44,17 +44,13 @@ async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
         logger.warning("Invalid cron expression for source '%s': %s", source.name, exc)
         return
 
-    # Atomic conditional update to prevent race conditions:
-    # Only set status='scanning' if it's still not 'scanning'
-    result = await db.execute(
-        update(Source)
-        .where(Source.id == source.id, Source.status != "scanning")
-        .values(status="scanning")
-        .returning(Source.id)
-    )
-    updated = result.first()
-    if not updated:
-        return  # Another tick already claimed this source
+    # Don't double-enqueue: if there's already a pending or running
+    # scan for this source, skip. Replaces the old
+    # status='scanning'-as-mutex pattern; source.status now reflects
+    # what an agent is actually doing (set by /lease, cleared by
+    # /complete), not "we intend to scan eventually."
+    if await _has_open_scan(db, source.id):
+        return
 
     from akashic.services.scan_factory import previous_files_for_source
     prev = await previous_files_for_source(source.id, db)
@@ -73,6 +69,32 @@ async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
         "Scheduled scan enqueued for source '%s' (scan_id=%s, pool=%s)",
         source.name, scan.id, source.preferred_pool or "<any>",
     )
+
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "scan.state",
+        "source_id": str(source.id),
+        "scan_id": str(scan.id),
+        "scan_status": "pending",
+        "source_status": source.status,
+        "scanner_id": None,
+        "scanner_name": None,
+        "scan_type": "incremental",
+        "files_found": 0,
+        "current_path": None,
+    })
+
+
+async def _has_open_scan(db: AsyncSession, source_id) -> bool:
+    """A pending or running scan exists for this source — don't
+    enqueue another. Replaces the source.status='scanning' mutex."""
+    result = await db.execute(
+        select(Scan.id).where(
+            Scan.source_id == source_id,
+            Scan.status.in_(["pending", "running"]),
+        ).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def _check_and_trigger_scans():
