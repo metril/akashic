@@ -135,6 +135,14 @@ async def post_heartbeat(
         "scan_type": scan.scan_type,
         "files_found": scan.files_found or 0,
         "current_path": scan.current_path,
+        # v0.4.10 — carry started_at so the frontend's bySource map
+        # can order scans correctly. Without it, freshly-leased scans
+        # had started_at=null in the singleton store and lost the
+        # tiebreak in recomputeBySource against older terminal scans
+        # whose started_at was populated, hiding the running scan
+        # from useOpenScanForSource → SourceDetail's Live log tab
+        # rendered nothing until the user closed + reopened the panel.
+        "started_at": scan.started_at.isoformat() if scan.started_at else None,
     })
 
 

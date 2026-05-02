@@ -821,6 +821,21 @@ async def lease_scan(
 
     # Push the state change to the list-level WS subscribers.
     from akashic.services import scan_pubsub
+    # Re-fetch the scan to pick up the started_at written by the
+    # lease UPDATE (the RETURNING clause didn't expose it). We need
+    # the real timestamp for the scan.state event so the frontend's
+    # recomputeBySource picks this running scan over older terminal
+    # scans for the same source. v0.4.10.
+    started_at_row = (await db.execute(
+        text("SELECT started_at FROM scans WHERE id = :sid"),
+        {"sid": scan_id},
+    )).first()
+    started_at_iso = (
+        started_at_row[0].isoformat()
+        if started_at_row and started_at_row[0]
+        else None
+    )
+
     await scan_pubsub.publish_source_event({
         "kind": "scan.state",
         "source_id": str(source.id),
@@ -832,6 +847,7 @@ async def lease_scan(
         "scan_type": scan_type or "incremental",
         "files_found": 0,
         "current_path": None,
+        "started_at": started_at_iso,
     })
 
     api_jwt = await _mint_ingest_jwt(db)
@@ -909,6 +925,7 @@ async def complete_scan(
             "scan_type": scan.scan_type,
             "files_found": scan.files_found or 0,
             "current_path": None,
+            "started_at": scan.started_at.isoformat() if scan.started_at else None,
         })
 
 

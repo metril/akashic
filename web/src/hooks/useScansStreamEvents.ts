@@ -23,7 +23,13 @@ export type ScansStreamEvent =
       scan_status: "pending" | "running" | "completed" | "failed" | "cancelled";
       source_status: string;
       scanner_id: string | null; scanner_name: string | null;
-      scan_type: string; files_found: number; current_path: string | null }
+      scan_type: string; files_found: number; current_path: string | null;
+      // v0.4.10 — present on lease + heartbeat + complete (i.e.
+      // every event after the scanner has actually started). Trigger
+      // events still send null since started_at isn't set yet at
+      // pending. Surfaces in bySource[id].started_at so ETA + the
+      // recomputeBySource ordering have the real timestamp.
+      started_at?: string | null }
   | { kind: "source.created"; source_id: string; source_status: string;
       name: string; type: string }
   | { kind: "source.deleted"; source_id: string }

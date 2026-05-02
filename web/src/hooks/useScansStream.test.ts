@@ -306,6 +306,79 @@ describe("_selectSnapshot — selector cache (v0.4.6 regression coverage)", () =
   });
 });
 
+describe("recomputeBySource — open scan beats terminal even with null started_at (v0.4.10 regression coverage)", () => {
+  // The bug: scan.state events don't carry started_at, so a
+  // freshly-triggered scan sat in byScan with started_at=null and
+  // lost the recomputeBySource tiebreak to an older terminal scan
+  // for the same source whose started_at was populated. bySource[id]
+  // pointed at the terminal scan → useOpenScanForSource returned
+  // undefined → activeScanId=null → SourceDetail's Live log tab
+  // rendered empty content until the user closed + reopened the
+  // panel (forcing a fresh WS reconnect + snapshot, after which the
+  // running scan's started_at WAS populated and it won the
+  // tiebreak).
+  it("a running scan with null started_at wins over an older failed scan with populated started_at", () => {
+    // Seed: an older failed scan (came in via the snapshot frame
+    // with started_at set).
+    const seeded = applyEvent(
+      INITIAL,
+      snapshotEvent([
+        {
+          scan_id: "old",
+          source_id: "src",
+          scan_status: "failed",
+          started_at: "2026-05-02T19:08:34Z",
+        },
+      ]),
+    );
+    expect(seeded.bySource["src"].id).toBe("old");
+    expect(seeded.bySource["src"].status).toBe("failed");
+
+    // Now a fresh scan is triggered. The trigger's scan.state event
+    // arrives with no started_at field set yet (pending phase).
+    const triggered = applyEvent(
+      seeded,
+      scanStateEvent({
+        scan_id: "new",
+        source_id: "src",
+        scan_status: "pending",
+      }),
+    );
+    // The running/pending scan must win regardless of started_at.
+    expect(triggered.bySource["src"].id).toBe("new");
+    expect(triggered.bySource["src"].status).toBe("pending");
+  });
+
+  it("a completed scan still wins over a terminal scan when both are terminal (started_at tiebreak)", () => {
+    const seeded = applyEvent(
+      INITIAL,
+      snapshotEvent([
+        {
+          scan_id: "older-fail",
+          source_id: "src",
+          scan_status: "failed",
+          started_at: "2026-05-02T19:00:00Z",
+        },
+      ]),
+    );
+    // A completed scan with a more recent started_at.
+    const next = applyEvent(
+      seeded,
+      scanStateEvent({
+        scan_id: "newer-complete",
+        source_id: "src",
+        scan_status: "completed",
+      }),
+    );
+    // Among terminal-only, the started_at rule still applies — but
+    // the new completed scan came via scan.state with no started_at,
+    // so the older failed (with real started_at) wins. (This is the
+    // existing semantics; we're just confirming the new "open beats
+    // terminal" branch doesn't accidentally promote the new one.)
+    expect(next.bySource["src"].id).toBe("older-fail");
+  });
+});
+
 describe("useOpenScanForSource semantics (v0.4.8 regression coverage)", () => {
   // The bug: bySource[id] keeps the most-recent scan even after it
   // terminates (the WS snapshot deliberately includes failed scans

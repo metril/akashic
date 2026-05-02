@@ -63,16 +63,45 @@ function notify(): void {
   for (const l of _listeners) l();
 }
 
+const TERMINAL_SCAN_STATES = new Set(["completed", "failed", "cancelled"]);
+
+function isOpenScan(s: Scan): boolean {
+  return !TERMINAL_SCAN_STATES.has(s.status);
+}
+
 function recomputeBySource(byScan: Record<string, Scan>): Record<string, Scan> {
   const out: Record<string, Scan> = {};
   for (const s of Object.values(byScan)) {
     const cur = out[s.source_id];
-    // Most-recent-by-started_at wins; pending (no started_at) loses
-    // to running. Mirrors the v0.1.0 useActiveScans collapse rule.
-    if (
-      !cur ||
-      (s.started_at && (!cur.started_at || s.started_at > cur.started_at))
-    ) {
+    if (!cur) {
+      out[s.source_id] = s;
+      continue;
+    }
+    // v0.4.10 — preference order:
+    //   1. Open (pending/running) ALWAYS wins over terminal. Without
+    //      this, a freshly-triggered scan with started_at=null in the
+    //      singleton store (the WS scan.state event payload doesn't
+    //      carry started_at — only the snapshot frame does) loses to
+    //      an older completed/failed scan that's still in byScan with
+    //      a real started_at. That hid the running scan from
+    //      useOpenScanForSource → activeScanId stayed null →
+    //      SourceDetail's Live log tab content was empty until the
+    //      user closed and reopened the panel (which forced a fresh
+    //      WS reconnect + snapshot, after which the running scan had
+    //      a populated started_at and won the comparison).
+    //   2. Among scans of the same kind (both open or both closed),
+    //      most-recent-by-started_at wins; null started_at loses to
+    //      a real timestamp.
+    const sOpen = isOpenScan(s);
+    const curOpen = isOpenScan(cur);
+    if (sOpen && !curOpen) {
+      out[s.source_id] = s;
+      continue;
+    }
+    if (!sOpen && curOpen) {
+      continue;
+    }
+    if (s.started_at && (!cur.started_at || s.started_at > cur.started_at)) {
       out[s.source_id] = s;
     }
   }
@@ -121,6 +150,12 @@ function streamEventToScan(
     status: e.scan_status,
     files_found: e.files_found ?? base.files_found,
     current_path: e.current_path ?? base.current_path,
+    // v0.4.10 — merge started_at when the event provides it. The
+    // backend started sending it on lease/heartbeat/complete so the
+    // singleton store carries the real timestamp end-to-end (used
+    // for ETA in buildProgressLine + tiebreaker in
+    // recomputeBySource).
+    started_at: e.started_at ?? base.started_at,
   };
 }
 
