@@ -48,6 +48,9 @@ func main() {
 		case "discover":
 			runDiscover(os.Args[2:])
 			return
+		case "auto":
+			runAuto(os.Args[2:])
+			return
 		}
 	}
 
