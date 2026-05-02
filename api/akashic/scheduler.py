@@ -248,28 +248,48 @@ async def _check_stale_scans():
                 scan.source_id,
             )
 
-        # 2) Sources stuck in scanning (covers orphan pending scans / lost workers)
+        # 2) Sources stuck in `scanning` with NO active scan row.
+        #
+        # Path 1 already kills any in-flight scan whose heartbeat /
+        # started_at is older than the cutoff. This path catches the
+        # orthogonal case: source.status drifted out of sync with the
+        # scans table — e.g. an active scan was deleted, or status
+        # fields stopped tracking each other after some manual edit.
+        # We only reset the source; there's no scan to kill.
+        #
+        # v0.4.9 — previously this path used
+        #   Source.last_scan_at < cutoff
+        # which is the timestamp of the source's PREVIOUS completed
+        # scan, never updated while a new scan is in flight. That meant
+        # any source whose last successful scan was >60 min ago had its
+        # next in-flight scan killed by the watchdog within ~60 s of
+        # the lease, regardless of whether the scanner was actively
+        # heartbeating. The scanner saw 409 on its next heartbeat and
+        # exited reporting "scan cancelled by api", which is exactly the
+        # symptom users hit on every newly-triggered scan after the
+        # multi-scanner split (in-process scans pre-split completed too
+        # fast for this race to surface).
+        from sqlalchemy import not_, exists
+        active_scan_exists = (
+            select(Scan.id)
+            .where(
+                Scan.source_id == Source.id,
+                Scan.status.in_(["pending", "running"]),
+            )
+            .exists()
+        )
         result = await db.execute(
             select(Source).where(
                 Source.status == "scanning",
-                Source.last_scan_at.isnot(None),
-                Source.last_scan_at < cutoff,
+                not_(active_scan_exists),
             )
         )
         for source in result.scalars().all():
             source.status = "failed"
-            await db.execute(
-                update(Scan)
-                .where(
-                    Scan.source_id == source.id,
-                    Scan.status.in_(["pending", "running"]),
-                )
-                .values(status="failed", error_message=message)
-            )
             logger.warning(
-                "Watchdog: source %s stuck in scanning since %s — reset to failed",
+                "Watchdog: source %s stuck in scanning with no open scan — "
+                "reset to failed (was probably orphaned by a manual edit)",
                 source.id,
-                source.last_scan_at,
             )
 
         await db.commit()
