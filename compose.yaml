@@ -88,32 +88,52 @@ services:
         - action: rebuild
           path: ./web/nginx.conf
 
-  # Phase 2 multi-scanner — the api stopped spawning the bundled
-  # binary in routers/scans.py, so a scanner agent has to run
-  # somewhere for /api/scans/trigger to actually do work. Mint a
-  # `default`-pool scanner via Settings → Scanners (or `make
-  # bootstrap-scanner`), drop the issued private key into
-  # secrets/default-scanner/scanner.key, set SCANNER_ID in your
-  # .env, then `docker compose up -d scanner` brings this up.
+  # Bundled scanner agent. v0.3.0+ uses the `auto` entrypoint so
+  # the same compose service works on every install state:
+  #
+  #   - First run, want operator-approved discovery:
+  #       AKASHIC_DISCOVER=1 docker compose --profile scanner up scanner
+  #     → stderr shows a pairing code; approve in Settings → Scanners.
+  #
+  #   - First run, have a join token (from Settings → Scanners):
+  #       AKASHIC_CLAIM_TOKEN=akcl_… docker compose --profile scanner up scanner
+  #
+  #   - Subsequent runs (credentials persisted in the named volume):
+  #       docker compose --profile scanner up scanner
+  #     → auto detects the saved key+id and runs `agent` directly.
+  #
+  # Uses a *named* docker volume rather than a host bind mount so
+  # the container (which runs as uid 1000) can write the generated
+  # key on first run without host-side chown ceremony.
+  #
+  # Migrating from a pre-v0.3.0 install with files in
+  # ./secrets/default-scanner/?  Two options:
+  #   1. (preferred) discover/claim a fresh scanner — the new flow
+  #      generates the keypair on the scanner host, which is a
+  #      strict security improvement.
+  #   2. Copy the existing key into the named volume:
+  #        docker run --rm -v akashic_scanner-data:/dst -v $(pwd)/secrets/default-scanner:/src:ro \
+  #          alpine cp /src/scanner.key /dst/scanner.key
+  #      …and set SCANNER_ID env from your old .env.
   scanner:
     build:
       context: .
       dockerfile: scanner/Dockerfile
-    command:
-      - agent
-      - --api=http://api:8000
-      - --scanner-id=${SCANNER_ID:-}
-      - --key=/secrets/scanner.key
+    command: [auto]
+    environment:
+      AKASHIC_API_URL: http://api:8000
+      AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
+      AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
+      SCANNER_ID: ${SCANNER_ID:-}
     volumes:
-      - ./secrets/default-scanner:/secrets:ro
+      - scanner-data:/secrets
     depends_on:
       api:
         condition: service_started
-    # Don't auto-start — the secret has to exist first. `docker
-    # compose up scanner` brings it up explicitly.
     profiles: ["scanner"]
 
 volumes:
   pgdata:
   msdata:
   redisdata:
+  scanner-data:

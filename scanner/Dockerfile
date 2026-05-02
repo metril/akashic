@@ -19,6 +19,12 @@ FROM alpine:3.20
 # Non-root by default; the agent only needs to read its own key file
 # and reach the api over the network.
 RUN adduser -D -u 1000 scanner
+# Pre-create /secrets owned by the scanner user. When a docker
+# named volume is mounted here on first launch, docker copies the
+# directory's ownership (1000:1000) into the fresh volume — so the
+# `auto`/`claim`/`discover` paths can write the keypair without
+# host-side chown ceremony.
+RUN mkdir -p /secrets && chown scanner:scanner /secrets
 USER scanner
 COPY --from=build /out/akashic-scanner /usr/local/bin/akashic-scanner
 ENTRYPOINT ["/usr/local/bin/akashic-scanner"]
