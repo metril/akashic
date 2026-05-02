@@ -46,6 +46,11 @@ const listeners = new Set<Listener>();
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let visibilityBound = false;
+// Capped exponential backoff (v0.4.3) — same rationale as
+// useScansStreamEvents. Resets on any successful frame.
+let retryCount = 0;
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30_000;
 
 function buildUrl(): string | null {
   const token = getToken();
@@ -66,6 +71,7 @@ function open() {
   const sock = new WebSocket(url);
   ws = sock;
   sock.onmessage = (msg) => {
+    retryCount = 0; // healthy connection resets backoff
     try {
       const event = JSON.parse(msg.data) as ScannersStreamEvent;
       dispatch(event);
@@ -85,7 +91,12 @@ function open() {
 
 function scheduleReconnect() {
   if (reconnectTimer != null) return;
-  const delay = 1000 + Math.random() * 4000;
+  // Capped exponential 1s → 30s with ±20% jitter. See
+  // useScansStreamEvents for the full rationale.
+  const base = Math.min(RETRY_BASE_MS * 2 ** retryCount, RETRY_MAX_MS);
+  const jitter = base * 0.2 * (2 * Math.random() - 1);
+  const delay = base + jitter;
+  retryCount++;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     open();

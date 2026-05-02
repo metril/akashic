@@ -82,6 +82,18 @@ FROM candidates
 """
 
 
+async def _has_any_orphans(db: AsyncSession) -> bool:
+    """Cheap pre-check before the JOIN. Served by the
+    ix_entries_orphan_match partial index (v0.4.3) — sub-ms regardless
+    of table size. Common case (user never delete-with-preserved a
+    source) returns false and the caller short-circuits the
+    expensive orphan-match JOIN."""
+    res = await db.execute(
+        text("SELECT 1 FROM entries WHERE source_id IS NULL LIMIT 1")
+    )
+    return res.scalar_one_or_none() is not None
+
+
 async def find_matches(
     db: AsyncSession,
     source_id: uuid.UUID,
@@ -100,6 +112,11 @@ async def find_matches(
         first_seen_at) but that's a value judgement; safer to
         surface it and let the operator decide manually.
     """
+    # Fast path: no orphans anywhere → no possible matches. Avoids
+    # the JOIN planner cost when the answer is trivially empty.
+    if not await _has_any_orphans(db):
+        return MatchSummary(pairs=[], conflicts=0, ambiguous=0)
+
     rows = (await db.execute(
         text(_MATCH_BASE).bindparams(
             bindparam("source_id", source_id),
@@ -220,10 +237,14 @@ async def commit_matches(
 async def count_potential_matches(
     db: AsyncSession, source_id: uuid.UUID,
 ) -> int:
-    """Cheap COUNT used by the source-detail banner to decide
-    whether to surface the 'Recover orphans' affordance. Counts
-    distinct orphans that share a path with at least one fresh
-    entry — doesn't try to disambiguate or check hashes."""
+    """Count distinct orphans that share a path with at least one
+    fresh entry of `source_id`. Doesn't disambiguate or check
+    hashes — that's `find_matches`. Used by the (no-longer-default)
+    GET /api/sources/{id}/orphan-match-count endpoint, kept for
+    callers that want a cheap sanity check.
+    """
+    if not await _has_any_orphans(db):
+        return 0
     res = await db.execute(
         text("""
             SELECT COUNT(DISTINCT orphan.id)

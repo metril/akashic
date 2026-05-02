@@ -1,0 +1,14 @@
+# Baseline scrape config for the bundled Prometheus profile.
+# Mounted into the prometheus container at
+# /etc/prometheus/prometheus.yml; restart the container after
+# editing.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: akashic-api
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: /metrics

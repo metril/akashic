@@ -1,11 +1,50 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings
+from akashic.services import metrics as metrics_svc
 
 logger = logging.getLogger(__name__)
+
+
+# Slow-request observability + Prometheus instrumentation, both
+# served by one middleware (Phase 6 + Phase 10 of v0.4.3). Every
+# request gets observed for the metrics histogram; only requests
+# beyond _REQUEST_SLOW_MS additionally hit the slow-log.
+_REQUEST_SLOW_MS = 250
+# Don't instrument the metrics endpoint itself — would self-emit
+# every scrape, and /health is called constantly enough to dwarf
+# real api traffic in the histogram.
+_INSTRUMENT_SKIP_PATHS = frozenset({"/metrics", "/health"})
+
+
+class _TimingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path_template = (
+            request.scope.get("route").path
+            if request.scope.get("route") is not None
+            else request.url.path
+        )
+        if path_template in _INSTRUMENT_SKIP_PATHS:
+            return await call_next(request)
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        dur_s = time.perf_counter() - t0
+        # Record metrics first — slow log is just diagnostic on top.
+        metrics_svc.observe_http_request(
+            request.method, path_template, response.status_code, dur_s,
+        )
+        if dur_s * 1000 >= _REQUEST_SLOW_MS:
+            logger.warning(
+                "slow request: %s %s → %s in %.0fms",
+                request.method, path_template,
+                response.status_code, dur_s * 1000,
+            )
+        return response
 
 
 @asynccontextmanager
@@ -57,6 +96,12 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Akashic", version="0.1.0", lifespan=lifespan)
 
+    # Slow-request observability + Prometheus instrumentation.
+    # Order matters: install before the routers so it wraps every
+    # endpoint. `/health` and `/metrics` are excluded inside the
+    # middleware (see _INSTRUMENT_SKIP_PATHS).
+    app.add_middleware(_TimingMiddleware)
+
     # Liveness probe for compose healthchecks. Deliberately doesn't
     # touch the DB / Meili / Redis — we want this to flip green the
     # moment uvicorn is accepting connections, so dependent services
@@ -67,6 +112,14 @@ def create_app() -> FastAPI:
     @app.get("/health", include_in_schema=False)
     def health():
         return {"ok": True}
+
+    # Prometheus scrape endpoint. Renders the global registry of
+    # akashic_* metrics; meant to be polled by a Prometheus server
+    # (see compose's `metrics` profile).
+    @app.get("/metrics", include_in_schema=False)
+    def metrics():
+        body, content_type = metrics_svc.render_metrics()
+        return Response(content=body, media_type=content_type)
 
     app.include_router(auth.router)
     app.include_router(users.router)

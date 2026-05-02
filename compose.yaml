@@ -147,8 +147,26 @@ services:
         condition: service_healthy
     profiles: ["scanner"]
 
+  # Optional Prometheus scraper for the akashic_* metrics that the
+  # api exposes at /metrics (v0.4.3). Profile-gated so users
+  # without a metrics interest don't spin up another container by
+  # default. Enable with:
+  #   docker compose --profile metrics up -d prometheus
+  # Then open http://localhost:9090.
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    profiles: ["metrics"]
+    depends_on:
+      - api
+
 volumes:
   pgdata:
   msdata:
   redisdata:
   scanner-data:
+  prometheusdata:

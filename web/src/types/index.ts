@@ -25,15 +25,22 @@ export interface Source {
   id: string;
   name: string;
   type: string;
-  connection_config: Record<string, unknown>;
+  // Optional since v0.4.3 — the lean list endpoint omits these
+  // heavy fields. Per-source detail (GET /sources/{id}) returns
+  // them. UI code that needs them should fetch via
+  // useSourceDetail(id), not the list query.
+  connection_config?: Record<string, unknown>;
+  exclude_patterns?: string[] | null;
+  security_metadata?: SourceSecurityMetadata | null;
+  // Server-rendered subtitle for the SourceCard, only on the lean
+  // list shape. Detail panel ignores it (computes its own).
+  summary?: string;
   scan_schedule: string | null;
-  exclude_patterns: string[] | null;
   preferred_pool: string | null;
   last_scan_at: string | null;
   status: string;
   created_at: string;
   updated_at: string;
-  security_metadata?: SourceSecurityMetadata | null;
 }
 
 export interface FileVersion {

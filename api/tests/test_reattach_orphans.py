@@ -235,3 +235,24 @@ async def test_reattach_400_for_bad_strategy(setup_db, admin_user):
         )
     assert r.status_code == 400
     assert "fingerprint_chase" in r.text
+
+
+@pytest.mark.asyncio
+async def test_orphan_match_short_circuits_when_no_orphans(setup_db, admin_user):
+    """v0.4.3 short-circuit: a source with NO orphans anywhere in
+    the system shouldn't trigger the JOIN at all. Returns 0 fast."""
+    src = await _seed_source(setup_db, "fresh-only", [
+        ("/tmp/a.txt", None), ("/tmp/b.txt", None),
+    ])
+    async with _admin_client(setup_db, admin_user) as ac:
+        cnt = await ac.get(f"/api/sources/{src}/orphan-match-count")
+        assert cnt.status_code == 200
+        assert cnt.json() == {"count": 0}
+        dry = await ac.post(
+            f"/api/sources/{src}/reattach-orphans",
+            json={"strategy": "path", "dry_run": True},
+        )
+    assert dry.status_code == 200
+    assert dry.json() == {
+        "matched": 0, "conflicts": 0, "ambiguous": 0, "committed": False,
+    }

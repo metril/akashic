@@ -46,7 +46,19 @@ function reducer(state: State, event: ScansStreamEvent): State {
       return { byScan, bySource: recomputeBySource(byScan) };
     }
     case "scan.state": {
-      const merged = streamEventToScan(event, state.byScan[event.scan_id]);
+      const existing = state.byScan[event.scan_id];
+      // Fast-path bail (v0.4.3): if no UI-visible field changed, return
+      // the same state reference so useReducer skips the re-render.
+      // Server-side coalescing already throttles heartbeats, but a
+      // reattach or re-snapshot can still send an identical-shaped
+      // event — no point churning the consumer for a no-op.
+      if (existing
+          && existing.status === event.scan_status
+          && existing.files_found === (event.files_found ?? existing.files_found)
+          && existing.current_path === (event.current_path ?? existing.current_path)) {
+        return state;
+      }
+      const merged = streamEventToScan(event, existing);
       const byScan = { ...state.byScan, [event.scan_id]: merged };
       // Drop terminal scans from the live map after a short delay so
       // the UI shows the completion state momentarily, then collapses.
