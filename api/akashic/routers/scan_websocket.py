@@ -376,6 +376,126 @@ async def scans_stream(
             pass
 
 
+# ── Admin scanner-lifecycle stream (/ws/scanners) ────────────────────────
+
+
+@router.websocket("/scanners")
+async def scanners_stream(
+    websocket: WebSocket,
+    token: str = Query(..., description="JWT access token"),
+):
+    """Admin-only push stream of scanner lifecycle events.
+
+    Powers the SettingsScanners "Pending claims" pane:
+      - snapshot frame on connect: current pending discovery requests
+      - subsequent frames: events from the `scanners` pubsub channel
+
+    Auth shape mirrors the per-scan handler — query-param JWT validated
+    before accept — but rejects non-admin tokens (1008). Discovery
+    requests carry no source-permission concept so per-event filtering
+    isn't needed.
+    """
+    from akashic.models.scanner_discovery_request import (
+        ScannerDiscoveryRequest,
+    )
+
+    async with async_session() as db:
+        user = await _resolve_user(token, db)
+        if user is None:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason="invalid token",
+            )
+            return
+        if user.role != "admin":
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason="admin required",
+            )
+            return
+
+        rows = (await db.execute(
+            select(ScannerDiscoveryRequest).where(
+                ScannerDiscoveryRequest.status == "pending",
+            )
+            .order_by(ScannerDiscoveryRequest.requested_at.desc())
+        )).scalars().all()
+
+    snapshot = {
+        "kind": "snapshot",
+        "pending_discoveries": [
+            {
+                "id": str(r.id),
+                "pairing_code": r.pairing_code,
+                "hostname": r.hostname,
+                "agent_version": r.agent_version,
+                "requested_pool": r.requested_pool,
+                "requested_at": r.requested_at.isoformat(),
+                "expires_at": r.expires_at.isoformat(),
+                "key_fingerprint": r.key_fingerprint,
+            }
+            for r in rows
+        ],
+    }
+
+    await websocket.accept()
+    try:
+        await websocket.send_json(snapshot)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("scanners_stream snapshot send failed: %s", exc)
+        return
+
+    forward_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
+    receive_task: asyncio.Task | None = None
+
+    async def _forward() -> None:
+        try:
+            async for event in scan_pubsub.subscribe_scanners():
+                # `setting.changed` is internal cache-bust noise — don't
+                # leak server-settings events to the operator's UI.
+                if isinstance(event, dict) and event.get("kind") == "setting.changed":
+                    continue
+                await websocket.send_json(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scanners_stream pub/sub error: %s", exc)
+            try:
+                await websocket.send_json({
+                    "kind": "error",
+                    "message": "live stream unavailable; reconnect to retry",
+                })
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
+            await websocket.send_json({"kind": "ping"})
+
+    try:
+        forward_task = asyncio.create_task(_forward())
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        receive_task = asyncio.create_task(_drain_inbound(websocket))
+        done, pending = await asyncio.wait(
+            {forward_task, heartbeat_task, receive_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scanners_stream: %s", exc)
+    finally:
+        for t in (forward_task, heartbeat_task, receive_task):
+            if t is not None and not t.done():
+                t.cancel()
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # Suppress unused-import warning (timedelta imported at the top is used
 # by the per-scan handler; keep the import on the module).
 _ = timedelta

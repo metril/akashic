@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners
+from akashic.routers import users, ingest, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,23 @@ async def lifespan(app: FastAPI):
 
     from akashic.database import ensure_schema
     await ensure_schema()
+
+    # First-boot bootstrap: seed `discovery_enabled` from env if the
+    # row doesn't exist yet. Runtime UI PATCHes win after that.
+    from akashic.config import settings
+    from akashic.database import async_session
+    from akashic.services.server_settings import (
+        KEY_DISCOVERY_ENABLED, seed_from_env_if_missing,
+    )
+    if settings.scanner_discovery_enabled is not None:
+        try:
+            async with async_session() as session:
+                await seed_from_env_if_missing(
+                    session, KEY_DISCOVERY_ENABLED,
+                    bool(settings.scanner_discovery_enabled),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("discovery setting seed failed: %s", exc)
 
     try:
         from akashic.services.search import ensure_index
@@ -65,6 +82,8 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(storage_explorer.router)
     app.include_router(scanners.router)
+    app.include_router(scanner_discovery.router)
+    app.include_router(server_settings.router)
     return app
 
 

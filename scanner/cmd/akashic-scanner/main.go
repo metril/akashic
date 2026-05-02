@@ -42,6 +42,12 @@ func main() {
 		case "agent":
 			runAgent(os.Args[2:])
 			return
+		case "claim":
+			runClaim(os.Args[2:])
+			return
+		case "discover":
+			runDiscover(os.Args[2:])
+			return
 		}
 	}
 

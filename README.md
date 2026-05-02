@@ -121,34 +121,71 @@ Agents can run anywhere with HTTP reach to the api, so:
 
 ### Provisioning a scanner
 
-Each agent has its own Ed25519 keypair. The api stores only the
-public key; the private key is shown **once** at registration and
-must be saved to the agent host.
+Three onboarding paths, in order of recommendation. The first two
+generate the keypair on the scanner host so the private key never
+crosses the wire.
+
+#### 1. Join token (recommended)
+
+Admin mints a one-time token in the UI; the scanner self-registers.
 
 ```sh
-# 1. In the dashboard: Settings → Scanners → "Register a scanner".
-#    Pick a name + pool ("default" if you don't care about routing).
-#    Save the issued private key (downloadable as .pem) and copy the
-#    scanner UUID.
+# 1. Settings → Scanners → "Generate token".
+#    Paste the resulting command into your scanner host:
+docker run --rm \
+  -v akashic-scanner-data:/secrets \
+  ghcr.io/metril/akashic-scanner:latest \
+  claim --api=https://akashic.example.com --token=akcl_… --start-after
 
-# 2. On the agent host (could be the same machine, could be remote):
+# The wizard's "Step 3 / live confirmation" page flips to a green
+# success card the moment the scanner registers (~1 s).
+```
+
+The token can also be tightened with optional restrictions —
+"this scanner is only allowed to claim work for source X" or "only
+incremental scans". Useful for low-power Pi scanners or NAS-pinned
+agents.
+
+#### 2. Discovery (operator approves)
+
+Turn on `discovery_enabled` in Settings → Scanners. A scanner
+without a token POSTs its public key + a pairing code:
+
+```sh
+docker run --rm \
+  -v akashic-scanner-data:/secrets \
+  ghcr.io/metril/akashic-scanner:latest \
+  discover --api=https://akashic.example.com --start-after
+# stderr shows:  Pairing code: ABCD-EFGH
+#                Approve in the Akashic UI: …/settings/scanners#pending
+```
+
+The "Pending claims" pane in the UI shows a row with that pairing
+code. Confirm the code matches, click Approve (with a name + pool),
+and the scanner unblocks.
+
+#### 3. Manual key (legacy / scripted)
+
+`POST /api/scanners` returns the keypair the api generated for you.
+The private key is shown **once** in the modal and downloadable as
+a `.pem`. Use this when scripting bootstrap into an existing
+secrets store.
+
+```sh
 docker run -d --restart=unless-stopped \
   -v /etc/akashic:/secrets:ro \
   ghcr.io/metril/akashic-scanner:latest \
   agent \
     --api=https://akashic.example.com \
-    --scanner-id=<uuid-from-step-1> \
+    --scanner-id=<uuid-from-modal> \
     --key=/secrets/scanner.key
-
-# 3. Within ~30 s the agent shows online in Settings → Scanners and
-#    starts claiming queued scans.
 ```
 
 For local-dev single-host installs, `make bootstrap-scanner`
-automates steps 1+2 against the running api: it mints a
-`default`-pool scanner, writes the private key to
-`secrets/default-scanner/scanner.key`, and stamps `SCANNER_ID` into
-`.env` so `make scanner` brings up the bundled agent service.
+automates path 1 against the running api: it mints a join token,
+runs `akashic-scanner claim` inside the bundled scanner container,
+and stamps `SCANNER_ID` into `.env` so `make scanner` brings up
+the agent service.
 
 ### Authentication model
 

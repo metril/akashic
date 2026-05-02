@@ -13,6 +13,9 @@ from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.refresh_token import RefreshToken
 from akashic.models.scanner import Scanner
+from akashic.models.scanner_claim_token import ScannerClaimToken
+from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
+from akashic.models.server_setting import ServerSetting
 
 __all__ = [
     "Source",
@@ -37,4 +40,7 @@ __all__ = [
     "PrincipalsCache",
     "RefreshToken",
     "Scanner",
+    "ScannerClaimToken",
+    "ScannerDiscoveryRequest",
+    "ServerSetting",
 ]

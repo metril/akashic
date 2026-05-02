@@ -20,7 +20,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +44,9 @@ router = APIRouter(tags=["scanners"])
 # ── Schemas ──────────────────────────────────────────────────────────────
 
 
+_ALLOWED_SCAN_TYPES = {"incremental", "full"}
+
+
 class ScannerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     pool: str = Field(default="default", min_length=1, max_length=64)
@@ -53,6 +56,12 @@ class ScannerPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     pool: str | None = Field(default=None, min_length=1, max_length=64)
     enabled: bool | None = None
+    # Sentinels: omitted = leave unchanged; explicit `null` (via the
+    # `clear_*` flags below) = clear back to "unrestricted".
+    allowed_source_ids: list[uuid.UUID] | None = None
+    allowed_scan_types: list[str] | None = None
+    clear_allowed_source_ids: bool = False
+    clear_allowed_scan_types: bool = False
 
 
 class ScannerCreated(BaseModel):
@@ -80,6 +89,8 @@ class ScannerSummary(BaseModel):
     last_seen_at: datetime | None
     enabled: bool
     online: bool
+    allowed_source_ids: list[uuid.UUID] | None = None
+    allowed_scan_types: list[str] | None = None
 
     model_config = {"from_attributes": True}
 
@@ -140,6 +151,8 @@ def _to_summary(s: Scanner) -> ScannerSummary:
         last_seen_at=s.last_seen_at,
         enabled=s.enabled,
         online=_is_online(s),
+        allowed_source_ids=s.allowed_source_ids,
+        allowed_scan_types=s.allowed_scan_types,
     )
 
 
@@ -231,9 +244,48 @@ async def patch_scanner(
         scanner.pool = body.pool
     if body.enabled is not None:
         scanner.enabled = body.enabled
+    if body.allowed_source_ids is not None:
+        await _validate_source_ids(db, body.allowed_source_ids)
+        scanner.allowed_source_ids = body.allowed_source_ids
+    elif body.clear_allowed_source_ids:
+        scanner.allowed_source_ids = None
+    if body.allowed_scan_types is not None:
+        _validate_scan_types(body.allowed_scan_types)
+        scanner.allowed_scan_types = body.allowed_scan_types
+    elif body.clear_allowed_scan_types:
+        scanner.allowed_scan_types = None
     await db.commit()
     await db.refresh(scanner)
     return _to_summary(scanner)
+
+
+def _validate_scan_types(types: list[str]) -> None:
+    bad = [t for t in types if t not in _ALLOWED_SCAN_TYPES]
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown scan_type(s) {bad!r}; allowed: "
+                f"{sorted(_ALLOWED_SCAN_TYPES)}"
+            ),
+        )
+
+
+async def _validate_source_ids(
+    db: AsyncSession, source_ids: list[uuid.UUID],
+) -> None:
+    if not source_ids:
+        return
+    res = await db.execute(
+        select(Source.id).where(Source.id.in_(source_ids))
+    )
+    found = {row[0] for row in res.all()}
+    missing = [str(s) for s in source_ids if s not in found]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown source_id(s): {missing}",
+        )
 
 
 @router.post(
@@ -298,6 +350,297 @@ async def delete_scanner(
     )
     await db.delete(scanner)
     await db.commit()
+
+
+# ── Join tokens (self-registration) ──────────────────────────────────────
+
+
+class ClaimTokenCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=64)
+    pool: str = Field(default="default", min_length=1, max_length=64)
+    ttl_minutes: int = Field(default=60, ge=1, le=60 * 24 * 30)
+    allowed_source_ids: list[uuid.UUID] | None = None
+    allowed_scan_types: list[str] | None = None
+
+
+class ClaimTokenCreated(BaseModel):
+    """Returned ONCE on POST /api/scanner-claim-tokens. The plaintext
+    `token` field isn't persisted on the api side (we keep only its
+    sha256 hash) — copy it now or revoke and regenerate."""
+
+    id: uuid.UUID
+    label: str
+    pool: str
+    allowed_source_ids: list[uuid.UUID] | None
+    allowed_scan_types: list[str] | None
+    token: str
+    expires_at: datetime
+    snippets: dict[str, str]
+
+
+class ClaimTokenSummary(BaseModel):
+    id: uuid.UUID
+    label: str
+    pool: str
+    allowed_source_ids: list[uuid.UUID] | None
+    allowed_scan_types: list[str] | None
+    status: str  # "active" | "used" | "expired"
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None
+    used_by_scanner_id: uuid.UUID | None
+
+
+class ClaimRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=128)
+    public_key_pem: str = Field(min_length=1)
+    hostname: str | None = Field(default=None, max_length=255)
+    agent_version: str | None = Field(default=None, max_length=32)
+
+
+class ClaimResponse(BaseModel):
+    scanner_id: uuid.UUID
+    name: str
+    pool: str
+    server_protocol_version: int
+
+
+def _api_url_from_request(request: Request) -> str:
+    """Best-effort api URL for snippet rendering. The browser always
+    sees an X-Forwarded-Host / Origin in dev + prod; fall back to the
+    request URL's scheme+netloc when those headers aren't present."""
+    fwd_host = request.headers.get("x-forwarded-host")
+    fwd_proto = request.headers.get("x-forwarded-proto")
+    if fwd_host:
+        proto = fwd_proto or request.url.scheme
+        return f"{proto}://{fwd_host}".rstrip("/")
+    origin = request.headers.get("origin")
+    if origin:
+        return origin.rstrip("/")
+    return f"{request.url.scheme}://{request.url.netloc}".rstrip("/")
+
+
+@router.post(
+    "/api/scanner-claim-tokens",
+    response_model=ClaimTokenCreated,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_claim_token(
+    body: ClaimTokenCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    if body.allowed_scan_types is not None:
+        _validate_scan_types(body.allowed_scan_types)
+    if body.allowed_source_ids is not None:
+        await _validate_source_ids(db, body.allowed_source_ids)
+
+    from akashic.services.scanner_claim import mint_token
+    from akashic.services.scanner_snippets import render_snippets
+    from akashic.services.audit import record_event
+
+    plain, row = await mint_token(
+        db=db,
+        label=body.label,
+        pool=body.pool,
+        ttl_minutes=body.ttl_minutes,
+        created_by_user_id=user.id,
+        allowed_source_ids=body.allowed_source_ids,
+        allowed_scan_types=body.allowed_scan_types,
+    )
+    await db.commit()
+    await db.refresh(row)
+
+    api_url = _api_url_from_request(request)
+    snippets = render_snippets(api_url=api_url, token=plain, label=body.label)
+
+    await record_event(
+        db=db, user=user, event_type="scanner_claim_token_created",
+        request=request,
+        payload={
+            "token_id": str(row.id),
+            "label": row.label,
+            "pool": row.pool,
+            "expires_at": row.expires_at.isoformat(),
+            "allowed_source_ids": [str(s) for s in (row.allowed_source_ids or [])] or None,
+            "allowed_scan_types": row.allowed_scan_types,
+        },
+    )
+    return ClaimTokenCreated(
+        id=row.id,
+        label=row.label,
+        pool=row.pool,
+        allowed_source_ids=row.allowed_source_ids,
+        allowed_scan_types=row.allowed_scan_types,
+        token=plain,
+        expires_at=row.expires_at,
+        snippets=snippets,
+    )
+
+
+@router.get(
+    "/api/scanner-claim-tokens",
+    response_model=list[ClaimTokenSummary],
+)
+async def list_claim_tokens(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    from akashic.models.scanner_claim_token import ScannerClaimToken
+    from akashic.services.scanner_claim import derive_status
+
+    rows = (
+        await db.execute(
+            select(ScannerClaimToken).order_by(ScannerClaimToken.created_at.desc())
+        )
+    ).scalars().all()
+    return [
+        ClaimTokenSummary(
+            id=r.id, label=r.label, pool=r.pool,
+            allowed_source_ids=r.allowed_source_ids,
+            allowed_scan_types=r.allowed_scan_types,
+            status=derive_status(r),
+            created_at=r.created_at, expires_at=r.expires_at,
+            used_at=r.used_at,
+            used_by_scanner_id=r.used_by_scanner_id,
+        )
+        for r in rows
+    ]
+
+
+@router.delete(
+    "/api/scanner-claim-tokens/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_claim_token(
+    token_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    from akashic.models.scanner_claim_token import ScannerClaimToken
+    from akashic.services.audit import record_event
+
+    row = (await db.execute(
+        select(ScannerClaimToken).where(ScannerClaimToken.id == token_id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="claim token not found")
+    if row.used_at is not None:
+        # Already used — revocation is a no-op against the lifecycle
+        # but we surface a clear error so the UI can refresh its list.
+        raise HTTPException(
+            status_code=410, detail="claim token has already been used",
+        )
+    # Set expires_at to now() so the row is treated as 'expired' by
+    # the list endpoint and rejected by the claim path. Keep the row
+    # around for the audit trail.
+    row.expires_at = datetime.now(timezone.utc)
+    await db.commit()
+    await record_event(
+        db=db, user=user, event_type="scanner_claim_token_revoked",
+        request=request,
+        payload={"token_id": str(row.id), "label": row.label},
+    )
+
+
+@router.post(
+    "/api/scanners/claim",
+    response_model=ClaimResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def claim_with_token(
+    body: ClaimRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-registration endpoint for a scanner host that has been
+    handed a join token. No bearer auth — the token IS the auth.
+
+    The scanner sends its own freshly-generated public key; the api
+    creates the Scanner row with the token's pre-set scope and marks
+    the token row used. The private key never reaches the server.
+    """
+    from akashic.services.scanner_claim import ClaimError, lookup_for_claim
+    from akashic.services.scanner_keys import fingerprint_of_pem
+    from akashic.services.audit import record_event
+
+    try:
+        token_row = await lookup_for_claim(db, body.token)
+    except ClaimError as err:
+        raise HTTPException(status_code=err.status_code, detail=str(err))
+
+    try:
+        fp = fingerprint_of_pem(body.public_key_pem)
+    except ValueError as err:
+        raise HTTPException(
+            status_code=400, detail=f"invalid public_key_pem: {err}",
+        )
+
+    short = str(token_row.id)[:8]
+    name = f"{token_row.label}-{short}"
+    # Defensive: name unique constraint may collide if the same label
+    # was used for a previous scanner (label re-use is fine; name
+    # collisions are not). Append more entropy on conflict.
+    existing = (await db.execute(
+        select(Scanner).where(Scanner.name == name)
+    )).scalar_one_or_none()
+    if existing is not None:
+        name = f"{token_row.label}-{uuid.uuid4().hex[:12]}"
+
+    scanner = Scanner(
+        name=name,
+        pool=token_row.pool,
+        public_key_pem=body.public_key_pem,
+        key_fingerprint=fp,
+        hostname=body.hostname,
+        version=body.agent_version,
+        allowed_source_ids=token_row.allowed_source_ids,
+        allowed_scan_types=token_row.allowed_scan_types,
+    )
+    db.add(scanner)
+    try:
+        await db.flush()
+    except Exception as exc:  # pragma: no cover — fingerprint collision is exceptional
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"public key already registered or name collision: {exc}",
+        )
+
+    token_row.used_at = datetime.now(timezone.utc)
+    token_row.used_by_scanner_id = scanner.id
+    await db.commit()
+    await db.refresh(scanner)
+
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_scanner_event({
+        "kind": "scanner.claim_redeemed",
+        "scanner_id": str(scanner.id),
+        "scanner_name": scanner.name,
+        "pool": scanner.pool,
+        "token_id": str(token_row.id),
+    })
+    await record_event(
+        db=db, user=None, event_type="scanner_claim_token_redeemed",
+        request=request,
+        payload={
+            "token_id": str(token_row.id),
+            "label": token_row.label,
+            "scanner_id": str(scanner.id),
+            "scanner_name": scanner.name,
+            "pool": scanner.pool,
+            "hostname": body.hostname,
+            "agent_version": body.agent_version,
+        },
+    )
+    return ClaimResponse(
+        scanner_id=scanner.id,
+        name=scanner.name,
+        pool=scanner.pool,
+        server_protocol_version=PROTOCOL_VERSION,
+    )
 
 
 # ── Agent endpoints (scanner-JWT auth) ───────────────────────────────────
@@ -404,12 +747,33 @@ async def lease_scan(
     # then re-leasable rows with the oldest started_at first. id as a
     # final tiebreaker so concurrent leases pick the same row
     # deterministically and SKIP LOCKED keeps the duplicates apart.
-    lease_sql = text("""
+    # Scope enforcement: NULL scope columns mean "unrestricted on this
+    # dimension". When set, a scanner can only claim work that's both
+    # in its pool AND on its source whitelist AND of an allowed type.
+    # Building the WHERE clause conditionally avoids the SQLAlchemy
+    # `:name::type[]` lexer ambiguity (`::` collides with the colon
+    # parameter prefix) and keeps each query free of parameters that
+    # don't need binding.
+    extra_where = ""
+    params: dict[str, object] = {
+        "pool": scanner.pool,
+        "scanner_id": scanner.id,
+        "lease_seconds": _LEASE_DURATION_SECONDS,
+    }
+    if scanner.allowed_source_ids:
+        extra_where += " AND scans.source_id = ANY(:allowed_source_ids)"
+        params["allowed_source_ids"] = scanner.allowed_source_ids
+    if scanner.allowed_scan_types:
+        extra_where += " AND scans.scan_type = ANY(:allowed_scan_types)"
+        params["allowed_scan_types"] = scanner.allowed_scan_types
+
+    lease_sql = text(f"""
         WITH next_scan AS (
             SELECT id FROM scans
              WHERE status IN ('pending', 'running')
                AND (assigned_scanner_id IS NULL OR lease_expires_at < now())
                AND (pool = :pool OR pool IS NULL)
+               {extra_where}
              ORDER BY started_at ASC NULLS FIRST, id ASC
              LIMIT 1
              FOR UPDATE SKIP LOCKED
@@ -423,14 +787,7 @@ async def lease_scan(
          WHERE scans.id = next_scan.id
         RETURNING scans.id, scans.source_id, scans.scan_type
     """)
-    res = await db.execute(
-        lease_sql,
-        {
-            "pool": scanner.pool,
-            "scanner_id": scanner.id,
-            "lease_seconds": _LEASE_DURATION_SECONDS,
-        },
-    )
+    res = await db.execute(lease_sql, params)
     row = res.first()
     if row is None:
         await db.commit()  # close the transaction even on no-op
