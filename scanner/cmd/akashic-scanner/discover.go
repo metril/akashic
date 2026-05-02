@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -53,12 +55,22 @@ func runDiscover(args []string) {
 	}
 
 	apiBase := strings.TrimRight(*apiURL, "/")
-	discoveryID, pairing, expiresAt, err := postDiscover(context.Background(), apiBase, map[string]any{
-		"public_key_pem": pub,
-		"hostname":       host,
-		"agent_version":  Version,
-		"requested_pool": *pool,
-	})
+
+	// Retry the initial POST on transient failures (api still
+	// starting up, network blip mid-restart, etc.). The user's
+	// --timeout bounds the total wait. 4xx responses are NOT
+	// retried — they're our problem (bad input) or a hard "no"
+	// from the server (discovery disabled), not transients.
+	postCtx, postCancel := context.WithTimeout(context.Background(), *timeout)
+	defer postCancel()
+	discoveryID, pairing, expiresAt, err := postDiscoverWithRetry(
+		postCtx, apiBase, map[string]any{
+			"public_key_pem": pub,
+			"hostname":       host,
+			"agent_version":  Version,
+			"requested_pool": *pool,
+		},
+	)
 	if err != nil {
 		_ = os.Remove(*keyPath)
 		log.Fatalf("discover failed: %v", err)
@@ -118,7 +130,14 @@ func postDiscover(ctx context.Context, apiBase string, body map[string]any) (str
 				"discovery endpoint returned 404 — is `discovery_enabled` turned on in the api's Settings → Scanners pane?",
 			)
 		}
-		return "", "", time.Time{}, fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		err := fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		// 4xx is "the api heard us and said no" — bad input, discovery
+		// disabled, etc. Don't retry; the operator has to fix something.
+		// 5xx + connection errors are transient → retry.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return "", "", time.Time{}, &permanentError{err: err}
+		}
+		return "", "", time.Time{}, err
 	}
 	var out struct {
 		DiscoveryID string    `json:"discovery_id"`
@@ -129,6 +148,71 @@ func postDiscover(ctx context.Context, apiBase string, body map[string]any) (str
 		return "", "", time.Time{}, err
 	}
 	return out.DiscoveryID, out.PairingCode, out.ExpiresAt, nil
+}
+
+// permanentError marks a postDiscover failure as not-retryable
+// (4xx response — the api has decided "no", retrying won't change
+// the answer).
+type permanentError struct{ err error }
+
+func (e *permanentError) Error() string { return e.err.Error() }
+func (e *permanentError) Unwrap() error { return e.err }
+
+// postDiscoverWithRetry wraps postDiscover with exponential backoff +
+// jitter so a scanner that came up before the api is accepting
+// connections (cold start, mid-restart, …) eventually succeeds
+// instead of crash-looping. Bounded by ctx (the user's --timeout).
+//
+// Backoff: 1s → 2s → 4s → 8s → 16s → 30s (capped). Jitter ±20%
+// so a fleet of scanners coming up together doesn't stampede.
+func postDiscoverWithRetry(
+	ctx context.Context, apiBase string, body map[string]any,
+) (string, string, time.Time, error) {
+	delay := time.Second
+	const maxDelay = 30 * time.Second
+	attempt := 0
+	for {
+		attempt++
+		discoveryID, pairing, expiresAt, err := postDiscover(ctx, apiBase, body)
+		if err == nil {
+			if attempt > 1 {
+				fmt.Fprintf(os.Stderr,
+					"discover: succeeded on attempt %d\n", attempt)
+			}
+			return discoveryID, pairing, expiresAt, nil
+		}
+		// Don't retry permanent errors — printing the same "discovery
+		// disabled" message every 2s is just noise.
+		var perm *permanentError
+		if errors.As(err, &perm) {
+			return "", "", time.Time{}, err
+		}
+		fmt.Fprintf(os.Stderr,
+			"discover: attempt %d failed (%v); retrying in %s\n",
+			attempt, err, delay)
+		select {
+		case <-ctx.Done():
+			return "", "", time.Time{}, fmt.Errorf(
+				"discover: gave up after %d attempts: %w", attempt, err,
+			)
+		case <-time.After(jittered(delay)):
+		}
+		if delay < maxDelay {
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+	}
+}
+
+// jittered adds ±20% noise to `d` so a fleet of scanners restarting
+// together doesn't synchronise their retries into a thundering herd.
+// math/rand (not crypto/rand) is fine — this is timing jitter, not
+// security material.
+func jittered(d time.Duration) time.Duration {
+	noise := time.Duration(float64(d) * 0.2 * (2*rand.Float64() - 1)) //nolint:gosec
+	return d + noise
 }
 
 // pollDiscover long-polls /discover/{id} until the api returns a
