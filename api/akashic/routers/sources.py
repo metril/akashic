@@ -45,6 +45,16 @@ async def create_source(
     db.add(source)
     await db.commit()
     await db.refresh(source)
+    # Push to /ws/scans subscribers so the Sources page sees the
+    # new card without polling.
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "source.created",
+        "source_id": str(source.id),
+        "source_status": source.status,
+        "name": source.name,
+        "type": source.type,
+    })
     await record_event(
         db=db,
         user=user,
@@ -240,8 +250,14 @@ async def delete_source(
         "type": source.type,
         "config": _config_safe_summary(source.connection_config),
     }
+    deleted_id = source.id
     await db.delete(source)
     await db.commit()
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "source.deleted",
+        "source_id": str(deleted_id),
+    })
     # Pass source_id=None — the row is gone and the FK on audit_events
     # would reject an INSERT referencing it. The original ID lives in
     # the payload so the timeline still surfaces the deletion.

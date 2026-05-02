@@ -79,10 +79,31 @@ async def trigger_scan(
         pool=source.preferred_pool,
     )
     db.add(scan)
-    source.status = "scanning"
+    # Phase-2 multi-scanner: don't flip source.status here. The
+    # status field reflects what an *agent* is doing right now —
+    # /lease sets it to 'scanning' on claim, /complete clears it.
+    # Setting it on enqueue (v0.1.0 behaviour, when the api itself
+    # spawned the subprocess immediately) leaves sources stuck on
+    # 'scanning' forever when no scanner is registered.
     await db.commit()
     await db.refresh(scan)
     await db.refresh(source)
+
+    # Phase-2 multi-scanner: push to the list-level WS so the
+    # Sources page sees the queued scan instantly (no 2s poll).
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "scan.state",
+        "source_id": str(source.id),
+        "scan_id": str(scan.id),
+        "scan_status": "pending",
+        "source_status": source.status,
+        "scanner_id": None,
+        "scanner_name": None,
+        "scan_type": data.scan_type,
+        "files_found": 0,
+        "current_path": None,
+    })
 
     # `background` retained — see docstring. Linter happiness:
     _ = background

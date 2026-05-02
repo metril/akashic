@@ -35,6 +35,14 @@ def _channel(scan_id: uuid.UUID | str) -> str:
     return f"scan:{scan_id}"
 
 
+# Single-channel fan-out for the list-level WebSocket. Carries scan
+# state-transition events + source CRUD events; deliberately separate
+# from `scan:{id}` per-scan channels so the list doesn't have to
+# psubscribe and filter out per-batch heartbeats meant for the
+# per-scan stream.
+SOURCES_CHANNEL = "sources"
+
+
 _redis: Redis | None = None
 
 
@@ -103,6 +111,47 @@ async def subscribe(scan_id: uuid.UUID) -> AsyncIterator[dict[str, Any]]:
             await pubsub.aclose()
         except Exception as exc:  # noqa: BLE001
             logger.debug("scan_pubsub aclose noise: %s", exc)
+
+
+async def publish_source_event(event: dict[str, Any]) -> None:
+    """Source CRUD + scan transition events for the list-level
+    WebSocket (/ws/scans). Same fire-and-forget semantics as
+    publish() — broker hiccups don't break the producing endpoint.
+    """
+    try:
+        payload = json.dumps(event, default=str)
+        await _client().publish(SOURCES_CHANNEL, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scan_pubsub.publish_source_event failed: %s", exc)
+
+
+async def subscribe_sources() -> AsyncIterator[dict[str, Any]]:
+    """Yield events from the SOURCES_CHANNEL until the consumer
+    cancels. Mirrors `subscribe()`'s shape.
+    """
+    pubsub = _client().pubsub()
+    try:
+        await pubsub.subscribe(SOURCES_CHANNEL)
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            data = message.get("data")
+            if not isinstance(data, str):
+                continue
+            try:
+                yield json.loads(data)
+            except json.JSONDecodeError as exc:
+                logger.warning("scan_pubsub bad JSON on sources channel: %s", exc)
+                continue
+    finally:
+        try:
+            await pubsub.unsubscribe(SOURCES_CHANNEL)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("scan_pubsub sources unsubscribe noise: %s", exc)
+        try:
+            await pubsub.aclose()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("scan_pubsub sources aclose noise: %s", exc)
 
 
 async def aclose() -> None:

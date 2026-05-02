@@ -193,6 +193,26 @@ async def list_scanners(
     return [_to_summary(s) for s in rows]
 
 
+class ScannerCounts(BaseModel):
+    """Lightweight count summary for the Sources page banner — avoids
+    re-fetching the whole scanner list per page mount."""
+
+    registered: int
+    online: int
+
+
+@router.get("/api/scanners/summary", response_model=ScannerCounts)
+async def scanners_summary(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    rows = (await db.execute(select(Scanner))).scalars().all()
+    return ScannerCounts(
+        registered=len(rows),
+        online=sum(1 for s in rows if _is_online(s)),
+    )
+
+
 @router.patch("/api/scanners/{scanner_id}", response_model=ScannerSummary)
 async def patch_scanner(
     scanner_id: uuid.UUID,
@@ -435,9 +455,27 @@ async def lease_scan(
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
 
+    # Phase-2 status transition: source.status flips to 'scanning'
+    # only now, when an agent has *actually* claimed the work.
+    source.status = "scanning"
     # Refresh scanner.last_seen_at on every successful lease.
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
+
+    # Push the state change to the list-level WS subscribers.
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "scan.state",
+        "source_id": str(source.id),
+        "scan_id": str(scan_id),
+        "scan_status": "running",
+        "source_status": "scanning",
+        "scanner_id": str(scanner.id),
+        "scanner_name": scanner.name,
+        "scan_type": scan_type or "incremental",
+        "files_found": 0,
+        "current_path": None,
+    })
 
     api_jwt = await _mint_ingest_jwt(db)
     return LeasedScan(
@@ -484,7 +522,37 @@ async def complete_scan(
     if body.error_message is not None:
         scan.error_message = body.error_message
     scan.lease_expires_at = None
+
+    # Phase-2 status transition: source.status mirrors the scan's
+    # terminal state. Cancelled scans don't mark the source failed
+    # (the user pulled the plug; the source itself isn't broken).
+    source = (await db.execute(
+        select(Source).where(Source.id == scan.source_id)
+    )).scalar_one_or_none()
+    if source is not None:
+        if body.status == "completed":
+            source.status = "online"
+            source.last_scan_at = datetime.now(timezone.utc)
+        elif body.status == "failed":
+            source.status = "failed"
+        elif body.status == "cancelled":
+            source.status = "online"
     await db.commit()
+
+    if source is not None:
+        from akashic.services import scan_pubsub
+        await scan_pubsub.publish_source_event({
+            "kind": "scan.state",
+            "source_id": str(source.id),
+            "scan_id": str(scan_id),
+            "scan_status": body.status,
+            "source_status": source.status,
+            "scanner_id": str(scanner.id),
+            "scanner_name": scanner.name,
+            "scan_type": scan.scan_type,
+            "files_found": scan.files_found or 0,
+            "current_path": None,
+        })
 
 
 # Suppress unused-import warning when running with non-time-aware tools.

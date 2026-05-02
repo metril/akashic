@@ -214,3 +214,168 @@ async def _drain_inbound(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         return
+
+
+# ── List-level stream (/ws/scans) ─────────────────────────────────────────
+
+
+@router.websocket("/scans")
+async def scans_stream(
+    websocket: WebSocket,
+    token: str = Query(..., description="JWT access token"),
+):
+    """Forwards every scan/source state transition the user has access
+    to. One WebSocket per browser tab; the Sources page + Dashboard
+    share it via reference-counted client-side hook.
+
+    Auth shape mirrors `/ws/scans/{id}`: query-param JWT, validated
+    before accept; permitted_source_ids resolved once on connect; events
+    for sources outside that set are silently dropped server-side.
+    """
+    from akashic.auth.dependencies import get_permitted_source_ids
+    from akashic.models.source import Source as SourceModel
+
+    async with async_session() as db:
+        user = await _resolve_user(token, db)
+        if user is None:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION, reason="invalid token",
+            )
+            return
+        # `None` means admin / no source-permission filter.
+        permitted = await get_permitted_source_ids(user, db)
+
+        # Snapshot: the current pending/running/recently-failed scans
+        # the user can see. Same shape useActiveScans was building
+        # client-side from /scans?status=…&limit=200 — but here we
+        # send it as a single frame so the client doesn't need a
+        # separate REST hop.
+        scans_q = select(Scan).where(
+            Scan.status.in_(["pending", "running", "failed"]),
+        )
+        if permitted is not None:
+            if not permitted:
+                # User can't see anything. Send empty snapshot and
+                # then live-filter every event (which will also drop
+                # everything). Cheap.
+                snapshot_scans = []
+            else:
+                scans_q = scans_q.where(Scan.source_id.in_(permitted))
+                snapshot_scans = list((await db.execute(scans_q)).scalars().all())
+        else:
+            snapshot_scans = list((await db.execute(scans_q)).scalars().all())
+
+        # Look up scanner names so the snapshot frame carries them.
+        from akashic.models.scanner import Scanner as ScannerModel
+
+        scanner_ids = {
+            s.assigned_scanner_id for s in snapshot_scans
+            if s.assigned_scanner_id is not None
+        }
+        scanner_names: dict[uuid.UUID, str] = {}
+        if scanner_ids:
+            rows = (await db.execute(
+                select(ScannerModel).where(ScannerModel.id.in_(scanner_ids))
+            )).scalars().all()
+            scanner_names = {r.id: r.name for r in rows}
+
+        # And source statuses for the snapshot.
+        source_ids_in_snapshot = {s.source_id for s in snapshot_scans}
+        source_statuses: dict[uuid.UUID, str] = {}
+        if source_ids_in_snapshot:
+            rows = (await db.execute(
+                select(SourceModel).where(SourceModel.id.in_(source_ids_in_snapshot))
+            )).scalars().all()
+            source_statuses = {r.id: r.status for r in rows}
+
+    snapshot = {
+        "kind": "snapshot",
+        "scans": [
+            {
+                "scan_id": str(s.id),
+                "source_id": str(s.source_id),
+                "scan_status": s.status,
+                "source_status": source_statuses.get(s.source_id, "unknown"),
+                "scanner_id": (
+                    str(s.assigned_scanner_id)
+                    if s.assigned_scanner_id else None
+                ),
+                "scanner_name": (
+                    scanner_names.get(s.assigned_scanner_id)
+                    if s.assigned_scanner_id else None
+                ),
+                "scan_type": s.scan_type,
+                "files_found": s.files_found or 0,
+                "current_path": s.current_path,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+            }
+            for s in snapshot_scans
+        ],
+    }
+
+    await websocket.accept()
+    try:
+        await websocket.send_json(snapshot)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("scans_stream snapshot send failed: %s", exc)
+        return
+
+    permitted_set: set[str] | None = (
+        {str(sid) for sid in permitted} if permitted is not None else None
+    )
+
+    forward_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
+    receive_task: asyncio.Task | None = None
+
+    async def _forward() -> None:
+        try:
+            async for event in scan_pubsub.subscribe_sources():
+                # Per-event RBAC filter. None == admin / no filter.
+                if permitted_set is not None:
+                    src = event.get("source_id")
+                    if src is not None and src not in permitted_set:
+                        continue
+                await websocket.send_json(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scans_stream pub/sub error: %s", exc)
+            try:
+                await websocket.send_json({
+                    "kind": "error",
+                    "message": "live stream unavailable; reconnect to retry",
+                })
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def _heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
+            await websocket.send_json({"kind": "ping"})
+
+    try:
+        forward_task = asyncio.create_task(_forward())
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        receive_task = asyncio.create_task(_drain_inbound(websocket))
+        done, pending = await asyncio.wait(
+            {forward_task, heartbeat_task, receive_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scans_stream: %s", exc)
+    finally:
+        for t in (forward_task, heartbeat_task, receive_task):
+            if t is not None and not t.done():
+                t.cancel()
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+# Suppress unused-import warning (timedelta imported at the top is used
+# by the per-scan handler; keep the import on the module).
+_ = timedelta
