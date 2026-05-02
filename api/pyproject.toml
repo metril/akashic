@@ -20,6 +20,7 @@ dependencies = [
     "cryptography>=44.0",
     "python-ldap>=3.4",
     "croniter>=6.0",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

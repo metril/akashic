@@ -1,12 +1,16 @@
 /**
- * Hook trio that powers the Recover-orphans flow in the source
- * detail view.
+ * Hooks for the Recover-orphans flow.
  *
- *   useOrphanMatchCount(sourceId) — cheap COUNT, drives the
- *     "N orphaned files match this source's tree" banner.
- *   useReattachDryRun(sourceId, strategy) — preview the matcher's
- *     output (matched/conflicts/ambiguous) before any DB change.
- *   useReattachCommit() — actually perform the re-attach.
+ *   useReattachDryRun — preview matched/conflicts/ambiguous before
+ *                       committing.
+ *   useReattachCommit — perform the re-attach (writes to DB).
+ *
+ * v0.4.3 note: useOrphanMatchCount used to live here too and
+ * powered a proactive banner on every source-detail open. That
+ * fired a JOIN-heavy COUNT query even when the user had never
+ * delete-with-preserved a source (the common case). Replaced
+ * with an explicit "Recover orphans…" button on the panel — the
+ * dry-run only fires when the operator opens the modal.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -14,25 +18,11 @@ import { api } from "../api/client";
 
 export type ReattachStrategy = "path" | "path_and_hash";
 
-export interface OrphanMatchCount {
-  count: number;
-}
-
 export interface ReattachResponse {
   matched: number;
   conflicts: number;
   ambiguous: number;
   committed: boolean;
-}
-
-export function useOrphanMatchCount(sourceId: string | null) {
-  return useQuery<OrphanMatchCount>({
-    queryKey: ["sources", sourceId, "orphan-match-count"],
-    queryFn: () =>
-      api.get<OrphanMatchCount>(`/sources/${sourceId}/orphan-match-count`),
-    enabled: sourceId != null,
-    staleTime: 15_000,
-  });
 }
 
 export function useReattachDryRun(

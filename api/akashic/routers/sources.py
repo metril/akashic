@@ -13,7 +13,9 @@ from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import SourcePermission, User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
-from akashic.schemas.source import SourceCreate, SourceUpdate, SourceResponse
+from akashic.schemas.source import (
+    SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
+)
 from akashic.services.audit import record_event
 from akashic.services.source_merge import (
     field_diff,
@@ -73,11 +75,15 @@ async def create_source(
     return source
 
 
-@router.get("", response_model=list[SourceResponse])
+@router.get("", response_model=list[SourceListResponse])
 async def list_sources(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """Lean list view — drops connection_config/security_metadata/
+    exclude_patterns and ships a server-rendered `summary` for the
+    SourceCard subtitle. Per-source detail (with full config) is
+    served by GET /sources/{id} which the panel fetches on click."""
     if user.role == "admin":
         result = await db.execute(select(Source).order_by(Source.name))
     else:
@@ -88,7 +94,7 @@ async def list_sources(
             .where(SourcePermission.user_id == user.id)
             .order_by(Source.name)
         )
-    return result.scalars().all()
+    return [SourceListResponse.from_source(s) for s in result.scalars().all()]
 
 
 @router.get("/{source_id}", response_model=SourceResponse)

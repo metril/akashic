@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import timedelta
 
@@ -219,6 +220,92 @@ async def _drain_inbound(websocket: WebSocket) -> None:
 # ── List-level stream (/ws/scans) ─────────────────────────────────────────
 
 
+# Per-scan-id rate limit on `scan.state` heartbeats. Bursty scans
+# (a busy walk hits multiple batches/sec) would otherwise flood
+# every connected browser. 500ms is fast enough that the operator
+# perceives liveness; slow enough that React isn't re-rendering on
+# every batch ingest. Terminal events (completed/failed/cancelled)
+# always flush immediately — they're user-actionable.
+_COALESCE_INTERVAL_S = 0.5
+_TERMINAL_SCAN_STATES = frozenset({"completed", "failed", "cancelled"})
+
+
+class _PerScanCoalescer:
+    """Buffer `scan.state` events per scan_id; flush at most once
+    per `interval` seconds. Terminal events bypass the buffer and
+    flush immediately (along with any pending intermediate). All
+    non-`scan.state` kinds (source.created, source.deleted, ping,
+    error, snapshot) pass through unchanged.
+
+    Per-WebSocket — there's one of these per connected browser, so
+    each client bounds its own render cost regardless of how many
+    api workers exist or how fast the producer publishes.
+    """
+
+    def __init__(self, send, interval: float = _COALESCE_INTERVAL_S):
+        self._send = send
+        self._interval = interval
+        self._pending: dict[str, dict] = {}     # scan_id → latest event
+        self._last_sent: dict[str, float] = {}  # scan_id → monotonic
+        self._drain_task: asyncio.Task | None = None
+
+    async def feed(self, event: dict) -> None:
+        if not isinstance(event, dict):
+            return
+        # Only `scan.state` is coalesced. Everything else goes through.
+        if event.get("kind") != "scan.state":
+            await self._send(event)
+            return
+        scan_id = event.get("scan_id")
+        if scan_id is None:
+            await self._send(event)
+            return
+        # Terminal events flush now AND drop any buffered intermediate.
+        if event.get("scan_status") in _TERMINAL_SCAN_STATES:
+            self._pending.pop(scan_id, None)
+            self._last_sent[scan_id] = time.monotonic()
+            await self._send(event)
+            return
+        # Heartbeat — buffer (latest wins) and kick the drain loop.
+        self._pending[scan_id] = event
+        if self._drain_task is None or self._drain_task.done():
+            self._drain_task = asyncio.create_task(self._drain_loop())
+
+    async def _drain_loop(self) -> None:
+        # Wakes up periodically; emits any per-scan-id whose
+        # rate window has elapsed; sleeps if more pending; exits
+        # when fully drained (will be re-spawned by `feed`).
+        while self._pending:
+            now = time.monotonic()
+            ready: list[dict] = []
+            for scan_id, ev in list(self._pending.items()):
+                last = self._last_sent.get(scan_id, 0.0)
+                if now - last >= self._interval:
+                    ready.append(ev)
+                    self._last_sent[scan_id] = now
+                    self._pending.pop(scan_id, None)
+            for ev in ready:
+                await self._send(ev)
+            if self._pending:
+                await asyncio.sleep(self._interval / 4)
+
+    async def aclose(self) -> None:
+        # Flush any remaining buffered events on disconnect — gives
+        # other reconnects a coherent state (vs. silently dropping
+        # the latest progress).
+        for ev in self._pending.values():
+            try:
+                await self._send(ev)
+            except Exception:  # noqa: BLE001
+                pass
+        self._pending.clear()
+        if self._drain_task and not self._drain_task.done():
+            self._drain_task.cancel()
+
+
+
+
+
 @router.websocket("/scans")
 async def scans_stream(
     websocket: WebSocket,
@@ -327,6 +414,7 @@ async def scans_stream(
     forward_task: asyncio.Task | None = None
     heartbeat_task: asyncio.Task | None = None
     receive_task: asyncio.Task | None = None
+    coalescer = _PerScanCoalescer(websocket.send_json)
 
     async def _forward() -> None:
         try:
@@ -336,7 +424,10 @@ async def scans_stream(
                     src = event.get("source_id")
                     if src is not None and src not in permitted_set:
                         continue
-                await websocket.send_json(event)
+                # Per-scan-id coalescing on `scan.state` heartbeats.
+                # Other kinds pass through unchanged. See
+                # _PerScanCoalescer above.
+                await coalescer.feed(event)
         except Exception as exc:  # noqa: BLE001
             logger.warning("scans_stream pub/sub error: %s", exc)
             try:
@@ -370,6 +461,12 @@ async def scans_stream(
         for t in (forward_task, heartbeat_task, receive_task):
             if t is not None and not t.done():
                 t.cancel()
+        # Flush any buffered heartbeats so a disconnect doesn't
+        # silently drop the latest progress for in-flight scans.
+        try:
+            await coalescer.aclose()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             await websocket.close()
         except Exception:  # noqa: BLE001

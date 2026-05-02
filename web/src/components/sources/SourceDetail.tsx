@@ -6,7 +6,6 @@ import { useAuth } from "../../hooks/useAuth";
 import { useUpdateSource, useDeleteSource } from "../../hooks/useSources";
 import { DeleteSourceModal } from "./DeleteSourceModal";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
-import { useOrphanMatchCount } from "../../hooks/useOrphanRecovery";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Source } from "../../types";
@@ -127,12 +126,12 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // v0.4.3 — Recover orphans is now an explicit action under the
+  // panel's Advanced section, not a banner. The proactive banner
+  // fired a JOIN-heavy COUNT on every panel open even though
+  // most users never delete-with-preserve. Click-to-open is the
+  // right intent gate.
   const [recoverOpen, setRecoverOpen] = useState(false);
-
-  // v0.4.0 — surface orphaned-entries-that-match-this-source as a
-  // banner with a recover affordance. Cheap COUNT under the hood.
-  const orphanCountQ = useOrphanMatchCount(isAdmin ? source.id : null);
-  const orphanCount = orphanCountQ.data?.count ?? 0;
 
   // When `source` changes (drawer reopened with a different row), reset
   // edit state.
@@ -285,23 +284,6 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
 
-      {isAdmin && orphanCount > 0 && (
-        <div className="rounded-md p-3 text-xs bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-center justify-between gap-3">
-          <span className="text-fg">
-            <strong>{orphanCount.toLocaleString()}</strong> orphaned
-            file{orphanCount === 1 ? "" : "s"} match this source's
-            tree. Re-attach them to keep their tags + history.
-          </span>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setRecoverOpen(true)}
-          >
-            Preview & recover
-          </Button>
-        </div>
-      )}
-
       <div className="flex flex-wrap gap-2 pt-2 border-t border-line-subtle">
         {!editing ? (
           <>
@@ -326,6 +308,16 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
                 loading={deleteSource.isPending}
               >
                 Delete
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setRecoverOpen(true)}
+                title="Re-attach indexed entries from a previously deleted source whose paths match this source's tree"
+              >
+                Recover orphans…
               </Button>
             )}
             {!isAdmin && (

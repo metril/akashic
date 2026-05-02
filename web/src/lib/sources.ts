@@ -5,11 +5,24 @@ import type { Source } from "../types";
  * old `JSON.stringify(connection_config)` fallback that turned every
  * non-local source into a wall of JSON.
  *
+ * Since v0.4.3 the api computes the summary server-side and ships it
+ * as `source.summary` on the lean list endpoint. We prefer that when
+ * present (saves the per-render computation + works without
+ * connection_config in the payload). The local-compute path still
+ * runs for the detail panel where the full Source object is loaded
+ * and for any callers that haven't been updated yet.
+ *
  * Returns a human-readable summary even when the config is partially
  * filled or has unfamiliar keys — fall back to the source name rather
  * than rendering nothing.
  */
 export function formatSourceSummary(source: Source): string {
+  // Prefer the server-rendered summary if the lean list endpoint
+  // shipped one — saves work + works for sources whose
+  // connection_config wasn't included in the payload.
+  if (source.summary) {
+    return source.summary;
+  }
   const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
   const get = (k: string) => (typeof cfg[k] === "string" ? (cfg[k] as string) : "");
 

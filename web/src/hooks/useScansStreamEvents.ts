@@ -51,6 +51,12 @@ const listeners = new Set<Listener>();
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let visibilityBound = false;
+// Capped exponential backoff (v0.4.3). Resets to 0 on any
+// successful frame from the server, so a transient blip doesn't
+// poison subsequent reconnects for the rest of the session.
+let retryCount = 0;
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30_000;
 
 function buildUrl(): string | null {
   const token = getToken();
@@ -72,6 +78,10 @@ function open() {
   const sock = new WebSocket(url);
   ws = sock;
   sock.onmessage = (msg) => {
+    // Any successful frame from the server means the connection is
+    // healthy — reset backoff so a future transient blip starts
+    // from 1s again, not from wherever we'd escalated to.
+    retryCount = 0;
     try {
       const event = JSON.parse(msg.data) as ScansStreamEvent;
       dispatch(event);
@@ -92,10 +102,14 @@ function open() {
 
 function scheduleReconnect() {
   if (reconnectTimer != null) return;
-  // Jittered 1-5s backoff. We don't escalate aggressively because the
-  // WS is informational; missed events are recovered via the snapshot
-  // on reconnect.
-  const delay = 1000 + Math.random() * 4000;
+  // Capped exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, …
+  // with ±20% jitter so a fleet of browsers reconnecting after an
+  // api outage doesn't synchronise into a thundering herd. Reset
+  // happens in onmessage (any frame counts as "we're healthy").
+  const base = Math.min(RETRY_BASE_MS * 2 ** retryCount, RETRY_MAX_MS);
+  const jitter = base * 0.2 * (2 * Math.random() - 1);
+  const delay = base + jitter;
+  retryCount++;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     open();

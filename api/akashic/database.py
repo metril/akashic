@@ -1,10 +1,11 @@
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect
+from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -15,6 +16,42 @@ logger = logging.getLogger(__name__)
 
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+# Slow-query observability (v0.4.3).  Any individual SQL statement
+# whose execution exceeds this threshold gets logged at WARN with
+# a truncated SQL preview. Helps surface backend regressions
+# (e.g. an unindexed JOIN) before users complain. The threshold
+# is conservative — in steady state we should see ~zero of these.
+_QUERY_SLOW_MS = 100
+
+
+@event.listens_for(engine.sync_engine, "before_cursor_execute")
+def _q_start(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+    conn.info.setdefault("_q_t0", []).append(time.perf_counter())
+
+
+@event.listens_for(engine.sync_engine, "after_cursor_execute")
+def _q_end(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+    stack = conn.info.get("_q_t0") or []
+    if not stack:
+        return
+    t0 = stack.pop()
+    dur_ms = (time.perf_counter() - t0) * 1000
+    if dur_ms >= _QUERY_SLOW_MS:
+        # Truncate the statement so a giant query doesn't blow the
+        # log line; full text is in the EXPLAIN the operator will
+        # run anyway. Newlines collapsed to single spaces so the
+        # entry stays one log record.
+        snippet = " ".join(statement.split())[:200]
+        logger.warning("slow query: %.0fms: %s", dur_ms, snippet)
+    # Phase 10 hooks the prometheus histogram in here too.
+    try:
+        from akashic.services import metrics
+        metrics.observe_pg_query(statement, dur_ms / 1000.0)
+    except Exception:  # noqa: BLE001
+        # Metrics module may not be importable yet during startup;
+        # don't let a bad import break SQL execution.
+        pass
 
 
 class Base(DeclarativeBase):

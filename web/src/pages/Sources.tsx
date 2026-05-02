@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { useSources } from "../hooks/useSources";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useSources, useSourceDetail } from "../hooks/useSources";
 import { useScansStream } from "../hooks/useScansStream";
 import { useScannerSummary } from "../hooks/useScannerSummary";
 import {
@@ -209,6 +210,82 @@ function buildProgressLine(scan: Scan): ProgressLine {
   };
 }
 
+/**
+ * Virtualized vertical list of source cards. Renders only the cards
+ * visible in the scroll viewport (+ a small overscan), so mount cost
+ * is constant regardless of how many sources the install has. v0.4.3.
+ *
+ * Why a vertical list instead of the prior 2-column grid: 2D
+ * virtualization is meaningfully more code, and the typical
+ * Sources-page width is wide enough that single-column actually
+ * scans easier (each card has more horizontal room for badges +
+ * progress strip). If the user pushback on this, switch to a
+ * 2D virtualizer pattern (~30 more LOC).
+ */
+function VirtualSourceList({
+  sources, activeScans, onOpen, onOpenLog,
+}: {
+  sources: Source[];
+  activeScans: ReturnType<typeof useScansStream>;
+  onOpen: (id: string) => void;
+  onOpenLog: (scanId: string | null) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: sources.length,
+    getScrollElement: () => parentRef.current,
+    // SourceCard is a Card with header + status badges + summary +
+    // optional progress strip. ~120-150px in practice; the
+    // virtualizer auto-corrects post-mount via measureElement so
+    // the estimate just needs to be roughly right.
+    estimateSize: () => 144,
+    overscan: 4,
+  });
+
+  return (
+    <div
+      ref={parentRef}
+      className="overflow-auto rounded-lg"
+      // Fill the available column height. Page chrome + filters
+      // + the header take ~280px on a typical viewport.
+      style={{ height: "calc(100vh - 280px)", minHeight: "400px" }}
+    >
+      <div
+        style={{
+          height: rowVirtualizer.getTotalSize(),
+          position: "relative",
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((vrow) => {
+          const s = sources[vrow.index];
+          return (
+            <div
+              key={s.id}
+              ref={rowVirtualizer.measureElement}
+              data-index={vrow.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                transform: `translateY(${vrow.start}px)`,
+                paddingBottom: "1rem",
+              }}
+            >
+              <SourceCard
+                source={s}
+                activeScan={activeScans?.bySource[s.id]}
+                onOpen={() => onOpen(s.id)}
+                onOpenLog={onOpenLog}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Sources() {
   const { data: sources, isLoading, error } = useSources();
   // /ws/scans push stream replaces the old 2s polling. Same shape:
@@ -236,9 +313,17 @@ export default function Sources() {
     }
   }, [searchParams, setSearchParams, openSourceId]);
 
-  const openSource = openSourceId
+  // Lean version of the open source from the list payload — used for
+  // the seed render while the full version (with connection_config)
+  // loads. Avoids a flash-of-empty-panel when you click a card.
+  const openSourceLean = openSourceId
     ? sources?.find((s) => s.id === openSourceId) ?? null
     : null;
+  // Full source — fetched on click since the list endpoint dropped
+  // connection_config + security_metadata + exclude_patterns to keep
+  // the page-load payload small (v0.4.3).
+  const openSourceDetailQ = useSourceDetail(openSourceId);
+  const openSource = openSourceDetailQ.data ?? openSourceLean;
   const activeScanForOpen = openSource
     ? activeScans?.bySource[openSource.id]
     : undefined;
@@ -290,17 +375,12 @@ export default function Sources() {
               />
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {(sources ?? []).map((s) => (
-                <SourceCard
-                  key={s.id}
-                  source={s}
-                  activeScan={activeScans?.bySource[s.id]}
-                  onOpen={() => setOpenSourceId(s.id)}
-                  onOpenLog={setLogScanId}
-                />
-              ))}
-            </div>
+            <VirtualSourceList
+              sources={sources ?? []}
+              activeScans={activeScans}
+              onOpen={setOpenSourceId}
+              onOpenLog={setLogScanId}
+            />
           )}
         </div>
 
