@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSources, useSourceDetail } from "../hooks/useSources";
-import { useActiveScanForSource } from "../hooks/useScansStream";
+import { useActiveScanForSource, useOpenScanForSource } from "../hooks/useScansStream";
 import { useSourceStatusReconciler } from "../hooks/useSourceStatusReconciler";
 import { useScannerSummary } from "../hooks/useScannerSummary";
 import {
@@ -352,17 +352,24 @@ export default function Sources() {
   // v0.4.5: per-source slice subscription. The page used to read the
   // entire bySource map and re-render on every WS event; now it
   // bails unless the open source's scan id actually flips.
-  const activeScanForOpen = useActiveScanForSource(openSource?.id);
+  //
+  // v0.4.8: split into TWO selectors. The "open scan" (pending/
+  // running only) drives the disabled state of the Scan-now button
+  // — terminal scans must not gate it, or the user can't trigger
+  // a follow-up scan once one has failed. The "active scan" stays
+  // around for the log panel's source-name lookup.
+  const openScanForOpen = useOpenScanForSource(openSource?.id);
+  const latestScanForOpen = useActiveScanForSource(openSource?.id);
 
   // The log panel needs the source name for the drawer title. The
-  // scan id → source id mapping comes from the ACTIVE scans map for
+  // scan id → source id mapping comes from the LATEST scans map for
   // running scans; for terminal scans (the panel can stay open after
   // a scan completes) we fall back to the lean list. We accept that
   // a recently-completed scan whose entry has been pruned might lose
   // the name — the title just shows "Live scan log" without the
   // suffix, which is fine.
   const logScanSourceName = logScanId
-    ? sources?.find((s) => s.id === activeScanForOpen?.source_id)?.name
+    ? sources?.find((s) => s.id === latestScanForOpen?.source_id)?.name
     : undefined;
 
   const handleOpen = useCallback((id: string) => setOpenSourceId(id), []);
@@ -430,7 +437,7 @@ export default function Sources() {
         source={openSource}
         open={openSource !== null}
         onClose={handleClose}
-        activeScanId={activeScanForOpen?.id ?? null}
+        activeScanId={openScanForOpen?.id ?? null}
       />
 
       <ScanLogPanel

@@ -306,6 +306,70 @@ describe("_selectSnapshot — selector cache (v0.4.6 regression coverage)", () =
   });
 });
 
+describe("useOpenScanForSource semantics (v0.4.8 regression coverage)", () => {
+  // The bug: bySource[id] keeps the most-recent scan even after it
+  // terminates (the WS snapshot deliberately includes failed scans
+  // so SourceCard can surface error_message). The Scan-now button
+  // disabled gate read activeScanForOpen?.id != null, which stayed
+  // truthy across terminal scans → button locked permanently after
+  // the first scan failed. The fix is `useOpenScanForSource`, which
+  // filters bySource to pending/running only. We exercise the
+  // selector logic directly here.
+  // Use the same shape as the real store. Returning `any` keeps the
+  // test focused on the runtime behaviour rather than re-deriving
+  // the State type the module keeps internal.
+  function openSelector(sourceId: string) {
+    return (s: { bySource: Record<string, { id: string; status: string } | undefined> }) => {
+      const scan = s.bySource[sourceId];
+      if (!scan) return undefined;
+      if (scan.status !== "pending" && scan.status !== "running") return undefined;
+      return scan;
+    };
+  }
+
+  it("returns undefined when the latest scan has terminated", () => {
+    const stateAfterFail = applyEvent(
+      INITIAL,
+      scanStateEvent({
+        scan_id: "s1", source_id: "src", scan_status: "failed",
+      }),
+    );
+    expect(stateAfterFail.bySource["src"]?.status).toBe("failed");
+    // Open-only selector hides terminal scans.
+    expect(openSelector("src")(stateAfterFail)).toBeUndefined();
+  });
+
+  it("returns the scan while it's still pending or running", () => {
+    const pendingState = applyEvent(
+      INITIAL,
+      scanStateEvent({
+        scan_id: "s1", source_id: "src", scan_status: "pending",
+      }),
+    );
+    expect(openSelector("src")(pendingState)?.id).toBe("s1");
+
+    const runningState = applyEvent(
+      pendingState,
+      scanStateEvent({
+        scan_id: "s1", source_id: "src", scan_status: "running",
+      }),
+    );
+    expect(openSelector("src")(runningState)?.id).toBe("s1");
+  });
+
+  it("returns undefined for completed and cancelled scans", () => {
+    for (const terminal of ["completed", "failed", "cancelled"] as const) {
+      const state = applyEvent(
+        INITIAL,
+        scanStateEvent({
+          scan_id: "s", source_id: "src", scan_status: terminal,
+        }),
+      );
+      expect(openSelector("src")(state)).toBeUndefined();
+    }
+  });
+});
+
 describe("applyEvent — connection signals", () => {
   it("ping flips connecting → open and is idempotent once open", () => {
     const opened = applyEvent(INITIAL, { kind: "ping" });

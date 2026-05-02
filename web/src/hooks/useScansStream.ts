@@ -315,10 +315,15 @@ export function useScansStreamSelect<T>(selector: (s: State) => T): T {
 }
 
 /**
- * The active (pending or running) scan for a given source, or
- * undefined. Re-renders only when THIS source's scan changes — a
- * scan.state event for a different source flips no listeners on
- * this consumer.
+ * The latest scan for a given source — pending, running, OR
+ * recently-terminated (failed/completed/cancelled). Returns
+ * whatever bySource has, which is the most-recent-by-started_at.
+ *
+ * Use this for surfacing per-scan metadata like `error_message`
+ * on a Failed source card. Do NOT use this to gate "is there an
+ * in-flight scan" UI — terminal scans linger here until the next
+ * snapshot, which would leave Scan-now buttons disabled forever.
+ * Use useOpenScanForSource for that.
  */
 export function useActiveScanForSource(
   sourceId: string | null | undefined,
@@ -326,6 +331,34 @@ export function useActiveScanForSource(
   return useScansStreamSelect((s) =>
     sourceId ? s.bySource[sourceId] : undefined,
   );
+}
+
+/**
+ * The OPEN scan for a given source — only pending or running.
+ * Returns undefined when the latest scan has terminated, even if
+ * it's still in bySource.
+ *
+ * v0.4.8: split out from useActiveScanForSource because the
+ * SourceDetail panel was disabling its "Scan now" button forever
+ * after the first scan terminated — bySource[id] still held the
+ * failed scan (the WS snapshot deliberately includes failed scans
+ * so SourceCard can surface error_message), and any non-undefined
+ * activeScan was being treated as "scan in flight". Result: users
+ * couldn't trigger a follow-up scan, the button looked permanently
+ * stuck on "Queued…", and the page felt frozen.
+ */
+export function useOpenScanForSource(
+  sourceId: string | null | undefined,
+): Scan | undefined {
+  return useScansStreamSelect((s) => {
+    if (!sourceId) return undefined;
+    const scan = s.bySource[sourceId];
+    if (!scan) return undefined;
+    if (scan.status !== "pending" && scan.status !== "running") {
+      return undefined;
+    }
+    return scan;
+  });
 }
 
 /** True when any scan is in the live map. Used by the Sources
