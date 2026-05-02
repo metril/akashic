@@ -23,7 +23,6 @@ import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ScanLogPanel } from "../components/scans/ScanLogPanel";
 import { SourceDetail } from "../components/sources/SourceDetail";
 import { api } from "../api/client";
-import { useQueryClient } from "@tanstack/react-query";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
   "online",
@@ -60,7 +59,6 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
   // agent has claimed yet. Distinct from "scanning" (agent in flight)
   // so the user can tell why nothing's happening.
   const isQueued = !isScanning && activeScan?.status === "pending";
-  const queryClient = useQueryClient();
   const [stopping, setStopping] = useState(false);
 
   const handleStop = useCallback(async () => {
@@ -76,16 +74,17 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
     });
     try {
       await p;
-      // Re-fetch sources + scans so the card snaps to "online" without
-      // waiting for the next polling tick.
-      await queryClient.invalidateQueries({ queryKey: ["sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
+      // v0.4.7: removed invalidateQueries — /scans/{id}/cancel
+      // publishes a scan.state event with scan_status="cancelled"
+      // and source_status="online"; the singleton store + reconciler
+      // pick those up and the card snaps to "online" within one WS
+      // frame without a refetch round-trip.
     } catch {
       // Toast already surfaced the error.
     } finally {
       setStopping(false);
     }
-  }, [activeScan, stopping, queryClient]);
+  }, [activeScan, stopping]);
 
   // Compose progress subtitle for in-flight scans. Memoized on the
   // fields that drive the visible string so identical-shape events

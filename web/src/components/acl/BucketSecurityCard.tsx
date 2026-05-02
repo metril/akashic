@@ -1,3 +1,5 @@
+import { memo, useMemo } from "react";
+
 import type { Source } from "../../types";
 import { Card } from "../ui";
 
@@ -12,8 +14,28 @@ function PABBadge({ label, blocked }: { label: string; blocked: boolean }) {
   );
 }
 
-export function BucketSecurityCard({ source }: { source: Source }) {
+export const BucketSecurityCard = memo(function BucketSecurityCard({
+  source,
+}: { source: Source }) {
   const meta = source.security_metadata;
+  // v0.4.7: pre-stringify the bucket policy. The previous inline
+  // JSON.stringify ran on every render — and SourceCard parents
+  // re-render on every WS scan.state event for an open scan now
+  // that v0.4.7 publishes those at heartbeat frequency. For an
+  // enterprise S3 bucket with a multi-statement policy, this was
+  // visible hover lag on the Sources list.
+  const policyStr = useMemo(
+    () =>
+      meta?.bucket_policy_present && meta.bucket_policy
+        ? JSON.stringify(meta.bucket_policy, null, 2)
+        : null,
+    [meta?.bucket_policy_present, meta?.bucket_policy],
+  );
+  const capturedAtStr = useMemo(
+    () => (meta ? new Date(meta.captured_at).toLocaleString() : ""),
+    [meta?.captured_at],
+  );
+
   if (!meta) return null;
   const pab = meta.public_access_block;
 
@@ -21,7 +43,7 @@ export function BucketSecurityCard({ source }: { source: Source }) {
     <Card padding="md" className="mt-4">
       <div className="flex items-baseline justify-between mb-3">
         <h3 className="text-sm font-semibold text-fg">Bucket security</h3>
-        <span className="text-xs text-fg-subtle">captured {new Date(meta.captured_at).toLocaleString()}</span>
+        <span className="text-xs text-fg-subtle">captured {capturedAtStr}</span>
       </div>
 
       {pab && (
@@ -36,14 +58,14 @@ export function BucketSecurityCard({ source }: { source: Source }) {
         </>
       )}
 
-      {meta.bucket_policy_present && meta.bucket_policy && (
+      {policyStr && (
         <>
           <h4 className="text-[11px] uppercase tracking-wider text-fg-subtle mb-2">Bucket policy</h4>
           <pre className="text-xs bg-app p-3 rounded border border-line-subtle overflow-x-auto">
-            {JSON.stringify(meta.bucket_policy, null, 2)}
+            {policyStr}
           </pre>
         </>
       )}
     </Card>
   );
-}
+});

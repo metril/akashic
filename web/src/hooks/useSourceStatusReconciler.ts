@@ -54,6 +54,46 @@ function patchSourceStatus(
   );
 }
 
+/**
+ * Apply N (sourceId, status) pairs in a SINGLE setQueryData call.
+ * v0.4.7: each setQueryData call notifies useSources subscribers, so
+ * a snapshot with N active scans used to trigger N consecutive
+ * Sources.tsx re-renders. By collapsing the patches into one array
+ * walk we get one notification regardless of how many sources need
+ * updating.
+ */
+function patchManySourceStatuses(
+  qc: ReturnType<typeof useQueryClient>,
+  updates: Map<string, string>,
+): void {
+  if (updates.size === 0) return;
+
+  qc.setQueryData<Source[] | undefined>(["sources"], (prev) => {
+    if (!prev) return prev;
+    let mutated = false;
+    const out = prev.map((s) => {
+      const next = updates.get(s.id);
+      if (next !== undefined && s.status !== next) {
+        mutated = true;
+        return { ...s, status: next };
+      }
+      return s;
+    });
+    return mutated ? out : prev;
+  });
+
+  // Per-source detail caches still need individual patches (each is
+  // a different cache key). Only fires for sources whose detail panel
+  // has been opened recently enough to still be cached, so this is
+  // typically 0-1 calls in practice.
+  for (const [sourceId, next] of updates) {
+    qc.setQueryData<Source | undefined>(
+      ["sources", sourceId, "detail"],
+      (prev) => (prev && prev.status !== next ? { ...prev, status: next } : prev),
+    );
+  }
+}
+
 export function useSourceStatusReconciler(): void {
   const qc = useQueryClient();
   useScansStreamEvents((event) => {
@@ -68,12 +108,18 @@ export function useSourceStatusReconciler(): void {
     // after a reconnect would show source.status from the REST
     // fetch — stale if a scan started during the WS gap — until
     // the next live scan.state event happened to fire.
+    //
+    // v0.4.7: collapse all patches into ONE setQueryData call so
+    // a 10-scan snapshot triggers one re-render of useSources
+    // subscribers, not ten.
     if (event.kind === "snapshot") {
+      const updates = new Map<string, string>();
       for (const s of event.scans) {
         if (s.source_status) {
-          patchSourceStatus(qc, s.source_id, s.source_status);
+          updates.set(s.source_id, s.source_status);
         }
       }
+      patchManySourceStatuses(qc, updates);
     }
   });
 }

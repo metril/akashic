@@ -240,8 +240,14 @@ const DetailsTab = memo(function DetailsTab({
     });
     try {
       await p;
-      queryClient.invalidateQueries({ queryKey: ["sources"] });
-      queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
+      // v0.4.7: removed invalidateQueries(["sources"]) +
+      // (["scans","active"]) — the trigger's WS scan.state event
+      // already updates the singleton store and the reconciler
+      // patches the React Query caches when source_status flips.
+      // The invalidate refetched /api/sources for nothing, returning
+      // a fresh array reference that fails React.memo shallow
+      // equality on every visible card and re-fired
+      // BucketSecurityCard's JSON.stringify on every S3 card.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to trigger scan");
     }

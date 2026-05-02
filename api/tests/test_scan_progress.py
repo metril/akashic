@@ -71,13 +71,25 @@ async def fixture_scan(setup_db, fixture_source: Source) -> Scan:
 
 
 @pytest_asyncio.fixture
-async def client(setup_db, admin_user: User, monkeypatch) -> AsyncClient:
+async def client(setup_db, admin_user: User, monkeypatch, request) -> AsyncClient:
     # Skip Redis publish — the test-time API has no broker. Each call is
-    # a no-op coroutine.
-    async def _no_publish(*_args, **_kwargs):
-        return None
+    # a no-op coroutine. Captures published payloads on the request node
+    # so individual tests can assert on them when relevant.
+    captured_per_scan: list[tuple[uuid.UUID, dict]] = []
+    captured_source_events: list[dict] = []
 
-    monkeypatch.setattr(scan_pubsub, "publish", _no_publish)
+    async def _capture_scan_publish(scan_id, event):
+        captured_per_scan.append((scan_id, event))
+
+    async def _capture_source_publish(event):
+        captured_source_events.append(event)
+
+    monkeypatch.setattr(scan_pubsub, "publish", _capture_scan_publish)
+    monkeypatch.setattr(
+        scan_pubsub, "publish_source_event", _capture_source_publish,
+    )
+    request.node._captured_per_scan = captured_per_scan
+    request.node._captured_source_events = captured_source_events
 
     async def _override_get_db():
         async with setup_db() as session:
@@ -127,6 +139,49 @@ async def test_heartbeat_updates_scan_fields(
         assert scan.last_heartbeat_at is not None
         # First heartbeat flips pending → running automatically.
         assert scan.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_publishes_scan_state_to_sources_channel(
+    client: AsyncClient, fixture_scan: Scan, fixture_source, request,
+):
+    """v0.4.7: heartbeat now ALSO publishes a scan.state to the
+    sources channel so SourceCard / SourceDetail panel see live
+    files_found + current_path advancing without anyone needing to
+    open the per-scan Live Log panel. Before this, scan.state events
+    only fired at lease + complete (twice per scan total) and the
+    source card showed "0 files scanned" for the entire duration."""
+    r = await client.post(
+        f"/api/scans/{fixture_scan.id}/heartbeat",
+        json={
+            "current_path": "/data/movies/scan",
+            "files_scanned": 42,
+            "bytes_scanned": 4096,
+            "files_skipped": 0,
+            "dirs_walked": 3,
+            "dirs_queued": 7,
+            "total_estimated": 1000,
+            "phase": "walk",
+        },
+    )
+    assert r.status_code == 204
+
+    captured = request.node._captured_source_events
+    assert len(captured) == 1
+    event = captured[0]
+    assert event["kind"] == "scan.state"
+    assert event["source_id"] == str(fixture_source.id)
+    assert event["scan_id"] == str(fixture_scan.id)
+    # First heartbeat flips pending → running before the publish.
+    assert event["scan_status"] == "running"
+    assert event["source_status"] == "scanning"
+    assert event["scan_type"] == "full"
+    assert event["current_path"] == "/data/movies/scan"
+    # files_found is sourced from the DB column, not the heartbeat
+    # body — heartbeat carries files_scanned (a counter) but the
+    # source-of-truth for total indexed files is files_found, which
+    # the batch ingest path increments. Newly-pending scan has 0.
+    assert event["files_found"] == 0
 
 
 @pytest.mark.asyncio

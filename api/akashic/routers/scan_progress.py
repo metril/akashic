@@ -112,6 +112,31 @@ async def post_heartbeat(
         },
     )
 
+    # v0.4.7: also publish to the SOURCES channel so the SourceCard +
+    # SourceDetail panel see live progress without anyone needing to
+    # open the per-scan Live Log panel. Before this, scan.state events
+    # only fired at lease + complete (twice per scan total), so
+    # bySource[id].files_found stayed at 0 and current_path stayed
+    # null for the entire scan duration — making scans look stuck.
+    # The per-WS coalescer in scan_websocket.py caps client frame
+    # rate at ~2 Hz/scan_id, so a 1 Hz heartbeat from the scanner
+    # produces at most 2 frames/s/client/scan even with many active
+    # scans.
+    await scan_pubsub.publish_source_event({
+        "kind": "scan.state",
+        "source_id": str(scan.source_id),
+        "scan_id": str(scan_id),
+        "scan_status": scan.status,
+        "source_status": "scanning",
+        "scanner_id": (
+            str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
+        ),
+        "scanner_name": None,
+        "scan_type": scan.scan_type,
+        "files_found": scan.files_found or 0,
+        "current_path": scan.current_path,
+    })
+
 
 def _now_or(ts: datetime) -> datetime:
     """Coerce naive datetimes into UTC. The scanner always sends UTC, but
