@@ -275,18 +275,26 @@ async def discover_status(
 
     # Long-poll: wait on pubsub for a relevant event for at most
     # _LONG_POLL_SECONDS, then return the current state regardless.
+    # Redis being unreachable degrades to "return immediately with the
+    # current state" — the scanner just polls more often, no breakage.
     target_id = str(discovery_id)
     deadline = time.monotonic() + _LONG_POLL_SECONDS
 
     async def _wait() -> None:
-        async for event in scan_pubsub.subscribe_scanners():
-            kind = event.get("kind") if isinstance(event, dict) else None
-            if not isinstance(kind, str):
-                continue
-            if not kind.startswith("scanner.discovery_"):
-                continue
-            if event.get("discovery_id") == target_id:
-                return
+        try:
+            async for event in scan_pubsub.subscribe_scanners():
+                kind = event.get("kind") if isinstance(event, dict) else None
+                if not isinstance(kind, str):
+                    continue
+                if not kind.startswith("scanner.discovery_"):
+                    continue
+                if event.get("discovery_id") == target_id:
+                    return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "discover_status long-poll: pubsub unavailable, "
+                "falling back to immediate response: %s", exc,
+            )
 
     try:
         await asyncio.wait_for(
