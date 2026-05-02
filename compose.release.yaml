@@ -80,21 +80,36 @@ services:
     depends_on:
       - api
 
-  # Multi-scanner: register a scanner via Settings → Scanners (or
-  # `make bootstrap-scanner` in dev), put the issued private key at
-  # ./secrets/default-scanner/scanner.key, set SCANNER_ID in .env,
-  # then `docker compose -f compose.release.yaml up -d scanner` to
-  # bring the agent up. Profile-gated so other services can come up
-  # before the secret exists.
+  # Bundled scanner agent. v0.3.0+ uses the `auto` entrypoint so
+  # the same compose service works on every install state:
+  #
+  #   - First run, want operator-approved discovery:
+  #       AKASHIC_DISCOVER=1 docker compose -f compose.release.yaml \
+  #         --profile scanner up -d scanner
+  #     → stderr shows a pairing code; approve in Settings → Scanners.
+  #
+  #   - First run, have a join token (from Settings → Scanners):
+  #       AKASHIC_CLAIM_TOKEN=akcl_… docker compose -f compose.release.yaml \
+  #         --profile scanner up -d scanner
+  #
+  #   - Subsequent runs (credentials persisted in the named volume):
+  #       docker compose -f compose.release.yaml --profile scanner up -d scanner
+  #     → auto detects the saved key+id and runs `agent` directly.
+  #
+  # Uses a named docker volume (scanner-data) so the container can
+  # write its generated keypair on first run without host-uid
+  # ceremony. Pre-v0.3.0 installs with files in
+  # ./secrets/default-scanner/ — see compose.yaml's migration notes.
   scanner:
     image: ghcr.io/metril/akashic-scanner:${AKASHIC_VERSION:-latest}
-    command:
-      - agent
-      - --api=http://api:8000
-      - --scanner-id=${SCANNER_ID:-}
-      - --key=/secrets/scanner.key
+    command: [auto]
+    environment:
+      AKASHIC_API_URL: http://api:8000
+      AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
+      AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
+      SCANNER_ID: ${SCANNER_ID:-}
     volumes:
-      - ./secrets/default-scanner:/secrets:ro
+      - scanner-data:/secrets
     depends_on:
       - api
     profiles: ["scanner"]
@@ -103,3 +118,4 @@ volumes:
   pgdata:
   msdata:
   redisdata:
+  scanner-data:
