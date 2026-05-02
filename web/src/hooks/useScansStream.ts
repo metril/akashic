@@ -205,9 +205,13 @@ function unwireIfIdle(): void {
     _unwire = null;
   }
   _wired = false;
-  // Reset to initial so a future remount sees "connecting" until the
-  // next snapshot arrives, not stale data from before the unmount.
-  _state = INITIAL_STATE;
+  // v0.4.6: do NOT reset _state. Keep the last-known maps across
+  // brief unmount cycles (React StrictMode in dev, rapid page
+  // navigation, or a single React commit that drops the last
+  // subscriber and immediately gains a new one). The next snapshot
+  // from the server overwrites on reconnect anyway, so wiping was
+  // pure downside — it caused a flicker through "connecting" + empty
+  // bySource between unmount and the next snapshot frame.
 }
 
 function subscribe(listener: () => void): () => void {
@@ -241,38 +245,70 @@ export function useScansStreamFull(): ActiveScansResult {
 /**
  * Subscribe to a slice of the state. The hook keeps a per-component
  * cache of the last selected value so React bails the re-render
- * when (a) the store didn't change OR (b) the store changed but the
- * selected slice is Object.is-equal to the previous selection.
+ * when the selected slice is Object.is-equal to the previous
+ * selection.
  *
- * Selector identity may change between renders (inline lambdas are
- * fine); we re-read it via a ref so the cache stays valid.
+ * Cache invalidation key (v0.4.6): BOTH `state` reference AND
+ * `selector` reference. Tracking only state was wrong — when a
+ * caller passes `s => s.bySource[id]` and `id` changes (e.g.,
+ * `useActiveScanForSource(openSource?.id)` going `undefined → "A"`
+ * after a card click), the closure changes but state has not yet,
+ * and we'd return the stale prior value (often `undefined`). That
+ * left the panel showing "Scan now" when a scan was in flight,
+ * hid the Live log tab, and made the page look frozen until the
+ * next WS event happened to invalidate the cache.
+ *
+ * Inline lambdas in callers (the helper hooks below) mean the
+ * selector identity changes every render. That makes the cache
+ * miss on every render — which is fine, because the work is one
+ * O(1) selector call plus one Object.is comparison; the bail
+ * happens via Object.is when the slice is reference-equal to the
+ * previous, preserving the identity React uses to skip re-renders.
  */
+interface SelectorCache<T> {
+  state: State;
+  selector: (s: State) => T;
+  value: T;
+}
+
+/**
+ * Pure cache-lookup helper. Exported for tests; not for consumer
+ * use. Returns BOTH the value (for the caller to return) AND the
+ * cache entry to write back, so the React hook's ref update stays
+ * a single line.
+ *
+ * Cache hits when state AND selector identity both match. On miss,
+ * runs the selector; if its output is Object.is-equal to the
+ * previously-cached value, preserves that prior reference so
+ * downstream identity comparisons (React.memo, useSyncExternalStore
+ * bail) stay valid.
+ */
+export function _selectSnapshot<T>(
+  cached: SelectorCache<T> | null,
+  current: State,
+  selector: (s: State) => T,
+): { value: T; cache: SelectorCache<T> } {
+  if (cached && cached.state === current && cached.selector === selector) {
+    return { value: cached.value, cache: cached };
+  }
+  const next = selector(current);
+  if (cached && Object.is(cached.value, next)) {
+    const updated: SelectorCache<T> = { state: current, selector, value: cached.value };
+    return { value: cached.value, cache: updated };
+  }
+  const fresh: SelectorCache<T> = { state: current, selector, value: next };
+  return { value: next, cache: fresh };
+}
+
 export function useScansStreamSelect<T>(selector: (s: State) => T): T {
   const selectorRef = useRef(selector);
   selectorRef.current = selector;
-
-  // Cache the (state ref, selected value) pair so subsequent
-  // getSnapshot calls return the SAME T reference until either the
-  // store mutates OR the selector starts returning a different
-  // value. useSyncExternalStore relies on Object.is between
-  // consecutive getSnapshot returns to decide whether to re-render.
-  const cacheRef = useRef<{ state: State; value: T } | null>(null);
+  const cacheRef = useRef<SelectorCache<T> | null>(null);
 
   const getSelectedSnapshot = useCallback((): T => {
-    const current = _state;
-    const cached = cacheRef.current;
-    if (cached && cached.state === current) {
-      return cached.value;
-    }
-    const next = selectorRef.current(current);
-    if (cached && Object.is(cached.value, next)) {
-      // Slice is reference-equal to the prior — preserve identity so
-      // useSyncExternalStore bails the re-render.
-      cacheRef.current = { state: current, value: cached.value };
-      return cached.value;
-    }
-    cacheRef.current = { state: current, value: next };
-    return next;
+    const result = _selectSnapshot(cacheRef.current, _state, selectorRef.current);
+    cacheRef.current = result.cache;
+    return result.value;
   }, []);
 
   return useSyncExternalStore(subscribe, getSelectedSnapshot, getSelectedSnapshot);

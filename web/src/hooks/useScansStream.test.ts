@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { applyEvent } from "./useScansStream";
+import { _selectSnapshot, applyEvent } from "./useScansStream";
 import type { ScansStreamEvent } from "./useScansStreamEvents";
 
 const INITIAL = {
@@ -214,6 +214,95 @@ describe("applyEvent — source.deleted", () => {
     expect(after.byScan["s1"]).toBeUndefined();
     expect(after.byScan["s2"]).toBeDefined();
     expect(after.bySource["src-a"]).toBeUndefined();
+  });
+});
+
+describe("_selectSnapshot — selector cache (v0.4.6 regression coverage)", () => {
+  // v0.4.5 returned the cached value when only the STATE was
+  // unchanged, ignoring whether the selector itself had changed.
+  // That's what made `useActiveScanForSource(openSource?.id)`
+  // return undefined after openSource went `null → "A"` (no event
+  // had arrived yet, so state was unchanged from when the cache
+  // was populated under the null-id selector).
+  const stateA = applyEvent(
+    INITIAL,
+    snapshotEvent([
+      { scan_id: "s1", source_id: "src-a" },
+      { scan_id: "s2", source_id: "src-b" },
+    ]),
+  );
+
+  it("returns the new selector's value when selector identity changes (state unchanged)", () => {
+    const sel1 = (s: typeof stateA) => s.bySource["src-a"];
+    const sel2 = (s: typeof stateA) => s.bySource["src-b"];
+
+    const r1 = _selectSnapshot(null, stateA, sel1);
+    expect(r1.value?.id).toBe("s1");
+
+    // Same state, DIFFERENT selector — must NOT return the prior
+    // selector's value just because state matches.
+    const r2 = _selectSnapshot(r1.cache, stateA, sel2);
+    expect(r2.value?.id).toBe("s2");
+  });
+
+  it("returns the same identity on a true cache hit (state AND selector both match)", () => {
+    const sel = (s: typeof stateA) => s.bySource["src-a"];
+    const r1 = _selectSnapshot(null, stateA, sel);
+    const r2 = _selectSnapshot(r1.cache, stateA, sel);
+    // Bypass the recompute path entirely.
+    expect(r2.cache).toBe(r1.cache);
+    expect(r2.value).toBe(r1.value);
+  });
+
+  it("preserves prior identity when selector returns Object.is-equal value (different state ref)", () => {
+    // src-a's scan ref is unchanged across stateA → state-after-A's-no-op-event.
+    const sel = (s: typeof stateA) => s.bySource["src-a"];
+    const r1 = _selectSnapshot(null, stateA, sel);
+
+    // Apply an event that DOES create a new state ref (a brand-new
+    // scan for a different source) but doesn't touch src-a's slice.
+    const stateB = applyEvent(
+      stateA,
+      scanStateEvent({ scan_id: "s3", source_id: "src-c" }),
+    );
+    expect(stateB).not.toBe(stateA); // sanity — state ref changed
+
+    const r2 = _selectSnapshot(r1.cache, stateB, sel);
+    // Even though the cache missed (state changed), the selector's
+    // output is the SAME Scan reference. We preserve identity so
+    // useSyncExternalStore bails the consumer's re-render.
+    expect(r2.value).toBe(r1.value);
+  });
+
+  it("returns a NEW value when both state and selector slice changed", () => {
+    const sel = (s: typeof stateA) => s.bySource["src-a"];
+    const r1 = _selectSnapshot(null, stateA, sel);
+
+    // Update src-a's scan — files_found advanced.
+    const stateB = applyEvent(
+      stateA,
+      scanStateEvent({
+        scan_id: "s1", source_id: "src-a", files_found: 99,
+      }),
+    );
+    const r2 = _selectSnapshot(r1.cache, stateB, sel);
+    expect(r2.value?.files_found).toBe(99);
+    expect(r2.value).not.toBe(r1.value);
+  });
+
+  it("handles the `useActiveScanForSource(null|undefined → 'A')` opening flow", () => {
+    // Reproduces the exact v0.4.5 bug: cache populated under a
+    // selector that returned undefined; the user clicks a source;
+    // the new selector should return the source's active scan,
+    // not the cached undefined.
+    const selNull = (_s: typeof stateA) => undefined;
+    const selA = (s: typeof stateA) => s.bySource["src-a"];
+
+    const initial = _selectSnapshot(null, stateA, selNull);
+    expect(initial.value).toBeUndefined();
+
+    const opened = _selectSnapshot(initial.cache, stateA, selA);
+    expect(opened.value?.id).toBe("s1");
   });
 });
 
