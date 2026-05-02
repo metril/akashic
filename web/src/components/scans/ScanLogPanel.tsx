@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Drawer } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
+import type { ScanLogLine } from "../../types";
 
 interface ScanLogPanelProps {
   open: boolean;
@@ -248,45 +249,67 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               {stream.status === "open" ? "Waiting for output…" : "No log lines yet."}
             </p>
           ) : (
-            visibleLines.map((line) => {
-              const display = truncateForDisplay(line.message);
-              return (
-                <div key={line.id} className="flex gap-2">
-                  <span className="text-fg-subtle shrink-0 w-20">
-                    {new Date(line.ts).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
-                  </span>
-                  {tab === "activity" && (
-                    <span
-                      className={`shrink-0 w-12 uppercase font-semibold ${LEVEL_COLOR[line.level] ?? "text-fg"}`}
-                    >
-                      {line.level}
-                    </span>
-                  )}
-                  <span
-                    // min-w-0 lets the flex item shrink below its
-                    // intrinsic content width so break-all actually
-                    // wraps; pr-2 reserves a small right gutter so
-                    // wrapped text never lands flush against the
-                    // gray-50 container border.
-                    className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${LEVEL_COLOR[line.level] ?? "text-fg"}`}
-                  >
-                    {display.text}
-                    {display.truncated && (
-                      <span className="text-fg-subtle italic ml-1">
-                        … (+{(line.message.length - DISPLAY_LINE_CAP).toLocaleString()} chars)
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })
+            visibleLines.map((line) => (
+              <LogRow key={line.id} line={line} showLevel={tab === "activity"} />
+            ))
           )}
         </div>
       </div>
     </Drawer>
   );
 }
+
+/**
+ * Per-row React.memo wrapper (v0.4.5). Lines are append-only and
+ * immutable once buffered, so the memo with default shallow
+ * equality on (line, showLevel) short-circuits every existing row
+ * — only the newly-appended row mounts on each WS frame. Previously
+ * the inline `visibleLines.map` rendered all 300 rows on every
+ * parent commit, with `new Date(line.ts).toLocaleTimeString(...)`
+ * (~Intl-formatter-cost) per row per render.
+ */
+const LogRow = memo(function LogRow({
+  line, showLevel,
+}: {
+  line: ScanLogLine;
+  showLevel: boolean;
+}) {
+  // Format once per line.id; the timestamp string never changes
+  // for the lifetime of the row.
+  const ts = useMemo(
+    () =>
+      new Date(line.ts).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    [line.ts],
+  );
+  const display = useMemo(() => truncateForDisplay(line.message), [line.message]);
+  const colorClass = LEVEL_COLOR[line.level] ?? "text-fg";
+
+  return (
+    <div className="flex gap-2">
+      <span className="text-fg-subtle shrink-0 w-20">{ts}</span>
+      {showLevel && (
+        <span className={`shrink-0 w-12 uppercase font-semibold ${colorClass}`}>
+          {line.level}
+        </span>
+      )}
+      <span
+        // min-w-0 lets the flex item shrink below its intrinsic
+        // content width so break-all actually wraps; pr-2 reserves a
+        // small right gutter so wrapped text never lands flush
+        // against the gray-50 container border.
+        className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${colorClass}`}
+      >
+        {display.text}
+        {display.truncated && (
+          <span className="text-fg-subtle italic ml-1">
+            … (+{(line.message.length - DISPLAY_LINE_CAP).toLocaleString()} chars)
+          </span>
+        )}
+      </span>
+    </div>
+  );
+});

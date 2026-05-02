@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge, Button, Drawer } from "../ui";
 import { api } from "../../api/client";
@@ -27,7 +27,9 @@ interface SourceDetailProps {
 
 type Tab = "details" | "history" | "live";
 
-export function SourceDetail({ source, open, onClose, activeScanId }: SourceDetailProps) {
+export const SourceDetail = memo(function SourceDetail({
+  source, open, onClose, activeScanId,
+}: SourceDetailProps) {
   const [tab, setTab] = useState<Tab>("details");
   const isScanning = source?.status === "scanning";
 
@@ -85,7 +87,7 @@ export function SourceDetail({ source, open, onClose, activeScanId }: SourceDeta
       </div>
     </Drawer>
   );
-}
+});
 
 function TabButton({
   active,
@@ -120,7 +122,9 @@ interface DetailsTabProps {
   activeScanId: string | null;
 }
 
-function DetailsTab({ source, onClose, activeScanId }: DetailsTabProps) {
+const DetailsTab = memo(function DetailsTab({
+  source, onClose, activeScanId,
+}: DetailsTabProps) {
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
   const updateSource = useUpdateSource();
@@ -400,23 +404,42 @@ function DetailsTab({ source, onClose, activeScanId }: DetailsTabProps) {
       />
     </div>
   );
+});
+
+interface DisplayFieldRow {
+  key: string;
+  isMasked: boolean;
+  display: string;
 }
 
-function DisplayRows({ source }: { source: Source }) {
-  const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
-  const summary = formatSourceSummary(source);
-
-  // Show every config field, with secrets rendered as a state token
-  // rather than the raw `"***"` (less alarming than a literal *** in
-  // the UI).
-  const fieldRows = Object.entries(cfg);
+const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
+  // v0.4.5: lift expensive derivations into useMemo so a parent
+  // re-render that doesn't actually mutate `source` (e.g. anything
+  // up the React tree commits) doesn't pay JSON.stringify per
+  // config field per render. The whole panel is React.memo'd at the
+  // outer level too, so DisplayRows only re-renders when source
+  // identity changes anyway — but the memo is the second line of
+  // defense if a future caller forgets that.
+  const summary = useMemo(() => formatSourceSummary(source), [source]);
+  const lastScanStr = useMemo(
+    () => formatDateTime(source.last_scan_at),
+    [source.last_scan_at],
+  );
+  const fieldRows = useMemo<DisplayFieldRow[]>(() => {
+    const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
+    return Object.entries(cfg).map(([k, v]) => ({
+      key: k,
+      isMasked: v === "***",
+      display: typeof v === "string" ? v : JSON.stringify(v),
+    }));
+  }, [source.connection_config]);
 
   return (
     <dl className="text-sm space-y-2">
       <Row label="Summary"><span className="font-mono text-xs">{summary}</span></Row>
       <Row label="Status"><span>{source.status}</span></Row>
       <Row label="Last scan">
-        <span className="text-fg-muted">{formatDateTime(source.last_scan_at)}</span>
+        <span className="text-fg-muted">{lastScanStr}</span>
       </Row>
       {source.scan_schedule && (
         <Row label="Schedule">
@@ -431,14 +454,12 @@ function DisplayRows({ source }: { source: Source }) {
           {fieldRows.length === 0 && (
             <p className="text-xs text-fg-muted italic">(empty)</p>
           )}
-          {fieldRows.map(([k, v]) => (
-            <Row key={k} label={k}>
-              {v === "***" ? (
+          {fieldRows.map((row) => (
+            <Row key={row.key} label={row.key}>
+              {row.isMasked ? (
                 <span className="text-xs text-fg-muted italic">(set, masked)</span>
               ) : (
-                <span className="font-mono text-xs break-all">
-                  {typeof v === "string" ? v : JSON.stringify(v)}
-                </span>
+                <span className="font-mono text-xs break-all">{row.display}</span>
               )}
             </Row>
           ))}
@@ -446,7 +467,7 @@ function DisplayRows({ source }: { source: Source }) {
       </div>
     </dl>
   );
-}
+});
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (

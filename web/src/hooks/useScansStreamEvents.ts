@@ -153,3 +153,23 @@ export function useScansStreamEvents(onEvent: Listener) {
     };
   }, []);
 }
+
+/**
+ * Non-React entry point used by the module-singleton store in
+ * useScansStream.ts (v0.4.5). Lets the store wire its single
+ * dispatch callback without going through React lifecycle, so N
+ * mounted components share ONE reducer pass per WS frame instead
+ * of running the reducer N times.
+ *
+ * Behaviour mirrors useScansStreamEvents: ref-counted into the same
+ * listeners set, opens the WS on first add, closes on last remove.
+ */
+export function subscribeRawScansEvents(cb: Listener): () => void {
+  listeners.add(cb);
+  bindVisibility();
+  open();
+  return () => {
+    listeners.delete(cb);
+    if (listeners.size === 0) close();
+  };
+}

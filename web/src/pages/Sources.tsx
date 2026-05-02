@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSources, useSourceDetail } from "../hooks/useSources";
-import { useScansStream } from "../hooks/useScansStream";
+import { useActiveScanForSource } from "../hooks/useScansStream";
+import { useSourceStatusReconciler } from "../hooks/useSourceStatusReconciler";
 import { useScannerSummary } from "../hooks/useScannerSummary";
 import {
   Card,
@@ -43,13 +44,17 @@ function statusLabel(status: string): string {
 
 interface SourceCardProps {
   source: Source;
-  activeScan: Scan | undefined;
-  onOpen: () => void;
+  onOpen: (id: string) => void;
   onOpenLog: (scanId: string) => void;
 }
 
-function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) {
-  const summary = formatSourceSummary(source);
+const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: SourceCardProps) {
+  // Per-source slice subscription (v0.4.5) — re-renders ONLY when
+  // this source's scan changes. A scan.state event for a different
+  // source flips no listeners on this card.
+  const activeScan = useActiveScanForSource(source.id);
+
+  const summary = useMemo(() => formatSourceSummary(source), [source]);
   const isScanning = source.status === "scanning";
   // Phase-2 multi-scanner: a source can have a queued scan that no
   // agent has claimed yet. Distinct from "scanning" (agent in flight)
@@ -58,7 +63,7 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
   const queryClient = useQueryClient();
   const [stopping, setStopping] = useState(false);
 
-  async function handleStop() {
+  const handleStop = useCallback(async () => {
     if (!activeScan) return;
     if (stopping) return;
     setStopping(true);
@@ -80,10 +85,24 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
     } finally {
       setStopping(false);
     }
-  }
+  }, [activeScan, stopping, queryClient]);
 
-  // Compose progress subtitle for in-flight scans.
-  const progressLine = isScanning && activeScan ? buildProgressLine(activeScan) : null;
+  // Compose progress subtitle for in-flight scans. Memoized on the
+  // fields that drive the visible string so identical-shape events
+  // don't recompute it.
+  const progressLine = useMemo<ProgressLine | null>(
+    () => (isScanning && activeScan ? buildProgressLine(activeScan) : null),
+    [
+      isScanning,
+      activeScan?.id,
+      activeScan?.files_found,
+      activeScan?.current_path,
+      activeScan?.phase,
+      activeScan?.total_estimated,
+      activeScan?.previous_scan_files,
+      activeScan?.started_at,
+    ],
+  );
 
   // Show watchdog/error message for failed scans on the previous run.
   const errorMessage =
@@ -91,11 +110,13 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
       ? activeScan.error_message
       : null;
 
+  const handleClick = useCallback(() => onOpen(source.id), [onOpen, source.id]);
+
   return (
     <Card padding="md" className="flex flex-col">
       <button
         type="button"
-        onClick={onOpen}
+        onClick={handleClick}
         className="text-left flex flex-col grow rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-1"
       >
         <div className="flex items-start justify-between gap-3 mb-1">
@@ -178,7 +199,7 @@ function SourceCard({ source, activeScan, onOpen, onOpenLog }: SourceCardProps) 
       {source.type === "s3" && <BucketSecurityCard source={source} />}
     </Card>
   );
-}
+});
 
 interface ProgressLine {
   summary: string;
@@ -223,12 +244,11 @@ function buildProgressLine(scan: Scan): ProgressLine {
  * 2D virtualizer pattern (~30 more LOC).
  */
 function VirtualSourceList({
-  sources, activeScans, onOpen, onOpenLog,
+  sources, onOpen, onOpenLog,
 }: {
   sources: Source[];
-  activeScans: ReturnType<typeof useScansStream>;
   onOpen: (id: string) => void;
-  onOpenLog: (scanId: string | null) => void;
+  onOpenLog: (scanId: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -272,10 +292,14 @@ function VirtualSourceList({
                 paddingBottom: "1rem",
               }}
             >
+              {/* SourceCard subscribes to its own scan slice via
+                  useActiveScanForSource, so we no longer pass
+                  activeScans down. Selector-based subscription means
+                  a scan event for source A never re-renders source
+                  B's card. */}
               <SourceCard
                 source={s}
-                activeScan={activeScans?.bySource[s.id]}
-                onOpen={() => onOpen(s.id)}
+                onOpen={onOpen}
                 onOpenLog={onOpenLog}
               />
             </div>
@@ -288,9 +312,11 @@ function VirtualSourceList({
 
 export default function Sources() {
   const { data: sources, isLoading, error } = useSources();
-  // /ws/scans push stream replaces the old 2s polling. Same shape:
-  // { byScan, bySource, hasActive } so the JSX below didn't change.
-  const activeScans = useScansStream();
+  // v0.4.5: source.status updates via WS scan.state events get
+  // patched directly into the React Query cache by the reconciler,
+  // so the badge / DisplayRows reflect "scanning" within one WS
+  // frame instead of waiting for a full page refresh.
+  useSourceStatusReconciler();
   const scannerSummary = useScannerSummary();
   const showNoScannerBanner =
     (sources?.length ?? 0) > 0 &&
@@ -324,13 +350,26 @@ export default function Sources() {
   // the page-load payload small (v0.4.3).
   const openSourceDetailQ = useSourceDetail(openSourceId);
   const openSource = openSourceDetailQ.data ?? openSourceLean;
-  const activeScanForOpen = openSource
-    ? activeScans?.bySource[openSource.id]
+  // v0.4.5: per-source slice subscription. The page used to read the
+  // entire bySource map and re-render on every WS event; now it
+  // bails unless the open source's scan id actually flips.
+  const activeScanForOpen = useActiveScanForSource(openSource?.id);
+
+  // The log panel needs the source name for the drawer title. The
+  // scan id → source id mapping comes from the ACTIVE scans map for
+  // running scans; for terminal scans (the panel can stay open after
+  // a scan completes) we fall back to the lean list. We accept that
+  // a recently-completed scan whose entry has been pruned might lose
+  // the name — the title just shows "Live scan log" without the
+  // suffix, which is fine.
+  const logScanSourceName = logScanId
+    ? sources?.find((s) => s.id === activeScanForOpen?.source_id)?.name
     : undefined;
 
-  const logScanSourceName = logScanId
-    ? sources?.find((s) => activeScans?.byScan[logScanId]?.source_id === s.id)?.name
-    : undefined;
+  const handleOpen = useCallback((id: string) => setOpenSourceId(id), []);
+  const handleClose = useCallback(() => setOpenSourceId(null), []);
+  const handleOpenLog = useCallback((id: string) => setLogScanId(id), []);
+  const handleCloseLog = useCallback(() => setLogScanId(null), []);
 
   return (
     <Page
@@ -377,9 +416,8 @@ export default function Sources() {
           ) : (
             <VirtualSourceList
               sources={sources ?? []}
-              activeScans={activeScans}
-              onOpen={setOpenSourceId}
-              onOpenLog={setLogScanId}
+              onOpen={handleOpen}
+              onOpenLog={handleOpenLog}
             />
           )}
         </div>
@@ -392,13 +430,13 @@ export default function Sources() {
       <SourceDetail
         source={openSource}
         open={openSource !== null}
-        onClose={() => setOpenSourceId(null)}
+        onClose={handleClose}
         activeScanId={activeScanForOpen?.id ?? null}
       />
 
       <ScanLogPanel
         open={logScanId !== null}
-        onClose={() => setLogScanId(null)}
+        onClose={handleCloseLog}
         scanId={logScanId}
         sourceName={logScanSourceName}
       />
