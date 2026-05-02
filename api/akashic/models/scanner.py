@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from akashic.database import Base
@@ -39,3 +39,11 @@ class Scanner(Base):
         DateTime(timezone=True), nullable=True,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Optional scope whitelists. NULL = unrestricted on this dimension.
+    # Enforced inside lease_scan's WHERE clause; admins can edit via PATCH.
+    allowed_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=True,
+    )
+    allowed_scan_types: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String(16)), nullable=True,
+    )

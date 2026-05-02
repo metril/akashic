@@ -1,4 +1,4 @@
-.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner
+.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner bootstrap-scanner-legacy
 
 up:
 	docker compose up -d
@@ -21,12 +21,37 @@ api:
 scanner:
 	docker compose build scanner && docker compose --profile scanner up -d scanner
 
-# Mint a `default`-pool scanner via the api's CLI helper, write the
-# private key to secrets/default-scanner/scanner.key, and append the
-# scanner id to .env so `docker compose --profile scanner up scanner`
-# Just Works after a fresh checkout. Requires the api to be up + an
-# admin user to already exist.
+# v0.3.0 flow: mint a join token via the api admin CLI, run
+# `akashic-scanner claim` inside the scanner image (so the keypair
+# is generated inside the scanner container — correct trust
+# boundary), write the resulting private key + scanner id back to
+# secrets/default-scanner/. The pre-v0.3.0 path (api-side keypair)
+# lives in `bootstrap-scanner-legacy` if you need it.
 bootstrap-scanner:
+	@mkdir -p secrets/default-scanner
+	@docker compose build scanner > /dev/null
+	@docker compose exec -T api python -m akashic.tools.mint_claim_token \
+	    --label default --pool default --ttl-minutes 10 \
+	    > /tmp/claim.json
+	@TOKEN=$$(jq -r .token /tmp/claim.json); \
+	    docker compose --profile scanner run --rm \
+	      -v $$(pwd)/secrets/default-scanner:/secrets \
+	      scanner claim \
+	      --api=http://api:8000 \
+	      --token=$$TOKEN \
+	      --key=/secrets/scanner.key \
+	      --id-file=/secrets/scanner.id ; \
+	    chmod 600 secrets/default-scanner/scanner.key ; \
+	    SID=$$(cat secrets/default-scanner/scanner.id) ; \
+	    grep -v '^SCANNER_ID=' .env > .env.tmp 2>/dev/null || true; \
+	    mv .env.tmp .env 2>/dev/null || true; \
+	    echo "SCANNER_ID=$$SID" >> .env; \
+	    echo "Bootstrapped scanner $$SID. Run: make scanner"
+
+# Pre-v0.3.0 flow — api generates the keypair, we copy the private
+# key to the host. Kept around for scripted automation that already
+# depends on it.
+bootstrap-scanner-legacy:
 	@mkdir -p secrets/default-scanner
 	@docker compose exec -T api python -m akashic.tools.bootstrap_scanner \
 	    --name default --pool default \
@@ -39,7 +64,7 @@ bootstrap-scanner:
 	    grep -v '^SCANNER_ID=' .env > .env.tmp 2>/dev/null || true; \
 	    mv .env.tmp .env 2>/dev/null || true; \
 	    echo "SCANNER_ID=$$SID" >> .env; \
-	    echo "Bootstrapped scanner $$SID. Run: make scanner"
+	    echo "Bootstrapped scanner $$SID via legacy api-side keypair. Run: make scanner"
 
 watch:
 	docker compose watch

@@ -19,6 +19,13 @@ class Settings(BaseSettings):
 
     audit_retention_days: int = 0  # 0 = forever
 
+    # First-boot seed for the runtime `discovery_enabled` server
+    # setting. Once the row exists, runtime PATCHes from the UI take
+    # precedence over this env var. Set to true in IaC if you want
+    # discovery on by default; the operator can still flip it at
+    # runtime without changing config.
+    scanner_discovery_enabled: bool | None = None
+
     # OIDC
     oidc_enabled: bool = False
     oidc_discovery_url: str = ""  # e.g. https://auth.example.com/.well-known/openid-configuration

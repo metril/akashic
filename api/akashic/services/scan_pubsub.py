@@ -42,6 +42,11 @@ def _channel(scan_id: uuid.UUID | str) -> str:
 # per-scan stream.
 SOURCES_CHANNEL = "sources"
 
+# Scanner-lifecycle events: claim redemptions, discovery requests +
+# decisions, registrations, deletions. Powers the admin-only
+# /ws/scanners stream that drives the SettingsScanners pending pane.
+SCANNERS_CHANNEL = "scanners"
+
 
 _redis: Redis | None = None
 
@@ -152,6 +157,49 @@ async def subscribe_sources() -> AsyncIterator[dict[str, Any]]:
             await pubsub.aclose()
         except Exception as exc:  # noqa: BLE001
             logger.debug("scan_pubsub sources aclose noise: %s", exc)
+
+
+async def publish_scanner_event(event: dict[str, Any]) -> None:
+    """Scanner-lifecycle events for the admin-only /ws/scanners stream.
+
+    Same fire-and-forget contract as `publish()` — broker hiccups log
+    a warning but never break the producing endpoint. The persisted
+    DB row remains the source of truth; pubsub is only the live
+    fan-out.
+    """
+    try:
+        payload = json.dumps(event, default=str)
+        await _client().publish(SCANNERS_CHANNEL, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scan_pubsub.publish_scanner_event failed: %s", exc)
+
+
+async def subscribe_scanners() -> AsyncIterator[dict[str, Any]]:
+    """Yield events from SCANNERS_CHANNEL until the consumer cancels.
+    Mirrors `subscribe_sources()`'s shape."""
+    pubsub = _client().pubsub()
+    try:
+        await pubsub.subscribe(SCANNERS_CHANNEL)
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            data = message.get("data")
+            if not isinstance(data, str):
+                continue
+            try:
+                yield json.loads(data)
+            except json.JSONDecodeError as exc:
+                logger.warning("scan_pubsub bad JSON on scanners channel: %s", exc)
+                continue
+    finally:
+        try:
+            await pubsub.unsubscribe(SCANNERS_CHANNEL)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("scan_pubsub scanners unsubscribe noise: %s", exc)
+        try:
+            await pubsub.aclose()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("scan_pubsub scanners aclose noise: %s", exc)
 
 
 async def aclose() -> None:

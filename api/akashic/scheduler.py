@@ -26,6 +26,8 @@ _scheduler_task: asyncio.Task | None = None
 _retention_task: asyncio.Task | None = None
 _log_cleanup_task: asyncio.Task | None = None
 _snapshot_task: asyncio.Task | None = None
+_discovery_expiry_task: asyncio.Task | None = None
+_settings_invalidator_task: asyncio.Task | None = None
 
 # Phase 1 — log entries are kept for 7 days after the parent scan completes.
 # Long-running scans never expire while in flight; only completed/failed
@@ -403,9 +405,46 @@ async def _audit_retention_loop():
         await asyncio.sleep(24 * 3600)  # daily
 
 
+async def _discovery_expiry_loop():
+    """Mark stale pending discovery rows as 'expired' and publish the
+    matching pubsub event so any still-polling scanner gets a
+    definitive answer rather than a stalled connection. Runs once a
+    minute — discoveries have a 15-minute TTL, so per-minute resolution
+    is plenty of accuracy and stays out of the way."""
+    from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
+    from akashic.services import scan_pubsub
+    while True:
+        try:
+            async with async_session() as db:
+                now = datetime.now(timezone.utc)
+                rows = (await db.execute(
+                    select(ScannerDiscoveryRequest).where(
+                        ScannerDiscoveryRequest.status == "pending",
+                        ScannerDiscoveryRequest.expires_at <= now,
+                    )
+                )).scalars().all()
+                for row in rows:
+                    row.status = "expired"
+                    row.decided_at = now
+                if rows:
+                    await db.commit()
+                    for row in rows:
+                        await scan_pubsub.publish_scanner_event({
+                            "kind": "scanner.discovery_expired",
+                            "discovery_id": str(row.id),
+                        })
+                    logger.info("Expired %d discovery requests", len(rows))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("discovery expiry pass failed: %s", exc)
+        await asyncio.sleep(60)
+
+
 def start_scheduler():
     """Start the background scheduler tasks."""
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
+    global _discovery_expiry_task, _settings_invalidator_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
@@ -418,11 +457,21 @@ def start_scheduler():
     if _snapshot_task is None or _snapshot_task.done():
         _snapshot_task = asyncio.create_task(_snapshot_fallback_loop())
         logger.info("Snapshot fallback scheduler started")
+    if _discovery_expiry_task is None or _discovery_expiry_task.done():
+        _discovery_expiry_task = asyncio.create_task(_discovery_expiry_loop())
+        logger.info("Discovery expiry scheduler started")
+    if _settings_invalidator_task is None or _settings_invalidator_task.done():
+        from akashic.services.server_settings import listen_for_invalidations
+        _settings_invalidator_task = asyncio.create_task(
+            listen_for_invalidations(),
+        )
+        logger.info("Server-settings cache invalidator started")
 
 
 def stop_scheduler():
     """Stop the background scheduler tasks."""
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
+    global _discovery_expiry_task, _settings_invalidator_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
     if _retention_task and not _retention_task.done():
@@ -431,3 +480,7 @@ def stop_scheduler():
         _log_cleanup_task.cancel()
     if _snapshot_task and not _snapshot_task.done():
         _snapshot_task.cancel()
+    if _discovery_expiry_task and not _discovery_expiry_task.done():
+        _discovery_expiry_task.cancel()
+    if _settings_invalidator_task and not _settings_invalidator_task.done():
+        _settings_invalidator_task.cancel()
