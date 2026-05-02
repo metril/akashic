@@ -53,7 +53,18 @@ jobs:
           cache-dependency-path: api/pyproject.toml
       - name: System deps
         # python-ldap needs libldap2 + libsasl2 to compile its C extension.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libldap2-dev libsasl2-dev
+        # The retry loop sidesteps Azure-mirror DNS flakes that we've seen
+        # bite the apt-get update step on the GitHub runner pool.
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq \
+              && sudo apt-get install -y -qq libldap2-dev libsasl2-dev \
+              && exit 0
+            echo "apt attempt $attempt failed; sleeping 15s before retry"
+            sleep 15
+          done
+          echo "apt failed 3 times; giving up"
+          exit 1
       - name: Install api package
         working-directory: api
         run: pip install -e ".[dev]"
