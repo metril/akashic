@@ -56,6 +56,18 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Akashic", version="0.1.0", lifespan=lifespan)
+
+    # Liveness probe for compose healthchecks. Deliberately doesn't
+    # touch the DB / Meili / Redis — we want this to flip green the
+    # moment uvicorn is accepting connections, so dependent services
+    # (the scanner) can wait via `depends_on: condition: service_healthy`
+    # instead of racing the api on startup. A more thorough readiness
+    # probe could check the downstream stack, but that belongs on a
+    # separate /ready endpoint if and when we need it.
+    @app.get("/health", include_in_schema=False)
+    def health():
+        return {"ok": True}
+
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(ingest.router)

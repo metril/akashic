@@ -72,6 +72,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Liveness — flips green the moment uvicorn is accepting
+    # connections. Used by `scanner.depends_on` so the agent doesn't
+    # race the api on cold start. python3 (no curl in the runtime
+    # image) hits the unauthenticated /health endpoint.
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   web:
     image: ghcr.io/metril/akashic-web:${AKASHIC_VERSION:-latest}
@@ -111,7 +122,13 @@ services:
     volumes:
       - scanner-data:/secrets
     depends_on:
-      - api
+      api:
+        # Wait for /health, not just for the container to start.
+        # Without this the scanner POSTs to /api/scanners/discover
+        # before uvicorn is bound and gets connection-refused on
+        # first try. The retry-with-backoff in `auto`/discover/claim
+        # would still recover, but waiting up front is cleaner.
+        condition: service_healthy
     profiles: ["scanner"]
 
 volumes:

@@ -60,6 +60,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Liveness — flips green the moment uvicorn is accepting
+    # connections. Used by `scanner.depends_on` so the agent doesn't
+    # race the api during cold starts (would otherwise hit "connection
+    # refused" on the first /api/scanners/discover call).
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     develop:
       watch:
         - action: rebuild
@@ -129,7 +140,11 @@ services:
       - scanner-data:/secrets
     depends_on:
       api:
-        condition: service_started
+        # Wait for the api's /health probe to flip green, not just for
+        # the container to be created. Without this, the scanner POSTs
+        # to /api/scanners/discover before uvicorn is bound and hits a
+        # connection-refused on first try.
+        condition: service_healthy
     profiles: ["scanner"]
 
 volumes:

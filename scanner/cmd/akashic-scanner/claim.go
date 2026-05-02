@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,7 +58,15 @@ func runClaim(args []string) {
 		"hostname":       host,
 		"agent_version":  Version,
 	}
-	scannerID, name, pool, err := postClaim(context.Background(), strings.TrimRight(*apiURL, "/"), body)
+	// Same backoff strategy as discover — survive cold starts where
+	// the api isn't yet accepting connections, network blips during
+	// a restart, etc. 5-minute total budget; claims are usually
+	// one-shot so a longer retry window doesn't help anyone.
+	postCtx, postCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer postCancel()
+	scannerID, name, pool, err := postClaimWithRetry(
+		postCtx, strings.TrimRight(*apiURL, "/"), body,
+	)
 	if err != nil {
 		// Best-effort cleanup so a transient failure doesn't leave
 		// behind a stale key the operator has to delete by hand
@@ -104,7 +113,13 @@ func postClaim(ctx context.Context, apiBase string, body map[string]any) (string
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return "", "", "", fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		err := fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		// 4xx is permanent (bad token, already used, expired) — don't
+		// retry. 5xx + connection errors are transient → retry.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return "", "", "", &permanentError{err: err}
+		}
+		return "", "", "", err
 	}
 	var out struct {
 		ScannerID string `json:"scanner_id"`
@@ -115,6 +130,49 @@ func postClaim(ctx context.Context, apiBase string, body map[string]any) (string
 		return "", "", "", fmt.Errorf("decode response: %w (body: %s)", err, string(respBody))
 	}
 	return out.ScannerID, out.Name, out.Pool, nil
+}
+
+// postClaimWithRetry wraps postClaim with the same exponential
+// backoff + jitter that postDiscoverWithRetry uses (see discover.go
+// for the rationale). 4xx responses bail out immediately —
+// retrying a bad/expired/used token won't change the answer.
+func postClaimWithRetry(
+	ctx context.Context, apiBase string, body map[string]any,
+) (string, string, string, error) {
+	delay := time.Second
+	const maxDelay = 30 * time.Second
+	attempt := 0
+	for {
+		attempt++
+		scannerID, name, pool, err := postClaim(ctx, apiBase, body)
+		if err == nil {
+			if attempt > 1 {
+				fmt.Fprintf(os.Stderr,
+					"claim: succeeded on attempt %d\n", attempt)
+			}
+			return scannerID, name, pool, nil
+		}
+		var perm *permanentError
+		if errors.As(err, &perm) {
+			return "", "", "", err
+		}
+		fmt.Fprintf(os.Stderr,
+			"claim: attempt %d failed (%v); retrying in %s\n",
+			attempt, err, delay)
+		select {
+		case <-ctx.Done():
+			return "", "", "", fmt.Errorf(
+				"claim: gave up after %d attempts: %w", attempt, err,
+			)
+		case <-time.After(jittered(delay)):
+		}
+		if delay < maxDelay {
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+	}
 }
 
 // execAgent re-execs the current binary as `akashic-scanner agent …`,
