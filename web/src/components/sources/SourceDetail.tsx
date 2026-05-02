@@ -68,7 +68,13 @@ export function SourceDetail({ source, open, onClose, activeScanId }: SourceDeta
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-          {tab === "details" && <DetailsTab source={source} onClose={onClose} />}
+          {tab === "details" && (
+            <DetailsTab
+              source={source}
+              onClose={onClose}
+              activeScanId={activeScanId ?? null}
+            />
+          )}
           {tab === "history" && (
             <SourceAuditTab sourceId={source.id} visible={tab === "history"} />
           )}
@@ -108,9 +114,13 @@ function TabButton({
 interface DetailsTabProps {
   source: Source;
   onClose: () => void;
+  /** Latest pending/running scan id for this source, or null. Drives
+   *  the "Queued…" / "Scanning…" button state so a re-press during the
+   *  agent-lease window doesn't look like a no-op (v0.4.4). */
+  activeScanId: string | null;
 }
 
-function DetailsTab({ source, onClose }: DetailsTabProps) {
+function DetailsTab({ source, onClose, activeScanId }: DetailsTabProps) {
   const queryClient = useQueryClient();
   const { isAdmin } = useAuth();
   const updateSource = useUpdateSource();
@@ -296,9 +306,19 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
               size="sm"
               variant="secondary"
               onClick={handleScanNow}
-              disabled={source.status === "scanning"}
+              // v0.4.4: also disable while a scan is QUEUED (pending,
+              // not yet picked up by an agent). Without this the
+              // button stays enabled for ~5s between trigger and the
+              // agent's lease poll, and users press it twice
+              // assuming the first click did nothing. The api now
+              // dedups on the server side too — both belt-and-braces.
+              disabled={source.status === "scanning" || activeScanId != null}
             >
-              {source.status === "scanning" ? "Scanning…" : "Scan now"}
+              {source.status === "scanning"
+                ? "Scanning…"
+                : activeScanId != null
+                  ? "Queued…"
+                  : "Scan now"}
             </Button>
             {isAdmin && (
               <Button

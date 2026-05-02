@@ -68,11 +68,21 @@ interface DashboardSummary {
     files_new: number;
     files_changed: number;
   }[];
+  // v0.4.4: kept on the type for backwards-compat (the api still
+  // returns null here), but the actual count now ships via
+  // GET /dashboard/access-risks (admin-only, lazy, server-cached
+  // 60s) so a busy entries-table read doesn't block the rest of
+  // the summary.
   access_risks: { public_read_count: number } | null;
   identity_health: {
     unbound_count: number;
     unresolved_sid_count: number;
   };
+}
+
+interface AccessRisksResponse {
+  access_risks: { public_read_count: number } | null;
+  cache_age_seconds?: number;
 }
 
 export default function Dashboard() {
@@ -82,12 +92,31 @@ export default function Dashboard() {
   const summaryQ = useQuery<DashboardSummary>({
     queryKey: ["dashboard", "summary"],
     queryFn: () => api.get<DashboardSummary>("/dashboard/summary"),
+    // v0.4.4: keep data fresh for 10s after invalidation so a burst
+    // of WS events from useDashboardLiveRefresh's leading-edge
+    // throttle (5s) never causes back-to-back refetches.
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
   });
+
+  // v0.4.4: access_risks split off into its own lazy fetch — the
+  // underlying COUNT scans a hot table during scans and was
+  // bottlenecking the whole summary. 60s staleTime + server-side
+  // 60s cache means at most one fetch per minute per browser.
+  const accessRisksQ = useQuery<AccessRisksResponse>({
+    queryKey: ["dashboard", "access-risks"],
+    queryFn: () => api.get<AccessRisksResponse>("/dashboard/access-risks"),
+    enabled: isAdmin,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   // Phase-2 multi-scanner: tiles refresh on /ws/scans events instead
   // of waiting for a manual reload.
   useDashboardLiveRefresh();
 
   const data = summaryQ.data;
+  const accessRisks = accessRisksQ.data?.access_risks ?? null;
   const loading = summaryQ.isLoading;
 
   return (
@@ -137,19 +166,22 @@ export default function Dashboard() {
             <StatCard
               label="Public-readable files"
               value={
-                data?.access_risks
-                  ? formatNumber(data.access_risks.public_read_count)
+                accessRisks
+                  ? formatNumber(accessRisks.public_read_count)
                   : "—"
               }
               subtext={
-                data?.access_risks?.public_read_count
+                accessRisks?.public_read_count
                   ? "tap to inspect"
                   : "no risk found"
               }
-              loading={loading}
+              // v0.4.4: tile loads independently of the summary so a
+              // slow access-risks query doesn't block storage / scans
+              // / owner tiles from rendering.
+              loading={accessRisksQ.isLoading}
               icon={<Icon name="shield" className="size-4" />}
               className={
-                data?.access_risks?.public_read_count
+                accessRisks?.public_read_count
                   ? "cursor-pointer hover:border-rose-300 transition-colors border-rose-200/50 dark:border-rose-700/30"
                   : "cursor-pointer hover:border-accent-300 transition-colors"
               }

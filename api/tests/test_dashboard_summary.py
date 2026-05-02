@@ -54,8 +54,10 @@ async def test_summary_basic_shape(client: AsyncClient, db_session: AsyncSession
     assert body["scans"]["active"] == 0
     assert body["top_owners"] == []
     assert body["recent_scans"] == []
-    # Admin gets access_risks; sum=0 with no rows.
-    assert body["access_risks"] == {"public_read_count": 0}
+    # v0.4.4: access_risks split off into GET /dashboard/access-risks.
+    # Summary always returns null here so the heavy COUNT doesn't
+    # bottleneck storage / scans / owner tiles during active scans.
+    assert body["access_risks"] is None
 
 
 @pytest.mark.asyncio
@@ -157,12 +159,22 @@ async def test_summary_30d_delta_and_extension_growth(
 
 
 @pytest.mark.asyncio
-async def test_summary_access_risks_admin_only(
+async def test_access_risks_endpoint_admin_only(
     client: AsyncClient, db_session: AsyncSession,
 ):
     """A file with `*` in viewable_by_read counts as world-readable.
-    Non-admin callers don't see the field at all (the 'is anything
-    wrong' question is admin context)."""
+    Non-admin callers get a 200 with `access_risks: null` so the
+    Dashboard tile can render a placeholder without a 403 round-trip
+    on every mount.
+
+    v0.4.4: split off from the summary endpoint into its own lazy
+    fetch so a slow COUNT doesn't bottleneck the rest of the page.
+    """
+    # Bust the in-process server-side cache so neither order of
+    # admin/viewer assertions reads a previous test's value.
+    from akashic.routers import dashboard as dashboard_router
+    dashboard_router._risk_cache.clear()
+
     src = Source(id=uuid.uuid4(), name="S", type="local", connection_config={})
     admin = User(id=uuid.uuid4(), username="adm2", email="a2@e", password_hash="x", role="admin")
     viewer = User(id=uuid.uuid4(), username="viewer", email="v@e", password_hash="x", role="user")
@@ -189,16 +201,52 @@ async def test_summary_access_risks_admin_only(
     viewer_token = create_access_token({"sub": str(viewer.id)})
 
     admin_body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/dashboard/access-risks",
         headers={"Authorization": f"Bearer {admin_token}"},
     )).json()
     assert admin_body["access_risks"] == {"public_read_count": 1}
+    # First call is a fresh compute; cache_age starts at 0.
+    assert admin_body["cache_age_seconds"] == 0
 
     viewer_body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/dashboard/access-risks",
         headers={"Authorization": f"Bearer {viewer_token}"},
     )).json()
-    assert viewer_body["access_risks"] is None
+    assert viewer_body == {"access_risks": None}
+
+
+@pytest.mark.asyncio
+async def test_access_risks_endpoint_caches(
+    client: AsyncClient, db_session: AsyncSession,
+):
+    """Second call within the cache window serves from the in-process
+    cache (cache_age_seconds > 0); avoids hammering the COUNT during
+    a busy scan. v0.4.4."""
+    from akashic.routers import dashboard as dashboard_router
+    dashboard_router._risk_cache.clear()
+
+    admin = User(
+        id=uuid.uuid4(), username="adm-cache", email="ac@e",
+        password_hash="x", role="admin",
+    )
+    db_session.add(admin)
+    await db_session.commit()
+    token = create_access_token({"sub": str(admin.id)})
+
+    first = (await client.get(
+        "/api/dashboard/access-risks",
+        headers={"Authorization": f"Bearer {token}"},
+    )).json()
+    assert first["cache_age_seconds"] == 0
+
+    second = (await client.get(
+        "/api/dashboard/access-risks",
+        headers={"Authorization": f"Bearer {token}"},
+    )).json()
+    assert second["access_risks"] == first["access_risks"]
+    # Some non-zero age — the exact value depends on monotonic clock,
+    # but 60s TTL means it's at most 60.
+    assert 0 <= second["cache_age_seconds"] <= 60
 
 
 @pytest.mark.asyncio
