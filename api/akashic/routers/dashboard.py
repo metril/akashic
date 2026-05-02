@@ -209,22 +209,14 @@ async def get_summary(
         for s in recent_scans_rows
     ]
 
-    # ── Access risks (admin only) ───────────────────────────────────────
+    # ── Access risks ────────────────────────────────────────────────────
+    # v0.4.4: moved to its own lazy endpoint (GET /dashboard/access-risks)
+    # because the underlying COUNT scans a busy entries table and
+    # bottlenecked the whole summary during active scans (write
+    # contention on the entries pages). The Dashboard's tile fetches
+    # it on its own with a 60s staleTime so a slow run doesn't block
+    # the storage / scans / owners tiles from rendering.
     access_risks: dict | None = None
-    if is_admin:
-        # `*` is the wildcard "anyone" token from acl_denorm. Its presence
-        # in viewable_by_read means the entry is world-readable. We count
-        # files only (directories and stale rows are filtered out).
-        public_count_stmt = (
-            select(func.count(Entry.id))
-            .where(
-                Entry.kind == "file",
-                Entry.is_deleted == False,  # noqa: E712
-                Entry.viewable_by_read.op("&&")(["*"]),
-            )
-        )
-        public_count = (await db.execute(public_count_stmt)).scalar() or 0
-        access_risks = {"public_read_count": int(public_count)}
 
     # ── Identity health (admin or self-relevant counts) ────────────────
     if is_admin:
@@ -264,6 +256,70 @@ async def get_summary(
         "access_risks": access_risks,
         "identity_health": identity_health,
     }
+
+
+# ── Access risks (admin-only, lazy) ──────────────────────────────────────
+
+
+import asyncio
+import time
+
+# v0.4.4: serve the world-readable count via its own endpoint with
+# a small in-process cache. Reasons:
+#   1. The count scans a hot table that's being heavily written to
+#      during scans → response time spikes. Caching for 60s holds
+#      the dashboard tile stable while a scan is in flight.
+#   2. The number itself drifts slowly (a delete-everyone ACL change
+#      isn't a per-second event). 60s is plenty of freshness.
+#   3. Admin-only — non-admins shouldn't pay any cost for the tile.
+_RISK_CACHE_TTL_S = 60.0
+_risk_cache: dict[str, tuple[float, dict]] = {}
+_risk_lock = asyncio.Lock()
+
+
+@router.get("/access-risks")
+async def get_access_risks(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """World-readable file count. Admin-only — non-admins get 200 +
+    `null` so the tile can render a "not visible to your role"
+    placeholder without a 403 round-trip per dashboard mount."""
+    if user.role != "admin":
+        return {"access_risks": None}
+
+    # Serve from cache when fresh.
+    now = time.monotonic()
+    cached = _risk_cache.get("public_read_count")
+    if cached is not None and cached[0] > now:
+        return {"access_risks": cached[1], "cache_age_seconds": int(_RISK_CACHE_TTL_S - (cached[0] - now))}
+
+    # Coalesce concurrent misses so a herd of dashboard mounts after
+    # cache expiry doesn't fire N parallel COUNTs.
+    async with _risk_lock:
+        cached = _risk_cache.get("public_read_count")
+        if cached is not None and cached[0] > now:
+            return {"access_risks": cached[1], "cache_age_seconds": int(_RISK_CACHE_TTL_S - (cached[0] - now))}
+
+        # `*` in viewable_by_read is the "anyone" token (from
+        # acl_denorm). We count files only — directories and
+        # soft-deleted rows are filtered out. Backed by the
+        # ix_entries_world_readable partial index (migration 0016)
+        # so this is sub-100ms even on a busy entries table.
+        public_count_stmt = (
+            select(func.count(Entry.id))
+            .where(
+                Entry.kind == "file",
+                Entry.is_deleted == False,  # noqa: E712
+                Entry.viewable_by_read.op("&&")(["*"]),
+            )
+        )
+        public_count = int((await db.execute(public_count_stmt)).scalar() or 0)
+        payload = {"public_read_count": public_count}
+        _risk_cache["public_read_count"] = (
+            time.monotonic() + _RISK_CACHE_TTL_S, payload,
+        )
+        return {"access_risks": payload, "cache_age_seconds": 0}
 
 
 __all__ = ["router"]

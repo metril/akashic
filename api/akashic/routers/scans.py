@@ -65,6 +65,28 @@ async def trigger_scan(
 
     await check_source_access(source.id, user, db, required_level="write")
 
+    # v0.4.4: idempotent re-trigger. If a scan for this source is
+    # already pending or running, return its id instead of stacking
+    # a duplicate. The user's "press Scan twice" complaint was that
+    # source.status doesn't flip to 'scanning' until an agent leases
+    # (~5s with the default poll), so the button doesn't reflect
+    # progress and they re-press — without this dedup that creates
+    # parallel scan rows the agent then races on.
+    existing = (await db.execute(
+        select(Scan).where(
+            Scan.source_id == source.id,
+            Scan.status.in_(["pending", "running"]),
+        ).order_by(Scan.id).limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return ScanTriggerResponse(
+            scan_id=existing.id,
+            source_id=source.id,
+            source_name=source.name,
+            scan_type=existing.scan_type,
+            last_scan_at=source.last_scan_at.isoformat() if source.last_scan_at else None,
+        )
+
     from akashic.services.scan_factory import previous_files_for_source
     prev = await previous_files_for_source(source.id, db)
 
