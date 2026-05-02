@@ -63,8 +63,12 @@ class Entry(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    source_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="CASCADE"), nullable=False
+    # Nullable since v0.4.0: deleting a source with the default
+    # "preserve entries" flavour SETs source_id to NULL on every
+    # entry that pointed at it. Read paths that need a source
+    # (content fetch, browse) 404 gracefully when this is NULL.
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
     kind: Mapped[str] = mapped_column(String, nullable=False)  # 'file' | 'directory'
 

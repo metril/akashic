@@ -304,12 +304,21 @@ export default function Search() {
                         {formatBytes(file.size_bytes)}
                       </div>
                       <div className="text-xs text-fg-muted mt-0.5">
-                        <FilterableCell
-                          predicate={{ kind: "source", value: file.source_id }}
-                        >
-                          {sourceMap.get(file.source_id) ??
-                            file.source_id.slice(0, 8)}
-                        </FilterableCell>
+                        {file.source_id == null ? (
+                          <span
+                            className="italic text-fg-subtle"
+                            title="The source this file was indexed from has been deleted. The entry survives but content fetch is no longer possible."
+                          >
+                            (deleted source)
+                          </span>
+                        ) : (
+                          <FilterableCell
+                            predicate={{ kind: "source", value: file.source_id }}
+                          >
+                            {sourceMap.get(file.source_id) ??
+                              file.source_id.slice(0, 8)}
+                          </FilterableCell>
+                        )}
                       </div>
                     </div>
                   </div>

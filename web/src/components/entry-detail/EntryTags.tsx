@@ -24,7 +24,7 @@ import { cn } from "../ui/cn";
 
 interface Props {
   entryId: string;
-  sourceId: string;
+  sourceId: string | null;
   parentPath: string;
   tags: EntryTagAssignment[];
 }
@@ -142,7 +142,7 @@ interface ChipProps {
   direct: boolean;
   inherited: { from: string | null } | null;
   onRemove?: () => void;
-  sourceId: string;
+  sourceId: string | null;
   parentPath: string;
 }
 
@@ -167,7 +167,10 @@ function TagChip({ tag, direct, inherited, onRemove, sourceId, parentPath }: Chi
       >
         {tag}
       </FilterableCell>
-      {inherited?.from && (
+      {/* The browse link only works while the source still exists.
+          Orphaned entries (sourceId == null) keep the chip but drop
+          the link — there's no path tree to open. */}
+      {inherited?.from && sourceId != null && (
         <Link
           to={`/browse?source=${sourceId}&path=${encodeURIComponent(inherited.from)}`}
           className="text-fg-subtle hover:text-fg-muted"

@@ -91,7 +91,13 @@ async def get_entry(
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    await check_source_access(entry.source_id, user, db)
+    # Per-source ACL gate. Orphaned entries (source deleted, entry
+    # preserved via the v0.4.0 SET NULL FK) skip this — there's no
+    # source row to gate on. Per-entry visibility still applies via
+    # `user_can_view` below, so non-admins who legitimately had
+    # access at scan time keep it.
+    if entry.source_id is not None:
+        await check_source_access(entry.source_id, user, db)
     # Same filter Browse applies — and 404 (not 403) when the user
     # can't see the entry. SharePoint-correct: not-found denies the
     # existence-inference attack ("if I get 403 here, the entry
@@ -106,8 +112,10 @@ async def get_entry(
     )
     versions = versions_result.scalars().all()
 
-    source_result = await db.execute(select(Source).where(Source.id == entry.source_id))
-    source = source_result.scalar_one_or_none()
+    source = None
+    if entry.source_id is not None:
+        source_result = await db.execute(select(Source).where(Source.id == entry.source_id))
+        source = source_result.scalar_one_or_none()
 
     raw_tags = await get_tags_for_entry(db, entry_id=entry.id)
     tags = [EntryTagAssignment(**t) for t in raw_tags]
@@ -152,7 +160,8 @@ async def get_entry_versions(
     entry = entry_result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    await check_source_access(entry.source_id, user, db)
+    if entry.source_id is not None:
+        await check_source_access(entry.source_id, user, db)
     if not await user_can_view(entry, user, db):
         raise HTTPException(status_code=404, detail="Entry not found")
 

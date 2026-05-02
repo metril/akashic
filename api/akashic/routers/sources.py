@@ -2,12 +2,14 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
+from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import SourcePermission, User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
@@ -237,6 +239,16 @@ async def update_source(
 async def delete_source(
     source_id: uuid.UUID,
     request: Request,
+    purge_entries: bool = Query(
+        False,
+        description=(
+            "When true, also delete every indexed entry from this source. "
+            "Default false: source row is removed but entries survive with "
+            "source_id=NULL — they stay searchable, content fetch returns "
+            "404, and they can be re-attached to a new source via "
+            "POST /sources/{id}/reattach-orphans."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
@@ -251,8 +263,43 @@ async def delete_source(
         "config": _config_safe_summary(source.connection_config),
     }
     deleted_id = source.id
+
+    # Snapshot the affected entry ids BEFORE the source delete so we
+    # can sync Meilisearch in either flavour. On the preserve path
+    # the FK rule will SET source_id=NULL after `db.delete(source)`;
+    # on the purge path we explicitly delete the entries first
+    # (otherwise the SET-NULL FK rule would fire and orphan them
+    # before the purge runs).
+    affected_entry_ids = list((await db.execute(
+        select(Entry.id).where(Entry.source_id == source_id)
+    )).scalars().all())
+
+    if purge_entries:
+        await db.execute(sql_delete(Entry).where(Entry.source_id == source_id))
+
     await db.delete(source)
     await db.commit()
+
+    # Sync Meilisearch. Failures here are logged but don't break the
+    # delete — search index drift is recoverable, a half-deleted
+    # source row is not.
+    from akashic.services import search
+    try:
+        if purge_entries:
+            await search.delete_files_batch([str(i) for i in affected_entry_ids])
+        elif affected_entry_ids:
+            await search.update_files_partial(
+                [{"id": str(i), "source_id": None} for i in affected_entry_ids]
+            )
+    except Exception:  # noqa: BLE001
+        # Caller already saw the source delete succeed; surface the
+        # search-sync issue via logs rather than 500'ing.
+        import logging
+        logging.getLogger(__name__).warning(
+            "delete_source: search-index sync failed for %s entries",
+            len(affected_entry_ids),
+        )
+
     from akashic.services import scan_pubsub
     await scan_pubsub.publish_source_event({
         "kind": "source.deleted",
@@ -267,5 +314,148 @@ async def delete_source(
         event_type="source_deleted",
         source_id=None,
         request=request,
-        payload=snapshot,
+        payload={
+            **snapshot,
+            "purge_entries": purge_entries,
+            "affected_entry_count": len(affected_entry_ids),
+        },
+    )
+
+
+class SourceEntryCount(BaseModel):
+    count: int
+
+
+@router.get("/{source_id}/entry-count", response_model=SourceEntryCount)
+async def get_source_entry_count(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Cheap COUNT used by the delete-source modal to show blast
+    radius. Excludes soft-deleted entries (`is_deleted = true`)
+    since those wouldn't be visibly affected by the delete."""
+    await check_source_access(source_id, user, db, required_level="read")
+    cnt = (await db.execute(
+        select(func.count())
+        .select_from(Entry)
+        .where(Entry.source_id == source_id, Entry.is_deleted.is_(False))
+    )).scalar_one()
+    return SourceEntryCount(count=int(cnt))
+
+
+# ── Orphan recovery (v0.4.0) ─────────────────────────────────────────────
+
+
+class OrphanMatchCount(BaseModel):
+    count: int
+
+
+@router.get(
+    "/{source_id}/orphan-match-count",
+    response_model=OrphanMatchCount,
+)
+async def get_orphan_match_count(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """How many orphaned entries (source_id IS NULL) share a path
+    with an entry of THIS source. Used by the source-detail
+    banner to decide whether to surface the 'Recover orphans'
+    affordance — returns instantly because it's a single COUNT on
+    indexed columns."""
+    from akashic.services.orphan_matcher import count_potential_matches
+    cnt = await count_potential_matches(db, source_id)
+    return OrphanMatchCount(count=cnt)
+
+
+class ReattachRequest(BaseModel):
+    strategy: str = "path"  # "path" | "path_and_hash"
+    dry_run: bool = True
+
+
+class ReattachResponse(BaseModel):
+    matched: int
+    conflicts: int
+    ambiguous: int
+    committed: bool
+
+
+@router.post(
+    "/{source_id}/reattach-orphans",
+    response_model=ReattachResponse,
+)
+async def reattach_orphans(
+    source_id: uuid.UUID,
+    body: ReattachRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Re-attach orphaned entries (source_id IS NULL) into this
+    source where (path, name, kind) — and optionally content_hash
+    — match a freshly-scanned entry. The orphan keeps its history
+    (tags, version history, audit trail); the duplicate fresh
+    entry is deleted."""
+    from akashic.services.orphan_matcher import (
+        Strategy, commit_matches, find_matches,
+    )
+    from akashic.services import search
+
+    if body.strategy not in ("path", "path_and_hash"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown strategy '{body.strategy}'; "
+                   "expected 'path' or 'path_and_hash'",
+        )
+    # Source must exist (otherwise there are no fresh entries to
+    # match against, but we want a clear 404 either way).
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id)
+    )).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    summary = await find_matches(db, source_id, body.strategy)  # type: ignore[arg-type]
+
+    if body.dry_run:
+        return ReattachResponse(
+            matched=summary.matched,
+            conflicts=summary.conflicts,
+            ambiguous=summary.ambiguous,
+            committed=False,
+        )
+
+    reattached_ids = await commit_matches(db, source_id, summary.pairs)
+    await db.commit()
+
+    # Sync Meilisearch — re-attached docs get the new source_id.
+    if reattached_ids:
+        try:
+            await search.update_files_partial(
+                [{"id": str(i), "source_id": str(source_id)} for i in reattached_ids]
+            )
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "reattach_orphans: search-index sync failed for %s entries",
+                len(reattached_ids),
+            )
+
+    await record_event(
+        db=db, user=user, event_type="source_orphans_reattached",
+        source_id=source_id, request=request,
+        payload={
+            "strategy": body.strategy,
+            "matched": summary.matched,
+            "conflicts": summary.conflicts,
+            "ambiguous": summary.ambiguous,
+        },
+    )
+    return ReattachResponse(
+        matched=summary.matched,
+        conflicts=summary.conflicts,
+        ambiguous=summary.ambiguous,
+        committed=True,
     )

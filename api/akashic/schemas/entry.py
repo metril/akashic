@@ -51,7 +51,9 @@ class EntryIn(BaseModel):
 
 class EntryResponse(BaseModel):
     id: uuid.UUID
-    source_id: uuid.UUID
+    # Nullable since v0.4.0: orphaned entries (source deleted via the
+    # default preserve flavour) come back with source_id=None.
+    source_id: uuid.UUID | None
     kind: str
     parent_path: str
     path: str

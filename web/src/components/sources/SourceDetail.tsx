@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Badge, Button, Drawer, ConfirmDialog } from "../ui";
+import { Badge, Button, Drawer } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import { useUpdateSource, useDeleteSource } from "../../hooks/useSources";
+import { DeleteSourceModal } from "./DeleteSourceModal";
+import { RecoverOrphansModal } from "./RecoverOrphansModal";
+import { useOrphanMatchCount } from "../../hooks/useOrphanRecovery";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Source } from "../../types";
@@ -124,6 +127,12 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+
+  // v0.4.0 — surface orphaned-entries-that-match-this-source as a
+  // banner with a recover affordance. Cheap COUNT under the hood.
+  const orphanCountQ = useOrphanMatchCount(isAdmin ? source.id : null);
+  const orphanCount = orphanCountQ.data?.count ?? 0;
 
   // When `source` changes (drawer reopened with a different row), reset
   // edit state.
@@ -225,11 +234,13 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
     }
   }
 
-  async function handleDeleteConfirmed() {
-    const p = deleteSource.mutateAsync(source.id);
+  async function handleDeleteConfirmed({ purgeEntries }: { purgeEntries: boolean }) {
+    const p = deleteSource.mutateAsync({ id: source.id, purgeEntries });
     toast.promise(p, {
       loading: "Deleting source…",
-      success: `Deleted "${source.name}".`,
+      success: purgeEntries
+        ? `Deleted "${source.name}" and its indexed entries.`
+        : `Deleted "${source.name}". Indexed entries kept.`,
       error: (e: unknown) =>
         `Delete failed: ${e instanceof Error ? e.message : "unknown error"}`,
     });
@@ -273,6 +284,23 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
       )}
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
+
+      {isAdmin && orphanCount > 0 && (
+        <div className="rounded-md p-3 text-xs bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-center justify-between gap-3">
+          <span className="text-fg">
+            <strong>{orphanCount.toLocaleString()}</strong> orphaned
+            file{orphanCount === 1 ? "" : "s"} match this source's
+            tree. Re-attach them to keep their tags + history.
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setRecoverOpen(true)}
+          >
+            Preview & recover
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 pt-2 border-t border-line-subtle">
         {!editing ? (
@@ -344,12 +372,16 @@ function DetailsTab({ source, onClose }: DetailsTabProps) {
         )}
       </div>
 
-      <ConfirmDialog
+      <RecoverOrphansModal
+        open={recoverOpen}
+        sourceId={source.id}
+        sourceName={source.name}
+        onClose={() => setRecoverOpen(false)}
+      />
+      <DeleteSourceModal
         open={confirmDelete}
-        title={`Delete source "${source.name}"?`}
-        description="This removes the source from Akashic and purges its indexed entries. The actual files on disk are not touched. This cannot be undone."
-        confirmLabel="Delete source"
-        destructive
+        sourceId={source.id}
+        sourceName={source.name}
         loading={deleteSource.isPending}
         onConfirm={handleDeleteConfirmed}
         onCancel={() => setConfirmDelete(false)}
