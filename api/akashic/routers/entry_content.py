@@ -53,6 +53,16 @@ async def _load_entry_and_source(
     entry = await db.get(Entry, entry_id)
     if entry is None or entry.kind != "file" or entry.is_deleted:
         raise HTTPException(status_code=404, detail="entry not found or not a file")
+    if entry.source_id is None:
+        # The source this entry was indexed from has been deleted
+        # (preserve-entries flavour). Without a connection_config
+        # there's no way to fetch content; surface as 404 to match
+        # the missing-entry shape, so we don't leak existence to
+        # unauthorised callers.
+        raise HTTPException(
+            status_code=404,
+            detail="entry's source has been deleted; content is no longer fetchable",
+        )
     await check_source_access(entry.source_id, user, db, "read")
     # Phase-5 per-user ACL trim — content/preview must respect the same
     # filter as Browse and the entry detail. 404 (not 403) so an

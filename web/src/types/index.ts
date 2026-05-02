@@ -47,7 +47,8 @@ export interface FileVersion {
 export interface FileLocation {
   id: string;
   file_id: string;
-  source_id: string;
+  // Nullable since v0.4.0 — see FileEntry.source_id below.
+  source_id: string | null;
   path: string;
   source?: Source;
 }
@@ -63,7 +64,10 @@ export interface FileEntry {
   first_seen_at: string;
   last_seen_at: string;
   is_deleted: boolean;
-  source_id: string;
+  // Nullable since v0.4.0: when a source is deleted with the
+  // default "preserve entries" flavour, surviving entries land
+  // here with source_id=null. UI renders "(deleted source)".
+  source_id: string | null;
   path: string;
   source?: Source;
   tags?: Tag[];
@@ -77,7 +81,7 @@ export interface SearchResult {
   content_hash: string | null;
   mime_type: string | null;
   path: string;
-  source_id: string;
+  source_id: string | null;
   fs_modified_at: number | null;
   tags: string[];
 }
@@ -315,7 +319,8 @@ export interface EntryVersion {
 
 export interface EntryDetail {
   id: string;
-  source_id: string;
+  // Nullable since v0.4.0 — see FileEntry.source_id.
+  source_id: string | null;
   kind: EntryKind;
   parent_path: string;
   path: string;

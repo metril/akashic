@@ -62,7 +62,10 @@ def build_entry_doc(
 
     doc: dict = {
         "id": str(entry.id),
-        "source_id": str(entry.source_id),
+        # Nullable since v0.4.0 — `str(None)` would index the literal
+        # string "None" and silently break every source_id="<uuid>"
+        # filter. Real JSON null instead.
+        "source_id": str(entry.source_id) if entry.source_id else None,
         "path": entry.path,
         "filename": entry.name,
         "extension": entry.extension,
@@ -107,3 +110,31 @@ async def delete_file_from_index(file_id: str):
     client = await get_meili_client()
     index = await client.get_index(INDEX_NAME)
     await index.delete_document(file_id)
+
+
+async def delete_files_batch(file_ids: list[str]) -> None:
+    """Bulk-delete docs from the search index. Used by the
+    `purge_entries` flavour of source delete (removes both the
+    Postgres rows and the search-index docs in one round trip)."""
+    if not file_ids:
+        return
+    client = await get_meili_client()
+    index = await client.get_index(INDEX_NAME)
+    await index.delete_documents(file_ids)
+
+
+async def update_files_partial(docs: list[dict]) -> None:
+    """Partial-update docs by id. Each doc must include `id` plus
+    only the fields that should change. Used by the source-delete
+    "preserve entries" path to null out source_id on the affected
+    docs without rebuilding the full doc.
+
+    Meili's `add_documents` is upsert-by-id and merges on the
+    primary key, so partial updates work the same way as full
+    additions — we just pass a sparse doc.
+    """
+    if not docs:
+        return
+    client = await get_meili_client()
+    index = await client.get_index(INDEX_NAME)
+    await index.update_documents(docs)
