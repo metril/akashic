@@ -64,7 +64,7 @@ class Entry(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="CASCADE"), nullable=False
     )
     kind: Mapped[str] = mapped_column(String, nullable=False)  # 'file' | 'directory'
 
@@ -141,7 +141,9 @@ class EntryVersion(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     entry_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("entries.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("entries.id", ondelete="CASCADE"),
+        nullable=False,
     )
     scan_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True
@@ -173,11 +175,15 @@ class EntryEvent(Base):
     event_type: Mapped[str] = mapped_column(String, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     old_source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="SET NULL"),
+        nullable=True,
     )
     old_path: Mapped[str | None] = mapped_column(String, nullable=True)
     new_source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="SET NULL"),
+        nullable=True,
     )
     new_path: Mapped[str | None] = mapped_column(String, nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
