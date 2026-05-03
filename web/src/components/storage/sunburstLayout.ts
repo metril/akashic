@@ -141,7 +141,7 @@ export function buildArcLayout(
   if (radius <= 0) return [];
   const truncated = truncateDepth(root, MAX_RINGS);
   const h = d3Hierarchy<TreeNode>(truncated, (d) => d.children)
-    .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes))
+    .sum((d) => (d.children && d.children.length > 0 ? 0 : (d.layout_weight ?? d.size_bytes)))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   const layout = d3Partition<TreeNode>().size([2 * Math.PI, radius])(h);
 

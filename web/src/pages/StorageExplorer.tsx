@@ -113,6 +113,18 @@ export default function StorageExplorer() {
   // becomes a directory pseudo-node with a `__source:<uuid>` sentinel
   // path; click/drill handlers detect that prefix and route to
   // `enterSource()` instead of `setPath()`.
+  //
+  // v0.4.17:
+  //   - color_key uses an index-derived key (`s0`, `s1`, …) so each
+  //     source gets a distinct palette hue regardless of source_type
+  //     — multiple same-type sources are no longer painted the same
+  //     colour. The `s0`..`s9` keys hash to all 10 distinct PALETTE
+  //     entries via `colorFor`'s string hash; collisions only start
+  //     past 10 sources, which is fine.
+  //   - layout_weight is sqrt(size_bytes) so a small source (e.g.
+  //     Music at 100 GB next to 50 TB sources) doesn't compress to
+  //     a hairline rect. size_bytes itself stays accurate, so the
+  //     hover tooltip still shows the real size.
   const SOURCE_SENTINEL_PREFIX = "__source:";
   const crossSourceRoot: TreeNode | null = useMemo(() => {
     if (sourceId) return null;
@@ -123,14 +135,13 @@ export default function StorageExplorer() {
       name: "All sources",
       path: "/",
       size_bytes: 0,
-      children: list.map((s) => ({
+      children: list.map((s, i) => ({
         kind: "directory",
         name: s.source_name,
         path: `${SOURCE_SENTINEL_PREFIX}${s.source_id}`,
         size_bytes: s.size_bytes,
-        // color_key drives the type-mode coloring; reuse source_type
-        // so e.g. all S3 sources read as the same hue.
-        color_key: s.source_type,
+        layout_weight: Math.sqrt(Math.max(s.size_bytes, 1)),
+        color_key: `s${i}`,
       })),
     };
   }, [sourceId, sourcesQ.data]);

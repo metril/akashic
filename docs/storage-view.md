@@ -73,10 +73,25 @@ scroll-wheel motion from cascading through several levels.
 
 When a deployment has more than one source and no source is
 selected, the Storage view shows every source as its own
-treemap/sunburst cell, sized by total bytes per source. Click (or
-wheel-drill) into one to enter that source's tree. Single-source
-deployments skip this step automatically — the URL silently picks
-up `?source=<id>` after the sources query resolves.
+treemap/sunburst cell. Click — or wheel-drill — into one to enter
+that source's tree. Single-source deployments skip this step
+automatically: the URL silently picks up `?source=<id>` after the
+sources query resolves.
+
+Two cross-source-specific behaviours, since this view is at a
+much smaller scale than a single source's tree:
+
+- **Each source gets its own colour.** The `color_key` cycles
+  through the palette by source order so multiple sources of the
+  same type (e.g. several SMB shares) are visually distinct
+  rather than collapsed to one hue.
+- **Sqrt-scaled layout sizing.** A small source (a 100 GB Music
+  share next to two 50 TB main shares) would compress to a
+  hairline rect under linear area scaling and disappear. The
+  cross-source layout uses `sqrt(size_bytes)` as the d3-treemap
+  weight so small sources stay clickable. The hover tooltip
+  shows the **real** byte count — only the visual area is
+  rescaled.
 
 ## Hover sidebar
 

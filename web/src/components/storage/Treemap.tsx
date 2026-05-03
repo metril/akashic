@@ -42,6 +42,12 @@ export interface TreeNode {
   name: string;
   path: string;
   size_bytes: number;
+  /** Optional override for the d3-hierarchy `.sum()` weight that
+   *  drives treemap / partition layout. When present, used INSTEAD
+   *  of `size_bytes` for area sizing — useful at the cross-source
+   *  level where sqrt scaling keeps small sources visible without
+   *  lying about the real byte count in the tooltip. */
+  layout_weight?: number;
   color_key?: string;
   children?: TreeNode[];
 }
@@ -296,7 +302,7 @@ export function Treemap({
   const layout = useMemo(() => {
     if (width <= 0 || height <= 0) return null;
     const h = d3Hierarchy<TreeNode>(root, (d) => d.children)
-      .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes))
+      .sum((d) => (d.children && d.children.length > 0 ? 0 : (d.layout_weight ?? d.size_bytes)))
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     d3Treemap<TreeNode>()
       .tile(treemapSquarify)
