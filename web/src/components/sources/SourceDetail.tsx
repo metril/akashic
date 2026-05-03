@@ -379,7 +379,7 @@ const DetailsTab = memo(function DetailsTab({
             {source.is_removable && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 onClick={handleCheckNow}
                 loading={checkReachability.isPending}
                 title="Run a connection probe and update the reachability badge."
@@ -400,7 +400,7 @@ const DetailsTab = memo(function DetailsTab({
             {isAdmin && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 onClick={() => setRecoverOpen(true)}
                 title="Re-attach indexed entries from a previously deleted source whose paths match this source's tree"
               >

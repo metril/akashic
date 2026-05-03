@@ -5,6 +5,15 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.4.22 — 2026-05-03
+
+- **UI:** the source-detail action row was visually inconsistent —
+  *Recover orphans…* and the new (v0.4.21) *Check now* button rendered
+  as borderless ghost buttons, while the rest of the row (*Edit*,
+  *Scan now*, *Delete*) used the bordered `secondary` / `danger`
+  styles. Both now use `secondary` so the row reads as a single
+  group.
+
 ## v0.4.21 — 2026-05-03
 
 - **Sources:** external-drive awareness. Sources can now be flagged
