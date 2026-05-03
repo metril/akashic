@@ -5,6 +5,14 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.4.20 — 2026-05-03
+
+- **CI:** the v0.4.19 web Docker image build failed with
+  `Cannot find module @rollup/rollup-linux-x64-musl` (npm bug
+  [#4828](https://github.com/npm/cli/issues/4828)). Regenerated
+  `web/package-lock.json` under `node:20-alpine` so the optional
+  rollup binaries for both glibc and musl are tracked.
+
 ## v0.4.19 — 2026-05-03
 
 - **Ingest:** dedup is now bulk — one `SELECT entries WHERE source_id=? AND path IN (...)`
