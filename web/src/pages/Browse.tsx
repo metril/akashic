@@ -22,6 +22,7 @@ import { formatBytes, formatDate } from "../lib/format";
 import { formatMode, iconPathForKind } from "../lib/perms";
 import { downloadEntryContent } from "../lib/downloadEntry";
 import { Icon } from "../components/ui";
+import { BulkTagDialog } from "../components/tags/BulkTagDialog";
 import { useAuth } from "../hooks/useAuth";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
@@ -108,10 +109,17 @@ export default function Browse() {
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [filter, setFilter] = useState("");
 
+  // v0.4.18 — bulk-tag selection. Mirrors the Search page pattern.
+  // Reset on folder change so selection from a prior folder doesn't
+  // silently bulk-tag the wrong entries.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+
   // Reset on folder change so a filter typed in one directory doesn't
   // silently hide everything in the next one.
   useEffect(() => {
     setFilter("");
+    setSelectedIds(new Set());
   }, [sourceId, path]);
 
   function toggleSort(field: SortField) {
@@ -324,6 +332,15 @@ export default function Browse() {
 
       <FilterChips showSwitchToSearch className="mb-3" />
 
+      {isAdmin && visibleEntries.length > 0 && (
+        <BrowseSelectionBar
+          entries={visibleEntries}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          onTagSelected={() => setTagDialogOpen(true)}
+        />
+      )}
+
       <Card padding="none">
         {browseQuery.isLoading || sourcesQuery.isLoading ? (
           <div className="flex justify-center items-center h-40 text-fg-subtle">
@@ -381,6 +398,16 @@ export default function Browse() {
             hasNextPage={!!browseQuery.hasNextPage}
             isFetchingNextPage={browseQuery.isFetchingNextPage}
             fetchNextPage={() => { void browseQuery.fetchNextPage(); }}
+            isAdmin={isAdmin}
+            selectedIds={selectedIds}
+            toggleSelected={(id) =>
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
           />
         )}
         {/* Hidden-count footer. Only renders when the per-user ACL
@@ -409,7 +436,110 @@ export default function Browse() {
           )}
       </Card>
 
+      <BulkTagDialog
+        open={tagDialogOpen}
+        onClose={() => setTagDialogOpen(false)}
+        entryIds={Array.from(selectedIds)}
+        onApplied={() => setSelectedIds(new Set())}
+      />
     </Page>
+  );
+}
+
+interface BrowseSelectionBarProps {
+  entries: BrowseChild[];
+  selectedIds: Set<string>;
+  setSelectedIds: (next: Set<string>) => void;
+  onTagSelected: () => void;
+}
+
+/**
+ * Sub-toolbar above the Browse list. Mirrors the Search page's
+ * SelectionBar — master checkbox with indeterminate state, a
+ * "Select all visible" / "Clear" pair, and a "Tag selected (N)"
+ * action that opens the shared BulkTagDialog.
+ *
+ * "Visible" = the entries currently rendered in the virtualizer
+ * (everything fetched so far under the infinite-scroll cursor).
+ */
+function BrowseSelectionBar({
+  entries,
+  selectedIds,
+  setSelectedIds,
+  onTagSelected,
+}: BrowseSelectionBarProps) {
+  const masterRef = useRef<HTMLInputElement>(null);
+  const allVisibleSelected =
+    entries.length > 0 && entries.every((e) => selectedIds.has(e.id));
+  const someVisibleSelected =
+    !allVisibleSelected && entries.some((e) => selectedIds.has(e.id));
+
+  useEffect(() => {
+    if (masterRef.current) {
+      masterRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  function toggleAllVisible() {
+    const next = new Set(selectedIds);
+    if (allVisibleSelected) {
+      for (const e of entries) next.delete(e.id);
+    } else {
+      for (const e of entries) next.add(e.id);
+    }
+    setSelectedIds(next);
+  }
+
+  return (
+    <div className="flex items-center gap-3 mb-3 px-3 py-1.5 rounded-md border border-line-subtle bg-surface-muted/40 text-xs">
+      <input
+        ref={masterRef}
+        type="checkbox"
+        checked={allVisibleSelected}
+        onChange={toggleAllVisible}
+        aria-label="Select all visible entries"
+        className="cursor-pointer"
+      />
+      {selectedIds.size === 0 ? (
+        <span className="text-fg-muted">
+          Select entries to bulk-tag, or
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            className="ml-1 text-accent-700 hover:underline"
+          >
+            select all {entries.length.toLocaleString()} visible
+          </button>
+          .
+        </span>
+      ) : (
+        <>
+          <span className="font-medium text-fg">
+            {selectedIds.size.toLocaleString()} selected
+          </span>
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            className="text-accent-700 hover:underline"
+          >
+            {allVisibleSelected
+              ? "Deselect all visible"
+              : `Select all ${entries.length.toLocaleString()} visible`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-fg-muted hover:text-fg hover:underline"
+          >
+            Clear
+          </button>
+          <div className="flex-1" />
+          <Button size="sm" onClick={onTagSelected}>
+            Tag selected ({selectedIds.size})
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -437,6 +567,12 @@ interface BrowseListProps {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
+  /** Bulk-tag selection (admin only). When `isAdmin` is false the
+   *  checkbox column is suppressed and `selectedIds` / `toggleSelected`
+   *  are unused. */
+  isAdmin: boolean;
+  selectedIds: Set<string>;
+  toggleSelected: (id: string) => void;
 }
 
 function BrowseList({
@@ -450,6 +586,9 @@ function BrowseList({
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
+  isAdmin,
+  selectedIds,
+  toggleSelected,
 }: BrowseListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -569,6 +708,16 @@ function BrowseList({
               >
                 {/* Name (always visible, truncates) */}
                 <div className="flex items-center gap-2.5 min-w-0 text-sm">
+                  {isAdmin && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(child.id)}
+                      onChange={() => toggleSelected(child.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="size-3.5 flex-shrink-0 cursor-pointer"
+                      aria-label={`Select ${child.name}`}
+                    />
+                  )}
                   <Icon
                     path={iconPathForKind(child.kind, child.extension)}
                     className={`size-4 flex-shrink-0 ${

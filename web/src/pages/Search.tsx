@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
 import {
@@ -16,6 +16,7 @@ import {
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
+import { BulkTagDialog } from "../components/tags/BulkTagDialog";
 import { useAuth } from "../hooks/useAuth";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
@@ -62,27 +63,8 @@ export default function Search() {
   const { openEntry } = useEntryDetail();
   const { filters } = useFilterUrlState();
   const { isAdmin } = useAuth();
-  const queryClient = useQueryClient();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
-  const [tagDraft, setTagDraft] = useState("");
-
-  const bulkApplyMut = useMutation({
-    mutationFn: (tags: string[]) =>
-      api.post<void>("/tags/bulk-apply", {
-        entry_ids: Array.from(selectedIds),
-        tags,
-      }),
-    onSuccess: () => {
-      // Each tagged entry's drawer query needs to refresh.
-      for (const id of selectedIds) {
-        queryClient.invalidateQueries({ queryKey: ["entry", id] });
-      }
-      setSelectedIds(new Set());
-      setTagDialogOpen(false);
-      setTagDraft("");
-    },
-  });
 
   function toggleSelected(id: string) {
     setSelectedIds((prev) => {
@@ -290,15 +272,16 @@ export default function Search() {
                 </span>
               )}
             </div>
-            {isAdmin && selectedIds.size > 0 && (
-              <Button
-                size="sm"
-                onClick={() => setTagDialogOpen(true)}
-              >
-                Tag selected ({selectedIds.size})
-              </Button>
-            )}
           </div>
+
+          {isAdmin && (
+            <SelectionBar
+              results={results}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onTagSelected={() => setTagDialogOpen(true)}
+            />
+          )}
           <Card padding="none">
             <ul className="divide-y divide-line-subtle">
               {results.map((file) => (
@@ -384,64 +367,109 @@ export default function Search() {
         </>
       )}
 
-      {tagDialogOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => setTagDialogOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-md p-5"
-          >
-            <h2 className="text-base font-semibold text-fg mb-2">
-              Tag {selectedIds.size} selected
-            </h2>
-            <p className="text-xs text-fg-muted mb-3">
-              Comma-separated. Tagging a directory inherits to every
-              descendant.
-            </p>
-            <Input
-              autoFocus
-              value={tagDraft}
-              onChange={(e) => setTagDraft(e.target.value)}
-              placeholder="archive, fy26"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const items = tagDraft
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  if (items.length > 0) bulkApplyMut.mutate(items);
-                }
-              }}
-            />
-            <div className="flex justify-end gap-2 mt-4">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setTagDialogOpen(false);
-                  setTagDraft("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  const items = tagDraft
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  if (items.length > 0) bulkApplyMut.mutate(items);
-                }}
-                loading={bulkApplyMut.isPending}
-                disabled={!tagDraft.trim()}
-              >
-                Apply
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <BulkTagDialog
+        open={tagDialogOpen}
+        onClose={() => setTagDialogOpen(false)}
+        entryIds={Array.from(selectedIds)}
+        onApplied={() => setSelectedIds(new Set())}
+      />
     </Page>
+  );
+}
+
+interface SelectionBarProps {
+  results: SearchResult[];
+  selectedIds: Set<string>;
+  setSelectedIds: (next: Set<string>) => void;
+  onTagSelected: () => void;
+}
+
+/**
+ * Sub-header above the result list. Renders a master checkbox
+ * (with indeterminate state when some-but-not-all visible
+ * results are selected) plus quick "Select all visible" /
+ * "Clear" actions. The "Tag selected" button only appears once
+ * something's actually selected.
+ *
+ * "Visible" = the results currently rendered (which under
+ * infinite-scroll is everything fetched so far).
+ */
+function SelectionBar({
+  results,
+  selectedIds,
+  setSelectedIds,
+  onTagSelected,
+}: SelectionBarProps) {
+  const masterRef = useRef<HTMLInputElement>(null);
+  const allVisibleSelected =
+    results.length > 0 && results.every((r) => selectedIds.has(r.id));
+  const someVisibleSelected =
+    !allVisibleSelected && results.some((r) => selectedIds.has(r.id));
+
+  useEffect(() => {
+    if (masterRef.current) {
+      masterRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  function toggleAllVisible() {
+    const next = new Set(selectedIds);
+    if (allVisibleSelected) {
+      for (const r of results) next.delete(r.id);
+    } else {
+      for (const r of results) next.add(r.id);
+    }
+    setSelectedIds(next);
+  }
+
+  return (
+    <div className="flex items-center gap-3 mb-3 px-3 py-1.5 rounded-md border border-line-subtle bg-surface-muted/40 text-xs">
+      <input
+        ref={masterRef}
+        type="checkbox"
+        checked={allVisibleSelected}
+        onChange={toggleAllVisible}
+        aria-label="Select all visible results"
+        className="cursor-pointer"
+      />
+      {selectedIds.size === 0 ? (
+        <span className="text-fg-muted">
+          Select results to bulk-tag, or
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            className="ml-1 text-accent-700 hover:underline"
+            disabled={results.length === 0}
+          >
+            select all {results.length.toLocaleString()} visible
+          </button>
+          .
+        </span>
+      ) : (
+        <>
+          <span className="font-medium text-fg">
+            {selectedIds.size.toLocaleString()} selected
+          </span>
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            className="text-accent-700 hover:underline"
+          >
+            {allVisibleSelected ? "Deselect all visible" : `Select all ${results.length.toLocaleString()} visible`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-fg-muted hover:text-fg hover:underline"
+          >
+            Clear
+          </button>
+          <div className="flex-1" />
+          <Button size="sm" onClick={onTagSelected}>
+            Tag selected ({selectedIds.size})
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
