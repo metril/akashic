@@ -9,6 +9,20 @@ Universal file index — hybrid Go scanner + Python API + Meilisearch + React we
 - **Web** (React + Vite + Tailwind) — admin dashboard.
 - **Storage** — PostgreSQL, Meilisearch, Redis (extraction queue), Tika (text extraction).
 
+## Documentation
+
+- **[Configuration reference](docs/configuration.md)** — every env var and feature flag.
+- **[Authentication](docs/authentication.md)** — local users, OIDC, direct LDAP, OIDC + LDAP fallback.
+- **[Permissions model](docs/permissions-model.md)** — ACL projection, `viewable_by_*` columns, FsBindings.
+- **[Storage view](docs/storage-view.md)** — treemap, sunburst, colour modes (incl. Risk).
+- **[Search and Browse](docs/search-and-browse.md)** — query syntax, filter chips, search-as.
+- **[Tags](docs/tags.md)** — tag model, inheritance, bulk-apply.
+- **[Duplicates](docs/duplicates.md)** — dedupe detection + bulk-delete.
+- **[Webhooks](docs/webhooks.md)** — scan lifecycle events, signature verification.
+- **[Admin tools](docs/admin.md)** — audit log, effective-permissions evaluator.
+- **[Migrations](docs/migrations.md)** — Alembic workflow.
+- **[CHANGELOG](CHANGELOG.md)** — release notes per version.
+
 ## Install — pre-built images
 
 Tagged releases publish multi-arch (`linux/amd64`, `linux/arm64`) images to
@@ -79,27 +93,29 @@ at `localhost:8000`.
 
 ## Configuration
 
-The API reads `.env` from the repo root (see [compose.yaml](compose.yaml) `api.env_file`).
-Notable keys:
+The API reads `.env` from the repo root (see
+[compose.yaml](compose.yaml) `api.env_file`). The full env-var
+reference lives in [docs/configuration.md](docs/configuration.md);
+the most commonly-overridden keys are:
 
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | `postgresql+asyncpg://…` | Postgres DSN |
 | `MEILI_URL` / `MEILI_KEY` | local | Meilisearch endpoint |
 | `REDIS_URL` | local | Extraction queue backend |
-| `SECRET_KEY` | `changeme-secret-key` | JWT signing key |
-| `STALE_SCAN_THRESHOLD_MINUTES` | `60` | After this many minutes, the watchdog marks pending/running scans as failed and frees the source for re-scan |
+| `SECRET_KEY` | `changeme-secret-key` | JWT signing key — **override in production** |
+| `OIDC_ENABLED` | `false` | Enable SSO. See [docs/authentication.md](docs/authentication.md). |
+| `LDAP_ENABLED` | `false` | Enable direct LDAP login. See [docs/authentication.md](docs/authentication.md). |
+| `BROWSE_ENFORCE_PERMS` | `false` | Apply per-user ACL filter to Browse |
+| `STREAMING_TOPCHILDREN` | `false` | Live mid-scan updates in the Storage view |
+| `STALE_SCAN_THRESHOLD_MINUTES` | `60` | Watchdog window for pending/running scans |
 
 ## First-time login
 
-The first user to register at `POST /api/users/register` becomes admin; registration
-closes after that. To reset the admin password without losing data:
-
-```sh
-docker compose exec api python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('newpassword'))"
-docker compose exec postgres psql -U akashic -d akashic \
-  -c "UPDATE users SET password_hash = '<paste hash>' WHERE username = 'admin';"
-```
+The first user to register at `POST /api/users/register` becomes
+admin; registration closes after that. For SSO setup (OIDC,
+direct LDAP, or OIDC + LDAP fallback), see
+[docs/authentication.md](docs/authentication.md).
 
 ## Scanners
 
@@ -196,21 +212,6 @@ fingerprint mismatch, expiry (5-minute window, ±30 s clock skew),
 or wrong issuer. Compromise of one private key is bounded to that
 one scanner; rotate it from the UI's "Rotate keys" button — the old
 key stops authenticating immediately.
-
-### Migration from v0.1.0
-
-The bundled subprocess-spawn flow is gone. v0.1.0 deployments need
-to register at least one scanner before any new scan will run:
-
-1. Pull v0.2.0: `docker compose -f compose.release.yaml pull`.
-2. Bring up `api` (the schema migration runs on startup).
-3. Settings → Scanners → register a scanner; copy its key.
-4. `docker compose --profile scanner up -d scanner` (or run the
-   binary on a remote host, see above).
-5. Trigger a scan. The api enqueues; the agent picks it up.
-
-Existing pending scans from v0.1.0 will be picked up by the first
-agent that registers — they're ordinary `pending` rows.
 
 ## Releases
 
