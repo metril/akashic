@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -52,33 +52,9 @@ interface SortState {
 
 const DEFAULT_SORT: SortState = { field: "name", dir: "asc" };
 
-// Directories always come before files regardless of sort field. That
-// matches every desktop file manager and means a "size DESC" sort
-// doesn't bury folders under a wall of giant videos.
-function compareEntries(a: BrowseChild, b: BrowseChild, sort: SortState): number {
-  if (a.kind !== b.kind) {
-    return a.kind === "directory" ? -1 : 1;
-  }
-  let cmp = 0;
-  switch (sort.field) {
-    case "name":
-      cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
-      break;
-    case "size": {
-      const aSize = a.kind === "directory" ? -1 : (a.size_bytes ?? 0);
-      const bSize = b.kind === "directory" ? -1 : (b.size_bytes ?? 0);
-      cmp = aSize - bSize;
-      break;
-    }
-    case "modified": {
-      const aTs = a.fs_modified_at ? Date.parse(a.fs_modified_at) : 0;
-      const bTs = b.fs_modified_at ? Date.parse(b.fs_modified_at) : 0;
-      cmp = aTs - bTs;
-      break;
-    }
-  }
-  return sort.dir === "asc" ? cmp : -cmp;
-}
+// v0.4.11 — sort is server-side now. Comparator + dirs-first logic
+// live in the api (browse.py ORDER BY). Removed compareEntries
+// because nothing on the client needs to re-order the page.
 
 function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return <span className="text-fg-subtle ml-1">↕</span>;
@@ -173,12 +149,35 @@ export default function Browse() {
   const showAllParam = isAdmin && showAll ? "&show_all=1" : "";
   const filtersParam = filters.length > 0 ? `&filters=${serializeFilters(filters)}` : "";
 
-  const browseQuery = useQuery<BrowseResponse>({
-    queryKey: ["browse", sourceId, path, showAllParam, filtersParam],
-    queryFn: () =>
-      api.get<BrowseResponse>(
-        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}${filtersParam}`,
-      ),
+  // v0.4.11 — server-side substring filter via `?q=`. useDeferredValue
+  // keeps the input snappy while the request lags; React drops stale
+  // intermediate fetches automatically as the user keeps typing.
+  const deferredFilter = useDeferredValue(filter);
+
+  // v0.4.11 — switched from useQuery (load entire folder) to
+  // useInfiniteQuery (cursor pagination, default 500/page). The
+  // virtualizer renders allEntries; an effect kicks fetchNextPage
+  // when the scroll position approaches the end of the loaded set.
+  // Sort + order are passed to the server now; client-side sort is gone.
+  const sortParam = `&sort=${sort.field}&order=${sort.dir}`;
+  const qParam = deferredFilter
+    ? `&q=${encodeURIComponent(deferredFilter.trim())}`
+    : "";
+
+  const browseQuery = useInfiniteQuery<BrowseResponse>({
+    queryKey: [
+      "browse", sourceId, path, showAllParam, filtersParam,
+      sortParam, qParam,
+    ],
+    queryFn: ({ pageParam }) => {
+      const cursorParam = pageParam ? `&cursor=${encodeURIComponent(pageParam as string)}` : "";
+      return api.get<BrowseResponse>(
+        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}` +
+          showAllParam + filtersParam + sortParam + qParam + cursorParam,
+      );
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: !!sourceId,
   });
 
@@ -234,19 +233,17 @@ export default function Browse() {
     navigate(idx <= 0 ? "/" : path.slice(0, idx));
   };
 
-  // Filtered + sorted view of the current folder. The full entry list
-  // stays in browseQuery.data; we only re-render this derived array on
-  // state change. case-insensitive substring match keeps it cheap and
-  // matches user expectation (typing "001" finds "S01E01.mkv").
-  const visibleEntries = useMemo(() => {
-    const all = browseQuery.data?.entries ?? [];
-    const needle = filter.trim().toLowerCase();
-    const filtered = needle
-      ? all.filter((e) => e.name.toLowerCase().includes(needle))
-      : all;
-    return [...filtered].sort((a, b) => compareEntries(a, b, sort));
-  }, [browseQuery.data, filter, sort]);
-  const totalEntries = browseQuery.data?.entries.length ?? 0;
+  // v0.4.11 — flatten paginated pages into a single array for the
+  // virtualizer. Server returns rows pre-sorted (sort + order pushed
+  // down), so no client-side sort. Server returns rows pre-filtered
+  // (q= pushed down), so no client-side filter.
+  const visibleEntries = useMemo(
+    () => browseQuery.data?.pages.flatMap((p) => p.entries) ?? [],
+    [browseQuery.data],
+  );
+  // Total: only first page carries it (server avoids re-counting on
+  // every page). Visible count is what the virtualizer actually sees.
+  const totalEntries = browseQuery.data?.pages[0]?.total ?? visibleEntries.length;
 
   return (
     <Page
@@ -353,7 +350,7 @@ export default function Browse() {
               }
             />
           </div>
-        ) : !browseQuery.data || browseQuery.data.entries.length === 0 ? (
+        ) : !browseQuery.data || visibleEntries.length === 0 ? (
           <EmptyState
             title="Empty"
             description={
@@ -381,6 +378,9 @@ export default function Browse() {
             toggleSort={toggleSort}
             selectedEntryId={selectedEntryId}
             onRowClick={handleRowClick}
+            hasNextPage={!!browseQuery.hasNextPage}
+            isFetchingNextPage={browseQuery.isFetchingNextPage}
+            fetchNextPage={() => { void browseQuery.fetchNextPage(); }}
           />
         )}
         {/* Hidden-count footer. Only renders when the per-user ACL
@@ -434,6 +434,9 @@ interface BrowseListProps {
   toggleSort: (field: SortField) => void;
   selectedEntryId: string | null;
   onRowClick: (child: BrowseChild) => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
 }
 
 function BrowseList({
@@ -444,6 +447,9 @@ function BrowseList({
   toggleSort,
   selectedEntryId,
   onRowClick,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
 }: BrowseListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -452,6 +458,18 @@ function BrowseList({
     estimateSize: () => ROW_HEIGHT,
     overscan: 8,
   });
+
+  // v0.4.11 — infinite scroll. When the virtualizer's last visible
+  // index reaches within ~5 rows of the loaded set, kick the next
+  // page. The query layer guards against double-firing while a
+  // fetch is already in flight (isFetchingNextPage gate).
+  const items = rowVirtualizer.getVirtualItems();
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    if (items.length === 0) return;
+    const lastIdx = items[items.length - 1].index;
+    if (lastIdx >= entries.length - 5) fetchNextPage();
+  }, [items, entries.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (entries.length === 0 && filterActive) {
     return (

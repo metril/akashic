@@ -441,6 +441,35 @@ async def ingest_batch(
 
     await db.commit()
 
+    # v0.4.11: event-driven scan.state broadcast. Batches arrive only
+    # when the scanner has accumulated files to ingest — this is a real
+    # event, so we always publish (and update the change-detection
+    # snapshot so a heartbeat arriving 1s later doesn't immediately
+    # re-broadcast the same state).
+    from akashic.services import scan_broadcast, scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "scan.state",
+        "source_id": str(batch.source_id),
+        "scan_id": str(batch.scan_id),
+        "scan_status": scan.status,
+        "source_status": "online" if batch.is_final else "scanning",
+        "scanner_id": (
+            str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
+        ),
+        "scanner_name": None,
+        "scan_type": scan.scan_type,
+        "files_found": scan.files_found,
+        "current_path": scan.current_path,
+        "started_at": scan.started_at.isoformat() if scan.started_at else None,
+    })
+    await scan_broadcast.record_broadcast(
+        str(batch.scan_id),
+        phase=scan.phase,
+        status=scan.status,
+        files_found=scan.files_found,
+        total_estimated=scan.total_estimated,
+    )
+
     from akashic.config import settings
 
     indexed_ids = list(set(new_file_ids + changed_file_ids))

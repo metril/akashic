@@ -66,8 +66,15 @@ router = APIRouter(prefix="/api/storage", tags=["storage"])
 
 ColorMode = Literal["type", "age", "owner", "risk"]
 _DEFAULT_LIMIT = 200
-_DEFAULT_TREE_NODES = 5000
-_MAX_TREE_NODES = 20000
+# v0.4.11: bumped from 5000/20000 once the WebGL renderer landed.
+# The SVG renderer's 5000-node DOM was the limiting factor; WebGL2
+# handles 50k+ comfortably. Phase 6 (generated effective_size_bytes
+# + ix_entries_tree_walk + LATERAL top-K-per-dir CTE) keeps the
+# backend query plan sub-second at the new ceiling. Profile via
+# api/scripts/explain_storage_tree.py against the user's largest
+# source before raising further.
+_DEFAULT_TREE_NODES = 50000
+_MAX_TREE_NODES = 100000
 
 
 def _normalize_path(path: str) -> str:
@@ -461,6 +468,17 @@ async def _fetch_tree_rows(
     # root), fall through to anchoring on `parent_path = :root_path` so
     # the de-facto first-level entries seed the recursion. The
     # synthesised root node is added in `_build_nested_tree`.
+    # v0.4.11 — top-K-per-directory pruning via LATERAL. The previous
+    # version pulled every child whose effective_size >= min_bytes and
+    # let the outer ORDER BY trim, which on a wide tree (1k dirs ×
+    # 100 children) fed 100k rows to the sort. The LATERAL form caps
+    # each parent's contribution to per_dir_k children sorted by
+    # effective_size DESC, so total fan-out scales linearly with
+    # dir count instead of multiplicatively. Per-dir K is derived
+    # from max_nodes so a larger budget allows wider per-dir slices.
+    # The synthetic <other> rect ([_build_nested_tree]) accounts for
+    # the size of the children we cut.
+    per_dir_k = max(20, min(500, max_nodes // 50))
     sql = text(f"""
         WITH RECURSIVE walk AS (
             SELECT entries.id, entries.parent_path, entries.path,
@@ -486,17 +504,27 @@ async def _fetch_tree_rows(
               )
               {anchor_perm}
             UNION ALL
-            SELECT c.id, c.parent_path, c.path, c.name, c.kind,
-                   c.size_bytes, c.subtree_size_bytes,
-                   c.extension, c.owner_name, c.fs_modified_at, c.viewable_by_read,
+            SELECT child.id, child.parent_path, child.path, child.name, child.kind,
+                   child.size_bytes, child.subtree_size_bytes,
+                   child.extension, child.owner_name, child.fs_modified_at,
+                   child.viewable_by_read,
                    walk.depth + 1
             FROM walk
-            JOIN entries c
-              ON c.source_id = :source_id
-             AND c.parent_path = walk.path
-             AND c.is_deleted = false
-             AND COALESCE(c.subtree_size_bytes, c.size_bytes, 0) >= :min_bytes
-             {rec_perm}
+            CROSS JOIN LATERAL (
+                SELECT c.id, c.parent_path, c.path, c.name, c.kind,
+                       c.size_bytes, c.subtree_size_bytes,
+                       c.extension, c.owner_name, c.fs_modified_at,
+                       c.viewable_by_read
+                FROM entries c
+                WHERE c.source_id = :source_id
+                  AND c.parent_path = walk.path
+                  AND c.is_deleted = false
+                  AND COALESCE(c.subtree_size_bytes, c.size_bytes, 0) >= :min_bytes
+                  {rec_perm}
+                ORDER BY COALESCE(c.subtree_size_bytes, c.size_bytes, 0) DESC,
+                         c.id
+                LIMIT :per_dir_k
+            ) child
             WHERE walk.kind = 'directory'
         )
         SELECT id, parent_path, path, name, kind,
@@ -515,6 +543,7 @@ async def _fetch_tree_rows(
         "root_path": root_path,
         "max_nodes": max_nodes,
         "min_bytes": int(min_bytes),
+        "per_dir_k": per_dir_k,
     }
     params.update(perm_params)
     result = await db.execute(sql, params)

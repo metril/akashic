@@ -113,7 +113,7 @@ async def trigger_scan(
 
     # Phase-2 multi-scanner: push to the list-level WS so the
     # Sources page sees the queued scan instantly (no 2s poll).
-    from akashic.services import scan_pubsub
+    from akashic.services import scan_broadcast, scan_pubsub
     await scan_pubsub.publish_source_event({
         "kind": "scan.state",
         "source_id": str(source.id),
@@ -126,6 +126,15 @@ async def trigger_scan(
         "files_found": 0,
         "current_path": None,
     })
+    # v0.4.11: seed the change-detection snapshot so the lease + first
+    # heartbeat don't immediately re-broadcast the same state.
+    await scan_broadcast.record_broadcast(
+        str(scan.id),
+        phase=None,
+        status="pending",
+        files_found=0,
+        total_estimated=None,
+    )
 
     # `background` retained — see docstring. Linter happiness:
     _ = background
@@ -229,4 +238,32 @@ async def cancel_scan(
             source.status = "online"
 
         await db.commit()
+
+        # v0.4.11: broadcast the cancellation directly. Previously this
+        # relied on the scanner POSTing /complete after seeing 409 on
+        # its next heartbeat — which works for in-flight scans but not
+        # for pending scans that no scanner ever leased. Direct publish
+        # makes the SourceCard reflect the cancel within one WS frame
+        # regardless of scanner state.
+        if source is not None:
+            from akashic.services import scan_broadcast, scan_pubsub
+            await scan_pubsub.publish_source_event({
+                "kind": "scan.state",
+                "source_id": str(source.id),
+                "scan_id": str(scan.id),
+                "scan_status": "cancelled",
+                "source_status": source.status,
+                "scanner_id": (
+                    str(scan.assigned_scanner_id)
+                    if scan.assigned_scanner_id else None
+                ),
+                "scanner_name": None,
+                "scan_type": scan.scan_type,
+                "files_found": scan.files_found or 0,
+                "current_path": None,
+                "started_at": (
+                    scan.started_at.isoformat() if scan.started_at else None
+                ),
+            })
+            await scan_broadcast.clear_broadcast(str(scan.id))
     return CancelResponse(scan_id=scan.id, status=scan.status)

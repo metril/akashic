@@ -141,3 +141,11 @@ class BrowseResponse(BaseModel):
     parent_path: str | None
     is_root: bool
     entries: list[BrowseEntry]
+    # v0.4.11 — cursor pagination. `next_cursor` is a base64url JSON
+    # blob the client passes back as `?cursor=...` to fetch the next
+    # page; `null` signals no more pages. `total` is the unfiltered
+    # count of entries in the current folder, populated only on the
+    # first page (cursor=None) so the footer can show "X of Y" without
+    # paying the count on every page.
+    next_cursor: str | None = None
+    total: int | None = None

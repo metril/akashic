@@ -306,6 +306,13 @@ export interface BrowseResponse {
   parent_path: string | null;
   is_root: boolean;
   entries: BrowseChild[];
+  // v0.4.11 — cursor pagination. `next_cursor` is opaque (base64url
+  // JSON); pass it back as `?cursor=...`. `null` means no more pages.
+  // `total` is populated only on the first page (cursor=null) so the
+  // footer can show "X of Y matched" without paying the count on
+  // every subsequent page.
+  next_cursor: string | null;
+  total: number | null;
 }
 
 export interface EntryVersion {

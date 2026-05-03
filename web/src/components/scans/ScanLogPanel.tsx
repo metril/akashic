@@ -105,25 +105,46 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   // would chug; capping the DOM to 300 rows is the single biggest
   // win for keeping the panel responsive under heavy log streams.
   const tabLines = tab === "activity" ? activityLines : stderrLines;
-  const visibleLines =
-    tabLines.length <= MAX_VISIBLE_ROWS
-      ? tabLines
-      : tabLines.slice(tabLines.length - MAX_VISIBLE_ROWS);
+  // useMemo so the slice's identity is stable when tabLines didn't
+  // change (e.g., autoScroll toggle, hover state). Without this,
+  // every render produced a fresh array reference even when the
+  // underlying buffer was unchanged, defeating LogRow memo identity
+  // checks and forcing React to walk all 300 children per render.
+  const visibleLines = useMemo(
+    () =>
+      tabLines.length <= MAX_VISIBLE_ROWS
+        ? tabLines
+        : tabLines.slice(tabLines.length - MAX_VISIBLE_ROWS),
+    [tabLines],
+  );
   const hiddenOlder = tabLines.length - visibleLines.length;
 
-  // Auto-scroll without forcing a layout pass on every render. We only
-  // touch scrollTop if visibleLines actually changed, and we read
-  // scrollHeight inside a rAF so it batches with the paint that just
-  // rendered the new rows. The previous effect ran on a length change,
-  // which triggered scrollHeight reads inside React's commit phase —
-  // exactly when layout is most expensive.
+  // Auto-scroll. The previous version ran on every render via rAF,
+  // which forced a scrollHeight read on a 300-row word-broken
+  // container at ~60 Hz under burst streams — top-3 layout-cost op
+  // in the engine and the root cause of the v0.4.10 panel lag.
+  // Now: short-circuit when length didn't change, and throttle the
+  // actual read+set to ≤4 Hz. 250ms is below the human perception
+  // threshold for "instant" so the user still sees the tail follow.
+  const lastScrolledLenRef = useRef(0);
+  const scrollTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!autoScroll || !scrollRef.current) return;
-    const el = scrollRef.current;
-    const id = requestAnimationFrame(() => {
+    if (visibleLines.length === lastScrolledLenRef.current) return;
+    lastScrolledLenRef.current = visibleLines.length;
+    if (scrollTimerRef.current != null) return;
+    scrollTimerRef.current = window.setTimeout(() => {
+      scrollTimerRef.current = null;
+      const el = scrollRef.current;
+      if (!el || !autoScroll) return;
       el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(id);
+    }, 250);
+    return () => {
+      if (scrollTimerRef.current != null) {
+        window.clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = null;
+      }
+    };
   }, [visibleLines, autoScroll]);
 
   function onScroll() {

@@ -136,13 +136,21 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
         )}
 
         {progressLine && (
-          <div className="mb-3 rounded-md bg-blue-50 border border-blue-100 dark:bg-blue-500/10 dark:border-blue-500/30 px-2.5 py-2">
-            <p className="text-xs text-blue-900 font-medium">{progressLine.summary}</p>
-            {progressLine.currentPath && (
-              <p className="text-[11px] text-blue-700 font-mono mt-0.5 truncate">
-                {progressLine.currentPath}
-              </p>
-            )}
+          // v0.4.11: pinned min-h so the row's outer height stays
+          // constant whether or not current_path is populated. Without
+          // this, the path slot toggled on/off between heartbeat events
+          // and the row's height oscillated by ~16px, causing the
+          // virtualizer's ResizeObserver to fire on every scan.state
+          // event — which contended with cursor input on the open
+          // Drawer and produced the hover stutter.
+          <div className="mb-3 rounded-md bg-blue-50 border border-blue-100 dark:bg-blue-500/10 dark:border-blue-500/30 px-2.5 py-2 min-h-[3.25rem]">
+            <p className="text-xs text-blue-900 font-medium truncate">{progressLine.summary}</p>
+            {/* Always-rendered path slot. Non-breaking-space fallback
+                keeps the line height stable when current_path is null
+                (e.g., during prewalk before the scanner has descended). */}
+            <p className="text-[11px] text-blue-700 font-mono mt-0.5 truncate min-h-[1rem]">
+              {progressLine.currentPath ?? " "}
+            </p>
           </div>
         )}
 
@@ -254,10 +262,11 @@ function VirtualSourceList({
     count: sources.length,
     getScrollElement: () => parentRef.current,
     // SourceCard is a Card with header + status badges + summary +
-    // optional progress strip. ~120-150px in practice; the
-    // virtualizer auto-corrects post-mount via measureElement so
-    // the estimate just needs to be roughly right.
-    estimateSize: () => 144,
+    // optional progress strip. v0.4.11: progress strip is now pinned
+    // to a fixed height; cards-with-progress measure ~168px, idle
+    // cards ~120px. The virtualizer auto-corrects post-mount via
+    // measureElement so the estimate just needs to be roughly right.
+    estimateSize: () => 168,
     overscan: 4,
   });
 

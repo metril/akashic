@@ -1,9 +1,12 @@
+import base64
+import json
+import logging
 import os
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, func, select
+from sqlalchemy import Integer, and_, cast, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user
@@ -24,6 +27,33 @@ from akashic.services.filter_grammar import (
     parse as parse_filters,
     to_sqlalchemy as filters_to_sqlalchemy,
 )
+
+logger = logging.getLogger(__name__)
+
+# v0.4.11 — cursor pagination. Default page size matches the
+# virtualizer's typical viewport (~30 visible rows × ~16 overscan)
+# with comfortable headroom; cap at 5000 so a misbehaving client
+# can't drag a 1M-row folder back in one shot.
+_DEFAULT_PAGE_SIZE = 500
+_MAX_PAGE_SIZE = 5000
+
+
+def _encode_cursor(payload: dict[str, Any]) -> str:
+    """JSON-encode + base64url so the cursor is safe in a URL query."""
+    raw = json.dumps(payload, default=str).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> dict[str, Any]:
+    """Inverse of _encode_cursor. Raises HTTPException(400) on garbage."""
+    try:
+        # Re-pad — base64.urlsafe_b64decode requires correct padding.
+        pad = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(cursor + pad)
+        return json.loads(raw.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("browse: bad cursor=%s err=%s", cursor[:32], exc)
+        raise HTTPException(status_code=400, detail="invalid cursor")
 
 router = APIRouter(prefix="/api/browse", tags=["browse"])
 
@@ -59,6 +89,14 @@ async def browse(
     order: Literal["asc", "desc"] = "asc",
     show_all: bool = Query(default=False),
     filters: str | None = Query(default=None, description="base64url(json) predicate list"),
+    # v0.4.11 — cursor pagination + server-side substring filter.
+    # Drops the previous "load entire folder" behaviour; large folders
+    # now stream in pages and the typing-lag in the client filter input
+    # disappears (server does the substring match against the indexed
+    # name column).
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+    q: str | None = Query(default=None, description="case-insensitive substring filter on entry name"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -110,15 +148,98 @@ async def browse(
     if grammar_preds:
         base_filter.extend(filters_to_sqlalchemy(grammar_preds))
 
-    stmt = (
-        select(Entry)
-        .where(and_(*base_filter))
-        .order_by(
-            (Entry.kind != "directory").asc(),
-            sort_col.asc() if order == "asc" else sort_col.desc(),
-        )
-    )
-    rows = (await db.execute(stmt)).scalars().all()
+    # Server-side substring filter on entry name. ILIKE is the natural
+    # form; index support is opportunistic — the existing
+    # (source_id, parent_path) index narrows the candidate set first,
+    # and at typical folder sizes the ILIKE pass over those candidates
+    # is fast even without trgm.
+    if q:
+        base_filter.append(Entry.name.ilike(f"%{q}%"))
+
+    # Cursor decode. The cursor encodes the last row's
+    # (kind_is_dir, sort_value, id) tuple from the previous page.
+    cursor_kind_is_file: int | None = None
+    cursor_sort_val: Any = None
+    cursor_id: uuid.UUID | None = None
+    if cursor is not None:
+        c = _decode_cursor(cursor)
+        # Re-validate the cursor's sort/order match this request — a
+        # cursor minted under sort=name|asc isn't valid against
+        # sort=size|desc; bounce as 400 rather than silently returning
+        # a misordered page.
+        if c.get("sort") != sort or c.get("order") != order:
+            raise HTTPException(
+                status_code=400,
+                detail="cursor was minted under a different sort/order; restart pagination",
+            )
+        cursor_kind_is_file = int(c["kf"])
+        cursor_sort_val = c["s"]
+        cursor_id = uuid.UUID(c["id"])
+
+    # Stable ordering with seekable cursor. Tuple form (a, b, c) > (...)
+    # is keyed against the ORDER BY exactly. Including `id` last gives
+    # us a unique tiebreaker so duplicate sort values don't skip rows.
+    # Cast bool to int so the cursor encodes a number (not "true"/"false")
+    # and tuple_() comparison stays well-defined across drivers.
+    kind_is_file = cast(Entry.kind != "directory", Integer)
+    order_cols = [
+        kind_is_file.asc(),
+        sort_col.asc() if order == "asc" else sort_col.desc(),
+        Entry.id.asc(),
+    ]
+    stmt = select(Entry).where(and_(*base_filter)).order_by(*order_cols)
+
+    if cursor_id is not None:
+        # Tuple comparison for seekable pagination. The order matches
+        # the ORDER BY exactly: dir-first-then-file (kind_is_file ASC),
+        # then sort_col in the requested direction, then id ASC. For
+        # DESC sort_col, the cursor predicate is OR'd carefully because
+        # tuple_().__gt__ doesn't compose mixed directions cleanly.
+        if order == "asc":
+            stmt = stmt.where(
+                tuple_(kind_is_file, sort_col, Entry.id)
+                > tuple_(cursor_kind_is_file, cursor_sort_val, cursor_id)
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    kind_is_file > cursor_kind_is_file,
+                    and_(
+                        kind_is_file == cursor_kind_is_file,
+                        sort_col < cursor_sort_val,
+                    ),
+                    and_(
+                        kind_is_file == cursor_kind_is_file,
+                        sort_col == cursor_sort_val,
+                        Entry.id > cursor_id,
+                    ),
+                )
+            )
+
+    # Over-fetch by 1 so we can detect "more pages exist."
+    stmt = stmt.limit(limit + 1)
+    fetched = (await db.execute(stmt)).scalars().all()
+    has_more = len(fetched) > limit
+    rows = fetched[:limit]
+
+    # Build the next-page cursor from the LAST row of this page.
+    next_cursor: str | None = None
+    if has_more and rows:
+        last = rows[-1]
+        last_sort_val: Any
+        if sort == "name":
+            last_sort_val = last.name
+        elif sort == "size":
+            last_sort_val = last.size_bytes
+        else:
+            last_sort_val = last.fs_modified_at
+        next_cursor = _encode_cursor({
+            "kf": 0 if last.kind == "directory" else 1,
+            "s": last_sort_val,
+            "id": str(last.id),
+            "sort": sort,
+            "order": order,
+        })
 
     # Single grouped child-count query for any directory child.
     dir_paths = [r.path for r in rows if r.kind == "directory"]
@@ -151,6 +272,17 @@ async def browse(
             base_filter_no_perm=[c for c in base_filter if c is not perm_filter],
         )
 
+    # Total: only paid on the first page (cursor is None) so the
+    # footer can show "X of Y matched". Subsequent pages skip it
+    # since the count doesn't change as the user scrolls.
+    total: int | None = None
+    if cursor is None:
+        total = (
+            await db.execute(
+                select(func.count(Entry.id)).where(and_(*base_filter))
+            )
+        ).scalar() or 0
+
     return BrowseResponse(
         source_id=source_id,
         source_name=source.name,
@@ -175,6 +307,8 @@ async def browse(
             )
             for r in rows
         ],
+        next_cursor=next_cursor,
+        total=total,
     )
 
 

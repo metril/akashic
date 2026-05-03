@@ -27,7 +27,7 @@ from akashic.schemas.scan import (
     LogEntryOut,
     StderrBatchIn,
 )
-from akashic.services import scan_pubsub
+from akashic.services import scan_broadcast, scan_pubsub
 
 logger = logging.getLogger(__name__)
 
@@ -112,38 +112,46 @@ async def post_heartbeat(
         },
     )
 
-    # v0.4.7: also publish to the SOURCES channel so the SourceCard +
-    # SourceDetail panel see live progress without anyone needing to
-    # open the per-scan Live Log panel. Before this, scan.state events
-    # only fired at lease + complete (twice per scan total), so
-    # bySource[id].files_found stayed at 0 and current_path stayed
-    # null for the entire scan duration — making scans look stuck.
-    # The per-WS coalescer in scan_websocket.py caps client frame
-    # rate at ~2 Hz/scan_id, so a 1 Hz heartbeat from the scanner
-    # produces at most 2 frames/s/client/scan even with many active
-    # scans.
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(scan.source_id),
-        "scan_id": str(scan_id),
-        "scan_status": scan.status,
-        "source_status": "scanning",
-        "scanner_id": (
-            str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
-        ),
-        "scanner_name": None,
-        "scan_type": scan.scan_type,
-        "files_found": scan.files_found or 0,
-        "current_path": scan.current_path,
-        # v0.4.10 — carry started_at so the frontend's bySource map
-        # can order scans correctly. Without it, freshly-leased scans
-        # had started_at=null in the singleton store and lost the
-        # tiebreak in recomputeBySource against older terminal scans
-        # whose started_at was populated, hiding the running scan
-        # from useOpenScanForSource → SourceDetail's Live log tab
-        # rendered nothing until the user closed + reopened the panel.
-        "started_at": scan.started_at.isoformat() if scan.started_at else None,
-    })
+    # v0.4.11: change-detected broadcast. v0.4.7 fired this on every
+    # heartbeat (functionally a 1 Hz polling channel into the SourceCard
+    # WS); now we only publish when the user-visible state has actually
+    # crossed an adaptive threshold. The 1 Hz scanner heartbeat is still
+    # required for cancellation detection + watchdog, but heartbeats
+    # without meaningful change persist silently.
+    files_found = scan.files_found or 0
+    if await scan_broadcast.should_broadcast(
+        str(scan_id),
+        phase=scan.phase,
+        status=scan.status,
+        files_found=files_found,
+        total_estimated=scan.total_estimated,
+    ):
+        await scan_pubsub.publish_source_event({
+            "kind": "scan.state",
+            "source_id": str(scan.source_id),
+            "scan_id": str(scan_id),
+            "scan_status": scan.status,
+            "source_status": "scanning",
+            "scanner_id": (
+                str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
+            ),
+            "scanner_name": None,
+            "scan_type": scan.scan_type,
+            "files_found": files_found,
+            "current_path": scan.current_path,
+            # v0.4.10 — carry started_at so the frontend's bySource map
+            # can order scans correctly without losing the tiebreak in
+            # recomputeBySource against older terminal scans whose
+            # started_at was populated.
+            "started_at": scan.started_at.isoformat() if scan.started_at else None,
+        })
+        await scan_broadcast.record_broadcast(
+            str(scan_id),
+            phase=scan.phase,
+            status=scan.status,
+            files_found=files_found,
+            total_estimated=scan.total_estimated,
+        )
 
 
 def _now_or(ts: datetime) -> datetime:

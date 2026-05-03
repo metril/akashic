@@ -849,6 +849,16 @@ async def lease_scan(
         "current_path": None,
         "started_at": started_at_iso,
     })
+    # v0.4.11: seed the change-detection snapshot so the heartbeat
+    # arriving 1s later doesn't immediately re-broadcast the same state.
+    from akashic.services import scan_broadcast
+    await scan_broadcast.record_broadcast(
+        str(scan_id),
+        phase=None,
+        status="running",
+        files_found=0,
+        total_estimated=None,
+    )
 
     api_jwt = await _mint_ingest_jwt(db)
     return LeasedScan(
@@ -913,7 +923,7 @@ async def complete_scan(
     await db.commit()
 
     if source is not None:
-        from akashic.services import scan_pubsub
+        from akashic.services import scan_broadcast, scan_pubsub
         await scan_pubsub.publish_source_event({
             "kind": "scan.state",
             "source_id": str(source.id),
@@ -927,6 +937,9 @@ async def complete_scan(
             "current_path": None,
             "started_at": scan.started_at.isoformat() if scan.started_at else None,
         })
+        # v0.4.11: terminal state — clear the snapshot so a future
+        # re-trigger of this scan_id (rare; mostly tests) starts fresh.
+        await scan_broadcast.clear_broadcast(str(scan_id))
 
 
 # Suppress unused-import warning when running with non-time-aware tools.
