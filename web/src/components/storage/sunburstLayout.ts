@@ -149,10 +149,16 @@ export function buildArcLayout(
   for (const n of layout.descendants()) {
     const data = n.data;
     const isDir = data.kind === "directory" || data.kind === "hidden";
+    // v0.4.16 — childless directories (synthetic source nodes; real
+    // directories at the depth-cutoff) get the leaf colorization.
+    // Without this they'd be dim-plate-mixed-with-#0f172a, which on
+    // a small slice is nearly invisible.
+    const hasChildren = (data.children?.length ?? 0) > 0;
+    const isLeafLike = !isDir || !hasChildren;
     const accent = branchAccent(topLevelName(n));
-    const baseColor = isDir
-      ? mix(accent, "#0f172a", Math.min(0.6, 0.20 + 0.10 * (n.depth - 1)))
-      : mix(colorFor(data.color_key, mode), accent, 0.15);
+    const baseColor = isLeafLike
+      ? mix(colorFor(data.color_key, mode), accent, 0.15)
+      : mix(accent, "#0f172a", Math.min(0.6, 0.20 + 0.10 * (n.depth - 1)));
 
     // Walk the ancestor chain once so both highlight queries and
     // sidebar lifts have O(1) access.

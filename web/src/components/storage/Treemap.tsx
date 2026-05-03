@@ -167,15 +167,23 @@ function buildBaseScene(
     const isRoot = n.depth === 0;
     const data = n.data;
     const isDir = data.kind === "directory" || data.kind === "hidden";
-    const isLeaf = !isDir;
+    // v0.4.16 — a directory with no children (synthetic source nodes
+    // in the cross-source view; real directories at the tree's
+    // depth-cutoff) renders with the leaf treatment (coloured fill,
+    // white stroke). Otherwise they'd get the directory plateFill
+    // alpha of ~4-10% which is invisible on the dark surface — that
+    // was the "I can't see the Music source" bug. The CLICK semantics
+    // (kind === "directory" → wheel-as-drill) are unaffected.
+    const hasChildren = (data.children?.length ?? 0) > 0;
+    const isLeafLike = !isDir || !hasChildren;
     const accent = branchAccent(topLevelName(n));
-    const ds = isDir ? dirStyle(n.depth, accent) : null;
+    const ds = !isLeafLike ? dirStyle(n.depth, accent) : null;
 
-    const fillStr = isLeaf
+    const fillStr = isLeafLike
       ? colorFor(data.color_key, mode)
       : ds!.plateFill;
-    const baseStroke = isDir ? ds!.borderFill : "rgba(255,255,255,0.55)";
-    const baseStrokeWidth = isDir ? ds!.strokeWidth : 0.5;
+    const baseStroke = isLeafLike ? "rgba(255,255,255,0.55)" : ds!.borderFill;
+    const baseStrokeWidth = isLeafLike ? 0.5 : ds!.strokeWidth;
 
     instances.push({
       x: x0,
@@ -189,7 +197,7 @@ function buildBaseScene(
     keys.push(`${data.path}:plate`);
 
     const showLabel = w >= 60 && h >= 16 && !isRoot;
-    const showDirHeader = isDir && h >= 28 && w >= 60 && !isRoot;
+    const showDirHeader = !isLeafLike && h >= 28 && w >= 60 && !isRoot;
 
     if (showDirHeader) {
       instances.push({
@@ -211,7 +219,7 @@ function buildBaseScene(
         isHeader: true,
       });
     }
-    if (showLabel && isLeaf) {
+    if (showLabel && isLeafLike) {
       labels.push({
         key: `${data.path}:lf`,
         x: x0 + 4,
