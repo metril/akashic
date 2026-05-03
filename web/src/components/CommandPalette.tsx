@@ -149,7 +149,7 @@ export function CommandPalette() {
       aria-modal="true"
     >
       <div
-        className="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-gray-900/55"
         onClick={() => setOpen(false)}
       />
       <Command

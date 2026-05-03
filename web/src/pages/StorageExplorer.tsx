@@ -331,6 +331,7 @@ export default function StorageExplorer() {
                       onDirClick={(node) => setPath(node.path)}
                       onContextMenu={(node, x, y) => setCtx({ node, x, y })}
                       onHoverChange={setHoverChain}
+                      onGoUp={goUp}
                     />
                   ) : (
                     <Treemap
@@ -344,6 +345,7 @@ export default function StorageExplorer() {
                       onDirClick={(node) => setPath(node.path)}
                       onContextMenu={(node, x, y) => setCtx({ node, x, y })}
                       onHoverChange={setHoverChain}
+                      onGoUp={goUp}
                     />
                   )}
                   {ctx && (

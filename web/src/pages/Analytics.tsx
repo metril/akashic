@@ -336,7 +336,10 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
               borderRadius: 8,
               fontSize: 13,
               boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+              color: c.tooltipFg,
             }}
+            labelStyle={{ color: c.tooltipFg }}
+            itemStyle={{ color: c.tooltipFg }}
             formatter={(value: number, _name, item) => [
               `${formatBytes(value)} · ${formatNumber(item.payload.count)} files`,
               item.payload.label,

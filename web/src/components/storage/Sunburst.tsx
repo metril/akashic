@@ -1,41 +1,33 @@
 /**
- * Radial sunburst — DaisyDisk-style alternate to the rectangular
- * treemap. Same `/api/storage/tree` payload, different geometry.
+ * Canvas2D-rendered DaisyDisk-style sunburst (v0.4.14). Replaces the
+ * SVG-per-arc renderer that was here pre-v0.4.14, which re-rendered
+ * every arc on every hover-state change and pinned each arc with a
+ * `transition: opacity 120ms` style — the same family of GPU
+ * compositor cost the v0.4.13 Drawer fix targeted.
  *
- * Layout:
- *   d3.partition() turns the hierarchy into (x0,x1) angular extents and
- *   (y0,y1) normalised radii in [0,1]. We map y → pixel radius. The
- *   centre disc represents the focused root; ring N is depth N.
+ * Public component API unchanged: same TreemapProps subset, same
+ * onLeafClick / onDirClick / onContextMenu / onHoverChange semantics.
+ * StorageExplorer.tsx renders this exactly as before.
  *
- * Visual identity is shared with the treemap via branchAccent — the
- * top-level ancestor's name selects an accent so descendants of the
- * same branch all read with the same colour family. File leaves use
- * their `color_key`-based palette (Type / Age / Owner / Risk modes
- * still work) tinted toward the branch accent for cohesion.
+ * Hot-path design (mirrors the v0.4.11 Treemap WebGL rewrite):
+ *   - Layout + arc colorization done once per (root, mode, radius)
+ *     in `buildArcLayout` (sunburstLayout.ts).
+ *   - Hover lives in a ref, not React state; mouse-move triggers
+ *     a single canvas redraw + an imperative tooltip transform
+ *     update + lifting the chain to the page sidebar. No React
+ *     reconciliation on cursor motion.
+ *   - Hit-test via `hitTestArc` polar scan — linear over arc list,
+ *     plenty fast at MAX_RINGS=6.
  *
- * Interactions:
- *   - Click an arc → drill into it (page updates ?path=…). The
- *     focused node becomes the new centre.
- *   - Click the centre → drill back up one level.
- *   - Hover an arc → onHoverChange(chain) lifts the breadcrumb to the
- *     page sidebar; the hovered arc plus its ancestor chain back to
- *     centre brighten while siblings dim.
- *   - Right-click any arc → page's context menu.
- *
- * Depth budget: cap visible rings at 6 to keep arc thickness readable.
- * Anything deeper from the focused root rolls into a `…` arc on its
- * parent ring, sized by the cumulative bytes of what we hid.
+ * Phase 4 wheel-as-drill is also wired here: scroll up = drill into
+ * the hovered directory; scroll down = drill up.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  hierarchy as d3Hierarchy,
-  partition as d3Partition,
-  type HierarchyRectangularNode,
-} from "d3-hierarchy";
-import { arc as d3Arc } from "d3-shape";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { ColorMode } from "../../pages/StorageExplorer.types";
-import { branchAccent, mix } from "./branchAccent";
+import { drawSunburst, sizeCanvas } from "./sunburstDraw";
+import { buildArcLayout, type ArcSpec } from "./sunburstLayout";
+import { hitTestArc } from "./sunburstHitTest";
 import type { TreeNode } from "./Treemap";
 
 interface SunburstProps {
@@ -47,292 +39,10 @@ interface SunburstProps {
   onDirClick?: (node: TreeNode) => void;
   onContextMenu?: (node: TreeNode, x: number, y: number) => void;
   onHoverChange?: (chain: TreeNode[] | null) => void;
-}
-
-const MAX_RINGS = 6;
-const PALETTE = [
-  "#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-  "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#0ea5e9",
-];
-
-function colorFor(key: string | undefined, mode: ColorMode): string {
-  // Mirrors the Treemap's `colorFor` so file leaves match across views.
-  if (!key) return "#94a3b8";
-  if (mode === "age") {
-    if (key === "hot") return "#10b981";
-    if (key === "warm") return "#f59e0b";
-    if (key === "cold") return "#94a3b8";
-    return "#cbd5e1";
-  }
-  if (mode === "risk") {
-    if (key === "public") return "#ef4444";
-    if (key === "authenticated") return "#f59e0b";
-    if (key === "restricted") return "#10b981";
-    return "#94a3b8";
-  }
-  if (key === "other") return "#94a3b8";
-  if (key === "directory") return "#475569";
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(h) % PALETTE.length];
-}
-
-/** Walk up to the depth-1 ancestor (relative to whatever subtree d3
- *  was given as root). Used both for branch-accent picking and for
- *  ancestor-chain highlighting. */
-function topLevelName(n: HierarchyRectangularNode<TreeNode>): string {
-  let cur: HierarchyRectangularNode<TreeNode> | null = n;
-  while (cur && cur.depth > 1 && cur.parent) cur = cur.parent;
-  return cur?.data.name ?? "/";
-}
-
-export function Sunburst({
-  root,
-  width,
-  height,
-  mode,
-  onLeafClick,
-  onDirClick,
-  onContextMenu,
-  onHoverChange,
-}: SunburstProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [hovered, setHovered] =
-    useState<HierarchyRectangularNode<TreeNode> | null>(null);
-
-  // Layout: d3.partition over a hierarchy whose .sum aggregates leaf
-  // sizes. We then clamp depth to MAX_RINGS, rolling the surplus into
-  // a synthetic "…" arc per parent so deep trees still render.
-  const layout = useMemo(() => {
-    if (width <= 0 || height <= 0) return null;
-    const radius = Math.min(width, height) / 2;
-    if (radius <= 0) return null;
-
-    // Truncate the tree before hierarchy() so the rolled-up node carries
-    // the right total size in .sum().
-    const truncated = truncateDepth(root, MAX_RINGS);
-
-    const h = d3Hierarchy<TreeNode>(truncated, (d) => d.children)
-      .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes))
-      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-    d3Partition<TreeNode>().size([2 * Math.PI, radius])(h);
-    return h as HierarchyRectangularNode<TreeNode>;
-  }, [root, width, height]);
-
-  const ancestorPaths = useMemo(() => {
-    const set = new Set<string>();
-    if (!hovered) return set;
-    let cur: HierarchyRectangularNode<TreeNode> | null = hovered;
-    while (cur) { set.add(cur.data.path); cur = cur.parent ?? null; }
-    return set;
-  }, [hovered]);
-
-  const setHoverNode = useCallback(
-    (n: HierarchyRectangularNode<TreeNode> | null) => {
-      setHovered(n);
-      if (!n) { onHoverChange?.(null); return; }
-      const chain: TreeNode[] = [];
-      let cur: HierarchyRectangularNode<TreeNode> | null = n;
-      while (cur) { chain.unshift(cur.data); cur = cur.parent ?? null; }
-      onHoverChange?.(chain);
-    },
-    [onHoverChange],
-  );
-
-  if (!layout || width <= 0 || height <= 0) {
-    return <div ref={containerRef} className="w-full h-full" />;
-  }
-
-  const cx = width / 2;
-  const cy = height / 2;
-  const radius = Math.min(width, height) / 2;
-  const arcGen = d3Arc<HierarchyRectangularNode<TreeNode>>()
-    .startAngle((d) => d.x0)
-    .endAngle((d) => d.x1)
-    .innerRadius((d) => d.y0)
-    .outerRadius((d) => d.y1)
-    .padAngle(0.002)
-    .padRadius(radius);
-
-  const nodes = layout.descendants();
-  const rootNode = layout;
-  const totalBytes = (rootNode.value ?? 0);
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full"
-      onMouseLeave={() => setHoverNode(null)}
-    >
-      <svg
-        width={width}
-        height={height}
-        style={{ userSelect: "none" }}
-      >
-        <g transform={`translate(${cx}, ${cy})`}>
-          {nodes.map((n) => {
-            // Skip the root (it's the centre disc, drawn separately
-            // with text + click-to-zoom-out behaviour).
-            if (n.depth === 0) return null;
-            const data = n.data;
-            const isDir =
-              data.kind === "directory" || data.kind === "hidden";
-            const accent = branchAccent(topLevelName(n));
-            const baseColor = isDir
-              ? mix(accent, "#0f172a", Math.min(0.6, 0.20 + 0.10 * (n.depth - 1)))
-              : mix(colorFor(data.color_key, mode), accent, 0.15);
-            const isAncestor = ancestorPaths.has(data.path);
-            const isHover = hovered === n;
-            const inHoverChain = isAncestor || isHover;
-            const opacity = !hovered ? 1 : inHoverChain ? 1 : 0.55;
-            const stroke = isHover
-              ? "#ffffff"
-              : isAncestor
-                ? "rgba(255,255,255,0.85)"
-                : "rgba(15,23,42,0.55)";
-            const strokeWidth = isHover ? 2 : isAncestor ? 1.25 : 0.5;
-
-            const handleClick = (e: React.MouseEvent) => {
-              if (data.kind === "other" || data.kind === "hidden") return;
-              e.stopPropagation();
-              if (isDir) onDirClick?.(data);
-              else onLeafClick?.(data);
-            };
-            const handleContext = (e: React.MouseEvent) => {
-              if (data.kind === "other" || data.kind === "hidden") return;
-              e.preventDefault();
-              e.stopPropagation();
-              const rect = containerRef.current?.getBoundingClientRect();
-              const px = rect ? e.clientX - rect.left : e.clientX;
-              const py = rect ? e.clientY - rect.top : e.clientY;
-              onContextMenu?.(data, px, py);
-            };
-
-            const d = arcGen(n);
-            if (!d) return null;
-            return (
-              <path
-                key={`${data.path}:${n.depth}`}
-                d={d}
-                fill={baseColor}
-                stroke={stroke}
-                strokeWidth={strokeWidth}
-                opacity={opacity}
-                onMouseEnter={() => setHoverNode(n)}
-                onClick={handleClick}
-                onContextMenu={handleContext}
-                style={{ cursor: "pointer", transition: "opacity 120ms" }}
-              />
-            );
-          })}
-
-          {/* Centre disc — focused-root summary + click-to-zoom-out */}
-          <circle
-            r={Math.max(0, (radius / MAX_RINGS) * 0.95)}
-            fill="rgba(15,23,42,0.85)"
-            stroke="rgba(255,255,255,0.15)"
-            strokeWidth={1}
-            onClick={(e) => {
-              e.stopPropagation();
-              // Page handles "go up" via the existing toolbar / ⬆ Up
-              // button. Leaving the centre as a no-op click here
-              // avoids two competing zoom-out paths; the cursor is a
-              // pointer so the user gets the hover hint to use the
-              // toolbar.
-            }}
-            style={{ cursor: "default" }}
-          />
-          <text
-            textAnchor="middle"
-            y={-2}
-            fill="#ffffff"
-            fontSize={11}
-            fontWeight={600}
-            style={{
-              pointerEvents: "none",
-              fontFamily:
-                "ui-sans-serif, system-ui, -apple-system, sans-serif",
-            }}
-          >
-            {truncate(rootNode.data.name === "/" ? "All" : rootNode.data.name, 16)}
-          </text>
-          <text
-            textAnchor="middle"
-            y={12}
-            fill="rgba(255,255,255,0.75)"
-            fontSize={10}
-            style={{
-              pointerEvents: "none",
-              fontFamily:
-                "ui-sans-serif, system-ui, -apple-system, sans-serif",
-            }}
-          >
-            {formatBytes(totalBytes)}
-          </text>
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-/**
- * Recursively prune the input tree to at most `maxDepth` levels of
- * `children`, replacing the surplus with a synthetic `…` leaf whose
- * size is the sum of what we cut. Without this the partition's
- * outermost rings become unreadable hairlines on a deep share.
- */
-function truncateDepth(node: TreeNode, maxDepth: number, depth = 0): TreeNode {
-  if (!node.children || node.children.length === 0 || depth >= maxDepth) {
-    return node;
-  }
-  if (depth + 1 >= maxDepth) {
-    // One more level is allowed; collapse THAT level's grandchildren.
-    return {
-      ...node,
-      children: node.children.map((c) =>
-        c.children && c.children.length > 0
-          ? rolledUpLeaf(c)
-          : c,
-      ),
-    };
-  }
-  return {
-    ...node,
-    children: node.children.map((c) => truncateDepth(c, maxDepth, depth + 1)),
-  };
-}
-
-function rolledUpLeaf(node: TreeNode): TreeNode {
-  // Sum descendants once so the rollup carries the right radial weight.
-  let total = 0;
-  const walk = (n: TreeNode) => {
-    if (!n.children || n.children.length === 0) total += n.size_bytes;
-    else for (const c of n.children) walk(c);
-  };
-  walk(node);
-  return {
-    kind: node.kind,
-    name: node.name,
-    path: node.path,
-    size_bytes: total,
-    color_key: node.color_key,
-    // Keep the directory as a bucket containing one rolled-up "…" leaf
-    // so its arc is still visible (and clickable for drilling) on the
-    // outer ring.
-    children: [{
-      kind: "other",
-      name: "…",
-      path: `${node.path}/…`,
-      size_bytes: total,
-      color_key: "other",
-    }],
-  };
-}
-
-function truncate(s: string, max: number): string {
-  if (max < 2) return "";
-  if (s.length <= max) return s;
-  return s.slice(0, Math.max(1, max - 1)) + "…";
+  /** v0.4.14 Phase 4 — wheel-out commits a drill UP to the parent
+   *  view. Page wires this to its existing `goUp()` so the navigation
+   *  semantics match the Treemap. */
+  onGoUp?: () => void;
 }
 
 function formatBytes(n: number): string {
@@ -345,4 +55,220 @@ function formatBytes(n: number): string {
     i++;
   }
   return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
+}
+
+export function Sunburst({
+  root,
+  width,
+  height,
+  mode,
+  onLeafClick,
+  onDirClick,
+  onContextMenu,
+  onHoverChange,
+  onGoUp,
+}: SunburstProps) {
+  const radius = Math.min(width, height) / 2;
+  const cx = width / 2;
+  const cy = height / 2;
+
+  const arcs = useMemo(
+    () => (radius > 0 ? buildArcLayout(root, mode, radius) : []),
+    [root, mode, radius],
+  );
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipNameRef = useRef<HTMLSpanElement>(null);
+  const tooltipPathRef = useRef<HTMLSpanElement>(null);
+  const tooltipSizeRef = useRef<HTMLSpanElement>(null);
+
+  const hoverRef = useRef<ArcSpec | null>(null);
+  const drillCooldownRef = useRef(false);
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawSunburst({
+      canvas,
+      arcs,
+      hoverKey: hoverRef.current?.key ?? null,
+      cx,
+      cy,
+      radius,
+    });
+  }, [arcs, cx, cy, radius]);
+
+  // Resize / arc-change → re-size canvas backing buffer + repaint.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    sizeCanvas(canvas, width, height);
+    redraw();
+  }, [width, height, redraw]);
+
+  // Drop hover when the root changes (user navigated away). The
+  // cached ArcSpec belongs to the old layout and is now stale; the
+  // next mouse-move re-establishes hover against the new arcs.
+  useEffect(() => {
+    if (hoverRef.current) {
+      hoverRef.current = null;
+      onHoverChange?.(null);
+    }
+    if (tooltipRef.current) tooltipRef.current.style.opacity = "0";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root]);
+
+  function setHover(next: ArcSpec | null) {
+    if (hoverRef.current?.key === next?.key) return;
+    hoverRef.current = next;
+    redraw();
+
+    const tooltip = tooltipRef.current;
+    if (tooltip) {
+      tooltip.style.opacity = next ? "1" : "0";
+      if (next) {
+        if (tooltipNameRef.current) tooltipNameRef.current.textContent = next.data.name;
+        if (tooltipPathRef.current) tooltipPathRef.current.textContent = next.data.path;
+        if (tooltipSizeRef.current) tooltipSizeRef.current.textContent = formatBytes(next.data.size_bytes);
+      }
+    }
+    onHoverChange?.(next ? next.chain : null);
+  }
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      // Imperative tooltip position update — never triggers a
+      // React render. Same pattern as the Treemap.
+      const tooltip = tooltipRef.current;
+      if (tooltip) {
+        const tw = tooltip.offsetWidth || 280;
+        const th = tooltip.offsetHeight || 56;
+        const left = Math.min(Math.max(x + 12, 4), width - tw - 4);
+        const top = Math.min(Math.max(y + 12, 4), height - th - 4);
+        tooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+
+      const hit = hitTestArc(arcs, cx, cy, x, y);
+      setHover(hit);
+    },
+    // setHover is recreated every render but stable in behaviour;
+    // listing arcs/cx/cy/width/height covers what the closure reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [arcs, cx, cy, width, height],
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    setHover(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const hit = hoverRef.current;
+      if (!hit) return;
+      const data = hit.data;
+      if (data.kind === "other" || data.kind === "hidden") return;
+      e.stopPropagation();
+      const isDir = data.kind === "directory";
+      if (isDir) onDirClick?.(data);
+      else onLeafClick?.(data);
+    },
+    [onDirClick, onLeafClick],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const hit = hoverRef.current;
+      if (!hit) return;
+      const data = hit.data;
+      if (data.kind === "other" || data.kind === "hidden") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const px = rect ? e.clientX - rect.left : e.clientX;
+      const py = rect ? e.clientY - rect.top : e.clientY;
+      onContextMenu?.(data, px, py);
+    },
+    [onContextMenu],
+  );
+
+  // v0.4.14 Phase 4 — wheel-as-drill. Wheel up over a directory =
+  // drill in. Wheel down = drill up. 350ms cooldown so a single
+  // physical scroll motion only fires once.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    function onWheelNative(e: WheelEvent) {
+      if (drillCooldownRef.current) return;
+      e.preventDefault();
+      const wheelIn = e.deltaY < 0;
+      if (wheelIn) {
+        const data = hoverRef.current?.data;
+        if (data && (data.kind === "directory" || data.kind === "hidden")) {
+          drillCooldownRef.current = true;
+          setTimeout(() => { drillCooldownRef.current = false; }, 350);
+          onDirClick?.(data);
+        }
+      } else {
+        if (!onGoUp) return;
+        drillCooldownRef.current = true;
+        setTimeout(() => { drillCooldownRef.current = false; }, 350);
+        onGoUp();
+      }
+    }
+    container.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => container.removeEventListener("wheel", onWheelNative);
+  }, [onDirClick, onGoUp]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full h-full select-none"
+      style={{ width, height }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+    >
+      <canvas
+        ref={canvasRef}
+        className="block"
+        style={{ width, height, display: "block", cursor: "pointer" }}
+      />
+      {/* Tooltip — always mounted; opacity + content updated
+          imperatively so cursor motion never triggers a React render. */}
+      <div
+        ref={tooltipRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: 280,
+          opacity: 0,
+          pointerEvents: "none",
+          transition: "opacity 80ms linear",
+        }}
+        className="rounded-md bg-fg/90 dark:bg-surface text-bg dark:text-fg text-xs px-2.5 py-1.5 shadow-lg border border-line"
+      >
+        <div className="font-medium truncate">
+          <span ref={tooltipNameRef} />
+        </div>
+        <div className="font-mono text-[10px] opacity-80 truncate">
+          <span ref={tooltipPathRef} />
+        </div>
+        <div className="tabular-nums opacity-90 mt-0.5">
+          <span ref={tooltipSizeRef} />
+        </div>
+      </div>
+    </div>
+  );
 }

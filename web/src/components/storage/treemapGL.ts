@@ -189,6 +189,12 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
   let heightPx = 0;
   let instCapacity = 0;
   let scratch = new Float32Array(0);
+  // v0.4.14 Phase 2 — identity-cache the last uploaded instance array.
+  // When the caller passes the same array reference (e.g. pan-only
+  // frames where viewport changes but the scene doesn't), we skip
+  // the bufferSubData call entirely and just rebind + draw.
+  let lastInstances: readonly RenderInstance[] | null = null;
+  let lastInstanceCount = 0;
 
   function uploadInstances(instances: readonly RenderInstance[]): number {
     const n = instances.length;
@@ -267,7 +273,18 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-      const n = uploadInstances(instances);
+      // v0.4.14 Phase 2 — identity-cached upload. Pan-only frames
+      // (same instance array, new viewport uniforms) skip the buffer
+      // upload — at 5000 instances × 13 floats × 4 bytes that's
+      // ~260KB per frame avoided.
+      let n: number;
+      if (instances === lastInstances) {
+        n = lastInstanceCount;
+      } else {
+        n = uploadInstances(instances);
+        lastInstances = instances;
+        lastInstanceCount = n;
+      }
       if (n > 0) {
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
       }
@@ -281,6 +298,8 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
       gl.deleteVertexArray(vao);
       // Drop scratch ref so GC can reclaim.
       scratch = new Float32Array(0);
+      lastInstances = null;
+      lastInstanceCount = 0;
     },
   };
 }

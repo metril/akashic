@@ -19,6 +19,7 @@ services:
     image: getmeili/meilisearch:v1.11
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme-meili-key}
+      MEILI_NO_ANALYTICS: "true"
     volumes:
       - msdata:/meili_data
     ports:

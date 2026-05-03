@@ -34,7 +34,7 @@ import { branchAccent, mix } from "./branchAccent";
 import { createGLRenderer, parseColor, type GLRenderer, type RenderInstance, type Rgba } from "./treemapGL";
 import { buildHitIndex, hitTest, type HitRect } from "./treemapHitTest";
 import { interpolatePairs, matchInstances, runAnim } from "./treemapAnim";
-import { clamp as clampViewport, IDENTITY as IDENTITY_VIEWPORT, screenToWorld, zoomAt, type Viewport } from "./treemapViewport";
+import { clamp as clampViewport, IDENTITY as IDENTITY_VIEWPORT, SCALE_MAX, screenToWorld, zoomAt, type Viewport } from "./treemapViewport";
 
 export interface TreeNode {
   id?: string;
@@ -55,6 +55,10 @@ interface TreemapProps {
   onDirClick?: (node: TreeNode) => void;
   onContextMenu?: (node: TreeNode, x: number, y: number) => void;
   onHoverChange?: (chain: TreeNode[] | null) => void;
+  /** v0.4.14 Phase 4 — wheel-out at IDENTITY viewport commits a
+   *  drill UP to the parent. Page wires this to its existing
+   *  `goUp()` so navigation semantics match the Sunburst. */
+  onGoUp?: () => void;
 }
 
 const PALETTE = [
@@ -131,15 +135,22 @@ function truncate(s: string, max: number): string {
   return s.slice(0, Math.max(1, max - 1)) + "…";
 }
 
-/** Build the per-instance buffer + parallel keys array + label overlay
- *  specs from a layout + hover state. Keys are stable per (data.path,
- *  role) so the animation matcher can pair instances across layouts.
- *  Pure / cheap to recompute. */
-function buildSceneFromLayout(
+interface BaseScene {
+  instances: RenderInstance[];
+  keys: string[];
+  labels: LabelSpec[];
+}
+
+const EMPTY_SCENE: BaseScene = { instances: [], keys: [], labels: [] };
+
+/** Build the layout-driven base scene (instances + keys + labels). Pure
+ *  function of (layout, mode) — no hover state. Hover highlighting is a
+ *  separate cheap overlay (see `buildHighlightOverlay`) so cursor moves
+ *  don't trigger a full descendants iteration on every node crossing. */
+function buildBaseScene(
   layout: HierarchyRectangularNode<TreeNode>,
   mode: ColorMode,
-  ancestorPaths: Set<string>,
-): { instances: RenderInstance[]; keys: string[]; labels: LabelSpec[] } {
+): BaseScene {
   const instances: RenderInstance[] = [];
   const keys: string[] = [];
   const labels: LabelSpec[] = [];
@@ -163,13 +174,8 @@ function buildSceneFromLayout(
     const fillStr = isLeaf
       ? colorFor(data.color_key, mode)
       : ds!.plateFill;
-    const isAncestor = ancestorPaths.has(data.path);
     const baseStroke = isDir ? ds!.borderFill : "rgba(255,255,255,0.55)";
-    const strokeStr = isAncestor ? accent : baseStroke;
     const baseStrokeWidth = isDir ? ds!.strokeWidth : 0.5;
-    const strokeWidth = isAncestor
-      ? Math.max(baseStrokeWidth + 0.75, 1.5)
-      : baseStrokeWidth;
 
     instances.push({
       x: x0,
@@ -177,8 +183,8 @@ function buildSceneFromLayout(
       w,
       h,
       fill: parseColor(fillStr),
-      stroke: parseColor(strokeStr),
-      strokeWidth,
+      stroke: parseColor(baseStroke),
+      strokeWidth: baseStrokeWidth,
     });
     keys.push(`${data.path}:plate`);
 
@@ -186,7 +192,6 @@ function buildSceneFromLayout(
     const showDirHeader = isDir && h >= 28 && w >= 60 && !isRoot;
 
     if (showDirHeader) {
-      // Header band — second instance, no stroke.
       instances.push({
         x: x0,
         y: y0,
@@ -221,17 +226,43 @@ function buildSceneFromLayout(
   return { instances, keys, labels };
 }
 
-function buildAncestorPaths(
+/** Cheap hover-highlight overlay: one small instance per ancestor in
+ *  the chain back to root. Drawn on top of the base scene to outline
+ *  the path the cursor is following. Walks at most ~10 nodes; trivial
+ *  to recompute on every hover change. */
+function buildHighlightOverlay(
   hover: HierarchyRectangularNode<TreeNode> | null,
-): Set<string> {
-  const set = new Set<string>();
+): RenderInstance[] {
+  if (!hover) return EMPTY_OVERLAY;
+  const overlay: RenderInstance[] = [];
   let cur: HierarchyRectangularNode<TreeNode> | null = hover;
-  while (cur) {
-    set.add(cur.data.path);
+  while (cur && cur.depth > 0) {
+    const x0 = cur.x0 ?? 0;
+    const y0 = cur.y0 ?? 0;
+    const x1 = cur.x1 ?? 0;
+    const y1 = cur.y1 ?? 0;
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (w >= 1 && h >= 1) {
+      const accent = branchAccent(topLevelName(cur));
+      overlay.push({
+        x: x0,
+        y: y0,
+        w,
+        h,
+        // Transparent fill — we want the base plate to show through;
+        // this overlay is purely an accent stroke.
+        fill: TRANSPARENT,
+        stroke: parseColor(accent),
+        strokeWidth: 1.75,
+      });
+    }
     cur = cur.parent ?? null;
   }
-  return set;
+  return overlay;
 }
+
+const EMPTY_OVERLAY: RenderInstance[] = [];
 
 function buildChain(n: HierarchyRectangularNode<TreeNode>): TreeNode[] {
   const chain: TreeNode[] = [];
@@ -252,6 +283,7 @@ export function Treemap({
   onDirClick,
   onContextMenu,
   onHoverChange,
+  onGoUp,
 }: TreemapProps) {
   const layout = useMemo(() => {
     if (width <= 0 || height <= 0) return null;
@@ -297,15 +329,22 @@ export function Treemap({
     };
   }, []);
 
-  const ancestorPaths = useMemo(
-    () => buildAncestorPaths(hoverNode),
+  // v0.4.14 Phase 1 — base scene depends only on (layout, mode). Hover
+  // is overlaid as a tiny separate array (ancestor chain outlines).
+  // Cursor moves never trigger a full descendants iteration anymore;
+  // the label `<span>` tree also stays stable across hover changes.
+  const baseScene = useMemo(
+    () => (layout ? buildBaseScene(layout, mode) : EMPTY_SCENE),
+    [layout, mode],
+  );
+  const overlay = useMemo(
+    () => buildHighlightOverlay(hoverNode),
     [hoverNode],
   );
-
-  const scene = useMemo(() => {
-    if (!layout) return { instances: [], keys: [], labels: [] };
-    return buildSceneFromLayout(layout, mode, ancestorPaths);
-  }, [layout, mode, ancestorPaths]);
+  const drawnInstances = useMemo(
+    () => (overlay.length ? [...baseScene.instances, ...overlay] : baseScene.instances),
+    [baseScene, overlay],
+  );
 
   // v0.4.11 Phase 9 — viewport state for free pan + wheel-zoom.
   // IDENTITY = no transform. Reset on root change (Phase 9f's "simple"
@@ -317,11 +356,16 @@ export function Treemap({
 
   // v0.4.11 Phase 7 — animated drill. When the `root` prop changes
   // (user clicked a directory or breadcrumb), interpolate from the
-  // previously-displayed scene to the new one over 300ms via the
+  // previously-displayed base scene to the new one over 300ms via the
   // WebGL renderer. Mode/hover changes don't animate — they just
   // redraw immediately. Resize doesn't animate either — same.
+  //
+  // v0.4.14 Phase 1 — animation matches the BASE scene only (layout
+  // + mode). The hover overlay is appended on every static frame and
+  // suppressed during animations (the morphing rects would just
+  // produce visual noise under a stable highlight chain anyway).
   const prevRootRef = useRef(root);
-  const prevSceneRef = useRef(scene);
+  const prevBaseSceneRef = useRef(baseScene);
   const animCancelRef = useRef<(() => void) | null>(null);
   const [animating, setAnimating] = useState(false);
 
@@ -331,26 +375,22 @@ export function Treemap({
 
     const rootChanged = prevRootRef.current !== root;
     if (!rootChanged) {
-      // Just redraw the new scene.
-      glRef.current.draw(scene.instances, viewport);
-      prevSceneRef.current = scene;
+      glRef.current.draw(drawnInstances, viewport);
+      prevBaseSceneRef.current = baseScene;
       return;
     }
 
-    // Root changed — animate. If a previous animation is in-flight,
-    // cancel it and start fresh from the previously-recorded scene.
     prevRootRef.current = root;
     animCancelRef.current?.();
 
-    const fromInstances = prevSceneRef.current.instances;
-    const fromKeys = prevSceneRef.current.keys;
-    const toInstances = scene.instances;
-    const toKeys = scene.keys;
+    const fromInstances = prevBaseSceneRef.current.instances;
+    const fromKeys = prevBaseSceneRef.current.keys;
+    const toInstances = baseScene.instances;
+    const toKeys = baseScene.keys;
 
-    // First mount — no prior scene to animate from. Just draw.
     if (fromInstances.length === 0) {
-      glRef.current.draw(toInstances, viewport);
-      prevSceneRef.current = scene;
+      glRef.current.draw(drawnInstances, viewport);
+      prevBaseSceneRef.current = baseScene;
       return;
     }
 
@@ -362,13 +402,17 @@ export function Treemap({
         glRef.current?.draw(interpolatePairs(pairs, t), viewport);
       },
       onDone: () => {
-        glRef.current?.draw(scene.instances, viewport);
-        prevSceneRef.current = scene;
+        glRef.current?.draw(drawnInstances, viewport);
+        prevBaseSceneRef.current = baseScene;
         setAnimating(false);
         animCancelRef.current = null;
       },
     });
-  }, [scene, root, width, height, viewport]);
+    // baseScene + drawnInstances are derived; deps reflect both so
+    // hover overlay changes still re-trigger a draw on the
+    // no-root-change path.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawnInstances, baseScene, root, width, height, viewport]);
 
   // Cancel any in-flight animation on unmount so the rAF loop doesn't
   // keep firing against a disposed renderer.
@@ -440,6 +484,27 @@ export function Treemap({
   // a no-op there), so we wire up a non-passive native listener via
   // addEventListener so the page doesn't scroll when the user zooms
   // the treemap.
+  //
+  // v0.4.14 Phase 4 — at the zoom extremes the wheel commits a drill:
+  //   - wheel-in past SCALE_MAX with a directory under the cursor
+  //     fires onDirClick on it (rebases the root).
+  //   - wheel-out at IDENTITY viewport fires onGoUp.
+  // 350ms cooldown so a single physical scroll motion only fires
+  // one drill — otherwise a fast wheel could cascade through several
+  // levels in one gesture.
+  const viewportRef = useRef(viewport);
+  useEffect(() => { viewportRef.current = viewport; }, [viewport]);
+  const hitIndexRef = useRef(hitIndex);
+  useEffect(() => { hitIndexRef.current = hitIndex; }, [hitIndex]);
+  const drillCooldownRef = useRef(false);
+  // Refs for the drill callbacks so the wheel listener (mounted once
+  // per width/height) can call the latest callback without being
+  // recreated as props churn.
+  const onDirClickRef = useRef(onDirClick);
+  useEffect(() => { onDirClickRef.current = onDirClick; }, [onDirClick]);
+  const onGoUpRef = useRef(onGoUp);
+  useEffect(() => { onGoUpRef.current = onGoUp; }, [onGoUp]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -451,7 +516,40 @@ export function Treemap({
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
-      setViewport((v) => clampViewport(zoomAt(v, cx, cy, factor), width, height));
+      const v = viewportRef.current;
+
+      // Wheel-in past SCALE_MAX → drill into the directory under cursor.
+      if (factor > 1 && v.scale >= SCALE_MAX - 0.001 && !drillCooldownRef.current) {
+        const w = screenToWorld(v, cx, cy);
+        const hit = hitIndexRef.current.length
+          ? hitTest(hitIndexRef.current, w.x, w.y)
+          : null;
+        if (hit && hit.node.depth > 0 && hit.node.data.kind === "directory") {
+          drillCooldownRef.current = true;
+          setTimeout(() => { drillCooldownRef.current = false; }, 350);
+          onDirClickRef.current?.(hit.node.data);
+          return;
+        }
+      }
+
+      // Wheel-out at IDENTITY → drill up to parent.
+      if (
+        factor < 1
+        && v.scale <= 1.001
+        && Math.abs(v.tx) < 0.5 && Math.abs(v.ty) < 0.5
+        && !drillCooldownRef.current
+      ) {
+        const goUp = onGoUpRef.current;
+        if (goUp) {
+          drillCooldownRef.current = true;
+          setTimeout(() => { drillCooldownRef.current = false; }, 350);
+          goUp();
+          return;
+        }
+      }
+
+      // Otherwise: normal zoom around cursor.
+      setViewport((curr) => clampViewport(zoomAt(curr, cx, cy, factor), width, height));
     }
     container.addEventListener("wheel", onWheelNative, { passive: false });
     return () => container.removeEventListener("wheel", onWheelNative);
@@ -567,7 +665,7 @@ export function Treemap({
             e.stopPropagation();
             handleFit();
           }}
-          className="absolute top-2 right-2 z-10 rounded-md border border-line bg-surface/90 px-2.5 py-1 text-xs font-medium text-fg shadow hover:bg-surface backdrop-blur-sm"
+          className="absolute top-2 right-2 z-10 rounded-md border border-line bg-surface/95 px-2.5 py-1 text-xs font-medium text-fg shadow hover:bg-surface"
         >
           Fit
         </button>
@@ -590,7 +688,7 @@ export function Treemap({
           transformOrigin: "top left",
         }}
       >
-        {scene.labels.map((l) => (
+        {baseScene.labels.map((l) => (
           <span
             key={l.key}
             style={{

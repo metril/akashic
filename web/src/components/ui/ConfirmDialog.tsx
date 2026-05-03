@@ -49,7 +49,7 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
     >
       <div
-        className="absolute inset-0 bg-gray-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-gray-900/55"
         onClick={loading ? undefined : onCancel}
       />
       <div

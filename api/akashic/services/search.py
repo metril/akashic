@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from meilisearch_python_sdk import AsyncClient
+from meilisearch_python_sdk.models.settings import Pagination
 
 from akashic.config import settings
 
@@ -8,6 +9,14 @@ if TYPE_CHECKING:
     from akashic.models.entry import Entry
 
 INDEX_NAME = "files"
+
+# v0.4.14 — raise Meilisearch's deep-pagination cap from its 1000
+# default. The cap exists to bound per-query memory; 100k is well
+# within what a single index handles for our workload, and 1000 is
+# too tight for the new infinite-scroll Search page. The frontend
+# mirrors this constant to surface "showing top N — refine your
+# query" when the cap is reached.
+MAX_TOTAL_HITS = 100_000
 
 
 async def get_meili_client() -> AsyncClient:
@@ -28,6 +37,7 @@ async def ensure_index():
         "viewable_by_read", "viewable_by_write", "viewable_by_delete",
     ])
     await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
+    await index.update_pagination(Pagination(max_total_hits=MAX_TOTAL_HITS))
 
 
 def build_entry_doc(

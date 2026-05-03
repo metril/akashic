@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
 import {
@@ -26,6 +26,13 @@ interface SearchResponse {
   total: number;
   query: string;
 }
+
+// v0.4.14 — Search is now infinite-scroll. Page size matches the
+// API's new default (api/akashic/routers/search.py); the cap mirrors
+// MAX_TOTAL_HITS in api/akashic/services/search.py so the footer can
+// surface "showing top N — refine your query" when we hit it.
+const PAGE_SIZE = 100;
+const MAX_TOTAL_HITS = 100_000;
 
 const SearchIcon = () => (
   <svg
@@ -125,9 +132,9 @@ export default function Search() {
     query.trim() || sourceId || extension || minSize || maxSize || filtersEncoded,
   );
 
-  const searchQuery = useQuery<SearchResponse>({
+  const searchQuery = useInfiniteQuery<SearchResponse>({
     queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded],
-    queryFn: () => {
+    queryFn: ({ pageParam }) => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
       if (sourceId) params.set("source_id", sourceId);
@@ -137,12 +144,49 @@ export default function Search() {
       params.set("permission_filter", effectivePermissionFilter);
       if (searchAs) params.set("search_as", JSON.stringify(searchAs));
       if (filtersEncoded) params.set("filters", filtersEncoded);
+      params.set("offset", String(pageParam ?? 0));
+      params.set("limit", String(PAGE_SIZE));
       return api.get<SearchResponse>(`/search?${params.toString()}`);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (last, allPages) => {
+      const fetched = allPages.reduce((s, p) => s + p.results.length, 0);
+      if (fetched >= last.total) return undefined;        // no more matches
+      if (fetched >= MAX_TOTAL_HITS) return undefined;    // hit the Meili cap
+      return fetched;
     },
     enabled: hasFilter,
   });
 
-  const results = searchQuery.data?.results ?? [];
+  const results = useMemo(
+    () => searchQuery.data?.pages.flatMap((p) => p.results) ?? [],
+    [searchQuery.data],
+  );
+  const totalFromApi = searchQuery.data?.pages[0]?.total ?? 0;
+  const reachedCap = totalFromApi >= MAX_TOTAL_HITS;
+  const totalDisplay = reachedCap
+    ? `${MAX_TOTAL_HITS.toLocaleString()}+`
+    : totalFromApi.toLocaleString();
+
+  // Auto-fetch the next page when the sentinel scrolls into view.
+  // Same pattern Browse uses; Search renders a flat <ul> so we just
+  // observe a div at the bottom of the list.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    if (!searchQuery.hasNextPage || searchQuery.isFetchingNextPage) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          void searchQuery.fetchNextPage();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [searchQuery.hasNextPage, searchQuery.isFetchingNextPage, searchQuery]);
 
   return (
     <Page
@@ -239,8 +283,7 @@ export default function Search() {
         <>
           <div className="flex items-center justify-between mb-3">
             <div className="text-xs text-fg-muted">
-              {searchQuery.data?.total.toLocaleString()} result
-              {searchQuery.data?.total !== 1 && "s"}
+              {totalDisplay} result{totalFromApi !== 1 && "s"}
               {searchAs && (
                 <span className="ml-2 text-amber-700">
                   (filtered as {searchAs.type}:{searchAs.identifier})
@@ -325,6 +368,18 @@ export default function Search() {
                 </li>
               ))}
             </ul>
+            <div
+              ref={sentinelRef}
+              className="px-4 py-3 text-xs text-fg-muted text-center"
+            >
+              {searchQuery.isFetchingNextPage
+                ? "Loading more…"
+                : reachedCap && results.length >= MAX_TOTAL_HITS
+                  ? `Showing top ${MAX_TOTAL_HITS.toLocaleString()} of ${totalDisplay} matches — refine your query for more`
+                  : !searchQuery.hasNextPage && results.length > 0
+                    ? `End of results (${results.length.toLocaleString()})`
+                    : ""}
+            </div>
           </Card>
         </>
       )}

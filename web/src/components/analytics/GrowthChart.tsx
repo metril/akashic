@@ -55,7 +55,10 @@ export function GrowthChart({ data, metric }: Props) {
               borderRadius: 8,
               fontSize: 13,
               boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+              color: c.tooltipFg,
             }}
+            labelStyle={{ color: c.tooltipFg }}
+            itemStyle={{ color: c.tooltipFg }}
             formatter={(v: number) => [fmt(v), metric === "size" ? "Size" : "Files"]}
             labelFormatter={(l) => l}
           />

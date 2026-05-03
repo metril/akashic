@@ -65,8 +65,12 @@ async def search(
     permission_filter: PermissionFilter | None = None,
     search_as: str | None = Query(default=None),
     filters: str | None = Query(default=None, description="base64url(json) predicate list"),
-    offset: int = 0,
-    limit: int = 20,
+    # v0.4.14 — Search page is now infinite-scroll, so the page size
+    # default should be something a viewport actually fills. Cap at 500
+    # so one bad client can't ask for the entire index in a single
+    # round-trip.
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
