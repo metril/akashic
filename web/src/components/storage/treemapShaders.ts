@@ -22,6 +22,10 @@ in vec4 a_stroke;
 in float a_strokeWidth;
 
 uniform vec2 u_viewport;
+// v0.4.11 Phase 9 — pan + scale. rendered = (instance_px * scale) + translate.
+// IDENTITY = (translate=(0,0), scale=1) → no transform.
+uniform vec2 u_translate;
+uniform float u_scale;
 
 out vec4 v_fill;
 out vec4 v_stroke;
@@ -31,12 +35,15 @@ out vec2 v_size;
 
 void main() {
   vec2 px = a_bounds.xy + a_quad * a_bounds.zw;
-  vec2 clip = (px / u_viewport) * 2.0 - 1.0;
+  vec2 transformed = (px * u_scale) + u_translate;
+  vec2 clip = (transformed / u_viewport) * 2.0 - 1.0;
   clip.y = -clip.y;
   gl_Position = vec4(clip, 0.0, 1.0);
 
   v_fill = a_fill;
   v_stroke = a_stroke;
+  // Stroke widens with zoom (e.g., 2px @ scale=2 -> 4px on screen).
+  // Pre-multiplying here avoids a divide in the fragment shader.
   v_strokeWidth = a_strokeWidth;
   v_localPx = a_quad * a_bounds.zw;
   v_size = a_bounds.zw;

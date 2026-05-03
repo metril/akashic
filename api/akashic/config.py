@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     # (and ideally has run the Phase-4 backfill on existing entries).
     browse_enforce_perms: bool = False
 
+    # v0.4.11 Phase 8e — when on, ingest batches mark touched parent
+    # paths in a Redis dirty set; a single background worker drains
+    # the set and recomputes top_children incrementally so the
+    # storage explorer sees fresh data mid-scan rather than waiting
+    # for the post-scan rollup. Off by default — the post-scan rollup
+    # is enough for most installs and the worker adds a moving part
+    # to ingest. Flip on for installs that scan very large estates
+    # and care about live storage-tree freshness.
+    streaming_topchildren: bool = False
+
     # LDAP
     ldap_enabled: bool = False
     ldap_server: str = ""  # e.g. ldap://ldap.example.com:389

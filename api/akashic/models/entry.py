@@ -112,6 +112,13 @@ class Entry(Base):
     subtree_file_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     subtree_dir_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    # v0.4.11 Phase 8 — pre-computed top-K children per directory.
+    # NULL on file rows AND on directories that haven't been rolled up
+    # yet. Storage tree read path expands iteratively from this column
+    # when populated; falls back to the recursive CTE otherwise.
+    # Shape: see api/alembic/versions/0020_directory_top_children.py.
+    top_children: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     # Filesystem timestamps
     fs_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

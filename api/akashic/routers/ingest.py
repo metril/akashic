@@ -96,7 +96,7 @@ async def _rollup_subtree_aggregates(source_id: str, db_url: str):
         create_async_engine,
     )
 
-    from akashic.services.subtree_rollup import rollup_source
+    from akashic.services.subtree_rollup import rollup_source, rollup_top_children
 
     engine = create_async_engine(db_url)
     session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -107,6 +107,12 @@ async def _rollup_subtree_aggregates(source_id: str, db_url: str):
             # onward) win; the rollup back-fills directories the
             # connector couldn't compute (S3 streaming, legacy data).
             await rollup_source(db, uuid.UUID(source_id), null_only=True)
+            # v0.4.11 Phase 8 — pre-compute top-K children per directory
+            # so the storage tree read path can iteratively expand from
+            # JSONB instead of running a recursive CTE. Must run AFTER
+            # rollup_source because top_children needs the freshly-
+            # computed subtree_size_bytes to rank correctly.
+            await rollup_top_children(db, uuid.UUID(source_id))
             await db.commit()
     except Exception as exc:
         logger.warning(
@@ -469,6 +475,14 @@ async def ingest_batch(
         files_found=scan.files_found,
         total_estimated=scan.total_estimated,
     )
+
+    # v0.4.11 Phase 8e — mark touched parent paths dirty for the
+    # streaming top_children worker. No-op when the feature flag is
+    # off; otherwise the worker drains the set on its next tick and
+    # recomputes the affected parents' top_children JSONB.
+    from akashic.services import top_children_worker
+    touched_parents = list({_parent_path(e.path) for e in batch.entries})
+    await top_children_worker.mark_dirty(batch.source_id, touched_parents)
 
     from akashic.config import settings
 

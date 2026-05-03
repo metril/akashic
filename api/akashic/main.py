@@ -84,11 +84,17 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Scan scheduler started")
 
+    # v0.4.11 Phase 8e — streaming top_children worker. No-op when
+    # the feature flag (settings.streaming_topchildren) is False.
+    from akashic.services import top_children_worker
+    top_children_worker.start_worker()
+
     yield
 
     # Shutdown
     from akashic.scheduler import stop_scheduler
     stop_scheduler()
+    await top_children_worker.stop_worker()
     from akashic.services import scan_pubsub
     await scan_pubsub.aclose()
 

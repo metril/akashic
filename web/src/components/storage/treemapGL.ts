@@ -23,12 +23,19 @@ export interface RenderInstance {
   strokeWidth: number;
 }
 
+export interface ViewportTransform {
+  tx: number;
+  ty: number;
+  scale: number;
+}
+
 export interface GLRenderer {
   /** Resize the backing canvas. Pass CSS pixel dims; renderer handles
    *  internal sizing. Call this whenever the container size changes. */
   resize(widthCss: number, heightCss: number): void;
-  /** Paint the treemap. Single instanced draw call. */
-  draw(instances: readonly RenderInstance[]): void;
+  /** Paint the treemap. Single instanced draw call. Optional viewport
+   *  applies pan + scale (Phase 9); omit for identity (no transform). */
+  draw(instances: readonly RenderInstance[], viewport?: ViewportTransform): void;
   /** Free WebGL resources. Call on unmount. */
   dispose(): void;
 }
@@ -151,6 +158,8 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
   const aStroke = gl.getAttribLocation(program, "a_stroke");
   const aStrokeW = gl.getAttribLocation(program, "a_strokeWidth");
   const uViewport = gl.getUniformLocation(program, "u_viewport");
+  const uTranslate = gl.getUniformLocation(program, "u_translate");
+  const uScale = gl.getUniformLocation(program, "u_scale");
 
   gl.bindVertexArray(vao);
 
@@ -238,7 +247,7 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
       canvas.style.width = `${widthCss}px`;
       canvas.style.height = `${heightCss}px`;
     },
-    draw(instances) {
+    draw(instances, viewport) {
       if (widthPx === 0 || heightPx === 0) return;
       const dpr = window.devicePixelRatio || 1;
       gl.viewport(0, 0, widthPx, heightPx);
@@ -247,11 +256,13 @@ export function createGLRenderer(canvas: HTMLCanvasElement): GLRenderer | null {
 
       gl.useProgram(program);
       gl.bindVertexArray(vao);
-      // Convert layout pixel space (CSS px from d3) to device pixels
-      // by feeding the device-pixel viewport into the shader. The
-      // instance bounds are in CSS px; the shader uses them as-is and
-      // the viewport ratio handles the dpr scale.
       gl.uniform2f(uViewport, widthPx / dpr, heightPx / dpr);
+      // v0.4.11 Phase 9 — apply viewport transform (default identity).
+      const tx = viewport?.tx ?? 0;
+      const ty = viewport?.ty ?? 0;
+      const scale = viewport?.scale ?? 1;
+      gl.uniform2f(uTranslate, tx, ty);
+      gl.uniform1f(uScale, scale);
 
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

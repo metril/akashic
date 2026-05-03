@@ -550,6 +550,134 @@ async def _fetch_tree_rows(
     return list(result.all())
 
 
+# v0.4.11 Phase 8 — JSONB-driven tree expansion. Returns rows in the
+# same column order as `_fetch_tree_rows` so `_build_nested_tree`
+# accepts either output uniformly. Returns None to signal the caller
+# to fall back to the recursive CTE (when the root row exists but
+# top_children isn't populated yet — typical right after a Phase 8
+# deploy before the backfill rollup catches up).
+async def _fetch_tree_rows_v2(
+    db: AsyncSession,
+    source_id: uuid.UUID,
+    root_path: str,
+    max_nodes: int,
+) -> list[Any] | None:
+    """Iteratively expand from per-directory `top_children` JSONB,
+    avoiding the recursive CTE entirely for the common no-perm path.
+
+    Returns a list of named-tuple-like rows compatible with
+    `_build_nested_tree`. Falls back (returns None) when the root has
+    no top_children to expand from."""
+
+    # Fetch the root row. Anchor strategy mirrors the legacy CTE:
+    # prefer a literal `path = root_path` row; otherwise we don't
+    # have a synthesizable starting point in v2 and fall back.
+    root_row = (await db.execute(
+        text(
+            "SELECT id, parent_path, path, name, kind, "
+            "size_bytes, subtree_size_bytes, extension, owner_name, "
+            "fs_modified_at, viewable_by_read, top_children "
+            "FROM entries "
+            "WHERE source_id = :source_id "
+            "  AND path = :root_path "
+            "  AND is_deleted = false "
+            "LIMIT 1"
+        ),
+        {"source_id": source_id, "root_path": root_path},
+    )).first()
+
+    if root_row is None or root_row.top_children is None:
+        # Root doesn't exist OR hasn't been rolled up yet → caller
+        # falls back to the recursive CTE which knows how to
+        # synthesize from parent_path = '/'.
+        return None
+
+    # Build the result list incrementally as we expand.
+    # Each "row" is a SimpleNamespace with the same attrs the legacy
+    # path returns.
+    from types import SimpleNamespace
+
+    def _row(*, depth: int, **kw: Any) -> SimpleNamespace:
+        return SimpleNamespace(depth=depth, **kw)
+
+    rows: list[SimpleNamespace] = [
+        _row(
+            id=root_row.id,
+            parent_path=root_row.parent_path,
+            path=root_row.path,
+            name=root_row.name,
+            kind=root_row.kind,
+            size_bytes=root_row.size_bytes,
+            subtree_size_bytes=root_row.subtree_size_bytes,
+            extension=root_row.extension,
+            owner_name=root_row.owner_name,
+            fs_modified_at=root_row.fs_modified_at,
+            viewable_by_read=root_row.viewable_by_read,
+            depth=0,
+        ),
+    ]
+
+    # Iterative BFS. Queue holds (entry_row, depth_of_that_entry).
+    queue: list[tuple[Any, int]] = [(root_row, 0)]
+    while queue and len(rows) < max_nodes:
+        parent, depth = queue.pop(0)
+        tc = parent.top_children
+        if not tc or not tc.get("children"):
+            continue
+
+        children_meta: list[dict[str, Any]] = tc["children"]
+        if not children_meta:
+            continue
+
+        # Pull the actual entry rows for this batch of children. One
+        # IN-list query per parent — bounded at K=256, so 50k visible
+        # nodes ≈ 200 round-trips. Acceptable; Postgres connection
+        # is local + the index makes each lookup constant-time. Could
+        # batch-multi-parent later if profiling shows a bottleneck.
+        child_ids = [c["id"] for c in children_meta]
+        if not child_ids:
+            continue
+
+        child_rows = (await db.execute(
+            text(
+                "SELECT id, parent_path, path, name, kind, "
+                "size_bytes, subtree_size_bytes, extension, owner_name, "
+                "fs_modified_at, viewable_by_read, top_children "
+                "FROM entries WHERE id = ANY(:ids)"
+            ),
+            {"ids": child_ids},
+        )).all()
+        by_id = {str(r.id): r for r in child_rows}
+
+        for cm in children_meta:
+            if len(rows) >= max_nodes:
+                break
+            c = by_id.get(cm["id"])
+            if c is None:
+                # Child was deleted between rollup and read. Skip;
+                # the synthesized <other> rect ([_build_nested_tree])
+                # accounts for the size from the rollup snapshot.
+                continue
+            rows.append(_row(
+                id=c.id,
+                parent_path=c.parent_path,
+                path=c.path,
+                name=c.name,
+                kind=c.kind,
+                size_bytes=c.size_bytes,
+                subtree_size_bytes=c.subtree_size_bytes,
+                extension=c.extension,
+                owner_name=c.owner_name,
+                fs_modified_at=c.fs_modified_at,
+                viewable_by_read=c.viewable_by_read,
+                depth=depth + 1,
+            ))
+            if c.kind == "directory" and c.top_children:
+                queue.append((c, depth + 1))
+
+    return rows
+
+
 @router.get("/tree")
 async def get_tree(
     source_id: uuid.UUID = Query(...),
@@ -577,9 +705,30 @@ async def get_tree(
 
     # Over-fetch by 1 so we can detect "we hit the budget exactly".
     fetch_limit = max_nodes + 1
-    rows = await _fetch_tree_rows(
-        db, source_id, norm_path, fetch_limit, min_bytes, perm_tokens,
-    )
+
+    # v0.4.11 Phase 8 — fast path: when perm enforcement is OFF and
+    # the root directory has top_children populated by the post-scan
+    # rollup, expand iteratively from the JSONB column instead of
+    # running the recursive CTE. Drops latency from hundreds-of-ms to
+    # single-digit ms at large subtree sizes. Falls back to the
+    # legacy CTE when:
+    #   - perm enforcement is on (top_children doesn't carry
+    #     viewable_by_read; cleaner to use the existing CTE path
+    #     than to special-case the perm filter)
+    #   - the root has no top_children (new source / mid-rollup /
+    #     pre-Phase-8 install before backfill)
+    #   - min_bytes filter is active (would need to reapply against
+    #     the jsonb's `size` field per node; not worth the
+    #     complexity for a rare query knob)
+    rows = None
+    if perm_tokens is None and min_bytes == 0:
+        rows = await _fetch_tree_rows_v2(
+            db, source_id, norm_path, fetch_limit,
+        )
+    if rows is None:
+        rows = await _fetch_tree_rows(
+            db, source_id, norm_path, fetch_limit, min_bytes, perm_tokens,
+        )
 
     truncated = len(rows) > max_nodes
     rows = rows[:max_nodes]

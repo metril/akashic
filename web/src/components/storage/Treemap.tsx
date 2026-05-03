@@ -33,6 +33,8 @@ import type { ColorMode } from "../../pages/StorageExplorer.types";
 import { branchAccent, mix } from "./branchAccent";
 import { createGLRenderer, parseColor, type GLRenderer, type RenderInstance, type Rgba } from "./treemapGL";
 import { buildHitIndex, hitTest, type HitRect } from "./treemapHitTest";
+import { interpolatePairs, matchInstances, runAnim } from "./treemapAnim";
+import { clamp as clampViewport, IDENTITY as IDENTITY_VIEWPORT, screenToWorld, zoomAt, type Viewport } from "./treemapViewport";
 
 export interface TreeNode {
   id?: string;
@@ -129,14 +131,17 @@ function truncate(s: string, max: number): string {
   return s.slice(0, Math.max(1, max - 1)) + "…";
 }
 
-/** Build the per-instance buffer + label overlay specs from a layout +
- *  hover state. Pure / cheap to recompute. */
+/** Build the per-instance buffer + parallel keys array + label overlay
+ *  specs from a layout + hover state. Keys are stable per (data.path,
+ *  role) so the animation matcher can pair instances across layouts.
+ *  Pure / cheap to recompute. */
 function buildSceneFromLayout(
   layout: HierarchyRectangularNode<TreeNode>,
   mode: ColorMode,
   ancestorPaths: Set<string>,
-): { instances: RenderInstance[]; labels: LabelSpec[] } {
+): { instances: RenderInstance[]; keys: string[]; labels: LabelSpec[] } {
   const instances: RenderInstance[] = [];
+  const keys: string[] = [];
   const labels: LabelSpec[] = [];
 
   for (const n of layout.descendants()) {
@@ -175,6 +180,7 @@ function buildSceneFromLayout(
       stroke: parseColor(strokeStr),
       strokeWidth,
     });
+    keys.push(`${data.path}:plate`);
 
     const showLabel = w >= 60 && h >= 16 && !isRoot;
     const showDirHeader = isDir && h >= 28 && w >= 60 && !isRoot;
@@ -190,6 +196,7 @@ function buildSceneFromLayout(
         stroke: TRANSPARENT,
         strokeWidth: 0,
       });
+      keys.push(`${data.path}:header`);
       labels.push({
         key: `${data.path}:dh`,
         x: x0 + 4,
@@ -211,7 +218,7 @@ function buildSceneFromLayout(
     }
   }
 
-  return { instances, labels };
+  return { instances, keys, labels };
 }
 
 function buildAncestorPaths(
@@ -295,17 +302,94 @@ export function Treemap({
     [hoverNode],
   );
 
-  const { instances, labels } = useMemo(() => {
-    if (!layout) return { instances: [], labels: [] };
+  const scene = useMemo(() => {
+    if (!layout) return { instances: [], keys: [], labels: [] };
     return buildSceneFromLayout(layout, mode, ancestorPaths);
   }, [layout, mode, ancestorPaths]);
 
-  // Resize + redraw whenever any input changes.
+  // v0.4.11 Phase 9 — viewport state for free pan + wheel-zoom.
+  // IDENTITY = no transform. Reset on root change (Phase 9f's "simple"
+  // option — clean transition, doesn't try to compose with the drill
+  // animation's layout interpolation).
+  const [viewport, setViewport] = useState<Viewport>(IDENTITY_VIEWPORT);
+  // Drag state lives in a ref to avoid per-frame re-renders.
+  const draggingRef = useRef<{ x: number; y: number } | null>(null);
+
+  // v0.4.11 Phase 7 — animated drill. When the `root` prop changes
+  // (user clicked a directory or breadcrumb), interpolate from the
+  // previously-displayed scene to the new one over 300ms via the
+  // WebGL renderer. Mode/hover changes don't animate — they just
+  // redraw immediately. Resize doesn't animate either — same.
+  const prevRootRef = useRef(root);
+  const prevSceneRef = useRef(scene);
+  const animCancelRef = useRef<(() => void) | null>(null);
+  const [animating, setAnimating] = useState(false);
+
   useEffect(() => {
     if (!glRef.current) return;
     glRef.current.resize(width, height);
-    glRef.current.draw(instances);
-  }, [instances, width, height]);
+
+    const rootChanged = prevRootRef.current !== root;
+    if (!rootChanged) {
+      // Just redraw the new scene.
+      glRef.current.draw(scene.instances, viewport);
+      prevSceneRef.current = scene;
+      return;
+    }
+
+    // Root changed — animate. If a previous animation is in-flight,
+    // cancel it and start fresh from the previously-recorded scene.
+    prevRootRef.current = root;
+    animCancelRef.current?.();
+
+    const fromInstances = prevSceneRef.current.instances;
+    const fromKeys = prevSceneRef.current.keys;
+    const toInstances = scene.instances;
+    const toKeys = scene.keys;
+
+    // First mount — no prior scene to animate from. Just draw.
+    if (fromInstances.length === 0) {
+      glRef.current.draw(toInstances, viewport);
+      prevSceneRef.current = scene;
+      return;
+    }
+
+    setAnimating(true);
+    const pairs = matchInstances(fromInstances, fromKeys, toInstances, toKeys);
+    animCancelRef.current = runAnim({
+      durationMs: 300,
+      onFrame: (t) => {
+        glRef.current?.draw(interpolatePairs(pairs, t), viewport);
+      },
+      onDone: () => {
+        glRef.current?.draw(scene.instances, viewport);
+        prevSceneRef.current = scene;
+        setAnimating(false);
+        animCancelRef.current = null;
+      },
+    });
+  }, [scene, root, width, height, viewport]);
+
+  // Cancel any in-flight animation on unmount so the rAF loop doesn't
+  // keep firing against a disposed renderer.
+  useEffect(() => {
+    return () => {
+      animCancelRef.current?.();
+      animCancelRef.current = null;
+    };
+  }, []);
+
+  // Root change → hovered node belongs to the OLD layout's node tree
+  // and is now stale. Drop it so the hit-test starts fresh on the
+  // new layout. Mouse-move from the user re-establishes hover. Also
+  // reset the viewport (Phase 9f simple option) so navigation always
+  // starts at fit-to-container.
+  useEffect(() => {
+    setHoverNode(null);
+    onHoverChange?.(null);
+    setViewport(IDENTITY_VIEWPORT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -315,12 +399,23 @@ export function Treemap({
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
+      // v0.4.11 Phase 9 — pan via shift+drag. Updates viewport state
+      // imperatively (well, through React state, but only while the
+      // user is dragging — short bursts).
+      if (draggingRef.current) {
+        const dx = x - draggingRef.current.x;
+        const dy = y - draggingRef.current.y;
+        draggingRef.current = { x, y };
+        setViewport((v) =>
+          clampViewport({ ...v, tx: v.tx + dx, ty: v.ty + dy }, width, height),
+        );
+        return;
+      }
+
       // Imperative tooltip position update — does NOT trigger a React
       // render, so mouse-move stays free of reconciliation cost.
       const tooltip = tooltipRef.current;
       if (tooltip) {
-        // Bias toward the bottom-right of the cursor; clamp so we
-        // never spill past the container edge.
         const tw = tooltip.offsetWidth || 280;
         const th = tooltip.offsetHeight || 56;
         const left = Math.min(Math.max(x + 12, 4), width - tw - 4);
@@ -328,18 +423,59 @@ export function Treemap({
         tooltip.style.transform = `translate3d(${left}px, ${top}px, 0)`;
       }
 
-      const hit = hitTest(hitIndex, x, y);
+      // Hit-test in world coords (apply inverse viewport transform).
+      const w = screenToWorld(viewport, x, y);
+      const hit = hitTest(hitIndex, w.x, w.y);
       const next = hit?.node ?? null;
-      // Only setState — and re-render — when the hovered node identity
-      // changes. With the prior SVG impl, mouse-move set state on every
-      // pixel, re-rendering all 5000 nodes per movement.
       if (next !== hoverNode) {
         setHoverNode(next);
         onHoverChange?.(next ? buildChain(next) : null);
       }
     },
-    [hitIndex, hoverNode, onHoverChange, width, height],
+    [hitIndex, hoverNode, onHoverChange, width, height, viewport],
   );
+
+  // v0.4.11 Phase 9 — wheel-zoom (scroll up = zoom in around cursor).
+  // React 17+ attaches onWheel as a passive listener (preventDefault is
+  // a no-op there), so we wire up a non-passive native listener via
+  // addEventListener so the page doesn't scroll when the user zooms
+  // the treemap.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    function onWheelNative(e: WheelEvent) {
+      const c = containerRef.current;
+      if (!c) return;
+      e.preventDefault();
+      const rect = c.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+      setViewport((v) => clampViewport(zoomAt(v, cx, cy, factor), width, height));
+    }
+    container.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => container.removeEventListener("wheel", onWheelNative);
+  }, [width, height]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Middle-click OR shift+left-click starts a pan drag. Plain
+    // left-click stays for navigation; right-click for context menu.
+    if (e.button !== 1 && !(e.button === 0 && e.shiftKey)) return;
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    draggingRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    draggingRef.current = null;
+  }, []);
+
+  // [Fit] reset — restore identity viewport.
+  const handleFit = useCallback(() => {
+    setViewport(IDENTITY_VIEWPORT);
+  }, []);
 
   const handleMouseLeave = useCallback(() => {
     if (hoverNode !== null) {
@@ -350,6 +486,9 @@ export function Treemap({
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
+      // Phase 9 — shift+click is the pan-drag modifier; suppress
+      // navigation when shift was held even if the drag never moved.
+      if (e.shiftKey) return;
       if (!hoverNode) return;
       const data = hoverNode.data;
       if (data.kind === "other" || data.kind === "hidden") return;
@@ -390,31 +529,68 @@ export function Treemap({
     );
   }
 
+  // Cursor hint depends on what the user is doing. Dragging = grabbing;
+  // hovering an interactive node = pointer; otherwise default.
+  const cursorStyle = draggingRef.current
+    ? "grabbing"
+    : hoverNode && hoverNode.depth > 0
+      ? "pointer"
+      : "default";
+
+  const isZoomed =
+    viewport.scale !== 1 || viewport.tx !== 0 || viewport.ty !== 0;
+
   return (
     <div
       ref={containerRef}
       className="relative w-full h-full select-none"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      style={{
-        cursor: hoverNode && hoverNode.depth > 0 ? "pointer" : "default",
-      }}
+      style={{ cursor: cursorStyle }}
     >
       <canvas
         ref={canvasRef}
         className="block"
         style={{ width, height, display: "block" }}
       />
+      {/* Phase 9 — [Fit] reset button. Only visible when the user has
+          panned/zoomed away from identity. Floating top-right; clicks
+          stop-propagated so they don't pass through to the canvas. */}
+      {isZoomed && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleFit();
+          }}
+          className="absolute top-2 right-2 z-10 rounded-md border border-line bg-surface/90 px-2.5 py-1 text-xs font-medium text-fg shadow hover:bg-surface backdrop-blur-sm"
+        >
+          Fit
+        </button>
+      )}
       {/* Label overlay — pointer-events-none so the canvas still
-          receives all mouse events. Memoized via the labels array
-          identity so React reconciles only when layout changes. */}
+          receives all mouse events. Hidden during the drill animation
+          (rects are still morphing, so labels at the final position
+          would float oddly above mid-transit canvas content). v0.4.11
+          Phase 9: outer div carries the viewport transform so labels
+          track the zoomed/panned canvas content. transform-origin
+          top-left matches the shader's coordinate convention. */}
       <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ width, height }}
+        className="absolute inset-0 pointer-events-none overflow-hidden"
+        style={{
+          width,
+          height,
+          opacity: animating ? 0 : 1,
+          transition: animating ? "none" : "opacity 120ms linear",
+          transform: `translate(${viewport.tx}px, ${viewport.ty}px) scale(${viewport.scale})`,
+          transformOrigin: "top left",
+        }}
       >
-        {labels.map((l) => (
+        {scene.labels.map((l) => (
           <span
             key={l.key}
             style={{
@@ -449,7 +625,7 @@ export function Treemap({
           top: 0,
           left: 0,
           width: 280,
-          opacity: hoverNode ? 1 : 0,
+          opacity: hoverNode && !animating ? 1 : 0,
           pointerEvents: "none",
           transition: "opacity 80ms linear",
         }}
