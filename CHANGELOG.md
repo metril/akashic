@@ -5,6 +5,61 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.4.19 — 2026-05-03
+
+- **Ingest:** dedup is now bulk — one `SELECT entries WHERE source_id=? AND path IN (...)`
+  per batch instead of one per entry. Removes the dominant cost on
+  10M+-file scans; p50 ingest latency on a 1k-batch should drop
+  ~5–10×.
+- **Ingest:** Meilisearch indexer fetches all touched entries in one
+  SELECT instead of N. 2–5× speedup on the post-batch indexing task.
+- **Ingest:** background tasks (Meili index, subtree rollup, snapshot
+  writer, webhook dispatch) now reuse a process-cached engine per
+  database URL instead of building + disposing one each. Fewer
+  spurious connections during sustained high-load scans.
+- **Schema:** new partial composite index
+  `ix_entries_active_content_hash(source_id, content_hash) WHERE is_deleted=false AND kind='file' AND content_hash IS NOT NULL`
+  serves the end-of-batch move-detection lookup without scanning the
+  much larger historical/deleted set.
+- **Scanner:** the walker now honours `context.Context` cancellation —
+  a SIGTERM or scan-cancel during a 10M-file walk returns at the next
+  directory boundary instead of running to completion. SSH, SMB, and S3
+  walk loops also poll `ctx.Err()` between entries.
+- **Scanner:** batch sends retry on transient failures (5xx and network
+  errors) with exponential backoff + jitter. 4xx is terminal. The HTTP
+  client also enables keepalive (`MaxIdleConnsPerHost: 8`,
+  `IdleConnTimeout: 90s`) so a fast scanner reuses TCP connections
+  across batches instead of paying TLS handshake per POST.
+- **Scanner:** SSH ACL prefetch in per-directory mode no longer leaks
+  ACL records across directories — the cache is rebuilt at each parent
+  change. Previously the cache grew unbounded across the walk.
+- **Scanner agent:** the bearer JWT is cached with TTL refresh instead
+  of being re-minted on every heartbeat / lease / complete call.
+  Heartbeat goroutine + lease loop reuse the same HTTP client with
+  keepalive tuned for a long-lived agent.
+- **CLI:** `akashic scan list`, `scan cancel <id>`, `scan wait <id>`.
+  Exit codes are now meaningful: `0` success, `1` user error (bad args
+  / 4xx), `2` server error (5xx / network), `3` scan terminated in
+  `failed` state.
+- **API:** per-endpoint slow-query thresholds. `SLOW_QUERY_MS`
+  (default 100) is the global default; `SLOW_QUERY_MS_OVERRIDES` is a
+  JSON map that tightens or relaxes specific routes
+  (e.g. `{"browse": 50, "ingest": 200}`).
+- **Web:** memoised the Search result row so a parent re-render
+  (filter chip change, infinite-scroll fetch, selection toggle) no
+  longer reconciles every visible row. Smoother scroll/selection on
+  result sets >100 rows.
+- **Web:** per-prefix React-Query `staleTime` overrides — sources/
+  scanners/users/principals/server-setting ride a 5-minute TTL,
+  analytics/dashboard a 1-minute TTL, admin-audit a 5-second TTL,
+  rest stay on the 30s default.
+- **Web:** RenderBoundary catches WebGL2/Canvas crashes in the storage
+  view and shows a fallback message instead of blanking the page.
+- **Web:** ESLint added (TypeScript + react-hooks). `npm run lint`
+  runs in CI.
+- **Docs:** README now mentions the storage-view rendering stack and
+  CLI; configuration.md documents the new `SLOW_QUERY_MS*` knobs.
+
 ## v0.4.16 — 2026-05-03
 
 - **Storage:** synthetic source nodes in the cross-source view

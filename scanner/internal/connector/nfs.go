@@ -22,7 +22,7 @@ func (c *NFSConnector) Connect(ctx context.Context) error {
 }
 
 func (c *NFSConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
-	return walker.Walk(root, excludePatterns, computeHash, fn)
+	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 
 func (c *NFSConnector) ReadFile(ctx context.Context, path string) (io.ReadCloser, error) {

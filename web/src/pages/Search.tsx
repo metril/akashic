@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
@@ -66,14 +66,16 @@ export default function Search() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
 
-  function toggleSelected(id: string) {
+  // Stable identity so memoised SearchResultRow doesn't re-render the
+  // whole list every time selectedIds changes.
+  const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -285,70 +287,19 @@ export default function Search() {
           <Card padding="none">
             <ul className="divide-y divide-line-subtle">
               {results.map((file) => (
-                <li
+                <SearchResultRow
                   key={file.id}
-                  onClick={() => openEntry(file.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openEntry(file.id);
-                    }
-                  }}
-                  tabIndex={0}
-                  className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
-                >
-                  <div className="flex items-baseline justify-between gap-4">
-                    {isAdmin && (
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(file.id)}
-                        onChange={() => toggleSelected(file.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-1 flex-shrink-0"
-                        aria-label={`Select ${file.filename}`}
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-fg truncate">
-                          {file.filename}
-                        </span>
-                        {file.extension && (
-                          <FilterableCell
-                            predicate={{ kind: "extension", value: file.extension }}
-                          >
-                            <Badge variant="neutral">.{file.extension}</Badge>
-                          </FilterableCell>
-                        )}
-                      </div>
-                      <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
-                        {file.path}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end flex-shrink-0 text-right">
-                      <div className="text-sm font-medium text-fg tabular-nums">
-                        {formatBytes(file.size_bytes)}
-                      </div>
-                      <div className="text-xs text-fg-muted mt-0.5">
-                        {file.source_id == null ? (
-                          <span
-                            className="italic text-fg-subtle"
-                            title="The source this file was indexed from has been deleted. The entry survives but content fetch is no longer possible."
-                          >
-                            (deleted source)
-                          </span>
-                        ) : (
-                          <FilterableCell
-                            predicate={{ kind: "source", value: file.source_id }}
-                          >
-                            {sourceMap.get(file.source_id) ??
-                              file.source_id.slice(0, 8)}
-                          </FilterableCell>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </li>
+                  file={file}
+                  isAdmin={isAdmin}
+                  selected={selectedIds.has(file.id)}
+                  sourceLabel={
+                    file.source_id == null
+                      ? null
+                      : sourceMap.get(file.source_id) ?? file.source_id.slice(0, 8)
+                  }
+                  onOpen={openEntry}
+                  onToggleSelected={toggleSelected}
+                />
               ))}
             </ul>
             <div
@@ -376,6 +327,92 @@ export default function Search() {
     </Page>
   );
 }
+
+// Memoised so a parent re-render (filter chip change, infinite-scroll
+// fetch, selection toggle) doesn't re-reconcile every visible row.
+// Props are sliced to plain values + stable callbacks; the parent
+// computes `selected` and `sourceLabel` so this row never reads
+// shared state itself.
+interface SearchResultRowProps {
+  file: SearchResult;
+  isAdmin: boolean;
+  selected: boolean;
+  sourceLabel: string | null;
+  onOpen: (id: string) => void;
+  onToggleSelected: (id: string) => void;
+}
+
+const SearchResultRow = memo(function SearchResultRow({
+  file,
+  isAdmin,
+  selected,
+  sourceLabel,
+  onOpen,
+  onToggleSelected,
+}: SearchResultRowProps) {
+  return (
+    <li
+      onClick={() => onOpen(file.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(file.id);
+        }
+      }}
+      tabIndex={0}
+      className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
+    >
+      <div className="flex items-baseline justify-between gap-4">
+        {isAdmin && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelected(file.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1 flex-shrink-0"
+            aria-label={`Select ${file.filename}`}
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-fg truncate">{file.filename}</span>
+            {file.extension && (
+              <FilterableCell
+                predicate={{ kind: "extension", value: file.extension }}
+              >
+                <Badge variant="neutral">.{file.extension}</Badge>
+              </FilterableCell>
+            )}
+          </div>
+          <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
+            {file.path}
+          </div>
+        </div>
+        <div className="flex flex-col items-end flex-shrink-0 text-right">
+          <div className="text-sm font-medium text-fg tabular-nums">
+            {formatBytes(file.size_bytes)}
+          </div>
+          <div className="text-xs text-fg-muted mt-0.5">
+            {sourceLabel === null ? (
+              <span
+                className="italic text-fg-subtle"
+                title="The source this file was indexed from has been deleted. The entry survives but content fetch is no longer possible."
+              >
+                (deleted source)
+              </span>
+            ) : (
+              <FilterableCell
+                predicate={{ kind: "source", value: file.source_id! }}
+              >
+                {sourceLabel}
+              </FilterableCell>
+            )}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+});
 
 interface SelectionBarProps {
   results: SearchResult[];

@@ -6,8 +6,12 @@ Universal file index — hybrid Go scanner + Python API + Meilisearch + React we
 
 - **Scanner** (Go) — walks filesystems, hashes content, posts batches to the API.
 - **API** (FastAPI / Python 3.12) — ingest, search, RBAC, scheduling, webhooks.
-- **Web** (React + Vite + Tailwind) — admin dashboard.
+- **Web** (React + Vite + Tailwind) — admin dashboard. The storage view
+  uses Canvas2D (sunburst) and WebGL2 (treemap) for 60 fps at 50 k+
+  rectangles; see [docs/storage-view.md](docs/storage-view.md) for the
+  fallback behaviour on browsers without WebGL2.
 - **Storage** — PostgreSQL, Meilisearch, Redis (extraction queue), Tika (text extraction).
+- **CLI** (Go) — `akashic` binary with `search / sources / scan / duplicates / tags / purge` subcommands; meaningful exit codes (1 user-error, 2 server-error, 3 scan-failed) for scripting.
 
 ## Documentation
 

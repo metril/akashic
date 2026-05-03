@@ -1,8 +1,11 @@
 package walker
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/akashic-project/akashic/scanner/pkg/models"
@@ -25,7 +28,7 @@ func TestWalk_AllEntries(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var entries []*models.EntryRecord
-	err := Walk(dir, nil, false, func(entry *models.EntryRecord) error {
+	err := Walk(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -57,7 +60,7 @@ func TestWalk_ExcludePatterns(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var entries []*models.EntryRecord
-	err := Walk(dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
+	err := Walk(context.Background(), dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -76,7 +79,7 @@ func TestWalk_WithHash(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var hashed int
-	err := Walk(dir, nil, true, func(entry *models.EntryRecord) error {
+	err := Walk(context.Background(), dir, nil, true, func(entry *models.EntryRecord) error {
 		if !entry.IsDir() && entry.ContentHash != "" {
 			hashed++
 		}
@@ -122,7 +125,7 @@ func TestWalk_PostOrderSubtreeTotals(t *testing.T) {
 	must(os.WriteFile(filepath.Join(dir, "b", "c", "z.bin"), []byte("12345678"), 0o644))
 
 	dirs := map[string]*models.EntryRecord{}
-	must(Walk(dir, nil, false, func(e *models.EntryRecord) error {
+	must(Walk(context.Background(), dir, nil, false, func(e *models.EntryRecord) error {
 		if e.IsDir() {
 			dirs[filepath.Base(e.Path)] = e
 		}
@@ -164,5 +167,37 @@ func TestWalk_PostOrderSubtreeTotals(t *testing.T) {
 	}
 	if got := *dirs["b"].SubtreeDirCount; got != 1 {
 		t.Errorf("b: SubtreeDirCount=%d, want 1", got)
+	}
+}
+
+// Walk respects context cancellation: a SIGTERM / scan-cancel
+// triggered partway through a multi-million-file walk must return
+// promptly with ctx.Err(), not run to completion. Pre-fix the
+// Walker discarded ctx entirely.
+func TestWalk_HonoursContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	// Build a wide tree so the cancellation has somewhere to land.
+	for i := 0; i < 10; i++ {
+		sub := filepath.Join(dir, "sub")
+		os.MkdirAll(sub, 0o755)
+		os.WriteFile(filepath.Join(sub, "f"), []byte("x"), 0o644)
+	}
+	for i := 0; i < 100; i++ {
+		os.WriteFile(filepath.Join(dir, "f"+string(rune('0'+i%10))+string(rune('0'+i/10))), []byte("y"), 0o644)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var seen atomic.Int64
+	err := Walk(ctx, dir, nil, false, func(e *models.EntryRecord) error {
+		// Cancel as soon as the first entry comes through. The next
+		// directory boundary should bail out.
+		if seen.Add(1) == 1 {
+			cancel()
+		}
+		return nil
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }

@@ -133,6 +133,49 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 
 // TestAgentHandshake_RejectsOutOfRangeProtocol confirms the agent
 // surfaces the api's 426 as a fatal startup error rather than looping.
+// authHeader caches its result and only re-mints when the token is
+// near expiry. Pre-fix, every heartbeat call (every 30 s) re-signed
+// regardless of remaining TTL.
+func TestAuthHeader_CachesAcrossCalls(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{ScannerID: "scanner-x"}
+
+	// Reset the package-global cache so a prior test's token doesn't
+	// leak in.
+	agentTokenCache = jwtCache{}
+
+	first, err := authHeader(cfg, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := authHeader(cfg, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" {
+		t.Fatal("empty header")
+	}
+	if first != second {
+		t.Fatalf("expected cached header reuse; got two distinct tokens")
+	}
+
+	// Force expiry — the next call must run the mint path and refresh
+	// the cache's expiresAt. Note we can't compare the resulting
+	// header string because MintJWT is deterministic per second
+	// (same iat/exp claims → same signature within the same second).
+	stamp := time.Now().Add(-1 * time.Second)
+	agentTokenCache.expiresAt = stamp
+	if _, err := authHeader(cfg, priv); err != nil {
+		t.Fatal(err)
+	}
+	if !agentTokenCache.expiresAt.After(stamp) {
+		t.Fatalf("expected expiresAt to advance after re-mint; stayed at %v", stamp)
+	}
+}
+
 func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	keyPath := writePEMKey(t, priv)

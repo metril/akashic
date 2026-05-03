@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import logging
 import time
 from pathlib import Path
@@ -17,12 +18,36 @@ logger = logging.getLogger(__name__)
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-# Slow-query observability (v0.4.3).  Any individual SQL statement
-# whose execution exceeds this threshold gets logged at WARN with
-# a truncated SQL preview. Helps surface backend regressions
-# (e.g. an unindexed JOIN) before users complain. The threshold
-# is conservative — in steady state we should see ~zero of these.
-_QUERY_SLOW_MS = 100
+# Slow-query observability (v0.4.3, per-endpoint thresholds added in
+# v0.4.x). Any individual SQL statement whose execution exceeds the
+# applicable threshold gets logged at WARN with a truncated SQL
+# preview. Helps surface backend regressions (e.g. an unindexed JOIN)
+# before users complain. The threshold is conservative — in steady
+# state we should see ~zero of these.
+#
+# Per-endpoint override: settings.slow_query_ms_overrides maps a route
+# prefix (e.g. "browse", "ingest") to a custom threshold. The middleware
+# in akashic.main sets `current_endpoint_var` from request.url.path so
+# the listener below can pick the right threshold without plumbing it
+# through every code path.
+current_endpoint_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_endpoint", default=None,
+)
+
+
+def _slow_threshold_ms() -> int:
+    """Resolve the slow-query threshold for the in-flight request.
+
+    Falls back to the global setting outside a request (background
+    tasks, scheduled jobs, etc).
+    """
+    endpoint = current_endpoint_var.get()
+    overrides = settings.slow_query_ms_overrides or {}
+    if endpoint:
+        for prefix, ms in overrides.items():
+            if prefix in endpoint:
+                return ms
+    return settings.slow_query_ms
 
 
 @event.listens_for(engine.sync_engine, "before_cursor_execute")
@@ -37,13 +62,17 @@ def _q_end(conn, cursor, statement, parameters, context, executemany):  # noqa: 
         return
     t0 = stack.pop()
     dur_ms = (time.perf_counter() - t0) * 1000
-    if dur_ms >= _QUERY_SLOW_MS:
+    if dur_ms >= _slow_threshold_ms():
         # Truncate the statement so a giant query doesn't blow the
         # log line; full text is in the EXPLAIN the operator will
         # run anyway. Newlines collapsed to single spaces so the
         # entry stays one log record.
         snippet = " ".join(statement.split())[:200]
-        logger.warning("slow query: %.0fms: %s", dur_ms, snippet)
+        endpoint = current_endpoint_var.get()
+        if endpoint:
+            logger.warning("slow query @%s: %.0fms: %s", endpoint, dur_ms, snippet)
+        else:
+            logger.warning("slow query: %.0fms: %s", dur_ms, snippet)
     # Phase 10 hooks the prometheus histogram in here too.
     try:
         from akashic.services import metrics

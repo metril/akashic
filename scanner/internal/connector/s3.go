@@ -79,6 +79,12 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 		}
 
 		for _, obj := range page.Contents {
+			// Honour cancellation between objects so a SIGTERM /
+			// scan-cancel doesn't have to wait for the rest of the
+			// page (up to 1000 objects with potential ACL/hash calls).
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			key := aws.ToString(obj.Key)
 
 			skip := false

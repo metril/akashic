@@ -34,38 +34,58 @@ def _parent_path(path: str) -> str:
     return parent
 
 
+# Cached background-task engines, keyed by db_url. Each background
+# task used to spin up a fresh AsyncEngine and dispose it on completion;
+# under sustained ingest that meant churning through dozens of short-
+# lived connections. Cache here so tasks share one pool per URL.
+# Keyed by URL (not module-globally) so tests pointing at a different
+# database get their own engine and don't bleed into the production
+# pool — `akashic.database` already manages the latter for request-
+# path code.
+_bg_session_makers: dict[str, "async_sessionmaker[AsyncSession]"] = {}
+
+
+def _bg_session(db_url: str) -> "async_sessionmaker[AsyncSession]":
+    """Return a process-cached async_sessionmaker for the given URL.
+
+    Background tasks call this instead of building their own engine so
+    a busy ingest doesn't create + dispose dozens of engines.
+    """
+    sm = _bg_session_makers.get(db_url)
+    if sm is None:
+        from sqlalchemy.ext.asyncio import (
+            async_sessionmaker as _asm,
+            create_async_engine,
+        )
+        engine = create_async_engine(db_url)
+        sm = _asm(engine, class_=AsyncSession, expire_on_commit=False)
+        _bg_session_makers[db_url] = sm
+    return sm
+
+
 async def _index_files_to_meilisearch(entry_ids: list[str], db_url: str):
     """Background task: index ingested file entries into Meilisearch."""
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
-    from akashic.services.search import index_files_batch
-
-    engine = create_async_engine(db_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    from akashic.services.search import build_entry_doc, index_files_batch
+    from akashic.services.tag_inheritance import get_tags_for_entries
 
     try:
-        async with session() as db:
-            from akashic.services.search import build_entry_doc
-            from akashic.services.tag_inheritance import get_tags_for_entries
-
+        async with _bg_session(db_url)() as db:
             uuids = [uuid.UUID(i) for i in entry_ids]
             tag_map = await get_tags_for_entries(db, entry_ids=uuids)
-            for eid in uuids:
-                result = await db.execute(select(Entry).where(Entry.id == eid))
-                e = result.scalar_one_or_none()
-                if not e or e.kind != "file":
-                    continue
+            # Bulk-fetch all entries in one round-trip rather than one
+            # SELECT per id. The downstream Meili push is already a
+            # single batch call.
+            result = await db.execute(
+                select(Entry).where(Entry.id.in_(uuids))
+            )
+            entries = [e for e in result.scalars() if e.kind == "file"]
+            if entries:
                 await index_files_batch([
-                    build_entry_doc(e, tags=tag_map.get(e.id, [])),
+                    build_entry_doc(e, tags=tag_map.get(e.id, []))
+                    for e in entries
                 ])
     except Exception as exc:
         logger.warning("Meilisearch indexing failed: %s", exc)
-    finally:
-        await engine.dispose()
 
 
 def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
@@ -90,18 +110,10 @@ async def _rollup_subtree_aggregates(source_id: str, db_url: str):
     change), bounded by directory count on full scans. Failures are
     logged but don't propagate — the StorageExplorer treemap will
     just look stale until the next scan."""
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
     from akashic.services.subtree_rollup import rollup_source, rollup_top_children
 
-    engine = create_async_engine(db_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        async with session() as db:
+        async with _bg_session(db_url)() as db:
             # Phase B safety net: only fill in NULL rows. Connectors
             # that emit subtree totals at scan time (Local from Phase B
             # onward) win; the rollup back-fills directories the
@@ -118,8 +130,6 @@ async def _rollup_subtree_aggregates(source_id: str, db_url: str):
         logger.warning(
             "subtree rollup failed for source_id=%s: %s", source_id, exc,
         )
-    finally:
-        await engine.dispose()
 
 
 async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
@@ -130,18 +140,10 @@ async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
     don't want blocking the final batch's response. Failure is logged
     but does not propagate — a missing snapshot row degrades analytics
     charts, but must not fail the scan."""
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
     from akashic.services.snapshot_writer import write_snapshot
 
-    engine = create_async_engine(db_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        async with session() as db:
+        async with _bg_session(db_url)() as db:
             await write_snapshot(db, uuid.UUID(source_id), uuid.UUID(scan_id))
             await db.commit()
         logger.info("scan_snapshot written for scan_id=%s source_id=%s", scan_id, source_id)
@@ -150,8 +152,6 @@ async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
             "scan_snapshot write failed for scan_id=%s source_id=%s: %s",
             scan_id, source_id, exc,
         )
-    finally:
-        await engine.dispose()
 
 
 async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_url: str):
@@ -160,22 +160,13 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
     Scoped to webhook owners who have access to this source (admins or
     SourcePermission rows).
     """
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
     from akashic.models.user import SourcePermission, User
     from akashic.models.webhook import Webhook
     from akashic.services.webhooks import dispatch_webhook
 
-    engine = create_async_engine(db_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
     event_type = f"scan.{status}"
     try:
-        async with session() as db:
+        async with _bg_session(db_url)() as db:
             admin_ids_result = await db.execute(
                 select(User.id).where(User.role == "admin")
             )
@@ -207,8 +198,6 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
                 })
     except Exception as exc:
         logger.warning("Webhook dispatch failed: %s", exc)
-    finally:
-        await engine.dispose()
 
 
 def _apply_entry_fields(target: Entry, src):
@@ -310,14 +299,23 @@ async def ingest_batch(
     new_file_ids: list[str] = []
     changed_file_ids: list[str] = []
 
-    for incoming in batch.entries:
+    # Bulk-load existing entries for dedup in a single round-trip.
+    # Pre-v0.4.x this was one SELECT per incoming entry, which dominated
+    # ingest latency at 10M+-file scale (1k-entry batch = 1k round-trips).
+    incoming_paths = [incoming.path for incoming in batch.entries]
+    existing_by_path: dict[str, Entry] = {}
+    if incoming_paths:
         existing_result = await db.execute(
             select(Entry).where(
                 Entry.source_id == batch.source_id,
-                Entry.path == incoming.path,
+                Entry.path.in_(incoming_paths),
             )
         )
-        existing = existing_result.scalar_one_or_none()
+        for entry in existing_result.scalars():
+            existing_by_path[entry.path] = entry
+
+    for incoming in batch.entries:
+        existing = existing_by_path.get(incoming.path)
 
         if existing:
             if entry_state_changed(existing, incoming):

@@ -20,8 +20,8 @@ func (c *LocalConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *LocalConnector) Walk(_ context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
-	return walker.Walk(root, excludePatterns, computeHash, fn)
+func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
+	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 
 func (c *LocalConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {

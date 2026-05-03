@@ -31,9 +31,17 @@ class _TimingMiddleware(BaseHTTPMiddleware):
         )
         if path_template in _INSTRUMENT_SKIP_PATHS:
             return await call_next(request)
-        t0 = time.perf_counter()
-        response = await call_next(request)
-        dur_s = time.perf_counter() - t0
+        # Make the request path visible to the SQL slow-query listener
+        # so per-endpoint thresholds (settings.slow_query_ms_overrides)
+        # can apply.
+        from akashic.database import current_endpoint_var
+        token = current_endpoint_var.set(path_template)
+        try:
+            t0 = time.perf_counter()
+            response = await call_next(request)
+            dur_s = time.perf_counter() - t0
+        finally:
+            current_endpoint_var.reset(token)
         # Record metrics first — slow log is just diagnostic on top.
         metrics_svc.observe_http_request(
             request.method, path_template, response.status_code, dur_s,

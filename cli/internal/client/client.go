@@ -200,7 +200,7 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 
 	var scans []Scan
@@ -208,6 +208,52 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 		return nil, err
 	}
 	return scans, nil
+}
+
+// GetScan fetches a single scan by ID. Returns an APIError with
+// Status=404 when the scan doesn't exist; callers can branch on that.
+func (c *Client) GetScan(ctx context.Context, scanID string) (*Scan, error) {
+	resp, err := c.get(ctx, "/api/scans/"+scanID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
+	}
+	var s Scan
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &s, nil
+}
+
+// CancelScan marks a running scan as cancelled. Idempotent — cancelling
+// an already-terminal scan returns success.
+func (c *Client) CancelScan(ctx context.Context, scanID string) error {
+	resp, err := c.post(ctx, "/api/scans/"+scanID+"/cancel", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return &APIError{Status: resp.StatusCode, Body: string(body)}
+	}
+	return nil
+}
+
+// APIError carries the HTTP status alongside the server's response body
+// so the CLI can translate it into a meaningful exit code (1 for 4xx,
+// 2 for 5xx, etc).
+type APIError struct {
+	Status int
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.Status, e.Body)
 }
 
 func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]DuplicateGroup, error) {

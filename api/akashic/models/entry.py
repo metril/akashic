@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -57,6 +58,18 @@ class Entry(Base):
             "parent_path",
             "subtree_size_bytes",
             postgresql_using="btree",
+        ),
+        # Move-detection at end-of-batch ingest: lookups by
+        # content_hash are scoped to live files only — the much larger
+        # set of historical/deleted rows would otherwise dominate the
+        # plain `ix_entries_content_hash` scan.
+        Index(
+            "ix_entries_active_content_hash",
+            "source_id",
+            "content_hash",
+            postgresql_where=text(
+                "is_deleted = false AND kind = 'file' AND content_hash IS NOT NULL"
+            ),
         ),
     )
 

@@ -1,6 +1,7 @@
 package walker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,8 +26,10 @@ type WalkFunc func(entry *models.EntryRecord) error
 //
 // Errors from individual entries are swallowed (matches the previous
 // behaviour) so a single permission-denied subdirectory doesn't kill
-// the whole scan.
-func Walk(root string, excludePatterns []string, computeHash bool, fn WalkFunc) error {
+// the whole scan. ctx cancellation, however, is honored — the walk
+// returns ctx.Err() at the next directory boundary so a SIGTERM /
+// scan-cancel actually stops in-flight 10M+ scans.
+func Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn WalkFunc) error {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
@@ -36,7 +39,7 @@ func Walk(root string, excludePatterns []string, computeHash bool, fn WalkFunc) 
 
 	// We don't emit the root itself — `walkDir` returns its totals to
 	// nowhere. Real code only cares about descendants.
-	_, err := walkDir(root, root, excludeSet, computeHash, owners, fn)
+	_, err := walkDir(ctx, root, root, excludeSet, computeHash, owners, fn)
 	return err
 }
 
@@ -56,6 +59,7 @@ type subtreeTotals struct {
 //
 // Returns the totals for THIS subtree so the caller can sum them.
 func walkDir(
+	ctx context.Context,
 	path string,
 	root string,
 	excludeSet map[string]bool,
@@ -64,6 +68,10 @@ func walkDir(
 	fn WalkFunc,
 ) (subtreeTotals, error) {
 	var totals subtreeTotals
+
+	if err := ctx.Err(); err != nil {
+		return totals, err
+	}
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -87,7 +95,12 @@ func walkDir(
 		if d.IsDir() {
 			// Recurse first, then emit the child directory's record
 			// with its accumulated totals.
-			childTotals, _ := walkDir(childPath, root, excludeSet, computeHash, owners, fn)
+			childTotals, cerr := walkDir(ctx, childPath, root, excludeSet, computeHash, owners, fn)
+			if cerr != nil {
+				// Propagate cancellation up; permission errors are
+				// already swallowed at the recursion site.
+				return totals, cerr
+			}
 			totals.bytes += childTotals.bytes
 			totals.fileCount += childTotals.fileCount
 			totals.dirCount += childTotals.dirCount + 1 // +1 for the child dir itself

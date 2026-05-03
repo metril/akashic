@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
@@ -46,7 +47,13 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("load private key: %w", err)
 	}
-	httpc := &http.Client{Timeout: 60 * time.Second}
+	// Reuse one HTTP client with keepalive across handshake / heartbeat /
+	// lease / complete. Default `http.Client{}` would close the
+	// connection between every request — wasteful at heartbeat cadence.
+	httpc := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: newKeepaliveTransport(),
+	}
 
 	// 1) Handshake — single-shot. Out-of-range protocol → fatal.
 	if err := handshake(ctx, httpc, cfg, priv); err != nil {
@@ -81,6 +88,17 @@ func Run(ctx context.Context, cfg Config) error {
 			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
 		}
 	}
+}
+
+// newKeepaliveTransport returns an *http.Transport tuned for a long-
+// lived agent calling the same api host repeatedly. The Go default
+// transport caps idle conns per host at 2; we raise it because lease
+// + heartbeat + (occasionally) complete can race.
+func newKeepaliveTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = 8
+	t.IdleConnTimeout = 90 * time.Second
+	return t
 }
 
 // ── Wire types ───────────────────────────────────────────────────────────
@@ -120,12 +138,46 @@ type completeReq struct {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
+// jwtCache caches the most recently minted bearer header. The api
+// accepts JWTs for 5 minutes (see MintJWT); we re-mint when the
+// remaining lifetime drops below jwtRefreshAt — early enough that an
+// in-flight request never carries a token that expires mid-flight.
+//
+// Pre-cache, every authHeader call (heartbeat every 30 s, plus lease /
+// complete) re-signed the token even though Ed25519 signatures are
+// cheap. Cleaner contract for downstream code, and saves a few
+// microseconds per call too.
+type jwtCache struct {
+	mu        sync.Mutex
+	header    string
+	expiresAt time.Time
+}
+
+const (
+	jwtTTL       = 5 * time.Minute // matches MintJWT's exp claim
+	jwtRefreshAt = 1 * time.Minute // remint when ≤1 minute remains
+)
+
+// agentTokenCache is process-global for an agent — there is exactly
+// one identity (cfg.ScannerID + priv) per agent process, so a single
+// cache is sufficient. A fleshier design would key by (scannerID,
+// pubkey-fingerprint), but that's overkill until SIGHUP'd key
+// rotation actually swaps the in-memory key.
+var agentTokenCache jwtCache
+
 func authHeader(cfg Config, priv ed25519.PrivateKey) (string, error) {
+	agentTokenCache.mu.Lock()
+	defer agentTokenCache.mu.Unlock()
+	if agentTokenCache.header != "" && time.Until(agentTokenCache.expiresAt) > jwtRefreshAt {
+		return agentTokenCache.header, nil
+	}
 	tok, err := MintJWT(priv, cfg.ScannerID)
 	if err != nil {
 		return "", err
 	}
-	return "Bearer " + tok, nil
+	agentTokenCache.header = "Bearer " + tok
+	agentTokenCache.expiresAt = time.Now().Add(jwtTTL)
+	return agentTokenCache.header, nil
 }
 
 func doJSON(

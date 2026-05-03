@@ -84,6 +84,8 @@ distinction.
 | Var | Default | What |
 |-----|---------|------|
 | `STREAMING_TOPCHILDREN` | `false` | When `true`, ingest batches mark touched parent paths in a Redis dirty set; a background worker incrementally rebuilds the storage explorer's `top_children` rollup so the Storage view updates mid-scan instead of waiting for post-scan rollup. Off by default — recommended on for installs > ~1M files. |
+| `SLOW_QUERY_MS` | `100` | Global threshold for the slow-query log. Any SQL statement that exceeds this duration is logged at WARN with a truncated SQL preview. Lower it to surface borderline regressions earlier; raise it on noisy installs. |
+| `SLOW_QUERY_MS_OVERRIDES` | `{}` | Per-endpoint overrides as JSON. Keys are substrings matched against the request path; first match wins. Example: `SLOW_QUERY_MS_OVERRIDES='{"browse": 50, "ingest": 200}'` tightens Browse/Search but relaxes the (intentionally heavier) ingest path. |
 
 ## Scanner / discovery
 

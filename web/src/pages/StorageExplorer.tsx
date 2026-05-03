@@ -33,6 +33,7 @@ import { Treemap, type TreeNode } from "../components/storage/Treemap";
 import { Sunburst } from "../components/storage/Sunburst";
 import { ContextMenu, type ContextMenuItem } from "../components/storage/ContextMenu";
 import { HoverSidebar } from "../components/storage/HoverSidebar";
+import { RenderBoundary } from "../components/RenderBoundary";
 import type { ColorMode, LayoutMode } from "./StorageExplorer.types";
 
 interface SourcesResponse {
@@ -387,37 +388,47 @@ export default function StorageExplorer() {
                   style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
                 >
                   <div ref={setContainerRef} className="relative flex-1">
-                    {layoutMode === "sunburst" ? (
-                      <Sunburst
-                        root={root}
-                        width={size.w}
-                        height={size.h}
-                        mode={colorMode}
-                        onLeafClick={handleTreemapLeafClick}
-                        onDirClick={handleTreemapDirClick}
-                        onContextMenu={(node, x, y) => {
-                          if (isSourcePseudoNode(node)) return;
-                          setCtx({ node, x, y });
-                        }}
-                        onHoverChange={setHoverChain}
-                        onGoUp={isCrossSource ? undefined : goUp}
-                      />
-                    ) : (
-                      <Treemap
-                        root={root}
-                        width={size.w}
-                        height={size.h}
-                        mode={colorMode}
-                        onLeafClick={handleTreemapLeafClick}
-                        onDirClick={handleTreemapDirClick}
-                        onContextMenu={(node, x, y) => {
-                          if (isSourcePseudoNode(node)) return;
-                          setCtx({ node, x, y });
-                        }}
-                        onHoverChange={setHoverChain}
-                        onGoUp={isCrossSource ? undefined : goUp}
-                      />
-                    )}
+                    <RenderBoundary
+                      fallback={() => (
+                        <div className="w-full h-full flex items-center justify-center text-fg-subtle text-sm p-4 text-center">
+                          Storage view crashed mid-render. This usually
+                          means the GPU context was lost. Switch to the
+                          other view above, or reload the page.
+                        </div>
+                      )}
+                    >
+                      {layoutMode === "sunburst" ? (
+                        <Sunburst
+                          root={root}
+                          width={size.w}
+                          height={size.h}
+                          mode={colorMode}
+                          onLeafClick={handleTreemapLeafClick}
+                          onDirClick={handleTreemapDirClick}
+                          onContextMenu={(node, x, y) => {
+                            if (isSourcePseudoNode(node)) return;
+                            setCtx({ node, x, y });
+                          }}
+                          onHoverChange={setHoverChain}
+                          onGoUp={isCrossSource ? undefined : goUp}
+                        />
+                      ) : (
+                        <Treemap
+                          root={root}
+                          width={size.w}
+                          height={size.h}
+                          mode={colorMode}
+                          onLeafClick={handleTreemapLeafClick}
+                          onDirClick={handleTreemapDirClick}
+                          onContextMenu={(node, x, y) => {
+                            if (isSourcePseudoNode(node)) return;
+                            setCtx({ node, x, y });
+                          }}
+                          onHoverChange={setHoverChain}
+                          onGoUp={isCrossSource ? undefined : goUp}
+                        />
+                      )}
+                    </RenderBoundary>
                     {ctx && (
                       <ContextMenu
                         x={ctx.x}

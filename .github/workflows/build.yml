@@ -112,6 +112,9 @@ jobs:
       - name: Typecheck
         working-directory: web
         run: npx tsc --noEmit
+      - name: Lint
+        working-directory: web
+        run: npm run lint
       - name: Vitest
         working-directory: web
         run: npx vitest run

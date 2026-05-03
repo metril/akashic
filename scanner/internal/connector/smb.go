@@ -121,6 +121,9 @@ func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []
 }
 
 func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.EntryRecord) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	entries, err := c.smbShare.ReadDir(dir)
 	if err != nil {
 		return nil

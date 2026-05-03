@@ -140,6 +140,11 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 	walker := c.sftpClient.Walk(root)
 	currentDir := ""
 	for walker.Step() {
+		// Honour cancellation between SFTP steps so a SIGTERM /
+		// scan-cancel actually interrupts a multi-million-file walk.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := walker.Err(); err != nil {
 			log.Printf("warning: walk error at %s: %v", walker.Path(), err)
 			continue
@@ -164,6 +169,12 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 			parent := path.Dir(p)
 			if parent != currentDir {
 				currentDir = parent
+				// Evict the previous directory's entries before
+				// pulling the new ones — without this, perdir-mode
+				// scans of a million-directory tree leak ~1 M ACL
+				// records into the cache map. We only need the
+				// current directory's entries for the lookup below.
+				c.aclCache = make(map[string]*models.ACL)
 				c.prefetchACLs(parent, false)
 			}
 		}

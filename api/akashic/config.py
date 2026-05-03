@@ -19,6 +19,18 @@ class Settings(BaseSettings):
 
     audit_retention_days: int = 0  # 0 = forever
 
+    # Slow-query observability (v0.4.x). Any SQL statement whose
+    # execution exceeds the matching threshold gets logged at WARN.
+    # `slow_query_ms` is the global default; `slow_query_ms_overrides`
+    # lets ops tighten it for specific endpoints (the prefix matches
+    # against the request path) so Browse/Search regressions surface
+    # before they reach 100 ms while ingest's intentionally heavier
+    # batch endpoint can have a roomier ceiling.
+    #
+    # Set via env as JSON: SLOW_QUERY_MS_OVERRIDES='{"browse": 50, "ingest": 200}'
+    slow_query_ms: int = 100
+    slow_query_ms_overrides: dict[str, int] = {}
+
     # First-boot seed for the runtime `discovery_enabled` server
     # setting. Once the row exists, runtime PATCHes from the UI take
     # precedence over this env var. Set to true in IaC if you want
