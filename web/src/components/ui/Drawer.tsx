@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
 
 interface DrawerProps {
@@ -36,6 +36,22 @@ export function Drawer({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  // v0.4.13 Phase 2 — apply `transition-transform` to the aside ONLY
+  // during the open/close animation window. Permanently-applied
+  // transitions keep the compositor layer hot, contributing to the
+  // hover stutter on buttons inside the drawer. We toggle the class
+  // on when `open` flips and back off when the transform transition
+  // ends (filtered by propertyName so the overlay's opacity
+  // transitionend doesn't clear it prematurely).
+  const [transitioning, setTransitioning] = useState(false);
+  const prevOpenRef = useRef(open);
+  useEffect(() => {
+    if (prevOpenRef.current !== open) {
+      setTransitioning(true);
+      prevOpenRef.current = open;
+    }
+  }, [open]);
+
   return (
     <div
       aria-hidden={!open}
@@ -44,9 +60,19 @@ export function Drawer({
         open && "pointer-events-auto",
       )}
     >
+      {/* v0.4.13 Phase 1 — dropped `backdrop-blur-[2px]` from the
+          overlay. backdrop-filter creates a permanent GPU compositor
+          layer for the full open duration; that layer is what was
+          producing the hover stutter on buttons inside the drawer
+          (cursor input gets gated on the GPU's blur work during
+          hover-induced micro-repaints). The blur compounded when
+          nested — the live log panel uses its own <Drawer>, stacking
+          two blur layers. Alpha bumped 30 -> 45 so the scrim still
+          reads as "modal active" without relying on the blur for
+          visual contrast. */}
       <div
         className={cn(
-          "absolute inset-0 bg-gray-900/30 backdrop-blur-[2px] transition-opacity duration-200",
+          "absolute inset-0 bg-gray-900/45 transition-opacity duration-200",
           open ? "opacity-100" : "opacity-0",
         )}
         onClick={onClose}
@@ -54,10 +80,13 @@ export function Drawer({
       <aside
         role="dialog"
         aria-modal="true"
+        onTransitionEnd={(e) => {
+          if (e.propertyName === "transform") setTransitioning(false);
+        }}
         className={cn(
           "absolute right-0 top-0 h-full w-full bg-surface shadow-2xl",
           "border-l border-line flex flex-col",
-          "transition-transform duration-200 ease-out",
+          transitioning && "transition-transform duration-200 ease-out",
           widthMap[width],
           open ? "translate-x-0" : "translate-x-full",
         )}
