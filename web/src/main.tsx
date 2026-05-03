@@ -29,7 +29,10 @@ queryClient.setQueryDefaults(["scanners"], { staleTime: FIVE_MINUTES });
 queryClient.setQueryDefaults(["server-setting"], { staleTime: FIVE_MINUTES });
 queryClient.setQueryDefaults(["users"], { staleTime: FIVE_MINUTES });
 queryClient.setQueryDefaults(["principals"], { staleTime: FIVE_MINUTES });
-queryClient.setQueryDefaults(["analytics"], { staleTime: ONE_MINUTE });
+// Analytics charts don't need second-by-second freshness — the storage
+// view is the live one. Five minutes prevents a refetch from firing
+// mid-tooltip-hover and stalling the chart.
+queryClient.setQueryDefaults(["analytics"], { staleTime: FIVE_MINUTES });
 queryClient.setQueryDefaults(["dashboard"], { staleTime: ONE_MINUTE });
 queryClient.setQueryDefaults(["admin-audit"], { staleTime: FIVE_SECONDS });
 

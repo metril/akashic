@@ -41,6 +41,13 @@ export interface Source {
   status: string;
   created_at: string;
   updated_at: string;
+  // External / removable storage (USB drive, intermittent network mount).
+  // `is_reachable` records the last on-demand reachability probe or
+  // scan-complete result; null = never checked.
+  is_removable: boolean;
+  is_reachable: boolean | null;
+  last_reachable_at: string | null;
+  last_reachability_check_at: string | null;
 }
 
 export interface FileVersion {

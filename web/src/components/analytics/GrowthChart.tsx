@@ -1,3 +1,4 @@
+import { memo, useCallback, useMemo } from "react";
 import {
   CartesianGrid,
   Line,
@@ -8,22 +9,39 @@ import {
   YAxis,
 } from "recharts";
 
-import { useChartColors } from "../../hooks/useChartColors";
 import type { TimeseriesPoint } from "../../hooks/useAnalyticsTimeseries";
 import { formatBytes, formatNumber } from "../../lib/format";
+import { useChartTooltipStyle } from "./chartTooltipStyle";
 
 interface Props {
   data: TimeseriesPoint[];
   metric: "size" | "count";
 }
 
-export function GrowthChart({ data, metric }: Props) {
-  const c = useChartColors();
-  const points = data.map((p) => ({
-    ...p,
-    label: new Date(p.taken_at).toLocaleDateString(),
-  }));
+export const GrowthChart = memo(function GrowthChart({ data, metric }: Props) {
+  const { contentStyle, labelStyle, itemStyle, colors: c } =
+    useChartTooltipStyle();
+
+  // Memo the per-point label transform so a parent re-render that
+  // doesn't actually mutate `data` doesn't reshape the array (which
+  // would defeat recharts' diffing further down).
+  const points = useMemo(
+    () =>
+      data.map((p) => ({
+        ...p,
+        label: new Date(p.taken_at).toLocaleDateString(),
+      })),
+    [data],
+  );
+
   const fmt = metric === "size" ? formatBytes : formatNumber;
+  const seriesName = metric === "size" ? "Size" : "Files";
+  const tickFormatter = useCallback((v: number) => fmt(v), [fmt]);
+  const formatter = useCallback(
+    (v: number) => [fmt(v), seriesName] as [string, string],
+    [fmt, seriesName],
+  );
+  const labelFormatter = useCallback((l: string) => l, []);
 
   return (
     <div className="h-64 -mx-2">
@@ -43,24 +61,17 @@ export function GrowthChart({ data, metric }: Props) {
           <YAxis
             stroke={c.axis}
             fontSize={11}
-            tickFormatter={(v) => fmt(v)}
+            tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
             width={70}
           />
           <Tooltip
-            contentStyle={{
-              background: c.tooltipBg,
-              border: `1px solid ${c.tooltipBorder}`,
-              borderRadius: 8,
-              fontSize: 13,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
-              color: c.tooltipFg,
-            }}
-            labelStyle={{ color: c.tooltipFg }}
-            itemStyle={{ color: c.tooltipFg }}
-            formatter={(v: number) => [fmt(v), metric === "size" ? "Size" : "Files"]}
-            labelFormatter={(l) => l}
+            contentStyle={contentStyle}
+            labelStyle={labelStyle}
+            itemStyle={itemStyle}
+            formatter={formatter}
+            labelFormatter={labelFormatter}
           />
           <Line
             type="monotone"
@@ -69,9 +80,10 @@ export function GrowthChart({ data, metric }: Props) {
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 4 }}
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
-}
+});

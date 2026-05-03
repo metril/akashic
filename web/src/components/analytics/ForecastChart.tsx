@@ -1,3 +1,4 @@
+import { memo, useCallback, useMemo } from "react";
 import {
   Area,
   CartesianGrid,
@@ -9,34 +10,43 @@ import {
   YAxis,
 } from "recharts";
 
-import { useChartColors } from "../../hooks/useChartColors";
 import type { ForecastResponse } from "../../hooks/useAnalyticsTimeseries";
 import { formatBytes } from "../../lib/format";
+import { useChartTooltipStyle } from "./chartTooltipStyle";
 
 interface Props {
   data: ForecastResponse;
 }
 
-export function ForecastChart({ data }: Props) {
-  const c = useChartColors();
+export const ForecastChart = memo(function ForecastChart({ data }: Props) {
+  const { contentStyle, labelStyle, itemStyle, colors: c } =
+    useChartTooltipStyle();
 
   // Combine history + forecast into a single chart series. History has
   // a `value` only; forecast points carry low/high too. The ComposedChart
   // overlays a line (value) on a shaded area (low → high) so the
   // confidence band reads visually as widening into the future.
-  const history = data.history.map((p) => ({
-    label: new Date(p.taken_at).toLocaleDateString(),
-    history: p.value,
-    value: p.value,
-  }));
-  const forecast = (data.forecast?.points ?? []).map((p) => ({
-    label: new Date(p.taken_at).toLocaleDateString(),
-    forecast: p.value,
-    low: p.low,
-    high: p.high,
-  }));
+  const combined = useMemo(() => {
+    const history = data.history.map((p) => ({
+      label: new Date(p.taken_at).toLocaleDateString(),
+      history: p.value,
+      value: p.value,
+    }));
+    const forecast = (data.forecast?.points ?? []).map((p) => ({
+      label: new Date(p.taken_at).toLocaleDateString(),
+      forecast: p.value,
+      low: p.low,
+      high: p.high,
+    }));
+    return [...history, ...forecast];
+  }, [data]);
 
-  const combined = [...history, ...forecast];
+  const tickFormatter = useCallback((v: number) => formatBytes(v), []);
+  const formatter = useCallback(
+    (v: number, n: string) => [formatBytes(v), n] as [string, string],
+    [],
+  );
+  const labelFormatter = useCallback((l: string) => l, []);
 
   return (
     <div className="h-64 -mx-2">
@@ -50,24 +60,17 @@ export function ForecastChart({ data }: Props) {
           <YAxis
             stroke={c.axis}
             fontSize={11}
-            tickFormatter={(v) => formatBytes(v)}
+            tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
             width={70}
           />
           <Tooltip
-            contentStyle={{
-              background: c.tooltipBg,
-              border: `1px solid ${c.tooltipBorder}`,
-              borderRadius: 8,
-              fontSize: 13,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
-              color: c.tooltipFg,
-            }}
-            labelStyle={{ color: c.tooltipFg }}
-            itemStyle={{ color: c.tooltipFg }}
-            formatter={(v: number, n: string) => [formatBytes(v), n]}
-            labelFormatter={(l) => l}
+            contentStyle={contentStyle}
+            labelStyle={labelStyle}
+            itemStyle={itemStyle}
+            formatter={formatter}
+            labelFormatter={labelFormatter}
           />
           {/* Solid line for the historical points */}
           <Line
@@ -109,4 +112,4 @@ export function ForecastChart({ data }: Props) {
       </ResponsiveContainer>
     </div>
   );
-}
+});

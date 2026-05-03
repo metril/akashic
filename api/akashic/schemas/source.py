@@ -14,6 +14,10 @@ class SourceCreate(BaseModel):
     # = any registered scanner can claim. Set to a pool tag (e.g.
     # "site-amsterdam") to lock the source to that pool.
     preferred_pool: str | None = None
+    # External / removable storage hint. None on create → server
+    # infers from type/path (USB / network mounts → true; otherwise
+    # false). See services/source_defaults.py.
+    is_removable: bool | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -22,6 +26,7 @@ class SourceUpdate(BaseModel):
     scan_schedule: str | None = None
     exclude_patterns: list[str] | None = None
     preferred_pool: str | None = None
+    is_removable: bool | None = None
 
 
 _SECRET_KEYS = {"password", "secret", "key", "token", "credentials", "private_key"}
@@ -48,6 +53,10 @@ class SourceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     security_metadata: dict | None = None
+    is_removable: bool = False
+    is_reachable: bool | None = None
+    last_reachable_at: datetime | None = None
+    last_reachability_check_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -80,6 +89,10 @@ class SourceListResponse(BaseModel):
     summary: str
     created_at: datetime
     updated_at: datetime
+    is_removable: bool = False
+    is_reachable: bool | None = None
+    last_reachable_at: datetime | None = None
+    last_reachability_check_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -100,6 +113,10 @@ class SourceListResponse(BaseModel):
             summary=_summary_for(source),
             created_at=source.created_at,
             updated_at=source.updated_at,
+            is_removable=source.is_removable,
+            is_reachable=source.is_reachable,
+            last_reachable_at=source.last_reachable_at,
+            last_reachability_check_at=source.last_reachability_check_at,
         )
 
 

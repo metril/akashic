@@ -915,7 +915,14 @@ async def complete_scan(
     if source is not None:
         if body.status == "completed":
             source.status = "online"
-            source.last_scan_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            source.last_scan_at = now
+            # A successful scan implies the source was reachable. Bumps
+            # the reachability timestamp without the user having to
+            # click Check now (also flips is_reachable=true if a prior
+            # check had marked it false).
+            source.is_reachable = True
+            source.last_reachable_at = now
         elif body.status == "failed":
             source.status = "failed"
         elif body.status == "cancelled":

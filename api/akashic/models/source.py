@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import Boolean, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,5 +24,13 @@ class Source(Base):
     # this source's scans. Set to a pool name (e.g. "site-amsterdam")
     # to lock the source to scanners in that pool.
     preferred_pool: Mapped[str | None] = mapped_column(String, nullable=True)
+    # External / removable storage: USB drives, network shares whose host
+    # may be offline, etc. Distinguishes "intentionally intermittent"
+    # from "actually broken". `is_reachable` records the last on-demand
+    # /check-reachability or scan-complete result; NULL = never checked.
+    is_removable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_reachable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reachability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

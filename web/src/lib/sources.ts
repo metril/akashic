@@ -1,5 +1,32 @@
 import type { Source } from "../types";
 
+const REMOVABLE_LOCAL_PREFIXES = [
+  "/media/",
+  "/run/media/",
+  "/mnt/",
+  "/Volumes/",
+];
+
+/**
+ * Best-effort default for the "Intermittently available" checkbox on
+ * the source create form. Mirrors
+ * api/akashic/services/source_defaults.py so the checkbox shows the
+ * right initial state without a server round-trip. The server runs
+ * the same inference on submit, so the two cannot drift in production
+ * — but if they do, the server wins.
+ */
+export function inferIsRemovable(
+  type: string,
+  config: Record<string, unknown> | undefined,
+): boolean {
+  if (type === "local") {
+    const raw = config?.path;
+    const path = typeof raw === "string" ? raw.trim() : "";
+    return REMOVABLE_LOCAL_PREFIXES.some((p) => path.startsWith(p));
+  }
+  return false;
+}
+
 /**
  * Compact, type-aware one-liner for the Sources list card. Replaces the
  * old `JSON.stringify(connection_config)` fallback that turned every

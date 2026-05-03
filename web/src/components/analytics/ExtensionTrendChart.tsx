@@ -1,3 +1,4 @@
+import { memo, useCallback, useMemo } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -9,37 +10,49 @@ import {
   YAxis,
 } from "recharts";
 
-import { useChartColors } from "../../hooks/useChartColors";
 import type { ExtensionTrendPoint } from "../../hooks/useAnalyticsTimeseries";
 import { formatBytes } from "../../lib/format";
+import { useChartTooltipStyle } from "./chartTooltipStyle";
 
 const SERIES_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+const LEGEND_STYLE = { fontSize: 11, paddingTop: 8 };
 
 interface Props {
   data: Record<string, ExtensionTrendPoint[]>;
 }
 
-export function ExtensionTrendChart({ data }: Props) {
-  const c = useChartColors();
-  const extensions = Object.keys(data);
+export const ExtensionTrendChart = memo(function ExtensionTrendChart({ data }: Props) {
+  const { contentStyle, labelStyle, itemStyle, colors: c } =
+    useChartTooltipStyle();
+  const extensions = useMemo(() => Object.keys(data), [data]);
 
   // Pivot wide: one row per timestamp, one column per extension's bytes.
   // Recharts' multi-line layout wants a single `data` array with named
   // series rather than separate datasets, so this re-shape is necessary.
-  type Row = { label: string; [series: string]: string | number };
-  const byDate = new Map<string, Row>();
-  for (const ext of extensions) {
-    for (const p of data[ext]) {
-      const key = p.taken_at;
-      const row =
-        byDate.get(key) ?? ({ label: new Date(key).toLocaleDateString() } as Row);
-      row[ext] = p.bytes;
-      byDate.set(key, row);
+  const points = useMemo(() => {
+    type Row = { label: string; [series: string]: string | number };
+    const byDate = new Map<string, Row>();
+    for (const ext of extensions) {
+      for (const p of data[ext]) {
+        const key = p.taken_at;
+        const row =
+          byDate.get(key) ??
+          ({ label: new Date(key).toLocaleDateString() } as Row);
+        row[ext] = p.bytes;
+        byDate.set(key, row);
+      }
     }
-  }
-  const points = [...byDate.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, row]) => row);
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, row]) => row);
+  }, [data, extensions]);
+
+  const tickFormatter = useCallback((v: number) => formatBytes(v), []);
+  const formatter = useCallback(
+    (v: number, n: string) => [formatBytes(v), n] as [string, string],
+    [],
+  );
+  const labelFormatter = useCallback((l: string) => l, []);
 
   return (
     <div className="h-64 -mx-2">
@@ -50,26 +63,19 @@ export function ExtensionTrendChart({ data }: Props) {
           <YAxis
             stroke={c.axis}
             fontSize={11}
-            tickFormatter={(v) => formatBytes(v)}
+            tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
             width={70}
           />
           <Tooltip
-            contentStyle={{
-              background: c.tooltipBg,
-              border: `1px solid ${c.tooltipBorder}`,
-              borderRadius: 8,
-              fontSize: 13,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
-              color: c.tooltipFg,
-            }}
-            labelStyle={{ color: c.tooltipFg }}
-            itemStyle={{ color: c.tooltipFg }}
-            formatter={(v: number, n: string) => [formatBytes(v), n]}
-            labelFormatter={(l) => l}
+            contentStyle={contentStyle}
+            labelStyle={labelStyle}
+            itemStyle={itemStyle}
+            formatter={formatter}
+            labelFormatter={labelFormatter}
           />
-          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          <Legend wrapperStyle={LEGEND_STYLE} />
           {extensions.map((ext, i) => (
             <Line
               key={ext}
@@ -86,4 +92,4 @@ export function ExtensionTrendChart({ data }: Props) {
       </ResponsiveContainer>
     </div>
   );
-}
+});

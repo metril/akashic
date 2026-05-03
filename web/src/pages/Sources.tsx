@@ -20,6 +20,7 @@ import { computeETA, formatDate, formatDuration, formatNumber } from "../lib/for
 import { formatSourceSummary } from "../lib/sources";
 import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
+import { ReachabilityBadge } from "../components/sources/ReachabilityBadge";
 import { ScanLogPanel } from "../components/scans/ScanLogPanel";
 import { SourceDetail } from "../components/sources/SourceDetail";
 import { api } from "../api/client";
@@ -170,6 +171,14 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
             <dt className="text-fg-subtle">Last scan</dt>
             <dd>{formatDate(source.last_scan_at)}</dd>
           </div>
+          {source.is_removable && (
+            <div className="flex gap-2 pt-0.5">
+              <dt className="text-fg-subtle">Reachability</dt>
+              <dd className="min-w-0">
+                <ReachabilityBadge source={source} compact />
+              </dd>
+            </div>
+          )}
         </dl>
       </button>
 

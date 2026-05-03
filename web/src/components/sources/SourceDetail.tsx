@@ -3,8 +3,13 @@ import { toast } from "sonner";
 import { Badge, Button, Drawer } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
-import { useUpdateSource, useDeleteSource } from "../../hooks/useSources";
+import {
+  useCheckSourceReachability,
+  useDeleteSource,
+  useUpdateSource,
+} from "../../hooks/useSources";
 import { DeleteSourceModal } from "./DeleteSourceModal";
+import { ReachabilityBadge } from "./ReachabilityBadge";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { useQueryClient } from "@tanstack/react-query";
@@ -130,6 +135,7 @@ const DetailsTab = memo(function DetailsTab({
   const updateSource = useUpdateSource();
   const deleteSource = useDeleteSource();
   const testSource = useTestSource();
+  const checkReachability = useCheckSourceReachability();
 
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(source.name);
@@ -137,6 +143,7 @@ const DetailsTab = memo(function DetailsTab({
     (source.connection_config ?? {}) as Partial<AnyConfig>,
   );
   const [draftSchedule, setDraftSchedule] = useState<string>(source.scan_schedule ?? "");
+  const [draftIsRemovable, setDraftIsRemovable] = useState<boolean>(source.is_removable);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -154,6 +161,7 @@ const DetailsTab = memo(function DetailsTab({
     setDraftName(source.name);
     setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
     setDraftSchedule(source.scan_schedule ?? "");
+    setDraftIsRemovable(source.is_removable);
     setError(null);
     setTestResult(null);
   }, [source.id]);
@@ -182,6 +190,7 @@ const DetailsTab = memo(function DetailsTab({
           name: draftName,
           connection_config: cleaned,
           scan_schedule: draftSchedule || null,
+          is_removable: draftIsRemovable,
         },
       });
       toast.promise(promise, {
@@ -198,6 +207,7 @@ const DetailsTab = memo(function DetailsTab({
       setDraftName(updated.name);
       setDraftConfig((updated.connection_config ?? {}) as Partial<AnyConfig>);
       setDraftSchedule(updated.scan_schedule ?? "");
+      setDraftIsRemovable(updated.is_removable);
       queryClient.invalidateQueries({ queryKey: ["sources", source.id, "audit"] });
       setEditing(false);
     } catch (e) {
@@ -227,7 +237,36 @@ const DetailsTab = memo(function DetailsTab({
     }
   }
 
+  async function handleCheckNow() {
+    const p = checkReachability.mutateAsync(source.id);
+    toast.promise(p, {
+      loading: "Checking reachability…",
+      success: (r) =>
+        r.result.ok
+          ? r.result.tier
+            ? `Reachable · ${r.result.tier}`
+            : "Reachable."
+          : `Unreachable: ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}`,
+      error: (e: unknown) =>
+        `Check failed: ${e instanceof Error ? e.message : "unknown error"}`,
+    });
+    try {
+      await p;
+    } catch {
+      // toast already surfaced the error
+    }
+  }
+
   async function handleScanNow() {
+    // Removable + known-unreachable → block to avoid queuing a scan
+    // that will immediately fail at Connect time. The user can still
+    // Check now to refresh state, then retry.
+    if (source.is_removable && source.is_reachable === false) {
+      toast.error(
+        "Source is currently unmounted. Click Check now to refresh, or reconnect the drive first.",
+      );
+      return;
+    }
     const p = api.post("/scans/trigger", {
       source_id: source.id,
       scan_type: "incremental",
@@ -285,6 +324,8 @@ const DetailsTab = memo(function DetailsTab({
           onConfigChange={setDraftConfig}
           schedule={draftSchedule}
           onScheduleChange={setDraftSchedule}
+          isRemovable={draftIsRemovable}
+          onIsRemovableChange={setDraftIsRemovable}
         />
       )}
 
@@ -323,6 +364,11 @@ const DetailsTab = memo(function DetailsTab({
               // assuming the first click did nothing. The api now
               // dedups on the server side too — both belt-and-braces.
               disabled={source.status === "scanning" || activeScanId != null}
+              title={
+                source.is_removable && source.is_reachable === false
+                  ? "Source is currently unmounted. Use Check now first."
+                  : undefined
+              }
             >
               {source.status === "scanning"
                 ? "Scanning…"
@@ -330,6 +376,17 @@ const DetailsTab = memo(function DetailsTab({
                   ? "Queued…"
                   : "Scan now"}
             </Button>
+            {source.is_removable && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleCheckNow}
+                loading={checkReachability.isPending}
+                title="Run a connection probe and update the reachability badge."
+              >
+                Check now
+              </Button>
+            )}
             {isAdmin && (
               <Button
                 size="sm"
@@ -384,6 +441,7 @@ const DetailsTab = memo(function DetailsTab({
                 setDraftName(source.name);
                 setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
                 setDraftSchedule(source.scan_schedule ?? "");
+                setDraftIsRemovable(source.is_removable);
                 setError(null);
                 setTestResult(null);
               }}
@@ -444,6 +502,11 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
     <dl className="text-sm space-y-2">
       <Row label="Summary"><span className="font-mono text-xs">{summary}</span></Row>
       <Row label="Status"><span>{source.status}</span></Row>
+      {source.is_removable && (
+        <Row label="Reachability">
+          <ReachabilityBadge source={source} />
+        </Row>
+      )}
       <Row label="Last scan">
         <span className="text-fg-muted">{lastScanStr}</span>
       </Row>
@@ -494,6 +557,8 @@ interface EditRowsProps {
   onConfigChange: (c: Partial<AnyConfig>) => void;
   schedule: string;
   onScheduleChange: (s: string) => void;
+  isRemovable: boolean;
+  onIsRemovableChange: (v: boolean) => void;
 }
 
 function EditRows({
@@ -504,6 +569,8 @@ function EditRows({
   onConfigChange,
   schedule,
   onScheduleChange,
+  isRemovable,
+  onIsRemovableChange,
 }: EditRowsProps) {
   return (
     <div className="space-y-3">
@@ -534,6 +601,22 @@ function EditRows({
           className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
         />
       </div>
+      <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={isRemovable}
+          onChange={(e) => onIsRemovableChange(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+        />
+        <span>
+          <span className="font-medium text-fg">Intermittently available</span>
+          <span className="block text-xs text-fg-muted mt-0.5">
+            External / removable storage. Surfaces a reachable / unmounted
+            indicator and a Check-now button; keeps Scan-now from queuing
+            doomed scans against an unplugged drive.
+          </span>
+        </span>
+      </label>
     </div>
   );
 }

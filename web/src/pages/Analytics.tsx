@@ -21,8 +21,7 @@ import {
 } from "../components/ui";
 import type { Column } from "../components/ui";
 import { formatBytes, formatNumber } from "../lib/format";
-import { useMemo, useState } from "react";
-import { useChartColors } from "../hooks/useChartColors";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   useStorageTimeseries,
   useStorageForecast,
@@ -31,6 +30,7 @@ import {
 import { GrowthChart } from "../components/analytics/GrowthChart";
 import { ForecastChart } from "../components/analytics/ForecastChart";
 import { ExtensionTrendChart } from "../components/analytics/ExtensionTrendChart";
+import { useChartTooltipStyle } from "../components/analytics/chartTooltipStyle";
 
 const CHART_COLORS = [
   "#6366f1",
@@ -98,60 +98,76 @@ export default function Analytics() {
   );
   const extTrendQuery = useExtensionTrend(effectiveSource, topExtensions, 90);
 
-  const typeData = (typeQuery.data ?? [])
-    .slice(0, 10)
-    .map((r) => ({
-      label: r.extension || "(none)",
-      size: r.total_size ?? 0,
-      count: r.count,
-    }))
-    .reverse();
+  // Memo the per-render derivations so a parent re-render that
+  // doesn't actually mutate the underlying query data doesn't reshape
+  // the arrays. Recharts diffs `data` by identity in places — a fresh
+  // array on every render breaks the diff and re-renders the entire
+  // chart subtree, including the tooltip.
+  const typeData = useMemo(
+    () =>
+      (typeQuery.data ?? [])
+        .slice(0, 10)
+        .map((r) => ({
+          label: r.extension || "(none)",
+          size: r.total_size ?? 0,
+          count: r.count,
+        }))
+        .reverse(),
+    [typeQuery.data],
+  );
 
-  const sourceData = (sourceQuery.data ?? [])
-    .slice(0, 10)
-    .map((r) => ({
-      label: r.source_name || r.source_id.slice(0, 8),
-      size: r.total_size ?? 0,
-      count: r.count,
-    }))
-    .reverse();
+  const sourceData = useMemo(
+    () =>
+      (sourceQuery.data ?? [])
+        .slice(0, 10)
+        .map((r) => ({
+          label: r.source_name || r.source_id.slice(0, 8),
+          size: r.total_size ?? 0,
+          count: r.count,
+        }))
+        .reverse(),
+    [sourceQuery.data],
+  );
 
-  const largestColumns: Column<LargestFile>[] = [
-    {
-      key: "filename",
-      header: "Name",
-      render: (f) => (
-        <span className="font-medium text-fg">{f.filename}</span>
-      ),
-    },
-    {
-      key: "size",
-      header: "Size",
-      render: (f) => (
-        <span className="tabular-nums text-fg">
-          {formatBytes(f.size_bytes)}
-        </span>
-      ),
-    },
-    {
-      key: "source",
-      header: "Source",
-      render: (f) => (
-        <span className="text-fg-muted">
-          {sourceMap.get(f.source_id) ?? f.source_id.slice(0, 8)}
-        </span>
-      ),
-    },
-    {
-      key: "path",
-      header: "Path",
-      render: (f) => (
-        <span className="text-xs text-fg-subtle font-mono break-all">
-          {f.path}
-        </span>
-      ),
-    },
-  ];
+  const largestColumns: Column<LargestFile>[] = useMemo(
+    () => [
+      {
+        key: "filename",
+        header: "Name",
+        render: (f) => (
+          <span className="font-medium text-fg">{f.filename}</span>
+        ),
+      },
+      {
+        key: "size",
+        header: "Size",
+        render: (f) => (
+          <span className="tabular-nums text-fg">
+            {formatBytes(f.size_bytes)}
+          </span>
+        ),
+      },
+      {
+        key: "source",
+        header: "Source",
+        render: (f) => (
+          <span className="text-fg-muted">
+            {sourceMap.get(f.source_id) ?? f.source_id.slice(0, 8)}
+          </span>
+        ),
+      },
+      {
+        key: "path",
+        header: "Path",
+        render: (f) => (
+          <span className="text-xs text-fg-subtle font-mono break-all">
+            {f.path}
+          </span>
+        ),
+      },
+    ],
+    [sourceMap],
+  );
 
   return (
     <Page
@@ -301,8 +317,31 @@ interface ChartDatum {
   count: number;
 }
 
-function ChartCard({ data }: { data: ChartDatum[] }) {
-  const c = useChartColors();
+const tickBytesFormatter = (v: number) => formatBytes(v);
+const emptyLabelFormatter = () => "";
+
+const ChartCard = memo(function ChartCard({ data }: { data: ChartDatum[] }) {
+  const { contentStyle, labelStyle, itemStyle, cursor, colors: c } =
+    useChartTooltipStyle();
+
+  // Bar tooltip surfaces both bytes and file count from the same
+  // datum. Memo by identity so a stable formatter survives parent
+  // re-renders.
+  const formatter = useCallback(
+    (
+      value: number,
+      _name: string,
+      item: { payload?: ChartDatum },
+    ): [string, string] => {
+      const payload = item.payload ?? { label: "", count: 0, size: 0 };
+      return [
+        `${formatBytes(value)} · ${formatNumber(payload.count)} files`,
+        payload.label,
+      ];
+    },
+    [],
+  );
+
   return (
     <div className="h-64 -mx-2">
       <ResponsiveContainer width="100%" height="100%">
@@ -313,7 +352,7 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
         >
           <XAxis
             type="number"
-            tickFormatter={(v) => formatBytes(v)}
+            tickFormatter={tickBytesFormatter}
             stroke={c.axis}
             fontSize={11}
             tickLine={false}
@@ -329,24 +368,14 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
             axisLine={false}
           />
           <Tooltip
-            cursor={{ fill: c.cursorFill }}
-            contentStyle={{
-              background: c.tooltipBg,
-              border: `1px solid ${c.tooltipBorder}`,
-              borderRadius: 8,
-              fontSize: 13,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
-              color: c.tooltipFg,
-            }}
-            labelStyle={{ color: c.tooltipFg }}
-            itemStyle={{ color: c.tooltipFg }}
-            formatter={(value: number, _name, item) => [
-              `${formatBytes(value)} · ${formatNumber(item.payload.count)} files`,
-              item.payload.label,
-            ]}
-            labelFormatter={() => ""}
+            cursor={cursor}
+            contentStyle={contentStyle}
+            labelStyle={labelStyle}
+            itemStyle={itemStyle}
+            formatter={formatter}
+            labelFormatter={emptyLabelFormatter}
           />
-          <Bar dataKey="size" radius={[0, 4, 4, 0]}>
+          <Bar dataKey="size" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {data.map((_, i) => (
               <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
             ))}
@@ -355,4 +384,4 @@ function ChartCard({ data }: { data: ChartDatum[] }) {
       </ResponsiveContainer>
     </div>
   );
-}
+});

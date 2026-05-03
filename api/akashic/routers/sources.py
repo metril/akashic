@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -17,11 +17,13 @@ from akashic.schemas.source import (
     SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
 )
 from akashic.services.audit import record_event
+from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
     merge_connection_config,
     reject_sentinel_in_create,
 )
+from akashic.services.source_tester import TestResult, test_connection
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -45,7 +47,14 @@ async def create_source(
     err = reject_sentinel_in_create(data.connection_config)
     if err:
         raise HTTPException(status_code=400, detail=err)
-    source = Source(**data.model_dump())
+    payload = data.model_dump()
+    if payload.get("is_removable") is None:
+        # User left the checkbox at its default — infer from type/path.
+        # USB / network mount paths default to true; everything else false.
+        payload["is_removable"] = infer_is_removable(
+            data.type, data.connection_config
+        )
+    source = Source(**payload)
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -465,3 +474,78 @@ async def reattach_orphans(
         ambiguous=summary.ambiguous,
         committed=True,
     )
+
+
+# ── Reachability (v0.4.21) ───────────────────────────────────────────────
+
+
+class CheckReachabilityResponse(BaseModel):
+    """Result of POST /api/sources/{id}/check-reachability.
+
+    `result` is the raw probe outcome (ok/step/error/tier/warn);
+    `source` is the refreshed source row so the UI gets the new
+    `is_reachable` / `last_reachable_at` / `last_reachability_check_at`
+    in the same response and doesn't need a follow-up GET.
+    """
+
+    result: TestResult
+    source: SourceResponse
+
+
+@router.post(
+    "/{source_id}/check-reachability",
+    response_model=CheckReachabilityResponse,
+)
+async def check_source_reachability(
+    source_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """On-demand reachability probe for a source. Reuses the same
+    pre-flight tester used by the create-source form, but runs against
+    the persisted connection_config rather than form data — so the
+    caller doesn't need to re-supply credentials.
+
+    Persists `is_reachable` and `last_reachability_check_at` on every
+    call; bumps `last_reachable_at` on success only. The probe error
+    (when ok=false) is returned in the response payload but NOT
+    persisted: a stale "old error" sticking around after the drive
+    is reconnected would be more confusing than helpful.
+    """
+    await check_source_access(source_id, user, db, required_level="read")
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id)
+    )).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # source_tester probes are blocking subprocess calls (5–60s for
+    # NFS, lower for the rest). Run in the default thread executor so
+    # we don't pin the event loop.
+    import asyncio
+    result = await asyncio.to_thread(
+        test_connection, src.type, src.connection_config or {}
+    )
+
+    now = datetime.now(timezone.utc)
+    src.last_reachability_check_at = now
+    src.is_reachable = result.ok
+    if result.ok:
+        src.last_reachable_at = now
+    await db.commit()
+    await db.refresh(src)
+
+    await record_event(
+        db=db, user=user,
+        event_type="source_reachability_checked",
+        source_id=src.id,
+        request=request,
+        payload={
+            "ok": result.ok,
+            "step": result.step,
+            "error": result.error,
+        },
+    )
+
+    return CheckReachabilityResponse(result=result, source=src)

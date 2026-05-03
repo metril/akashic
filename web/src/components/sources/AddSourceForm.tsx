@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card, CardHeader, Input, Select } from "../ui";
 import { useCreateSource } from "../../hooks/useSources";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
+import { inferIsRemovable } from "../../lib/sources";
 import {
   SOURCE_TYPES,
   SOURCE_TYPE_LABELS,
@@ -28,6 +29,11 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const [type, setType] = useState<SourceType>("local");
   const [config, setConfig] = useState<Partial<AnyConfig>>({});
   const [preferredPool, setPreferredPool] = useState("");
+  const [isRemovable, setIsRemovable] = useState(false);
+  // Track whether the user has explicitly toggled the checkbox. Until
+  // they do, the checkbox follows the inferred default as they edit
+  // type/path. Once they touch it, we stop overriding their choice.
+  const removableTouched = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
 
@@ -35,7 +41,17 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     setConfig(type === "ssh" ? { auth: "password" } : ({} as Partial<AnyConfig>));
     setTestResult(null);
     setFormError(null);
+    if (!removableTouched.current) {
+      setIsRemovable(inferIsRemovable(type, {}));
+    }
   }, [type]);
+
+  // Re-infer when the user types into the local-source path field.
+  // Only runs while the user hasn't explicitly toggled the checkbox.
+  useEffect(() => {
+    if (removableTouched.current) return;
+    setIsRemovable(inferIsRemovable(type, config as Record<string, unknown>));
+  }, [type, config]);
 
   const validationError = validateSourceConfig(type, config);
   const canSubmit = name.trim() !== "" && validationError === null;
@@ -71,10 +87,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         type,
         connection_config: config as Record<string, unknown>,
         preferred_pool: preferredPool.trim() || null,
+        is_removable: isRemovable,
       });
       setName("");
       setConfig(type === "ssh" ? { auth: "password" } : ({} as Partial<AnyConfig>));
       setPreferredPool("");
+      setIsRemovable(false);
+      removableTouched.current = false;
       setTestResult(null);
       onCreated?.();
     } catch (err) {
@@ -109,6 +128,26 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           placeholder="default"
           hint="Leave blank to let any registered scanner claim this source. Set to a pool tag (e.g. site-amsterdam) to lock it to scanners in that pool."
         />
+        <label className="flex items-start gap-2 text-sm text-fg cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isRemovable}
+            onChange={(e) => {
+              removableTouched.current = true;
+              setIsRemovable(e.target.checked);
+            }}
+            className="mt-0.5 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+          />
+          <span>
+            <span className="font-medium">Intermittently available</span>
+            <span className="block text-xs text-fg-muted mt-0.5">
+              External / removable storage that may be unplugged or
+              whose remote may be offline. The Sources page surfaces a
+              separate "reachable / unmounted" indicator and avoids
+              auto-failing the source when a scan can't reach it.
+            </span>
+          </span>
+        </label>
 
         {testResult && (
           <div

@@ -5,6 +5,33 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.4.21 — 2026-05-03
+
+- **Sources:** external-drive awareness. Sources can now be flagged
+  *Intermittently available* (USB drive, intermittent SSH/SMB/NFS
+  mount). The Sources page surfaces a separate **Reachable / Unmounted
+  / Not yet checked** indicator for these sources, with a **Check now**
+  button that runs the existing test-connection probe against the
+  persisted credentials and updates `is_reachable` +
+  `last_reachable_at` + `last_reachability_check_at`. **Scan now** on a
+  known-unmounted removable source no longer queues a doomed scan —
+  the user is told to Check now (or reconnect) first. Successful scans
+  also bump `last_reachable_at` so the badge stays fresh without an
+  explicit click. New columns ship via Alembic migration
+  `0022_source_reachability`; on source create, `is_removable` is
+  inferred from the path (`/media/`, `/mnt/`, `/run/media/`,
+  `/Volumes/` → true) when the user doesn't set it explicitly.
+- **Analytics:** chart tooltips no longer lag on hover. Each chart's
+  `<Tooltip>` props (`contentStyle`, `formatter`, `cursor`) used to be
+  recreated inline on every render; the `["analytics"]` query
+  `staleTime` was 1 min, so a refetch could fire mid-hover and
+  re-render the whole page. Charts (`ChartCard`, `GrowthChart`,
+  `ForecastChart`, `ExtensionTrendChart`) are now `React.memo`'d, the
+  tooltip styling is hoisted into a shared `useChartTooltipStyle`
+  helper that memoises on the chart-colors result, derived data
+  arrays go through `useMemo`, and the analytics `staleTime` is bumped
+  to 5 min (analytics aggregates don't change second-by-second).
+
 ## v0.4.20 — 2026-05-03
 
 - **CI:** the v0.4.19 web Docker image build failed with

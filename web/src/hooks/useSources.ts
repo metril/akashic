@@ -39,6 +39,7 @@ export function useCreateSource() {
       scan_schedule?: string | null;
       exclude_patterns?: string[] | null;
       preferred_pool?: string | null;
+      is_removable?: boolean | null;
     }) => api.post<Source>("/sources", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -50,8 +51,39 @@ export function useUpdateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns">> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable">> }) =>
       api.patch<Source>(`/sources/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+    },
+  });
+}
+
+/**
+ * On-demand reachability probe. Persists is_reachable +
+ * last_reachability_check_at server-side and returns the latest
+ * Source row alongside the raw probe result. Invalidates the
+ * sources list so the badge updates everywhere.
+ */
+export interface CheckReachabilityResult {
+  result: {
+    ok: boolean;
+    step: string | null;
+    error: string | null;
+    tier?: string | null;
+    warn?: string | null;
+  };
+  source: Source;
+}
+
+export function useCheckSourceReachability() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceId: string) =>
+      api.post<CheckReachabilityResult>(
+        `/sources/${sourceId}/check-reachability`,
+        {},
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
