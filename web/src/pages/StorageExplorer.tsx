@@ -95,9 +95,11 @@ export default function StorageExplorer() {
     setParams(next, { replace: true });
   }, [sourceId, sourcesQ.data, params, setParams]);
 
-  // Tree fetch — only runs in single-source mode. The cross-source
-  // view falls back to /storage/sources rendered as a small list so
-  // multi-source deployments still get a chooser.
+  // Tree fetch — only runs in single-source mode. In cross-source
+  // mode (>1 source, no `?source=` selected) we render a synthetic
+  // root made of the source list so the user gets the same
+  // treemap/sunburst affordances (drill-in by click, wheel-zoom-drill,
+  // hover chain) at the top level instead of a flat list.
   const treeQ = useQuery<TreeResponse>({
     queryKey: ["storage", "tree", sourceId, path, colorMode],
     queryFn: () =>
@@ -106,6 +108,49 @@ export default function StorageExplorer() {
       ),
     enabled: !!sourceId,
   });
+
+  // v0.4.15 — synthetic root for the cross-source view. Each source
+  // becomes a directory pseudo-node with a `__source:<uuid>` sentinel
+  // path; click/drill handlers detect that prefix and route to
+  // `enterSource()` instead of `setPath()`.
+  const SOURCE_SENTINEL_PREFIX = "__source:";
+  const crossSourceRoot: TreeNode | null = useMemo(() => {
+    if (sourceId) return null;
+    const list = sourcesQ.data?.sources;
+    if (!list || list.length <= 1) return null;
+    return {
+      kind: "directory",
+      name: "All sources",
+      path: "/",
+      size_bytes: 0,
+      children: list.map((s) => ({
+        kind: "directory",
+        name: s.source_name,
+        path: `${SOURCE_SENTINEL_PREFIX}${s.source_id}`,
+        size_bytes: s.size_bytes,
+        // color_key drives the type-mode coloring; reuse source_type
+        // so e.g. all S3 sources read as the same hue.
+        color_key: s.source_type,
+      })),
+    };
+  }, [sourceId, sourcesQ.data]);
+
+  const isSourcePseudoNode = (node: TreeNode): boolean =>
+    node.path.startsWith(SOURCE_SENTINEL_PREFIX);
+
+  const handleTreemapDirClick = (node: TreeNode) => {
+    if (isSourcePseudoNode(node)) {
+      enterSource(node.path.slice(SOURCE_SENTINEL_PREFIX.length));
+    } else {
+      setPath(node.path);
+    }
+  };
+
+  const handleTreemapLeafClick = (node: TreeNode) => {
+    // In cross-source view leaves don't exist (sources are directories);
+    // in single-source view, leaves are file entries with an `id`.
+    if (node.id) openEntry(node.id);
+  };
 
   // Resize: the SVG treemap is purely a function of (data, w, h). A
   // callback ref drives the ResizeObserver so the observer attaches
@@ -277,100 +322,115 @@ export default function StorageExplorer() {
         </div>
       </Card>
 
-      {!sourceId ? (
-        <SourceList
-          sources={sourcesQ.data?.sources ?? []}
-          loading={sourcesQ.isLoading}
-          onPick={enterSource}
-          onEmpty={() => navigate("/sources")}
-        />
-      ) : (
-        <Card padding="none" className="overflow-hidden">
-          {treeQ.isLoading ? (
-            <div className="flex justify-center items-center h-[600px] text-fg-subtle">
-              <Spinner />
-            </div>
-          ) : treeQ.isError ? (
-            <div className="p-6">
-              <EmptyState
-                title="Couldn't load the treemap"
-                description={
-                  treeQ.error instanceof Error
-                    ? treeQ.error.message
-                    : "Unknown error"
-                }
-              />
-            </div>
-          ) : !treeQ.data?.root ? (
-            <EmptyState
-              title="Nothing here"
-              description="This folder is empty, hidden by your access permissions, or not yet indexed."
+      {(() => {
+        // Empty cross-source state — no sources at all → kick to /sources.
+        if (!sourceId && !sourcesQ.isLoading && (sourcesQ.data?.sources.length ?? 0) === 0) {
+          return (
+            <SourceList
+              sources={[]}
+              loading={false}
+              onPick={enterSource}
+              onEmpty={() => navigate("/sources")}
             />
-          ) : (
-            <>
-              {treeQ.data.truncated && (
-                <div className="px-4 py-2 text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-200 border-b border-amber-200/60 dark:border-amber-700/40">
-                  Showing top {DEFAULT_TREE_NODES.toLocaleString()} items by
-                  size. Click a directory to focus deeper detail.
-                </div>
-              )}
-              <div
-                className="flex w-full"
-                style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
-              >
-                <div ref={setContainerRef} className="relative flex-1">
-                  {layoutMode === "sunburst" ? (
-                    <Sunburst
-                      root={treeQ.data.root}
-                      width={size.w}
-                      height={size.h}
-                      mode={colorMode}
-                      onLeafClick={(node) => {
-                        if (node.id) openEntry(node.id);
-                      }}
-                      onDirClick={(node) => setPath(node.path)}
-                      onContextMenu={(node, x, y) => setCtx({ node, x, y })}
-                      onHoverChange={setHoverChain}
-                      onGoUp={goUp}
-                    />
-                  ) : (
-                    <Treemap
-                      root={treeQ.data.root}
-                      width={size.w}
-                      height={size.h}
-                      mode={colorMode}
-                      onLeafClick={(node) => {
-                        if (node.id) openEntry(node.id);
-                      }}
-                      onDirClick={(node) => setPath(node.path)}
-                      onContextMenu={(node, x, y) => setCtx({ node, x, y })}
-                      onHoverChange={setHoverChain}
-                      onGoUp={goUp}
-                    />
-                  )}
-                  {ctx && (
-                    <ContextMenu
-                      x={ctx.x}
-                      y={ctx.y}
-                      items={ctxItems}
-                      onClose={() => setCtx(null)}
-                      containerWidth={size.w}
-                      containerHeight={size.h}
-                    />
-                  )}
-                </div>
-                <aside className="w-60 flex-shrink-0 border-l border-line-subtle bg-surface/40 overflow-y-auto">
-                  <HoverSidebar
-                    chain={hoverChain}
-                    sourceId={sourceId}
-                    onPathClick={setPath}
-                  />
-                </aside>
+          );
+        }
+        // Cross-source view: render the synthetic root through the
+        // same treemap/sunburst widgets as a single-source tree, so
+        // hover, drill-in, wheel-zoom-drill, sidebar all work the
+        // same. Source pseudo-nodes' clicks route through
+        // `handleTreemapDirClick` which detects the sentinel path.
+        const isCrossSource = !sourceId && crossSourceRoot != null;
+        const root = isCrossSource ? crossSourceRoot : treeQ.data?.root ?? null;
+        const loading = isCrossSource ? sourcesQ.isLoading : treeQ.isLoading;
+        const error = isCrossSource ? null : treeQ.isError ? treeQ.error : null;
+        const truncated = isCrossSource ? false : treeQ.data?.truncated ?? false;
+
+        return (
+          <Card padding="none" className="overflow-hidden">
+            {loading ? (
+              <div className="flex justify-center items-center h-[600px] text-fg-subtle">
+                <Spinner />
               </div>
-            </>
-          )}
-        </Card>
-      )}
+            ) : error ? (
+              <div className="p-6">
+                <EmptyState
+                  title="Couldn't load the treemap"
+                  description={error instanceof Error ? error.message : "Unknown error"}
+                />
+              </div>
+            ) : !root ? (
+              <EmptyState
+                title="Nothing here"
+                description="This folder is empty, hidden by your access permissions, or not yet indexed."
+              />
+            ) : (
+              <>
+                {truncated && (
+                  <div className="px-4 py-2 text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-200 border-b border-amber-200/60 dark:border-amber-700/40">
+                    Showing top {DEFAULT_TREE_NODES.toLocaleString()} items by
+                    size. Click a directory to focus deeper detail.
+                  </div>
+                )}
+                <div
+                  className="flex w-full"
+                  style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
+                >
+                  <div ref={setContainerRef} className="relative flex-1">
+                    {layoutMode === "sunburst" ? (
+                      <Sunburst
+                        root={root}
+                        width={size.w}
+                        height={size.h}
+                        mode={colorMode}
+                        onLeafClick={handleTreemapLeafClick}
+                        onDirClick={handleTreemapDirClick}
+                        onContextMenu={(node, x, y) => {
+                          if (isSourcePseudoNode(node)) return;
+                          setCtx({ node, x, y });
+                        }}
+                        onHoverChange={setHoverChain}
+                        onGoUp={isCrossSource ? undefined : goUp}
+                      />
+                    ) : (
+                      <Treemap
+                        root={root}
+                        width={size.w}
+                        height={size.h}
+                        mode={colorMode}
+                        onLeafClick={handleTreemapLeafClick}
+                        onDirClick={handleTreemapDirClick}
+                        onContextMenu={(node, x, y) => {
+                          if (isSourcePseudoNode(node)) return;
+                          setCtx({ node, x, y });
+                        }}
+                        onHoverChange={setHoverChain}
+                        onGoUp={isCrossSource ? undefined : goUp}
+                      />
+                    )}
+                    {ctx && (
+                      <ContextMenu
+                        x={ctx.x}
+                        y={ctx.y}
+                        items={ctxItems}
+                        onClose={() => setCtx(null)}
+                        containerWidth={size.w}
+                        containerHeight={size.h}
+                      />
+                    )}
+                  </div>
+                  <aside className="w-60 flex-shrink-0 border-l border-line-subtle bg-surface/40 overflow-y-auto">
+                    <HoverSidebar
+                      chain={hoverChain}
+                      sourceId={sourceId}
+                      onPathClick={setPath}
+                    />
+                  </aside>
+                </div>
+              </>
+            )}
+          </Card>
+        );
+      })()}
 
       {sourceId && treeQ.data && (
         <div className="mt-3 text-xs text-fg-muted text-right tabular-nums">

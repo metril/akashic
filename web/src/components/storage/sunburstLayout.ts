@@ -62,6 +62,11 @@ export interface ArcSpec {
   y0: number;
   y1: number;
   fill: string;
+  /** v0.4.15 — pre-built Path2D in centre-relative pixel coords. The
+   *  draw module fills/strokes via `ctx.fill(path)` / `ctx.stroke(path)`,
+   *  so per-redraw geometry tracing (which dominated frame time at
+   *  thousands of arcs) is gone. Built once per layout. */
+  path: Path2D;
   /** Path strings of every ancestor (root → this node), used by both
    *  hover-chain highlighting and the page sidebar's lift. */
   ancestorPaths: string[];
@@ -169,9 +174,27 @@ export function buildArcLayout(
       y0: n.y0,
       y1: n.y1,
       fill: baseColor,
+      path: buildArcPath2D(n.x0, n.x1, n.y0, n.y1),
       ancestorPaths,
       chain,
     });
   }
   return arcs;
+}
+
+/** Build a Path2D for a single arc wedge in centre-relative pixel
+ *  coords (callers translate to the centre before drawing). The
+ *  canvas convention here matches sunburstDraw: 0° at "12 o'clock"
+ *  (+y up), angles grow clockwise. d3-partition emits angles from
+ *  noon as [0, 2π], so we subtract π/2 to map into the canvas's
+ *  natural angle convention. Skips degenerate wedges. */
+function buildArcPath2D(x0: number, x1: number, y0: number, y1: number): Path2D {
+  const path = new Path2D();
+  if (x1 - x0 < 0.001 || y1 - y0 < 0.5) return path;
+  const ca0 = x0 - Math.PI / 2;
+  const ca1 = x1 - Math.PI / 2;
+  path.arc(0, 0, y1, ca0, ca1, false);
+  path.arc(0, 0, y0, ca1, ca0, true);
+  path.closePath();
+  return path;
 }

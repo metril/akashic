@@ -87,6 +87,10 @@ export function Sunburst({
   const hoverRef = useRef<ArcSpec | null>(null);
   const drillCooldownRef = useRef(false);
 
+  // v0.4.15 — rAF-coalesce hover redraws. A fast cursor crosses
+  // many arc boundaries per frame; we only need one canvas redraw
+  // per browser frame regardless of how many setHover calls happened.
+  const rafRef = useRef<number | null>(null);
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -99,6 +103,19 @@ export function Sunburst({
       radius,
     });
   }, [arcs, cx, cy, radius]);
+  const scheduleRedraw = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      redraw();
+    });
+  }, [redraw]);
+  // Cancel any pending rAF on unmount so it doesn't fire against a
+  // disposed canvas.
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+  }, []);
 
   // Resize / arc-change → re-size canvas backing buffer + repaint.
   useEffect(() => {
@@ -123,7 +140,7 @@ export function Sunburst({
   function setHover(next: ArcSpec | null) {
     if (hoverRef.current?.key === next?.key) return;
     hoverRef.current = next;
-    redraw();
+    scheduleRedraw();
 
     const tooltip = tooltipRef.current;
     if (tooltip) {

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+// vitest runs in a node env; Path2D is browser-only. Stub it at
+// module load (some tests build layouts in describe-body, which
+// runs during collection before any hooks fire).
+(globalThis as unknown as { Path2D: unknown }).Path2D = class {
+  arc() {}
+  closePath() {}
+};
+
 import type { TreeNode } from "./Treemap";
 import { buildArcLayout, MAX_RINGS, truncateDepth } from "./sunburstLayout";
 

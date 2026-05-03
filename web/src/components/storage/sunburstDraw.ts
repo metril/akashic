@@ -51,16 +51,21 @@ interface DrawArgs {
 }
 
 /**
- * Full canvas redraw. Strategy:
- *   1. Translate to (cx, cy) and pre-rotate so 0° points up.
- *   2. For each arc with depth > 0: fill + stroke the wedge at
- *      whatever opacity hover dictates (chain = full bright,
- *      siblings dim).
- *   3. Centre disc + name + total bytes.
+ * Full canvas redraw.
  *
- * Hover treatment: when there's a hover, the chain ancestors render
- * at full alpha with a brighter stroke; siblings drop to 0.55 alpha.
- * No CSS transitions — same recipe as the v0.4.13 Drawer fix.
+ * v0.4.15 perf rewrite — at thousands of arcs the per-arc state
+ * change cost (fillStyle/strokeStyle/lineWidth + the per-arc
+ * beginPath/arc/arc/closePath) was the bottleneck (~10 canvas
+ * ops × 5000 arcs × every hover frame). Two changes:
+ *
+ *   1. Fills use the pre-built Path2D on each ArcSpec (built
+ *      once at layout time in sunburstLayout.ts). `ctx.fill(path)`
+ *      doesn't re-trace the geometry.
+ *   2. Fills are grouped by colour (and dimmed-vs-full alpha),
+ *      so we set fillStyle once per colour-group instead of once
+ *      per arc — typically a 5-20× reduction in style changes.
+ *      Strokes are split into 3 lineWidth groups (default / chain
+ *      / hover) with the same trick.
  */
 export function drawSunburst({ canvas, arcs, hoverKey, cx, cy, radius }: DrawArgs): void {
   const ctx = canvas.getContext("2d");
@@ -82,46 +87,58 @@ export function drawSunburst({ canvas, arcs, hoverKey, cx, cy, radius }: DrawArg
 
   ctx.translate(cx, cy);
 
+  // ── Fill pass — group by (fillColor, dim) so fillStyle/globalAlpha
+  // toggles are minimised. ──────────────────────────────────────────
+  type FillBucket = { fill: string; alpha: number; arcs: ArcSpec[] };
+  const buckets = new Map<string, FillBucket>();
   for (const arc of arcs) {
     if (arc.depth === 0) continue;
-    const a0 = arc.x0;
-    const a1 = arc.x1;
-    if (a1 - a0 < 0.001) continue;
-    const r0 = arc.y0;
-    const r1 = arc.y1;
-    if (r1 - r0 < 0.5) continue;
-
-    const isHover = arc.key === hoverKey;
-    const inChain = chainSet?.has(arc.data.path) ?? false;
-    const dim = chainSet !== null && !inChain;
-
-    // Convert d3-partition's [0, 2π] from-noon angles into the
-    // canvas convention. We rotate the canvas via the arc draw
-    // calls themselves: angle θ from "noon" → canvas angle
-    // (θ - π/2). Equivalent to `ctx.rotate(-π/2)` but we keep it
-    // local so the centre-disc text isn't rotated.
-    const ca0 = a0 - Math.PI / 2;
-    const ca1 = a1 - Math.PI / 2;
-
-    ctx.beginPath();
-    ctx.arc(0, 0, r1, ca0, ca1, false);
-    ctx.arc(0, 0, r0, ca1, ca0, true);
-    ctx.closePath();
-
-    ctx.fillStyle = arc.fill;
-    ctx.globalAlpha = dim ? 0.5 : 1;
-    ctx.fill();
-
-    ctx.lineWidth = isHover ? 2 : inChain ? 1.25 : 0.5;
-    ctx.strokeStyle = isHover
-      ? "#ffffff"
-      : inChain
-        ? "rgba(255,255,255,0.85)"
-        : "rgba(15,23,42,0.55)";
-    ctx.stroke();
+    const dim = chainSet !== null && !chainSet.has(arc.data.path);
+    const alpha = dim ? 0.5 : 1;
+    const key = `${arc.fill}|${alpha}`;
+    let b = buckets.get(key);
+    if (!b) {
+      b = { fill: arc.fill, alpha, arcs: [] };
+      buckets.set(key, b);
+    }
+    b.arcs.push(arc);
   }
-
+  for (const b of buckets.values()) {
+    ctx.fillStyle = b.fill;
+    ctx.globalAlpha = b.alpha;
+    for (const arc of b.arcs) ctx.fill(arc.path);
+  }
   ctx.globalAlpha = 1;
+
+  // ── Stroke pass — three style buckets (default / chain / hover). ─
+  const defaultStrokes: ArcSpec[] = [];
+  const chainStrokes: ArcSpec[] = [];
+  let hoverArc: ArcSpec | null = null;
+  for (const arc of arcs) {
+    if (arc.depth === 0) continue;
+    if (arc.key === hoverKey) {
+      hoverArc = arc;
+    } else if (chainSet?.has(arc.data.path)) {
+      chainStrokes.push(arc);
+    } else {
+      defaultStrokes.push(arc);
+    }
+  }
+  if (defaultStrokes.length > 0) {
+    ctx.strokeStyle = "rgba(15,23,42,0.55)";
+    ctx.lineWidth = 0.5;
+    for (const a of defaultStrokes) ctx.stroke(a.path);
+  }
+  if (chainStrokes.length > 0) {
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 1.25;
+    for (const a of chainStrokes) ctx.stroke(a.path);
+  }
+  if (hoverArc) {
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke(hoverArc.path);
+  }
 
   // Centre disc + label.
   const root = arcs[0];

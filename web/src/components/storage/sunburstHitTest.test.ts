@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+// buildArcLayout constructs one Path2D per arc; node has no native
+// Path2D so stub it at module load (the describe-body call to
+// buildArcLayout runs during test collection, before beforeAll
+// hooks fire).
+(globalThis as unknown as { Path2D: unknown }).Path2D = class {
+  arc() {}
+  closePath() {}
+};
+
 import type { TreeNode } from "./Treemap";
 import { buildArcLayout } from "./sunburstLayout";
 import { hitTestArc } from "./sunburstHitTest";
