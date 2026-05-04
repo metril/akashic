@@ -621,3 +621,164 @@ async def check_source_reachability(
     )
 
     return CheckReachabilityResponse(result=result, source=src)
+
+
+# ── Eligibility-management UI (v0.5.7) ─────────────────────────────────────
+
+
+class ScannerReachabilityRow(BaseModel):
+    """One row in the source detail's eligibility checklist."""
+
+    scanner_id: uuid.UUID
+    name: str
+    pool: str | None
+    online: bool
+    currently_allowed: bool
+    ok: bool | None
+    last_probed_at: datetime | None
+    step: str | None
+    error: str | None
+
+
+@router.get("/{source_id}/scanner-reachability", response_model=list[ScannerReachabilityRow])
+async def list_source_scanner_reachability(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """For a given source, return every registered scanner's current
+    allow-state and the latest probe outcome by that scanner. Feeds
+    the AllowedScannersPanel checklist on SourceDetail.
+    """
+    await check_source_access(source_id, user, db, required_level="read")
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id)
+    )).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    from sqlalchemy import text
+    rows = (await db.execute(text("""
+        SELECT
+            s.id, s.name, s.pool,
+            (s.last_seen_at IS NOT NULL
+             AND s.last_seen_at > now() - interval '2 minutes') AS online,
+            s.allowed_source_ids,
+            rc.result_ok, rc.completed_at, rc.result_step, rc.result_error
+          FROM scanners s
+          LEFT JOIN LATERAL (
+              SELECT result_ok, completed_at, result_step, result_error
+                FROM reachability_checks
+               WHERE source_id = :source_id
+                 AND assigned_scanner_id = s.id
+                 AND status IN ('completed', 'failed')
+               ORDER BY completed_at DESC NULLS LAST
+               LIMIT 1
+          ) rc ON true
+         ORDER BY s.name ASC
+    """), {"source_id": source_id})).fetchall()
+
+    out: list[ScannerReachabilityRow] = []
+    for r in rows:
+        allowed_set = set(r[4] or [])
+        # NULL allowed_source_ids = scanner allows all sources.
+        currently_allowed = (r[4] is None) or (source_id in allowed_set)
+        out.append(ScannerReachabilityRow(
+            scanner_id=r[0], name=r[1], pool=r[2], online=bool(r[3]),
+            currently_allowed=currently_allowed,
+            ok=r[5], last_probed_at=r[6], step=r[7], error=r[8],
+        ))
+    return out
+
+
+class AllowedScannersRequest(BaseModel):
+    scanner_ids: list[uuid.UUID]
+
+
+class AllowedScannersResponse(BaseModel):
+    updated_scanners: int
+
+
+@router.patch("/{source_id}/allowed-scanners", response_model=AllowedScannersResponse)
+async def patch_source_allowed_scanners(
+    source_id: uuid.UUID,
+    body: AllowedScannersRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Set the per-scanner allow-list for ONE source.
+
+    For each registered scanner:
+      - If id ∈ body.scanner_ids and the source isn't yet in
+        scanner.allowed_source_ids → append.
+      - If id ∉ body.scanner_ids and the source IS in
+        scanner.allowed_source_ids → remove.
+      - If scanner.allowed_source_ids is NULL ("all sources") and id
+        ∉ body.scanner_ids → write a list excluding this source so the
+        scanner stops claiming it.
+
+    Idempotent: re-applying the same set is a no-op. Audit:
+    `source_allowed_scanners_updated` per affected scanner.
+    """
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id)
+    )).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    from akashic.models.scanner import Scanner
+    scanners = list((await db.execute(select(Scanner))).scalars().all())
+    requested = set(body.scanner_ids)
+    all_known = {s.id for s in scanners}
+    unknown = requested - all_known
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown scanner_ids: {', '.join(str(u) for u in sorted(unknown))}",
+        )
+
+    updated = 0
+    for s in scanners:
+        current = list(s.allowed_source_ids or [])
+        in_current = source_id in current
+        in_requested = s.id in requested
+
+        if s.allowed_source_ids is None:
+            # Scanner currently allows ALL sources. If this one isn't
+            # requested, materialise an explicit list excluding it.
+            if not in_requested:
+                # Build "everything except source_id" — practical
+                # equivalent: allow every source currently in the db
+                # except this one. Cheaper alternative: only restrict
+                # against sources we know exist.
+                all_source_ids = list((await db.execute(
+                    select(Source.id).where(Source.id != source_id)
+                )).scalars().all())
+                s.allowed_source_ids = all_source_ids
+                updated += 1
+            # else: already implicitly allowed; nothing to do.
+            continue
+
+        if in_requested and not in_current:
+            current.append(source_id)
+            s.allowed_source_ids = current
+            updated += 1
+        elif not in_requested and in_current:
+            current.remove(source_id)
+            s.allowed_source_ids = current
+            updated += 1
+
+    await db.commit()
+    await record_event(
+        db=db, user=user,
+        event_type="source_allowed_scanners_updated",
+        source_id=source_id,
+        request=request,
+        payload={
+            "source_id": str(source_id),
+            "scanner_ids": [str(i) for i in sorted(requested)],
+            "scanners_changed": updated,
+        },
+    )
+    return AllowedScannersResponse(updated_scanners=updated)

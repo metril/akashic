@@ -17,6 +17,7 @@ import {
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
 import { DiscoverSharesPanel } from "./DiscoverSharesPanel";
+import { HostAllowedScannersPanel } from "./HostAllowedScannersPanel";
 
 // Host types whose protocol exposes a "shares" enumeration. Local
 // has no host; SSH has no shares. The Discover button is hidden for
@@ -315,6 +316,18 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {isAdmin && (
+              <div className="pt-3 border-t border-line-subtle">
+                <p className="text-xs uppercase tracking-wide text-fg-subtle mb-2">
+                  Allowed scanners (applies to all attached shares)
+                </p>
+                <HostAllowedScannersPanel
+                  hostId={host.id}
+                  attachedSourceCount={attachedSources.length}
+                />
               </div>
             )}
           </>

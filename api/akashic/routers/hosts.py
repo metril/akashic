@@ -322,6 +322,187 @@ async def test_host_connection(
     return CheckHostReachabilityResponse(result=result, checked_at=now)
 
 
+# ── Eligibility-management UI (v0.5.7) ─────────────────────────────────────
+
+
+class HostScannerSummaryRow(BaseModel):
+    scanner_id: uuid.UUID
+    name: str
+    pool: str | None
+    online: bool
+    currently_allowed_count: int
+    reaches_count: int
+    unreachable_count: int
+    not_yet_probed_count: int
+    total_sources: int
+
+
+@router.get(
+    "/{host_id}/scanner-reachability-summary",
+    response_model=list[HostScannerSummaryRow],
+)
+async def host_scanner_reachability_summary(
+    host_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Per-scanner aggregation across this host's attached sources.
+    Feeds the host-level eligibility checklist."""
+    host = (await db.execute(
+        select(Host).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    from sqlalchemy import text
+    rows = (await db.execute(text("""
+        WITH attached AS (
+            SELECT id FROM sources WHERE host_id = :host_id
+        )
+        SELECT
+            sc.id,
+            sc.name,
+            sc.pool,
+            (sc.last_seen_at IS NOT NULL
+             AND sc.last_seen_at > now() - interval '2 minutes') AS online,
+            sc.allowed_source_ids,
+            (SELECT count(*) FROM attached a
+              WHERE EXISTS (
+                SELECT 1 FROM reachability_checks rc
+                 WHERE rc.source_id = a.id
+                   AND rc.assigned_scanner_id = sc.id
+                   AND rc.result_ok = true
+                   AND rc.completed_at > now() - interval '15 minutes'
+              )) AS reaches_count,
+            (SELECT count(*) FROM attached a
+              WHERE EXISTS (
+                SELECT 1 FROM reachability_checks rc
+                 WHERE rc.source_id = a.id
+                   AND rc.assigned_scanner_id = sc.id
+                   AND rc.result_ok = false
+                   AND rc.completed_at > now() - interval '15 minutes'
+              )) AS unreachable_count,
+            (SELECT count(*) FROM attached) AS total_sources
+          FROM scanners sc
+         ORDER BY sc.name ASC
+    """), {"host_id": host_id})).fetchall()
+
+    out: list[HostScannerSummaryRow] = []
+    attached_ids = list((await db.execute(
+        select(Source.id).where(Source.host_id == host_id)
+    )).scalars().all())
+    attached_set = set(attached_ids)
+    for r in rows:
+        allowed = r[4]
+        if allowed is None:
+            allowed_count = len(attached_ids)  # NULL = all
+        else:
+            allowed_count = sum(1 for a in allowed if a in attached_set)
+        not_probed = max(0, int(r[8]) - int(r[5]) - int(r[6]))
+        out.append(HostScannerSummaryRow(
+            scanner_id=r[0], name=r[1], pool=r[2], online=bool(r[3]),
+            currently_allowed_count=allowed_count,
+            reaches_count=int(r[5]),
+            unreachable_count=int(r[6]),
+            not_yet_probed_count=not_probed,
+            total_sources=int(r[7]),
+        ))
+    return out
+
+
+class HostAllowedScannersRequest(BaseModel):
+    scanner_ids: list[uuid.UUID]
+
+
+class HostAllowedScannersResponse(BaseModel):
+    sources_touched: int
+    scanners_updated: int
+
+
+@router.patch(
+    "/{host_id}/allowed-scanners",
+    response_model=HostAllowedScannersResponse,
+)
+async def patch_host_allowed_scanners(
+    host_id: uuid.UUID,
+    body: HostAllowedScannersRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Bulk-apply an allowed-scanner set across every source attached
+    to this host. Idempotent. Audit: `host_allowed_scanners_applied`.
+    """
+    host = (await db.execute(
+        select(Host).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    attached = list((await db.execute(
+        select(Source.id).where(Source.host_id == host_id)
+    )).scalars().all())
+    if not attached:
+        return HostAllowedScannersResponse(sources_touched=0, scanners_updated=0)
+
+    from akashic.models.scanner import Scanner
+    scanners = list((await db.execute(select(Scanner))).scalars().all())
+    requested = set(body.scanner_ids)
+    all_known = {s.id for s in scanners}
+    unknown = requested - all_known
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown scanner_ids: {', '.join(str(u) for u in sorted(unknown))}",
+        )
+
+    attached_set = set(attached)
+    scanners_updated = 0
+    for s in scanners:
+        in_requested = s.id in requested
+        if s.allowed_source_ids is None:
+            if in_requested:
+                continue  # NULL allows all → nothing to change
+            # Drop these host-attached sources from "all" by writing
+            # an explicit list excluding them.
+            all_others = list((await db.execute(
+                select(Source.id).where(~Source.id.in_(attached_set))
+            )).scalars().all())
+            s.allowed_source_ids = all_others
+            scanners_updated += 1
+            continue
+
+        current = list(s.allowed_source_ids or [])
+        current_set = set(current)
+        if in_requested:
+            additions = [a for a in attached if a not in current_set]
+            if additions:
+                s.allowed_source_ids = current + additions
+                scanners_updated += 1
+        else:
+            after = [c for c in current if c not in attached_set]
+            if len(after) != len(current):
+                s.allowed_source_ids = after
+                scanners_updated += 1
+
+    await db.commit()
+    await record_event(
+        db=db, user=user,
+        event_type="host_allowed_scanners_applied",
+        request=request,
+        payload={
+            "host_id": str(host_id),
+            "scanner_ids": [str(i) for i in sorted(requested)],
+            "sources_touched": len(attached),
+            "scanners_updated": scanners_updated,
+        },
+    )
+    return HostAllowedScannersResponse(
+        sources_touched=len(attached),
+        scanners_updated=scanners_updated,
+    )
+
+
 # ── Discover & batch-add shares (v0.5.4) ────────────────────────────────
 
 

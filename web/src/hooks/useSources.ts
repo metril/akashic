@@ -104,6 +104,54 @@ export interface DeleteSourceArgs {
   purgeEntries?: boolean;
 }
 
+// v0.5.7 — eligibility-management hooks. The api computes a per-
+// source view of "which scanners are allowed, and what each scanner's
+// last reachability probe said". Saving a new allowed-scanner set
+// translates into per-scanner allowed_source_ids writes server-side.
+
+export interface ScannerReachabilityRow {
+  scanner_id: string;
+  name: string;
+  pool: string | null;
+  online: boolean;
+  currently_allowed: boolean;
+  ok: boolean | null;
+  last_probed_at: string | null;
+  step: string | null;
+  error: string | null;
+}
+
+export function useSourceScannerReachability(sourceId: string | null) {
+  return useQuery<ScannerReachabilityRow[]>({
+    queryKey: ["sources", sourceId, "scanner-reachability"],
+    queryFn: () =>
+      api.get<ScannerReachabilityRow[]>(
+        `/sources/${sourceId}/scanner-reachability`,
+      ),
+    enabled: sourceId != null,
+    staleTime: 10_000,
+  });
+}
+
+export function useUpdateSourceAllowedScanners() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceId, scannerIds }: { sourceId: string; scannerIds: string[] }) =>
+      api.patch<{ updated_scanners: number }>(
+        `/sources/${sourceId}/allowed-scanners`,
+        { scanner_ids: scannerIds },
+      ),
+    onSuccess: (_, { sourceId }) => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      queryClient.invalidateQueries({
+        queryKey: ["sources", sourceId, "scanner-reachability"],
+      });
+    },
+  });
+}
+
 export function useDeleteSource() {
   const queryClient = useQueryClient();
 

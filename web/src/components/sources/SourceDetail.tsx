@@ -8,6 +8,7 @@ import {
   useDeleteSource,
   useUpdateSource,
 } from "../../hooks/useSources";
+import { AllowedScannersPanel } from "./AllowedScannersPanel";
 import { DeleteSourceModal } from "./DeleteSourceModal";
 import { ReachabilityBadge } from "./ReachabilityBadge";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
@@ -537,11 +538,9 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
           </span>
         </Row>
       )}
-      {source.is_removable && (
-        <Row label="Reachability">
-          <ReachabilityBadge source={source} />
-        </Row>
-      )}
+      <Row label="Reachability">
+        <ReachabilityBadge source={source} />
+      </Row>
       <Row label="Last scan">
         <span className="text-fg-muted">{lastScanStr}</span>
       </Row>
@@ -568,6 +567,12 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
             </Row>
           ))}
         </dl>
+      </div>
+      <div className="pt-3 border-t border-line-subtle">
+        <p className="text-xs uppercase tracking-wide text-fg-subtle mb-2">
+          Allowed scanners
+        </p>
+        <AllowedScannersPanel sourceId={source.id} />
       </div>
     </dl>
   );

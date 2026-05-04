@@ -120,8 +120,103 @@ export interface HostTestResult {
 }
 
 export function useTestHostConnection() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (hostId: string) =>
       api.post<HostTestResult>(`/hosts/${hostId}/test-connection`, {}),
+    onSuccess: () => {
+      // The endpoint persists is_reachable + timestamps now (v0.5.6).
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+    },
+  });
+}
+
+// v0.5.7 — host-side eligibility-management hooks.
+
+export interface HostScannerSummaryRow {
+  scanner_id: string;
+  name: string;
+  pool: string | null;
+  online: boolean;
+  currently_allowed_count: number;
+  reaches_count: number;
+  unreachable_count: number;
+  not_yet_probed_count: number;
+  total_sources: number;
+}
+
+export function useHostScannerSummary(hostId: string | null) {
+  return useQuery<HostScannerSummaryRow[]>({
+    queryKey: ["hosts", hostId, "scanner-summary"],
+    queryFn: () =>
+      api.get<HostScannerSummaryRow[]>(
+        `/hosts/${hostId}/scanner-reachability-summary`,
+      ),
+    enabled: hostId != null,
+    staleTime: 10_000,
+  });
+}
+
+export function useUpdateHostAllowedScanners() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hostId, scannerIds }: { hostId: string; scannerIds: string[] }) =>
+      api.patch<{ sources_touched: number; scanners_updated: number }>(
+        `/hosts/${hostId}/allowed-scanners`,
+        { scanner_ids: scannerIds },
+      ),
+    onSuccess: (_, { hostId }) => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      queryClient.invalidateQueries({
+        queryKey: ["hosts", hostId, "scanner-summary"],
+      });
+    },
+  });
+}
+
+// v0.5.7 — scanner-side eligibility-management hooks.
+
+export interface SourceReachabilityRow {
+  source_id: string;
+  source_name: string;
+  source_type: string;
+  host_name: string | null;
+  currently_allowed: boolean;
+  ok: boolean | null;
+  last_probed_at: string | null;
+  step: string | null;
+  error: string | null;
+}
+
+export function useScannerSourceReachability(scannerId: string | null) {
+  return useQuery<SourceReachabilityRow[]>({
+    queryKey: ["scanners", scannerId, "source-reachability"],
+    queryFn: () =>
+      api.get<SourceReachabilityRow[]>(
+        `/scanners/${scannerId}/source-reachability`,
+      ),
+    enabled: scannerId != null,
+    staleTime: 10_000,
+  });
+}
+
+export function useUpdateScannerAllowedSources() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scannerId, sourceIds }: { scannerId: string; sourceIds: string[] | null }) =>
+      api.patch<unknown>(`/scanners/${scannerId}`, {
+        allowed_source_ids: sourceIds,
+        clear_allowed_source_ids: sourceIds == null,
+      }),
+    onSuccess: (_, { scannerId }) => {
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      queryClient.invalidateQueries({
+        queryKey: ["scanners", scannerId, "source-reachability"],
+      });
+    },
   });
 }

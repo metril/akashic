@@ -5,6 +5,51 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.7 — 2026-05-04
+
+- **Scanner agent runs reachability probes.** v0.5.6 shipped the api-
+  side enqueue + self-worker; this release ships the matching agent
+  loop. `internal/agent/reachability.go` polls
+  `/api/scanners/{id}/reachability/poll` every 15s (jittered),
+  runs an in-process probe via the new `internal/probe` package,
+  and reports back via `/reachability/{id}/report`. Independent of
+  the scan-lease cadence so a long scan doesn't starve reachability
+  data. Local-source probes now work out of the box for any host
+  with a scanner installed — the api self-worker can't see remote
+  paths but the agent that lives next to the data can.
+- **Bidirectional eligibility-management UI.** Three views, one
+  underlying field (`Scanner.allowed_source_ids`):
+  - **Source view:** new "Allowed scanners" panel on SourceDetail.
+    Multi-select checklist of every scanner with each scanner's
+    most recent probe outcome against THIS source inline (green
+    "Reaches", yellow "Stale", red "Cannot reach", grey "Not yet
+    probed"). "Auto-fill recommended" pre-checks every 🟢 row;
+    saving a 🔴 row prompts a confirm because allowing a proven-
+    unable scanner just queues failures.
+  - **Scanner view:** SettingsScanners' "sources: N" badge is now
+    clickable — opens an `AllowedSourcesModal` with the inverse
+    listing (every source × this scanner's probe outcome). Saves
+    via `PATCH /api/scanners/{id}` (existing field, no schema
+    change).
+  - **Host view:** new "Allowed scanners" section on HostDetail
+    aggregates per scanner across attached shares ("Reaches 3 of
+    5"). "Apply to N attached sources" bulk-writes the selection
+    to every share in one transaction.
+- **Backend:** new endpoints
+  `GET /api/sources/{id}/scanner-reachability`,
+  `PATCH /api/sources/{id}/allowed-scanners`,
+  `GET /api/hosts/{id}/scanner-reachability-summary`,
+  `PATCH /api/hosts/{id}/allowed-scanners`. All idempotent. Audit
+  events: `source_allowed_scanners_updated`,
+  `host_allowed_scanners_applied`. The host-side endpoint is the
+  bulk-fan-out path: it loops across attached sources and applies
+  the same diff in a single transaction.
+- **Probe extraction:** test_connection logic moved to a reusable
+  `scanner/internal/probe/probe.go` package so the agent can probe
+  in-process without a subprocess. The CLI subcommand
+  `akashic-scanner test-connection` keeps the same step:reason
+  contract for the api's pre-flight test path.
+
 ## v0.5.6 — 2026-05-04
 
 - **Reachability is now continuous.** Previously the api only knew if

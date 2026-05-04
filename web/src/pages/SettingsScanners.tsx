@@ -24,6 +24,7 @@ import {
   Page,
   Spinner,
 } from "../components/ui";
+import { AllowedSourcesModal } from "../components/scanners/AllowedSourcesModal";
 import { JoinTokenWizard } from "../components/scanners/JoinTokenWizard";
 import { PendingClaimRow } from "../components/scanners/PendingClaimRow";
 import { DiscoveryToggle } from "../components/scanners/DiscoveryToggle";
@@ -93,6 +94,7 @@ export default function SettingsScanners() {
   const [issued, setIssued] = useState<ScannerCreated | null>(null);
   const [rotateConfirm, setRotateConfirm] = useState<Scanner | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Scanner | null>(null);
+  const [editSources, setEditSources] = useState<Scanner | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
 
   async function handleRotate(scanner: Scanner) {
@@ -153,6 +155,7 @@ export default function SettingsScanners() {
                     deleteLoading={
                       deleteMut.isPending && deleteMut.variables === s.id
                     }
+                    onEditSources={() => setEditSources(s)}
                   />
                 ))}
               </ul>
@@ -223,18 +226,25 @@ export default function SettingsScanners() {
         onConfirm={() => deleteConfirm && performDelete(deleteConfirm)}
         onCancel={() => !deleteMut.isPending && setDeleteConfirm(null)}
       />
+      <AllowedSourcesModal
+        open={editSources !== null}
+        scannerId={editSources?.id ?? null}
+        scannerName={editSources?.name ?? ""}
+        onClose={() => setEditSources(null)}
+      />
     </Page>
   );
 }
 
 function ScannerRow({
-  scanner: s, onRotate, onToggle, onDelete, deleteLoading,
+  scanner: s, onRotate, onToggle, onDelete, deleteLoading, onEditSources,
 }: {
   scanner: Scanner;
   onRotate: () => void;
   onToggle: () => void;
   onDelete: () => void;
   deleteLoading: boolean;
+  onEditSources: () => void;
 }) {
   const sourcesQ = useSources();
   const sourceNames = (sourcesQ.data ?? []).reduce<Record<string, string>>(
@@ -259,17 +269,22 @@ function ScannerRow({
             <span className="font-medium text-fg truncate">{s.name}</span>
             <Badge variant="neutral">{s.pool}</Badge>
             {!s.enabled && <Badge variant="neutral">disabled</Badge>}
-            {sourceScope && sourceScope.length > 0 && (
-              <span
-                title={sourceScope
-                  .map((id) => sourceNames[id] || id)
-                  .join(", ")}
-              >
-                <Badge variant="neutral">
-                  sources: {sourceScope.length}
-                </Badge>
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={onEditSources}
+              title={
+                sourceScope == null
+                  ? "Allows all sources — click to restrict"
+                  : sourceScope
+                      .map((id) => sourceNames[id] || id)
+                      .join(", ")
+              }
+              className="hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
+            >
+              <Badge variant="neutral">
+                sources: {sourceScope == null ? "all" : sourceScope.length}
+              </Badge>
+            </button>
             {typeScope && typeScope.length > 0 && (
               <span title={typeScope.join(", ")}>
                 <Badge variant="neutral">
