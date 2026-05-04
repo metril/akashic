@@ -18,6 +18,7 @@ import {
   Button,
   Card,
   CardHeader,
+  ConfirmDialog,
   EmptyState,
   Input,
   Page,
@@ -91,6 +92,7 @@ export default function SettingsScanners() {
 
   const [issued, setIssued] = useState<ScannerCreated | null>(null);
   const [rotateConfirm, setRotateConfirm] = useState<Scanner | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Scanner | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
 
   async function handleRotate(scanner: Scanner) {
@@ -99,13 +101,13 @@ export default function SettingsScanners() {
     setRotateConfirm(null);
   }
 
-  function handleDelete(scanner: Scanner) {
-    if (
-      confirm(
-        `Delete scanner "${scanner.name}"? Any in-flight scan it was holding will be re-queued. Its private key stops working immediately.`,
-      )
-    ) {
-      deleteMut.mutate(scanner.id);
+  async function performDelete(scanner: Scanner) {
+    try {
+      await deleteMut.mutateAsync(scanner.id);
+      setDeleteConfirm(null);
+    } catch {
+      // mutation error is surfaced inside the dialog row, not the toast
+      setDeleteConfirm(null);
     }
   }
 
@@ -147,7 +149,7 @@ export default function SettingsScanners() {
                     onToggle={() =>
                       patchMut.mutate({ id: s.id, enabled: !s.enabled })
                     }
-                    onDelete={() => handleDelete(s)}
+                    onDelete={() => setDeleteConfirm(s)}
                     deleteLoading={
                       deleteMut.isPending && deleteMut.variables === s.id
                     }
@@ -207,6 +209,20 @@ export default function SettingsScanners() {
           pending={rotateMut.isPending}
         />
       )}
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        title={
+          deleteConfirm
+            ? `Delete scanner "${deleteConfirm.name}"?`
+            : "Delete scanner?"
+        }
+        description="Any in-flight scan it was holding will be re-queued. Its private key stops working immediately."
+        confirmLabel="Delete"
+        destructive
+        loading={deleteMut.isPending}
+        onConfirm={() => deleteConfirm && performDelete(deleteConfirm)}
+        onCancel={() => !deleteMut.isPending && setDeleteConfirm(null)}
+      />
     </Page>
   );
 }

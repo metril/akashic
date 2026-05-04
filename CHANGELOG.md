@@ -5,6 +5,42 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.5 — 2026-05-04
+
+- **UI:** retire native browser `confirm()` popups. Deleting a host,
+  scanner, or tag now opens an in-app `ConfirmDialog` styled to
+  match the rest of the app (dim scrim, focus on the destructive
+  button, ESC to cancel, busy state during the mutation). The
+  popup-blocked, dark-mode-unaware browser dialog is gone.
+- **UI:** fix low-contrast text on selected radio options in the
+  source-delete and recover-orphans modals. The blue / rose-50
+  highlight kept the description in `text-fg-muted`, which washed
+  out to ~3:1 on the bright tint. Selected rows now switch to a
+  high-contrast colour pair (`text-blue-900` / `text-rose-900`,
+  with dark-mode equivalents) that clears WCAG AA. Audit-event
+  badges (`source_created`, `source_updated`, `source_deleted`)
+  also bumped from -100/-800 to -200/-900 for the same reason.
+- **UI:** discover-shares panel polish. The default Source name is
+  now the bare share name instead of `${host.name}/${share}` — the
+  host header on the Sources page already labels the parent, so
+  the prefix was redundant. The *Select all* checkbox correctly
+  shows an indeterminate state when only some rows are checked.
+  The Add button moves to a sticky footer with a one-line note
+  about source-name uniqueness. Empty-state copy is cause-aware
+  per host type.
+- **UI:** group-by toggle on `/sources` no longer collapses cards on
+  top of each other when switched to *None*. The TanStack
+  virtualizer was caching measured row sizes by index — toggling
+  the grouping reshuffled the rows array and the cached
+  header-height (36px) leaked into card slots. Virtualizer now
+  tracks measurements by stable row key (`card:<id>` /
+  `header:<id>`) so toggling preserves per-row identity.
+- **UI:** all modals now share a tiny `ModalShell` primitive
+  (overlay, centered card, ESC handling). `ConfirmDialog`,
+  `DeleteSourceModal`, and `RecoverOrphansModal` use the same
+  shell — open/close behaviour and focus handling stay
+  consistent everywhere.
+
 ## v0.5.4 — 2026-05-04
 
 - **Hosts:** discover-and-batch-add. A new *Discover shares* button on

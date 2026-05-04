@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "../ui";
 import {
@@ -17,7 +17,9 @@ interface Props {
 
 interface ShareRow {
   share: string;
-  /** Source name to create — defaults to `${host.name}/${share}`. */
+  /** Source name to create. Defaults to the bare share name; the host
+   *  group on the Sources page already labels the parent host so a
+   *  prefix would be redundant. v0.5.5. */
   name: string;
   selected: boolean;
   /** True when the host already has a Source attached for this share. */
@@ -74,7 +76,10 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
           const already = existingShareValues.has(share);
           return {
             share,
-            name: `${host.name}/${share}`,
+            // v0.5.5: was `${host.name}/${share}` — the host header on
+            // the Sources page already labels the parent, so the prefix
+            // was redundant noise.
+            name: share,
             selected: !already,
             alreadyAdded: already,
           };
@@ -145,11 +150,11 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
   }
   if (discovered?.step) {
     return (
-      <div className="rounded-md p-2 text-xs bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-300">
+      <div className="rounded-md p-2 text-xs bg-rose-50 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100">
         Discovery failed at <strong>{discovered.step}</strong>:{" "}
         {discovered.error ?? "unknown error"}
-        <p className="mt-1 text-fg-muted">
-          Check the host's credentials on the *Edit* tab and try again.
+        <p className="mt-1 opacity-80">
+          Check the host's credentials on the <em>Edit</em> tab and try again.
         </p>
       </div>
     );
@@ -158,16 +163,32 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-fg-muted italic">
-        No shares advertised by this host. (For SMB this means
-        NetShareEnumAll returned only administrative shares like IPC$,
-        which are filtered out.)
-      </p>
+      <div className="rounded-md p-2 text-xs bg-app border border-line-subtle text-fg-muted">
+        <p className="font-medium text-fg">No discoverable shares.</p>
+        <p className="mt-1">
+          The host responded but didn't advertise any usable shares.
+          Possible causes:
+        </p>
+        <ul className="list-disc pl-5 mt-1 space-y-0.5">
+          <li>Credentials lack list permission on the share namespace.</li>
+          {host.type === "smb" && (
+            <li>Only administrative shares (IPC$, ADMIN$) are exposed; those are filtered out.</li>
+          )}
+          {host.type === "nfs" && (
+            <li>The MOUNT3 export list is empty or restricted by the server.</li>
+          )}
+          {host.type === "s3" && (
+            <li>The IAM principal can authenticate but lacks <code className="font-mono">s3:ListAllMyBuckets</code>.</li>
+          )}
+        </ul>
+      </div>
     );
   }
 
   const allSelectableChecked =
     selectableCount > 0 && selectedCount === selectableCount;
+  const partiallyChecked =
+    selectableCount > 0 && selectedCount > 0 && selectedCount < selectableCount;
 
   return (
     <div className="space-y-3">
@@ -177,12 +198,11 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
           {selectedCount} selected
         </p>
         <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input
-            type="checkbox"
+          <IndeterminateCheckbox
             checked={allSelectableChecked}
-            onChange={(e) => toggleAll(e.target.checked)}
+            indeterminate={partiallyChecked}
             disabled={selectableCount === 0}
-            className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+            onChange={(e) => toggleAll(e.target.checked)}
           />
           Select all
         </label>
@@ -230,7 +250,11 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
         ))}
       </ul>
 
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-line-subtle">
+      <div className="sticky bottom-0 -mx-2 px-2 pt-2 pb-1 bg-surface/95 backdrop-blur-sm border-t border-line-subtle flex items-center justify-between gap-2">
+        <p className="text-[11px] text-fg-muted">
+          Source names must be globally unique — duplicates skip and you can
+          rename in place.
+        </p>
         <Button
           size="sm"
           onClick={handleAdd}
@@ -242,5 +266,38 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Native HTML checkboxes can't be set to "indeterminate" via a JSX
+ * prop — only via the DOM property. This thin wrapper sets it on
+ * mount / update so a partially-selected list shows the dash icon
+ * instead of false-checked.
+ */
+function IndeterminateCheckbox({
+  checked,
+  indeterminate,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  disabled?: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={onChange}
+      className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+    />
   );
 }

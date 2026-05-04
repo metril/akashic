@@ -6,6 +6,7 @@ import {
   CardHeader,
   Input,
   Button,
+  ConfirmDialog,
   EmptyState,
   Spinner,
   Badge,
@@ -84,6 +85,7 @@ export default function SettingsTags() {
   const [name, setName] = useState("");
   const [color, setColor] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Tag | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -101,9 +103,11 @@ export default function SettingsTags() {
     }
   }
 
-  function handleDelete(tag: Tag) {
-    if (confirm(`Delete tag "${tag.name}"? This removes it from any entries it's applied to.`)) {
-      deleteTag.mutate(tag.id);
+  async function performDelete(tag: Tag) {
+    try {
+      await deleteTag.mutateAsync(tag.id);
+    } finally {
+      setDeleteConfirm(null);
     }
   }
 
@@ -156,7 +160,7 @@ export default function SettingsTags() {
                       <Button
                         size="sm"
                         variant="danger"
-                        onClick={() => handleDelete(tag)}
+                        onClick={() => setDeleteConfirm(tag)}
                         loading={deleteTag.isPending && deleteTag.variables === tag.id}
                       >
                         Delete
@@ -215,6 +219,20 @@ export default function SettingsTags() {
           </form>
         </Card>
       </div>
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        title={
+          deleteConfirm
+            ? `Delete tag "${deleteConfirm.name}"?`
+            : "Delete tag?"
+        }
+        description="This removes the tag from any entries it's applied to."
+        confirmLabel="Delete"
+        destructive
+        loading={deleteTag.isPending}
+        onConfirm={() => deleteConfirm && performDelete(deleteConfirm)}
+        onCancel={() => !deleteTag.isPending && setDeleteConfirm(null)}
+      />
     </Page>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Badge, Button, Drawer } from "../ui";
+import { Badge, Button, ConfirmDialog, Drawer } from "../ui";
 import {
   useDeleteHost,
   useHostDetail,
@@ -51,6 +51,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   const [draftConfig, setDraftConfig] = useState<HostConfig>({});
   const [error, setError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     if (host) {
@@ -123,7 +124,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!host) return;
     if (attachedSources.length > 0) {
       toast.error(
@@ -131,7 +132,11 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
       );
       return;
     }
-    if (!confirm(`Delete host "${host.name}"? This cannot be undone.`)) return;
+    setConfirmingDelete(true);
+  }
+
+  async function performDelete() {
+    if (!host) return;
     const p = deleteHost.mutateAsync(host.id);
     toast.promise(p, {
       loading: "Deleting…",
@@ -141,8 +146,10 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     });
     try {
       await p;
+      setConfirmingDelete(false);
       onClose();
     } catch (e) {
+      setConfirmingDelete(false);
       setError(e instanceof Error ? e.message : "Delete failed");
     }
   }
@@ -299,6 +306,16 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={host ? `Delete host "${host.name}"?` : "Delete host?"}
+        description="This removes the host and its credentials. It cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={deleteHost.isPending}
+        onConfirm={performDelete}
+        onCancel={() => !deleteHost.isPending && setConfirmingDelete(false)}
+      />
     </Drawer>
   );
 }

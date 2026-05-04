@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Button } from "./Button";
-import { cn } from "./cn";
+import { ModalShell } from "./ModalShell";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -28,37 +28,20 @@ export function ConfirmDialog({
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   // Focus the destructive/primary button on open so Enter confirms and
-  // Tab cycles within the dialog. Esc cancels via the keydown listener.
+  // Tab cycles within the dialog.
   useEffect(() => {
     if (!open) return;
     confirmRef.current?.focus();
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !loading) onCancel();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, loading, onCancel]);
-
-  if (!open) return null;
+  }, [open]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-title"
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+    <ModalShell
+      open={open}
+      onClose={onCancel}
+      blocking={loading}
+      ariaLabelledBy="confirm-title"
     >
-      <div
-        className="absolute inset-0 bg-gray-900/55"
-        onClick={loading ? undefined : onCancel}
-      />
-      <div
-        className={cn(
-          "relative w-full max-w-md rounded-xl bg-surface shadow-2xl",
-          "border border-line/70",
-          "p-5",
-        )}
-      >
+      <div className="p-5">
         <h2
           id="confirm-title"
           className="text-base font-semibold text-fg"
@@ -88,6 +71,6 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

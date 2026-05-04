@@ -292,6 +292,13 @@ function VirtualSourceList({
     // optimisation, not a correctness requirement.
     estimateSize: (i) => (rows[i]?.kind === "header" ? 36 : 168),
     overscan: 4,
+    // v0.5.5: track measurements by row.key (e.g. "card:<src-id>",
+    // "header:<host-id>") rather than by integer index. Without this,
+    // toggling Group-by Host ↔ None reshuffles the rows array but the
+    // virtualizer keeps the *index*-keyed cached size — a header's
+    // 36px gets re-used for whatever card slots into index 0 next,
+    // visually collapsing all the cards on top of each other.
+    getItemKey: (i) => rows[i]?.key ?? `__idx_${i}`,
   });
 
   return (

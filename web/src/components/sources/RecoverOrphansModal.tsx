@@ -14,7 +14,7 @@
  */
 import { useState } from "react";
 
-import { Button, Spinner } from "../ui";
+import { Button, ModalShell, Spinner } from "../ui";
 import {
   useReattachCommit, useReattachDryRun,
   type ReattachStrategy,
@@ -34,7 +34,6 @@ export function RecoverOrphansModal({
   const dryRunQ = useReattachDryRun(sourceId, strategy, open);
   const commit = useReattachCommit(sourceId);
 
-  if (!open) return null;
   const summary = dryRunQ.data;
 
   async function handleConfirm() {
@@ -47,92 +46,93 @@ export function RecoverOrphansModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      blocking={commit.isPending}
+      maxWidth="xl"
+      ariaLabelledBy="recover-orphans-title"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-xl"
-      >
-        <div className="px-5 py-3 border-b border-line">
-          <h2 className="text-base font-semibold text-fg">
-            Recover orphans into "{sourceName}"
-          </h2>
-          <p className="text-xs text-fg-muted mt-1">
-            Match orphaned entries (whose original source was deleted)
-            against the freshly-scanned files of this source.
-            Re-attached entries keep their tags, version history, and
-            audit trail.
-          </p>
-        </div>
-
-        <div className="p-5 space-y-3">
-          <div>
-            <p className="text-xs font-medium text-fg-muted mb-2">
-              Matching strategy
-            </p>
-            <div className="space-y-2">
-              <StrategyOption
-                value="path"
-                checked={strategy === "path"}
-                onChange={() => setStrategy("path")}
-                title="Path"
-                description="Match on path + name + kind. Use when the new source points at the same data and you trust the file at this path is still the same file."
-              />
-              <StrategyOption
-                value="path_and_hash"
-                checked={strategy === "path_and_hash"}
-                onChange={() => setStrategy("path_and_hash")}
-                title="Path + content hash"
-                description="Stricter: also require content hash to match. Orphans without a hash never match — run a full scan first if you want this mode."
-              />
-            </div>
-          </div>
-
-          <div className="border border-line rounded-lg p-3 bg-app">
-            {dryRunQ.isLoading ? (
-              <div className="flex items-center gap-2 text-xs text-fg-muted">
-                <Spinner /> Computing matches…
-              </div>
-            ) : dryRunQ.isError ? (
-              <p className="text-xs text-rose-600">
-                {dryRunQ.error instanceof Error
-                  ? dryRunQ.error.message
-                  : "Failed to compute matches"}
-              </p>
-            ) : summary ? (
-              <SummaryBreakdown summary={summary} />
-            ) : null}
-          </div>
-
-          {commit.isError && (
-            <p className="text-xs text-rose-600">
-              {commit.error instanceof Error
-                ? commit.error.message
-                : "Recovery failed"}
-            </p>
-          )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-line flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={onClose}
-            disabled={commit.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            loading={commit.isPending}
-            disabled={!summary || summary.matched === 0}
-          >
-            Recover {summary?.matched ?? 0}
-          </Button>
-        </div>
+      <div className="px-5 py-3 border-b border-line">
+        <h2
+          id="recover-orphans-title"
+          className="text-base font-semibold text-fg"
+        >
+          Recover orphans into "{sourceName}"
+        </h2>
+        <p className="text-xs text-fg-muted mt-1">
+          Match orphaned entries (whose original source was deleted)
+          against the freshly-scanned files of this source.
+          Re-attached entries keep their tags, version history, and
+          audit trail.
+        </p>
       </div>
-    </div>
+
+      <div className="p-5 space-y-3">
+        <div>
+          <p className="text-xs font-medium text-fg-muted mb-2">
+            Matching strategy
+          </p>
+          <div className="space-y-2">
+            <StrategyOption
+              value="path"
+              checked={strategy === "path"}
+              onChange={() => setStrategy("path")}
+              title="Path"
+              description="Match on path + name + kind. Use when the new source points at the same data and you trust the file at this path is still the same file."
+            />
+            <StrategyOption
+              value="path_and_hash"
+              checked={strategy === "path_and_hash"}
+              onChange={() => setStrategy("path_and_hash")}
+              title="Path + content hash"
+              description="Stricter: also require content hash to match. Orphans without a hash never match — run a full scan first if you want this mode."
+            />
+          </div>
+        </div>
+
+        <div className="border border-line rounded-lg p-3 bg-app">
+          {dryRunQ.isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-fg-muted">
+              <Spinner /> Computing matches…
+            </div>
+          ) : dryRunQ.isError ? (
+            <p className="text-xs text-rose-600">
+              {dryRunQ.error instanceof Error
+                ? dryRunQ.error.message
+                : "Failed to compute matches"}
+            </p>
+          ) : summary ? (
+            <SummaryBreakdown summary={summary} />
+          ) : null}
+        </div>
+
+        {commit.isError && (
+          <p className="text-xs text-rose-600">
+            {commit.error instanceof Error
+              ? commit.error.message
+              : "Recovery failed"}
+          </p>
+        )}
+      </div>
+
+      <div className="px-5 py-3 border-t border-line flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          onClick={onClose}
+          disabled={commit.isPending}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={handleConfirm}
+          loading={commit.isPending}
+          disabled={!summary || summary.matched === 0}
+        >
+          Recover {summary?.matched ?? 0}
+        </Button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -174,10 +174,16 @@ function StrategyOption({
   title: string;
   description: string;
 }) {
+  // Match the contrast pattern in DeleteSourceModal: tint the option +
+  // force a high-contrast text colour over the tint so the description
+  // isn't washed out by text-fg-muted on bg-blue-50.
+  const checkedClasses =
+    "border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-500/15 dark:text-blue-100";
+  const idleClasses = "border-line hover:bg-app text-fg";
   return (
     <label
       className={`block border rounded-lg p-3 cursor-pointer transition-colors ${
-        checked ? "border-blue-500 bg-blue-50" : "border-line hover:bg-app"
+        checked ? checkedClasses : idleClasses
       }`}
     >
       <div className="flex items-start gap-2">
@@ -190,8 +196,8 @@ function StrategyOption({
           className="mt-1"
         />
         <div>
-          <div className="text-sm font-medium text-fg">{title}</div>
-          <div className="text-xs text-fg-muted mt-1">{description}</div>
+          <div className="text-sm font-medium">{title}</div>
+          <div className="text-xs mt-1 opacity-80">{description}</div>
         </div>
       </div>
     </label>

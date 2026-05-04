@@ -16,10 +16,15 @@ const EVENT_LABEL: Record<string, string> = {
   binding_removed: "Binding removed",
 };
 
+// WCAG AA needs ~4.5:1 contrast for badge-size text. The Tailwind -100
+// background / -800 text pair hovers at ~4:1 — fails. Bump background
+// to -200 (still clearly tinted) and text to -900 in light mode, plus
+// a -500/15 tint with -100 text for dark mode so contrast clears AA
+// in both themes.
 const EVENT_COLOR: Record<string, string> = {
-  source_created: "bg-emerald-100 text-emerald-800",
-  source_updated: "bg-blue-100 text-blue-800",
-  source_deleted: "bg-rose-100 text-rose-800 dark:text-rose-300",
+  source_created: "bg-emerald-200 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100",
+  source_updated: "bg-blue-200 text-blue-900 dark:bg-blue-500/15 dark:text-blue-100",
+  source_deleted: "bg-rose-200 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100",
   source_test_run: "bg-surface-muted text-fg",
 };
 
