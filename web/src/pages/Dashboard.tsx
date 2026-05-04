@@ -255,7 +255,7 @@ export default function Dashboard() {
                     <span className="text-xs text-fg-muted tabular-nums flex-shrink-0">
                       now {formatBytes(e.current_bytes)}
                     </span>
-                    <span className="text-sm font-medium text-emerald-700 tabular-nums ml-auto">
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300 tabular-nums ml-auto">
                       +{formatBytes(e.delta_bytes)}
                     </span>
                   </button>
@@ -297,8 +297,8 @@ export default function Dashboard() {
                     className={
                       "text-sm tabular-nums w-28 text-right font-medium " +
                       (h.slope_bytes_per_day >= 0
-                        ? "text-emerald-700"
-                        : "text-rose-700")
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-rose-700 dark:text-rose-300")
                     }
                   >
                     {h.slope_bytes_per_day >= 0 ? "+" : "−"}
@@ -354,7 +354,7 @@ export default function Dashboard() {
                         <div className="text-xs text-fg-muted mt-0.5">
                           {scanWhen(s)}
                           {s.files_new > 0 && (
-                            <> · <span className="text-emerald-700 font-medium">+{formatNumber(s.files_new)}</span> files</>
+                            <> · <span className="text-emerald-700 dark:text-emerald-300 font-medium">+{formatNumber(s.files_new)}</span> files</>
                           )}
                         </div>
                       </div>

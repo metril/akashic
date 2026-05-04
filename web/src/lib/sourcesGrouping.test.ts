@@ -20,6 +20,7 @@ function src(overrides: Partial<Source>): Source {
     is_reachable: null,
     last_reachable_at: null,
     last_reachability_check_at: null,
+    credential_profile_id: null,
     ...overrides,
   };
 }

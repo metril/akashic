@@ -10,11 +10,13 @@ class HostCreate(BaseModel):
     name: str
     type: str  # "ssh" | "smb" | "nfs" | "s3" — local has no host
     connection_config: dict
+    credential_profile_id: uuid.UUID | None = None
 
 
 class HostUpdate(BaseModel):
     name: str | None = None
     connection_config: dict | None = None
+    credential_profile_id: uuid.UUID | None = None
 
 
 class HostResponse(BaseModel):
@@ -22,6 +24,7 @@ class HostResponse(BaseModel):
     name: str
     type: str
     connection_config: dict
+    credential_profile_id: uuid.UUID | None = None
     source_count: int = 0
     # v0.5.6 reachability — same shape as Source, plus a roll-up.
     is_reachable: bool | None = None

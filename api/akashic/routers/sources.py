@@ -74,6 +74,22 @@ async def create_source(
                 ),
             )
 
+    if data.credential_profile_id is not None:
+        from akashic.models.credential_profile import CredentialProfile
+        p = (await db.execute(
+            select(CredentialProfile).where(CredentialProfile.id == data.credential_profile_id)
+        )).scalar_one_or_none()
+        if p is None:
+            raise HTTPException(status_code=404, detail="credential_profile_id not found")
+        if p.type != data.type:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Credential profile type {p.type!r} does not match "
+                    f"source type {data.type!r}."
+                ),
+            )
+
     payload = data.model_dump()
     mps = payload.get("max_parallel_scanners")
     if mps is None:
@@ -282,6 +298,22 @@ async def update_source(
                         "non-secret field."
                     ),
                 )
+    if "credential_profile_id" in incoming and incoming["credential_profile_id"] is not None:
+        from akashic.models.credential_profile import CredentialProfile
+        p = (await db.execute(
+            select(CredentialProfile).where(CredentialProfile.id == incoming["credential_profile_id"])
+        )).scalar_one_or_none()
+        if p is None:
+            raise HTTPException(status_code=404, detail="credential_profile_id not found")
+        if p.type != source.type:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Credential profile type {p.type!r} does not match "
+                    f"source type {source.type!r}."
+                ),
+            )
+
     for field, value in incoming.items():
         if field == "connection_config":
             # Secret-merge: preserve real secrets when the UI sends back

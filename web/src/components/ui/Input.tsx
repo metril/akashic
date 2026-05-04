@@ -22,6 +22,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           className="block text-xs font-medium text-fg-muted mb-1.5"
         >
           {label}
+          {rest.required && (
+            <span
+              className="ml-0.5 text-rose-500"
+              aria-hidden="true"
+              title="Required"
+            >
+              *
+            </span>
+          )}
         </label>
       )}
       <div className="relative">
@@ -47,7 +56,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       </div>
       {error && <p className="text-xs text-rose-600 mt-1.5">{error}</p>}
       {!error && hint && (
-        <p className="text-[11px] text-fg-subtle mt-1">{hint}</p>
+        <p className="text-[11px] text-fg-muted mt-1">{hint}</p>
       )}
     </div>
   );

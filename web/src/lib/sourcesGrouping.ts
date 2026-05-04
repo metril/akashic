@@ -11,7 +11,19 @@ import type { Source } from "../types";
  * the whole React tree.
  */
 export type SourceRow =
-  | { kind: "header"; key: string; hostId: string | null; hostName: string; hostType: string | null; count: number }
+  | {
+      kind: "header";
+      key: string;
+      hostId: string | null;
+      hostName: string;
+      hostType: string | null;
+      count: number;
+      /** Number of attached sources whose credentials differ from the
+       * host default — either via `credential_profile_id` set on the
+       * source, or inline credential keys on the source's
+       * connection_config. Used by HostHeader to render an indicator. */
+      overrideCount: number;
+    }
   | { kind: "card"; key: string; source: Source };
 
 /** localStorage key for the "Group by" toggle. */
@@ -132,6 +144,7 @@ export function buildGroupedRows(
       hostName: h.hostName,
       hostType: h.hostType,
       count: h.sources.length,
+      overrideCount: countCredentialOverrides(h.sources),
     });
     if (collapsed.has(h.key)) continue;
     const sorted = [...h.sources].sort((a, b) => a.name.localeCompare(b.name));
@@ -140,6 +153,42 @@ export function buildGroupedRows(
     }
   }
   return rows;
+}
+
+/**
+ * v0.5.9 — count sources within a host group that override the host's
+ * effective credentials. A source overrides when it has its own
+ * `credential_profile_id` set OR when its `connection_config` carries
+ * credential-shaped keys (username, password, key_path, etc.). The
+ * lean list endpoint usually omits `connection_config`, so this
+ * function falls back to checking just the profile id in that case —
+ * which under-counts inline overrides. The HostHeader copy reflects
+ * "at least N of M".
+ */
+const _CRED_KEYS = new Set([
+  "username", "password", "key_path", "key_passphrase",
+  "private_key", "access_key_id", "secret_access_key",
+  "krb5_principal", "auth_uid", "auth_gid",
+]);
+
+export function countCredentialOverrides(sources: readonly Source[]): number {
+  let n = 0;
+  for (const s of sources) {
+    if (s.credential_profile_id) {
+      n += 1;
+      continue;
+    }
+    const cfg = s.connection_config;
+    if (cfg) {
+      for (const k of Object.keys(cfg)) {
+        if (_CRED_KEYS.has(k)) {
+          n += 1;
+          break;
+        }
+      }
+    }
+  }
+  return n;
 }
 
 /** Convert a flat list to ungrouped row stream — one card per row. */

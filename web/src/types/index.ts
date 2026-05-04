@@ -26,6 +26,8 @@ export interface Host {
   is_reachable: boolean | null;
   last_reachable_at: string | null;
   last_reachability_check_at: string | null;
+  // v0.5.9 — optional reusable credential profile reference.
+  credential_profile_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -84,6 +86,8 @@ export interface Source {
   is_reachable: boolean | null;
   last_reachable_at: string | null;
   last_reachability_check_at: string | null;
+  // v0.5.9 — optional reusable credential profile reference.
+  credential_profile_id: string | null;
 }
 
 export interface FileVersion {

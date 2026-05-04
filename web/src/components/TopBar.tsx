@@ -49,16 +49,17 @@ export function TopBar({ onMobileNavOpen }: TopBarProps) {
         type="button"
         onClick={openPalette}
         className={cn(
-          "hidden sm:inline-flex items-center gap-2 h-9 pl-3 pr-2 rounded-md",
-          "border border-line bg-app hover:bg-surface-muted transition-colors",
-          "text-sm text-fg-muted",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-1",
+          "hidden sm:inline-flex items-center gap-2 h-9 px-3 rounded-lg font-medium",
+          "bg-surface text-fg border border-line hover:bg-surface-muted active:bg-surface-muted",
+          "transition-colors text-sm",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2",
         )}
-        title="Quick search"
+        title="Quick search — files, pages, actions"
+        aria-label="Open quick search palette"
       >
-        <Icon name="search" className="h-4 w-4" />
-        <span>Search files…</span>
-        <kbd className="ml-2 hidden md:inline-flex items-center px-1.5 h-5 rounded border border-line bg-surface text-[11px] font-mono text-fg-muted">
+        <Icon name="search" className="h-4 w-4 text-fg-muted" />
+        <span>Search…</span>
+        <kbd className="ml-2 hidden md:inline-flex items-center px-1.5 h-5 rounded border border-line bg-app text-[11px] font-mono text-fg-muted">
           {platformShortcut()}
         </kbd>
       </button>

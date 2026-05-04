@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, String, DateTime, func
+from sqlalchemy import Boolean, ForeignKey, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from akashic.database import Base
 
@@ -40,5 +40,16 @@ class Host(Base):
     is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_reachable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_reachability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v0.5.9 — optional reference to a reusable CredentialProfile.
+    # NULL = inline credentials only; non-NULL = profile contributes
+    # under inline values via resolve_connection_config.
+    credential_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("credential_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    credential_profile = relationship(
+        "CredentialProfile", lazy="joined", foreign_keys=[credential_profile_id],
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

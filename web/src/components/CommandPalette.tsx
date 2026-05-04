@@ -196,8 +196,39 @@ export function CommandPalette() {
             </Command.Group>
           )}
 
-          {fileResults.length > 0 && (
+          {/* Files group: always visible once the user types — with explicit
+              states so it never silently disappears. cmdk filters Items by
+              the query string, but plain divs (the state messages) render
+              unconditionally. */}
+          {query.length > 0 && (
             <Command.Group heading="Files" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+              {query.length < 2 && (
+                <div className="px-3 py-2 text-xs text-fg-muted italic">
+                  Type at least 2 characters to search files.
+                </div>
+              )}
+              {query.length >= 2 && fileSearch.isFetching && fileResults.length === 0 && (
+                <div className="px-3 py-2 text-xs text-fg-muted">
+                  Searching files…
+                </div>
+              )}
+              {query.length >= 2 && fileSearch.isError && (
+                <div className="px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+                  <div className="font-medium">File search unavailable.</div>
+                  <div className="text-[11px] text-fg-muted mt-0.5">
+                    {fileSearch.error instanceof Error
+                      ? fileSearch.error.message
+                      : "Check the search service and try again."}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileSearch.refetch()}
+                    className="mt-1 text-[11px] font-medium text-accent-600 hover:text-accent-700 underline"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
               {fileResults.map((f) => (
                 <Command.Item
                   key={`file:${f.id}`}
@@ -219,6 +250,31 @@ export function CommandPalette() {
                   </span>
                 </Command.Item>
               ))}
+              {query.length >= 2 &&
+                !fileSearch.isFetching &&
+                !fileSearch.isError &&
+                fileResults.length === 0 && (
+                <div className="px-3 py-2 text-xs text-fg-muted">
+                  No files match "{query}". Run a scan first if no source has been indexed yet.
+                </div>
+              )}
+              {query.length >= 2 && (fileResults.length > 0 || !fileSearch.isError) && (
+                <Command.Item
+                  key="file-search-all"
+                  value={`view all results ${query}`}
+                  onSelect={() =>
+                    go({
+                      id: "search-all",
+                      label: `Show all results for "${query}"`,
+                      to: `/search?q=${encodeURIComponent(query)}`,
+                    })
+                  }
+                  className="flex items-center gap-2 px-3 py-2 text-xs text-accent-600 dark:text-accent-500 font-medium rounded-md cursor-pointer aria-selected:bg-accent-50 aria-selected:text-accent-700"
+                >
+                  <Icon name="search" className="h-3.5 w-3.5" />
+                  Show all results in Search →
+                </Command.Item>
+              )}
             </Command.Group>
           )}
 

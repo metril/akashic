@@ -21,6 +21,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Input,
+  ModalShell,
   Page,
   Spinner,
 } from "../components/ui";
@@ -315,10 +316,10 @@ function ScannerRow({
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <Button size="sm" variant="ghost" onClick={onRotate}>
+          <Button size="sm" variant="secondary" onClick={onRotate}>
             Rotate keys
           </Button>
-          <Button size="sm" variant="ghost" onClick={onToggle}>
+          <Button size="sm" variant="secondary" onClick={onToggle}>
             {s.enabled ? "Disable" : "Enable"}
           </Button>
           <Button
@@ -517,18 +518,17 @@ function KeyIssuedModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    <ModalShell
+      open
+      onClose={onClose}
+      maxWidth="xl"
+      ariaLabelledBy="key-issued-title"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-2xl p-5"
-      >
-        <h2 className="text-base font-semibold text-fg mb-1">
+      <div className="p-5">
+        <h2 id="key-issued-title" className="text-base font-semibold text-fg mb-1">
           Scanner registered: {data.name}
         </h2>
-        <p className="text-xs text-amber-700 mb-3">
+        <p className="text-xs text-amber-700 dark:text-amber-300 mb-3">
           This is the only time the private key is shown. Save it now — the
           api stores only the public key. If you lose this, rotate to mint a
           new pair.
@@ -564,13 +564,13 @@ function KeyIssuedModal({
           </span>
         </div>
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="ghost" onClick={downloadKey}>
+          <Button variant="secondary" onClick={downloadKey}>
             Download .key
           </Button>
           <Button onClick={onClose}>I've saved the key</Button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -583,32 +583,15 @@ function RotateConfirm({
   pending: boolean;
 }) {
   return (
-    <div
-      onClick={onCancel}
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-md p-5"
-      >
-        <h2 className="text-base font-semibold text-fg mb-2">
-          Rotate keys for "{scanner.name}"?
-        </h2>
-        <p className="text-sm text-fg-muted mb-4">
-          A new keypair is generated and the old private key stops
-          authenticating immediately. Replace the key file on the scanner
-          host with the new private key — until you do, the agent will get
-          401s on every call.
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={onConfirm} loading={pending}>
-            Rotate
-          </Button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      open
+      title={`Rotate keys for "${scanner.name}"?`}
+      description="A new keypair is generated and the old private key stops authenticating immediately. Replace the key file on the scanner host with the new private key — until you do, the agent will get 401s on every call."
+      confirmLabel="Rotate"
+      destructive
+      loading={pending}
+      onConfirm={onConfirm}
+      onCancel={() => !pending && onCancel()}
+    />
   );
 }

@@ -17,10 +17,9 @@ import {
   Page,
 } from "../components/ui";
 import { useBulkTriggerScans } from "../hooks/useScanActions";
-import type { BadgeVariant } from "../components/ui";
 import type { Scan, Source } from "../types";
-import { computeETA, formatDate, formatDuration, formatNumber } from "../lib/format";
-import { formatSourceSummary } from "../lib/sources";
+import { computeETA, formatDateTime, formatDuration, formatNumber, formatRelative } from "../lib/format";
+import { deriveSourcePill, formatSourceSummary, type SourcePillState } from "../lib/sources";
 import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ReachabilityBadge } from "../components/sources/ReachabilityBadge";
@@ -39,21 +38,27 @@ import {
 } from "../lib/sourcesGrouping";
 import { api } from "../api/client";
 
-const KNOWN_STATUSES: BadgeVariant[] = [
-  "online",
-  "offline",
-  "scanning",
-  "failed",
-];
-
-function statusVariant(status: string): BadgeVariant {
-  return (KNOWN_STATUSES as string[]).includes(status)
-    ? (status as BadgeVariant)
-    : "neutral";
-}
-
-function statusLabel(status: string): string {
-  return status.charAt(0).toUpperCase() + status.slice(1);
+function SourcePill({ state }: { state: SourcePillState }) {
+  switch (state.kind) {
+    case "scanning":
+      return <Badge variant="scanning">Scanning</Badge>;
+    case "queued":
+      return <Badge variant="neutral">Queued</Badge>;
+    case "failed":
+      return <Badge variant="failed">Failed</Badge>;
+    case "lastScanned":
+      return (
+        <Badge variant="neutral" title={`Last scanned ${formatDateTime(state.at)}`}>
+          Last scanned {formatRelative(state.at)}
+        </Badge>
+      );
+    case "neverScanned":
+      return (
+        <Badge variant="neutral" className="opacity-70">
+          Never scanned
+        </Badge>
+      );
+  }
 }
 
 interface SourceCardProps {
@@ -137,9 +142,7 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
           <h3 className="text-base font-semibold text-fg truncate">
             {source.name}
           </h3>
-          <Badge variant={isQueued ? "neutral" : statusVariant(source.status)}>
-            {isQueued ? "Queued" : statusLabel(source.status)}
-          </Badge>
+          <SourcePill state={deriveSourcePill(source, isQueued)} />
         </div>
         <p className="text-xs text-fg-muted break-all mb-3">{summary}</p>
         {isQueued && (
@@ -181,10 +184,8 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
             <dt className="text-fg-subtle">Type</dt>
             <dd>{source.type}</dd>
           </div>
-          <div className="flex gap-2">
-            <dt className="text-fg-subtle">Last scan</dt>
-            <dd>{formatDate(source.last_scan_at)}</dd>
-          </div>
+          {/* "Last scan" row removed — the pill in the title carries the
+              relative time, with an absolute-timestamp tooltip. v0.5.9 */}
           <div className="flex gap-2 pt-0.5">
             <dt className="text-fg-subtle">Reachability</dt>
             <dd className="min-w-0">
@@ -199,28 +200,30 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
           (edit, scan now, delete) live inside the drawer to keep the
           card minimal. */}
       {isScanning && activeScan && (
-        <div className="mt-3 pt-2 border-t border-line-subtle flex items-center gap-3">
-          <button
-            type="button"
+        <div className="mt-3 pt-2 border-t border-line-subtle flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={(e) => {
               e.stopPropagation();
               onOpenLog(activeScan.id);
             }}
-            className="text-xs text-blue-700 hover:text-blue-900 font-medium"
+            aria-label="View live scan log"
           >
-            View live log →
-          </button>
-          <button
-            type="button"
+            View live log
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
             onClick={(e) => {
               e.stopPropagation();
               handleStop();
             }}
             disabled={stopping}
-            className="text-xs text-rose-700 hover:text-rose-900 font-medium disabled:opacity-50"
+            loading={stopping}
           >
             {stopping ? "Stopping…" : "Stop scan"}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -338,6 +341,7 @@ function VirtualSourceList({
                   hostName={r.hostName}
                   hostType={r.hostType}
                   count={r.count}
+                  overrideCount={r.overrideCount}
                   collapsed={false /* parent rebuilds rows on toggle */}
                   onToggle={() => onToggleHost(r.hostId ?? "__none__")}
                 />
@@ -550,7 +554,11 @@ export default function Sources() {
                 {anyHostAttached && (
                   <>
                     <span className="text-xs text-fg-muted ml-2">Group by:</span>
-                    <div className="inline-flex rounded-md border border-line text-xs overflow-hidden">
+                    <div
+                      className="inline-flex rounded-md border border-line text-xs overflow-hidden"
+                      role="group"
+                      aria-label="Group sources"
+                    >
                       {(["host", "none"] as const).map((opt) => (
                         <button
                           key={opt}
@@ -559,9 +567,10 @@ export default function Sources() {
                             setGroupBy(opt);
                             writeGroupByPref(opt);
                           }}
-                          className={`px-2 py-1 ${
+                          aria-pressed={effectiveGroupBy === opt}
+                          className={`px-2.5 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-1 ${
                             effectiveGroupBy === opt
-                              ? "bg-blue-600 text-white"
+                              ? "bg-accent-600 text-white"
                               : "bg-surface text-fg-muted hover:bg-surface-muted"
                           }`}
                         >

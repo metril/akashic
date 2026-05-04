@@ -22,6 +22,7 @@ export interface CreateHostInput {
   name: string;
   type: string;
   connection_config: Record<string, unknown>;
+  credential_profile_id?: string | null;
 }
 
 export function useCreateHost() {
@@ -37,6 +38,7 @@ export function useCreateHost() {
 export interface UpdateHostInput {
   name?: string;
   connection_config?: Record<string, unknown>;
+  credential_profile_id?: string | null;
 }
 
 export function useUpdateHost() {

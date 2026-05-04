@@ -5,6 +5,7 @@ import { useCreateSource } from "../../hooks/useSources";
 import { useCreateHost, useHosts } from "../../hooks/useHosts";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { inferIsRemovable } from "../../lib/sources";
+import { ProfilePicker } from "../credentials/ProfilePicker";
 import {
   SOURCE_TYPES,
   SOURCE_TYPE_LABELS,
@@ -52,6 +53,11 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const [preferredPool, setPreferredPool] = useState("");
   const [maxParallelScanners, setMaxParallelScanners] = useState(1);
   const [isRemovable, setIsRemovable] = useState(false);
+  // v0.5.9 — optional override of the host's effective credentials.
+  // Empty by default; setting this writes credential_profile_id (or
+  // inline keys via shareConfig) onto the source row.
+  const [overrideCredentials, setOverrideCredentials] = useState(false);
+  const [credentialProfileId, setCredentialProfileId] = useState<string | null>(null);
   const removableTouched = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
@@ -163,6 +169,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         preferred_pool: preferredPool.trim() || null,
         max_parallel_scanners: maxParallelScanners,
         is_removable: isRemovable,
+        credential_profile_id: overrideCredentials ? credentialProfileId : null,
       });
       setName("");
       setShareConfig({});
@@ -185,11 +192,12 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
       <CardHeader title="Add a source" description="Index any reachable filesystem." />
       <form onSubmit={handleSubmit} className="space-y-3">
         <Input
-          label="Share name"
+          label="Source name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="My Documents"
           required
+          hint='A label for this share — e.g. "Public Documents".'
         />
         <Select
           label="Type"
@@ -249,6 +257,29 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           )}
           <ShareFields type={type} value={shareConfig} onChange={setShareConfig} />
         </div>
+
+        {!isLocal && hostChoice && hostChoice !== NEW_HOST && (
+          <details
+            className="border border-line rounded p-3"
+            open={overrideCredentials}
+            onToggle={(e) => setOverrideCredentials((e.target as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer text-sm font-medium text-fg">
+              Override host credentials for this share
+            </summary>
+            <p className="text-xs text-fg-muted mt-2 mb-3">
+              Optional. Pick a different credential profile, or leave on
+              "Inline" and set per-field values via the host you'd already
+              configured. Most-specific wins: source inline &gt; source
+              profile &gt; host inline &gt; host profile.
+            </p>
+            <ProfilePicker
+              type={type as Exclude<SourceType, "local">}
+              value={credentialProfileId}
+              onChange={setCredentialProfileId}
+            />
+          </details>
+        )}
 
         <Input
           label="Preferred scanner pool"

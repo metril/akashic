@@ -89,7 +89,7 @@ export default function Hosts() {
                 onClick={() => setOpenHostId(h.id)}
                 className="block w-full text-left"
               >
-                <Card padding="md" className="cursor-pointer hover:border-blue-300">
+                <Card padding="md" className="cursor-pointer hover:border-blue-300 dark:hover:border-blue-500">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1">

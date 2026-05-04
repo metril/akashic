@@ -1,3 +1,4 @@
+from akashic.models.credential_profile import CredentialProfile
 from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.entry import Entry, EntryVersion, EntryEvent
@@ -21,6 +22,7 @@ from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
 from akashic.models.server_setting import ServerSetting
 
 __all__ = [
+    "CredentialProfile",
     "Host",
     "Source",
     "Entry",

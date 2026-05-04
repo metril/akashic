@@ -86,6 +86,7 @@ function SshHostFields({
           value={value.password === "***" ? "" : (value.password ?? "")}
           onChange={(e) => onChange({ ...value, password: e.target.value })}
           placeholder={value.password === "***" ? "(unchanged — type to replace)" : ""}
+          hint={value.password === "***" ? "Existing value preserved. Type a new value to replace it." : undefined}
           required={value.password !== "***"}
         />
       ) : (
@@ -318,6 +319,7 @@ function S3HostFields({
         value={value.secret_access_key === "***" ? "" : (value.secret_access_key ?? "")}
         onChange={(e) => onChange({ ...value, secret_access_key: e.target.value })}
         placeholder={value.secret_access_key === "***" ? "(unchanged — type to replace)" : ""}
+        hint={value.secret_access_key === "***" ? "Existing value preserved. Type a new value to replace it." : undefined}
         required={value.secret_access_key !== "***"}
       />
     </div>

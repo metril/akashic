@@ -116,7 +116,7 @@ function TabButton({
       onClick={onClick}
       className={`px-3 py-1.5 -mb-px border-b-2 ${
         active
-          ? "border-gray-900 text-fg font-medium"
+          ? "border-fg text-fg font-medium"
           : "border-transparent text-fg-muted hover:text-fg"
       }`}
     >
@@ -524,7 +524,10 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
   return (
     <dl className="text-sm space-y-2">
       <Row label="Summary"><span className="font-mono text-xs">{summary}</span></Row>
-      <Row label="Status"><span>{source.status}</span></Row>
+      {/* Status row dropped in v0.5.9 — the SourcePill on the parent
+          card carries this, and the active-scan banner above shows
+          in-flight state. The legacy "online"/"offline" string here
+          duplicated the reachability badge below. */}
       {source.host && (
         <Row label="Host">
           <Link
@@ -541,7 +544,7 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
       <Row label="Reachability">
         <ReachabilityBadge source={source} />
       </Row>
-      <Row label="Last scan">
+      <Row label="Last scanned">
         <span className="text-fg-muted">{lastScanStr}</span>
       </Row>
       {source.scan_schedule && (

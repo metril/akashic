@@ -88,3 +88,27 @@ export function formatSourceSummary(source: Source): string {
       return source.name;
   }
 }
+
+/**
+ * State machine for the "Last Scanned" pill that replaced the
+ * "Online" badge in v0.5.9. Active scan states (scanning/queued/
+ * failed) win over the idle "Last scanned Xm ago" pill so the slot
+ * is always informative without duplicating the reachability dot.
+ */
+export type SourcePillState =
+  | { kind: "scanning" }
+  | { kind: "queued" }
+  | { kind: "failed" }
+  | { kind: "lastScanned"; at: string }
+  | { kind: "neverScanned" };
+
+export function deriveSourcePill(
+  source: Pick<Source, "status" | "last_scan_at">,
+  isQueued: boolean,
+): SourcePillState {
+  if (source.status === "scanning") return { kind: "scanning" };
+  if (isQueued) return { kind: "queued" };
+  if (source.status === "failed") return { kind: "failed" };
+  if (source.last_scan_at) return { kind: "lastScanned", at: source.last_scan_at };
+  return { kind: "neverScanned" };
+}

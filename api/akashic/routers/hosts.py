@@ -57,11 +57,37 @@ def _serialize(host: Host, source_count: int) -> HostResponse:
         "name": host.name,
         "type": host.type,
         "connection_config": dict(host.connection_config or {}),
+        "credential_profile_id": host.credential_profile_id,
         "source_count": source_count,
+        "is_reachable": host.is_reachable,
+        "last_reachable_at": host.last_reachable_at,
+        "last_reachability_check_at": host.last_reachability_check_at,
         "created_at": host.created_at,
         "updated_at": host.updated_at,
     }
     return HostResponse.model_validate(payload)
+
+
+async def _validate_profile_type(
+    db: AsyncSession, profile_id: uuid.UUID | None, host_or_source_type: str,
+) -> None:
+    """Reject mismatched profile/type pairings before they break a scan."""
+    if profile_id is None:
+        return
+    from akashic.models.credential_profile import CredentialProfile
+    p = (await db.execute(
+        select(CredentialProfile).where(CredentialProfile.id == profile_id)
+    )).scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Credential profile not found")
+    if p.type != host_or_source_type:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Credential profile type {p.type!r} does not match "
+                f"target type {host_or_source_type!r}."
+            ),
+        )
 
 
 @router.post("", response_model=HostResponse, status_code=status.HTTP_201_CREATED)
@@ -79,7 +105,13 @@ async def create_host(
     err = reject_sentinel_in_create(data.connection_config)
     if err:
         raise HTTPException(status_code=400, detail=err)
-    host = Host(name=data.name, type=data.type, connection_config=data.connection_config)
+    await _validate_profile_type(db, data.credential_profile_id, data.type)
+    host = Host(
+        name=data.name,
+        type=data.type,
+        connection_config=data.connection_config,
+        credential_profile_id=data.credential_profile_id,
+    )
     db.add(host)
     try:
         await db.commit()
@@ -157,6 +189,9 @@ async def update_host(
         host.connection_config = merge_connection_config(
             host.connection_config, incoming["connection_config"]
         )
+    if "credential_profile_id" in incoming:
+        await _validate_profile_type(db, incoming["credential_profile_id"], host.type)
+        host.credential_profile_id = incoming["credential_profile_id"]
     try:
         await db.commit()
     except IntegrityError:

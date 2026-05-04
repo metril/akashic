@@ -7,6 +7,7 @@ import {
   type HostType,
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
+import { ProfilePicker } from "../credentials/ProfilePicker";
 
 const HOST_TYPE_OPTIONS: { value: HostType; label: string }[] = [
   { value: "ssh", label: "SSH / SFTP" },
@@ -25,10 +26,12 @@ export function AddHostForm({ onCreated }: Props) {
   const [name, setName] = useState("");
   const [type, setType] = useState<HostType>("smb");
   const [config, setConfig] = useState<HostConfig>({});
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     setConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+    setProfileId(null);
     setFormError(null);
   }, [type]);
 
@@ -47,9 +50,11 @@ export function AddHostForm({ onCreated }: Props) {
         name,
         type,
         connection_config: config as Record<string, unknown>,
+        credential_profile_id: profileId,
       });
       setName("");
       setConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+      setProfileId(null);
       onCreated?.();
     } catch (err) {
       setFormError(
@@ -79,6 +84,16 @@ export function AddHostForm({ onCreated }: Props) {
           options={HOST_TYPE_OPTIONS}
         />
         <HostFields type={type} value={config} onChange={setConfig} />
+        <ProfilePicker
+          type={type}
+          value={profileId}
+          onChange={setProfileId}
+          hint={
+            profileId
+              ? "Profile values fill in any missing credentials. Inline fields above override."
+              : "Pick a saved profile to reuse credentials across hosts and shares."
+          }
+        />
 
         {formError && (
           <p className="text-xs text-rose-600" role="alert">

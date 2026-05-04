@@ -31,7 +31,7 @@ function deriveState(source: Source): {
     if (stale) {
       return {
         state: "stale",
-        label: "Stale",
+        label: "Stale (was reachable)",
         detail: source.last_reachable_at
           ? `last seen ${formatRelative(source.last_reachable_at)}`
           : null,
@@ -62,7 +62,7 @@ function deriveState(source: Source): {
     // probe ever returned, so we never learned reachability.
     return {
       state: "stale_unchecked",
-      label: "Stale",
+      label: "Stale (no recent probe)",
       detail: "no scanner has reported",
     };
   }

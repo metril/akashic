@@ -11,6 +11,8 @@ export type BadgeVariant =
 interface BadgeProps {
   variant?: BadgeVariant;
   className?: string;
+  /** Native tooltip — shows on hover via the browser's title attribute. */
+  title?: string;
   children: React.ReactNode;
 }
 
@@ -33,10 +35,11 @@ const variantMap: Record<BadgeVariant, string> = {
     "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30",
 };
 
-export function Badge({ variant = "neutral", className, children }: BadgeProps) {
+export function Badge({ variant = "neutral", className, title, children }: BadgeProps) {
   const isPulsing = variant === "scanning";
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full",
         "text-xs font-medium ring-1 ring-inset",

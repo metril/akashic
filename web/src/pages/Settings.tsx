@@ -32,6 +32,12 @@ const tiles: Tile[] = [
     description:
       "Registered scanner agents. Mint keypairs, set pools, see online status. Scans queue here and a scanner picks them up.",
   },
+  {
+    to: "/settings/credentials",
+    label: "Credentials",
+    description:
+      "Reusable credential profiles — define once, attach to many hosts and shares. Inline values on a host or source still override.",
+  },
 ];
 
 export default function Settings() {

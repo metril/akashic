@@ -42,6 +42,7 @@ export function useCreateSource() {
       preferred_pool?: string | null;
       max_parallel_scanners?: number | null;
       is_removable?: boolean | null;
+      credential_profile_id?: string | null;
     }) => api.post<Source>("/sources", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });

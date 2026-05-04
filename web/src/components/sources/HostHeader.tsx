@@ -7,6 +7,10 @@ interface Props {
   hostName: string;
   hostType: string | null;
   count: number;
+  /** Sources within this group that override the host's credentials —
+   * either via credential_profile_id on the source, or inline keys on
+   * the source's connection_config. v0.5.9. */
+  overrideCount?: number;
   collapsed: boolean;
   onToggle: () => void;
 }
@@ -23,7 +27,7 @@ interface Props {
  * page to land on.
  */
 export const HostHeader = memo(function HostHeader({
-  hostId, hostName, hostType, count, collapsed, onToggle,
+  hostId, hostName, hostType, count, overrideCount = 0, collapsed, onToggle,
 }: Props) {
   return (
     <div
@@ -59,6 +63,14 @@ export const HostHeader = memo(function HostHeader({
         </span>
       )}
       {hostType && <Badge variant="neutral">{hostType}</Badge>}
+      {overrideCount > 0 && (
+        <span
+          className="text-[11px] text-fg-muted italic"
+          title="Sources in this group use a credential profile or inline override that differs from the host's default."
+        >
+          {overrideCount} of {count} use custom credentials
+        </span>
+      )}
       <span className="text-xs text-fg-muted ml-auto">
         {count} {count === 1 ? "share" : "shares"}
       </span>

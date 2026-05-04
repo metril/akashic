@@ -29,6 +29,9 @@ class SourceCreate(BaseModel):
     # infers from type/path (USB / network mounts → true; otherwise
     # false). See services/source_defaults.py.
     is_removable: bool | None = None
+    # Optional reusable credential profile. Profile values are merged
+    # under inline connection_config keys at scan time.
+    credential_profile_id: uuid.UUID | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -40,6 +43,7 @@ class SourceUpdate(BaseModel):
     preferred_pool: str | None = None
     max_parallel_scanners: int | None = None
     is_removable: bool | None = None
+    credential_profile_id: uuid.UUID | None = None
 
 
 _SECRET_KEYS = {"password", "secret", "key", "token", "credentials", "private_key"}
@@ -88,6 +92,7 @@ class SourceResponse(BaseModel):
     is_reachable: bool | None = None
     last_reachable_at: datetime | None = None
     last_reachability_check_at: datetime | None = None
+    credential_profile_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

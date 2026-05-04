@@ -75,6 +75,69 @@ def test_merge_handles_none_configs():
     assert merge_host_and_source(host, src) == {}
 
 
+# ── Credential profile layering (v0.5.9) ─────────────────────────────────
+# The merge order is last-write-wins:
+#   host_profile < host_inline < source_profile < source_inline
+# Each test below isolates one layer beating the previous.
+
+
+class _DummyProfile:
+    def __init__(self, credentials: dict):
+        self.credentials = credentials
+
+
+class _DummyHostWithProfile:
+    def __init__(self, cfg, profile=None):
+        self.connection_config = cfg
+        self.credential_profile = profile
+
+
+class _DummySourceWithProfile:
+    def __init__(self, cfg, profile=None):
+        self.connection_config = cfg
+        self.credential_profile = profile
+
+
+def test_merge_host_profile_under_host_inline():
+    host = _DummyHostWithProfile(
+        {"username": "host-u"},
+        profile=_DummyProfile({"username": "profile-u", "password": "pp"}),
+    )
+    src = _DummySourceWithProfile({"path": "/srv/data"})
+    merged = merge_host_and_source(host, src)
+    # host inline overrides the host profile's username, but the
+    # profile's password keeps flowing through.
+    assert merged == {"username": "host-u", "password": "pp", "path": "/srv/data"}
+
+
+def test_merge_source_profile_under_source_inline():
+    host = _DummyHostWithProfile({"username": "u"})
+    src = _DummySourceWithProfile(
+        {"username": "src-inline"},
+        profile=_DummyProfile({"username": "src-profile", "key_path": "/k"}),
+    )
+    merged = merge_host_and_source(host, src)
+    # source inline beats source profile beats host inline.
+    assert merged == {"username": "src-inline", "key_path": "/k"}
+
+
+def test_merge_full_layer_order():
+    host = _DummyHostWithProfile(
+        {"port": 22},  # beats host_profile.port
+        profile=_DummyProfile({"port": 1, "username": "host-prof"}),
+    )
+    src = _DummySourceWithProfile(
+        {"username": "src-inline"},  # beats source_profile.username
+        profile=_DummyProfile({"username": "src-prof", "key_path": "/k"}),
+    )
+    merged = merge_host_and_source(host, src)
+    assert merged == {
+        "port": 22,
+        "username": "src-inline",
+        "key_path": "/k",
+    }
+
+
 # ── Endpoint integration tests ────────────────────────────────────────────
 
 

@@ -52,5 +52,18 @@ class Source(Base):
     is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_reachable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_reachability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v0.5.9 — optional reference to a reusable CredentialProfile.
+    # See models/credential_profile.py and
+    # services/source_config.resolve_connection_config for the
+    # layered resolution order.
+    credential_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("credential_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    credential_profile = relationship(
+        "CredentialProfile", lazy="joined", foreign_keys=[credential_profile_id],
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

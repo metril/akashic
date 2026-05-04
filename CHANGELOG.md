@@ -5,6 +5,65 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.9 — 2026-05-04
+
+- **Credential profiles.** New first-class entity: a named, type-discriminated
+  bundle of credential fields any number of hosts and shares can reference.
+  Define an SSH key, SMB password, or S3 access key once in
+  Settings → Credentials and attach it to many hosts/sources without
+  copy-pasting secrets. Inline values keep working as overrides — the layered
+  resolver in [services/source_config.merge_host_and_source](api/akashic/services/source_config.py)
+  applies layers in order, last write wins:
+
+      host_profile < host_inline < source_profile < source_inline.
+
+  Most-specific wins: a `username` typed onto a share overrides everything;
+  a profile is the default. Schema: new `credential_profiles` table +
+  nullable `credential_profile_id` FKs on `hosts` and `sources`
+  (alembic 0026). Endpoints under `/api/credential-profiles`, with
+  reference-protected delete (409 if any host or share still references
+  the profile).
+- **"Last Scanned" pill replaces the "Online" badge.** The source card
+  status badge now reads "Last scanned 2h ago" for idle sources (with an
+  absolute-timestamp tooltip), "Never scanned" for sources that haven't
+  run yet, and the existing `Scanning` / `Queued` / `Failed` for active
+  states. Drops the redundant "Last scan" row from the card body — the
+  pill carries it. The legacy `online`/`offline` source.status values
+  still exist server-side; they just no longer surface as confusing user
+  copy.
+- **UI/UX audit fixes.** A pass driven by a three-agent UX review:
+  - Button affordance — `Rotate keys` / `Disable` on `/settings/scanners`
+    promoted from `ghost` to `secondary` so they read as bordered chips,
+    not background. Bare-text "View live log" / "Stop scan" links on
+    SourceCard promoted to real Buttons. The `/sources` group-by toggle
+    moved off hard-coded `bg-blue-600` to the accent token + proper
+    `aria-pressed` for keyboard a11y.
+  - Dark mode coverage — `Skeleton` no longer paints a light-gray block
+    on dark; SourceDetail tab border uses a semantic token; Dashboard
+    extension-growth and slope colors plus Hosts card hover gain dark
+    variants.
+  - Modal a11y — `KeyIssuedModal` and `RotateConfirm` now use the
+    shared `ModalShell` / `ConfirmDialog` primitives, gaining
+    `role="dialog"`, `aria-labelledby`, ESC handling, and click-outside
+    in one consistent shell.
+  - Form clarity — `Input` renders an asterisk after labels for
+    `required` fields; pre-filled credential fields show an explicit
+    "Existing value preserved" helper; `text-fg-subtle` hint contrast
+    bumped to `text-fg-muted` for WCAG AA.
+  - Search trigger — TopBar's "Search files…" trigger restyled as a
+    proper button (no longer a fake input) and relabelled to "Search…"
+    so the click→modal flow stops being a surprise. The CommandPalette
+    Files group now always renders explicit empty / loading / error
+    states (instead of silently disappearing on 0 hits) and offers a
+    "Show all results in Search →" escape link.
+  - Copy — ReachabilityBadge's two yellow "Stale" states disambiguated:
+    "Stale (was reachable)" vs "Stale (no recent probe)". Source-create
+    label is now "Source name" with a usage hint.
+- **Known follow-ups.** Treemap palette extraction to tailwind tokens,
+  named typography scale, modal scrim consolidation, settings child-page
+  breadcrumbs, Browse mobile toolbar, ManualKeyForm mobile grid, and a
+  full toast-voice sweep are tracked for v0.5.10.
+
 ## v0.5.8 — 2026-05-04
 
 - **Host eligibility panel no longer 500s.** v0.5.7's
