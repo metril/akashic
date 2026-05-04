@@ -1,24 +1,24 @@
 // Unit-coordinated scan runner (Phase 2 of v0.5.x parallel scanning).
 //
-// When MaxParallelScanners > 1 on a leased scan AND the connector type
-// is local/nfs, the agent enters a lease loop over scan_work_units
-// instead of running a single monolithic walk. This lets sibling
-// scanners (within the same pool) cooperate on one source — each
-// claims a different top-level subtree.
+// When MaxParallelScanners > 1 on a leased scan, the agent enters a
+// lease loop over scan_work_units instead of running a single
+// monolithic walk. Sibling scanners in the same pool cooperate on
+// one source — each claims a different top-level subtree.
 //
 // The walk model is intentionally simple:
 //   - The first scanner to lease /work hits 204 (no units yet); it
-//     enumerates the source root, splits off the immediate
-//     subdirectories as units, plus a special "" unit for
+//     calls connector.WalkShallow on the source root, splits off the
+//     immediate subdirectories as units, plus a special "" unit for
 //     root-level files, then re-leases.
-//   - The "" unit performs a SHALLOW walk (root-level files only;
-//     subdirectories already split off).
+//   - The "" unit re-runs WalkShallow to emit root-level files (the
+//     subdirs returned this time are already in the queue).
 //   - Every other unit performs a full recursive walk of the source
 //     root + unit.path subtree using the existing scanner.Run path.
 //
-// Unsupported connectors (ssh/smb/s3) fall back to the legacy single-
-// walker path — they would need per-connector "list immediate
-// children" support to play in the unit model. Tracked for follow-up.
+// All shipped connectors (local, nfs, ssh, smb, s3) implement the
+// optional ShallowWalker interface. A future connector that doesn't
+// implement it falls back to the legacy single-walker path with a
+// one-line warning.
 package agent
 
 import (
@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -36,7 +36,6 @@ import (
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
-	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -48,7 +47,25 @@ func runUnitCoordinated(
 	if err != nil {
 		return err
 	}
-	root := stringFromConfig(leased.Source.ConnectionConfig, "path", "")
+
+	// Type-assert ShallowWalker. If a (future) connector doesn't
+	// implement it, fall back to the legacy single-walker path so the
+	// scan still succeeds — just without parallelism.
+	shallow, ok := conn.(connector.ShallowWalker)
+	if !ok {
+		log.Printf(
+			"scan %s: connector %q does not implement ShallowWalker; "+
+				"falling back to legacy single-walker path",
+			leased.ScanID, leased.Source.Type,
+		)
+		if err := runLeasedScan(ctx, cfg, priv, leased); err != nil {
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
+			return err
+		}
+		return complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
+	}
+
+	root := sourceRoot(leased.Source)
 	apiClient := client.New(cfg.APIBase, leased.APIJWT)
 
 	state := observe.NewState()
@@ -59,12 +76,21 @@ func runUnitCoordinated(
 	reporter.Start(scanCtx)
 	defer reporter.Stop()
 
+	// Connect once for the whole unit-loop lifetime. Without this each
+	// per-unit scanner.Run() would dial+auth+disconnect afresh — fine
+	// for local/nfs (no-op), expensive for ssh/smb (auth handshake)
+	// and s3 (signed-request handshake amortised across the pool).
+	if err := conn.Connect(scanCtx); err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close()
+
 	// Up-front enumeration: if no units exist yet for this scan, the
 	// first scanner to arrive splits the source into a "root files" unit
 	// (path "") plus one unit per top-level subdirectory. Subsequent
 	// scanners arriving here will already see units in the queue and
 	// skip the enumeration step.
-	if err := ensureUnitsEnumerated(ctx, httpc, cfg, priv, leased.ScanID, root); err != nil {
+	if err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanID, root, shallow, leased.Source.ExcludePatterns); err != nil {
 		return fmt.Errorf("enumerate units: %w", err)
 	}
 
@@ -90,7 +116,7 @@ func runUnitCoordinated(
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
 		go heartbeatUnitLoop(hbCtx, httpc, cfg, priv, leased.ScanID, unit.ID)
 
-		walkErr := runUnitWalk(scanCtx, apiClient, conn, leased, root, unit, state)
+		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, leased.Source.ExcludePatterns)
 		hbCancel()
 
 		if walkErr != nil {
@@ -105,26 +131,23 @@ func runUnitCoordinated(
 }
 
 // ensureUnitsEnumerated calls /work/lease once to probe for existing
-// units. On 204 (no units) it lists the source root, splits off
-// subdirs + a root-files unit, then returns so the caller's lease
-// loop picks up the freshly-enqueued work.
+// units. On 204 (no units) it lists the source root via the
+// connector's WalkShallow (subdirs only — files are emitted later by
+// the "" unit), splits off subdirs + a root-files unit, then returns
+// so the caller's lease loop picks up the freshly-enqueued work.
 //
 // A leased unit returned here is immediately RELEASED (we don't act on
 // it) by NOT calling complete — the lease will expire after 60s and
 // another scanner can pick it up. This is deliberate: the enumerator
 // scanner doesn't want to monopolize the first leased unit; it just
-// wants to confirm whether enumeration has happened. If we DID return
-// the leased unit to the caller, the caller would have to handle the
-// "this is my first unit, also enumerate" case — messier than this.
+// wants to confirm whether enumeration has happened.
 func ensureUnitsEnumerated(
 	ctx context.Context, httpc *http.Client, cfg Config,
 	priv ed25519.PrivateKey, scanID, root string,
+	shallow connector.ShallowWalker, excludes []string,
 ) error {
 	probe, err := leaseUnit(ctx, httpc, cfg, priv, scanID)
 	if err == nil && probe != nil {
-		// A unit was leased to us; another scanner already enumerated.
-		// We let the lease expire (60s) so a sibling can pick it up,
-		// rather than holding it idly. Cheap.
 		log.Printf(
 			"scan %s: enumeration already done by a sibling; "+
 				"releasing probe unit %s", scanID, probe.ID,
@@ -135,13 +158,16 @@ func ensureUnitsEnumerated(
 		return fmt.Errorf("probe lease: %w", err)
 	}
 
-	// 204 from probe → we're the first scanner; enumerate.
-	subdirs, err := listImmediateSubdirs(root)
+	// 204 from probe → we're the first scanner; enumerate via the
+	// connector's shallow walk. We discard the file emissions here —
+	// they're handled by the "" unit when it gets leased. The point of
+	// this call is just to discover the immediate subdirectory names.
+	subdirs, err := shallow.WalkShallow(ctx, root, excludes, false,
+		func(*models.EntryRecord) error { return nil })
 	if err != nil {
-		return fmt.Errorf("list root: %w", err)
+		return fmt.Errorf("enumerate root: %w", err)
 	}
-	// "" = root-level files unit. Split everything in one call so
-	// concurrent scanners arriving here also see the populated queue.
+
 	paths := make([]string, 0, len(subdirs)+1)
 	paths = append(paths, "")
 	paths = append(paths, subdirs...)
@@ -154,21 +180,48 @@ func ensureUnitsEnumerated(
 	return nil
 }
 
-// listImmediateSubdirs returns the names of immediate subdirectories
-// under `root`. Files are ignored (they're handled by the "" unit).
-// Used by the enumerator to fan top-level subtrees out as work units.
-func listImmediateSubdirs(root string) ([]string, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
+// sourceRoot returns the per-type "root path" for a leased source.
+// SMB sources don't have an explicit root in connection_config (the
+// share itself is the root); same for SSH (we walk from "/"). S3
+// uses the bucket prefix.
+func sourceRoot(src leasedSource) string {
+	cfg := src.ConnectionConfig
+	switch src.Type {
+	case "local":
+		return stringFromConfig(cfg, "path", "")
+	case "nfs":
+		return stringFromConfig(cfg, "export_path",
+			stringFromConfig(cfg, "path", ""))
+	case "ssh":
+		return stringFromConfig(cfg, "root_path", "/")
+	case "smb":
+		// go-smb2 paths are relative to the share root, so "" is the
+		// right starting point.
+		return ""
+	case "s3":
+		return stringFromConfig(cfg, "prefix", "")
+	default:
+		return stringFromConfig(cfg, "path", "")
 	}
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			out = append(out, e.Name())
+}
+
+// joinSubpath builds the per-unit walk root from the source root + the
+// unit's relative path. Uses native path separators for filesystem-
+// flavoured connectors and forward-slash for SMB/S3.
+func joinSubpath(srcType, root, sub string) string {
+	if sub == "" {
+		return root
+	}
+	switch srcType {
+	case "smb", "s3", "ssh":
+		// Forward-slash semantics across the wire.
+		if root == "" {
+			return sub
 		}
+		return path.Join(root, sub)
+	default:
+		return filepath.Join(root, sub)
 	}
-	return out, nil
 }
 
 // runUnitWalk dispatches a single leased unit to the right walker. The
@@ -176,29 +229,38 @@ func listImmediateSubdirs(root string) ([]string, error) {
 // off). Other units get a full recursive walk rooted at root + unit.path
 // via the existing scanner.Run path so all the scanner.Run polish
 // (incremental hashing, batching, observability) applies unchanged.
+//
+// Note: the per-unit scanner.Run will call conn.Connect again. For
+// remote connectors that's a fresh handshake; we already paid one
+// in runUnitCoordinated to keep the connection live, so the second
+// Connect is fast (libraries reuse the underlying transport / TCP
+// session for the lifetime of *Connector — they're idempotent).
 func runUnitWalk(
 	ctx context.Context,
 	apiClient *client.Client,
 	conn connector.Connector,
+	shallow connector.ShallowWalker,
 	leased *leasedScan,
 	root string,
 	unit *workUnit,
 	state *observe.State,
+	excludes []string,
 ) error {
 	if unit.Path == "" {
 		return runRootFilesUnit(
-			ctx, apiClient, leased.Source.ID, leased.ScanID,
-			root, leased.Source.ExcludePatterns,
+			ctx, apiClient, shallow,
+			leased.Source.ID, leased.ScanID,
+			root, excludes,
 		)
 	}
-	subRoot := filepath.Join(root, unit.Path)
+	subRoot := joinSubpath(leased.Source.Type, root, unit.Path)
 	s := scanner.New(apiClient, conn, scanner.Options{
 		SourceID:        leased.Source.ID,
 		ScanID:          leased.ScanID,
 		Root:            subRoot,
 		BatchSize:       1000,
 		Hash:            leased.ScanType == "full",
-		ExcludePatterns: leased.Source.ExcludePatterns,
+		ExcludePatterns: excludes,
 		State:           state,
 	})
 	_, err := s.Run(ctx)
@@ -209,19 +271,26 @@ func runUnitWalk(
 // (no subdirectories — those are their own units). Emits one batch
 // directly to the api via apiClient.SendBatch. Skips the full
 // scanner.Run scaffolding because there's no nested walk to reuse.
+//
+// Uses the connector's WalkShallow so this works uniformly for local,
+// nfs, ssh, smb, and s3 sources.
 func runRootFilesUnit(
 	ctx context.Context, apiClient *client.Client,
+	shallow connector.ShallowWalker,
 	sourceID, scanID, root string, excludePatterns []string,
 ) error {
 	var batch []models.EntryRecord
-	res, err := walker.WalkShallow(ctx, root, excludePatterns, false, func(entry *models.EntryRecord) error {
-		batch = append(batch, *entry)
-		return nil
-	})
+	_, err := shallow.WalkShallow(ctx, root, excludePatterns, false,
+		func(entry *models.EntryRecord) error {
+			batch = append(batch, *entry)
+			return nil
+		})
 	if err != nil {
 		return err
 	}
-	_ = res // SubdirNames already enqueued by the enumerator; we ignore them here
+	if len(batch) == 0 {
+		return nil
+	}
 	scanBatch := models.ScanBatch{
 		SourceID: sourceID, ScanID: scanID,
 		Entries: batch, IsFinal: false,

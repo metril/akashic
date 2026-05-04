@@ -163,6 +163,59 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 	return nil
 }
 
+// WalkShallow implements connector.ShallowWalker.
+//
+// Lists immediate children of `root` via SMB ReadDir without
+// recursing. Files emit through fn (with hashing + SD capture
+// preserved); subdirectory names are returned for the caller to
+// split off as work units.
+func (c *SMBConnector) WalkShallow(
+	ctx context.Context, root string, excludePatterns []string,
+	computeHash bool, fn func(*models.EntryRecord) error,
+) ([]string, error) {
+	if c.smbShare == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+	infos, err := c.smbShare.ReadDir(root)
+	if err != nil {
+		return nil, nil
+	}
+	var subdirs []string
+	for _, info := range infos {
+		name := info.Name()
+		if excludeSet[strings.ToLower(name)] {
+			continue
+		}
+		if info.IsDir() {
+			subdirs = append(subdirs, name)
+			continue
+		}
+		p := filepath.Join(root, name)
+		entry := fileInfoToEntry(ctx, p, info, false, nil)
+		if computeHash {
+			if hash, herr := c.hashRemoteFile(p); herr == nil {
+				entry.ContentHash = hash
+			}
+		}
+		if sd, sderr := c.querySecurityDescriptor(p); sderr == nil && len(sd) > 0 {
+			if acl, aerr := metadata.SDToNtACL(sd, c.resolver); aerr == nil {
+				entry.Acl = acl
+			}
+		}
+		if err := fn(entry); err != nil {
+			return subdirs, err
+		}
+	}
+	return subdirs, nil
+}
+
 func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 	f, err := c.smbShare.Open(path)
 	if err != nil {

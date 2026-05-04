@@ -61,6 +61,108 @@ func (c *S3Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
+// WalkShallow implements connector.ShallowWalker.
+//
+// Uses ListObjectsV2 with Delimiter="/" so the response separates
+// immediate "subdirectory" prefixes from object keys at this level.
+// Files (Contents) emit through fn; subdir prefixes (CommonPrefixes,
+// stripped of trailing slash) are returned for the caller to split
+// off as work units.
+func (c *S3Connector) WalkShallow(
+	ctx context.Context, prefix string, excludePatterns []string,
+	computeHash bool, fn func(*models.EntryRecord) error,
+) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+	// Normalise the prefix so the delimiter trick works regardless of
+	// whether the caller passed "" or "foo" (no trailing slash) — S3
+	// "directories" are key-name conventions, not real directory rows.
+	listPrefix := prefix
+	if listPrefix != "" && !strings.HasSuffix(listPrefix, "/") {
+		listPrefix += "/"
+	}
+	paginator := s3.NewListObjectsV2Paginator(c.client, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(c.bucket),
+		Prefix:    aws.String(listPrefix),
+		Delimiter: aws.String("/"),
+	})
+
+	var subdirs []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3 list: %w", err)
+		}
+		// Subdirectory-equivalents.
+		for _, p := range page.CommonPrefixes {
+			full := aws.ToString(p.Prefix)
+			rel := strings.TrimPrefix(full, listPrefix)
+			rel = strings.TrimSuffix(rel, "/")
+			if rel == "" {
+				continue
+			}
+			if excludeSet[strings.ToLower(rel)] {
+				continue
+			}
+			subdirs = append(subdirs, rel)
+		}
+		// File-equivalents: keys at this level (no further "/" past
+		// the listPrefix because Delimiter restricts the listing).
+		for _, obj := range page.Contents {
+			if err := ctx.Err(); err != nil {
+				return subdirs, err
+			}
+			key := aws.ToString(obj.Key)
+			if key == listPrefix {
+				continue // the placeholder "directory" object itself
+			}
+			name := filepath.Base(key)
+			if excludeSet[strings.ToLower(name)] {
+				continue
+			}
+			entry := &models.EntryRecord{
+				Path: key,
+				Name: name,
+				Kind: "file",
+			}
+			size := aws.ToInt64(obj.Size)
+			entry.SizeBytes = &size
+			if ext := filepath.Ext(name); ext != "" {
+				entry.Extension = strings.TrimPrefix(ext, ".")
+			}
+			if obj.LastModified != nil {
+				t := *obj.LastModified
+				entry.ModifiedAt = &t
+			}
+			if obj.ETag != nil {
+				entry.ContentHash = strings.Trim(aws.ToString(obj.ETag), "\"")
+			}
+			if computeHash {
+				if hash, err := c.hashObject(ctx, key); err == nil {
+					entry.ContentHash = hash
+				}
+			}
+			if c.captureObjectACLs {
+				if aclOut, aerr := c.client.GetObjectAcl(ctx, &s3.GetObjectAclInput{
+					Bucket: aws.String(c.bucket),
+					Key:    aws.String(key),
+				}); aerr == nil {
+					entry.Acl = metadata.FromS3GetObjectAcl(aclOut)
+				}
+			}
+			if err := fn(entry); err != nil {
+				return subdirs, err
+			}
+		}
+	}
+	return subdirs, nil
+}
+
 func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {

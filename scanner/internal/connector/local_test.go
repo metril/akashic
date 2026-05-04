@@ -89,6 +89,53 @@ func TestLocalConnector_Delete(t *testing.T) {
 	}
 }
 
+// LocalConnector implements the optional ShallowWalker interface — the
+// unit-coordinated agent type-asserts on it to decide whether parallel
+// scanning is supported. This guarantees the assertion succeeds.
+func TestLocalConnector_ImplementsShallowWalker(t *testing.T) {
+	var _ ShallowWalker = (*LocalConnector)(nil)
+}
+
+func TestLocalConnector_WalkShallow_SubdirsReturnedFilesEmitted(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "root.txt"), []byte("r"), 0644)
+	os.MkdirAll(filepath.Join(dir, "sub"), 0755)
+	os.WriteFile(filepath.Join(dir, "sub", "deep.txt"), []byte("d"), 0644)
+
+	c := NewLocalConnector()
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var files []string
+	subdirs, err := c.WalkShallow(context.Background(), dir, nil, false,
+		func(e *models.EntryRecord) error {
+			files = append(files, filepath.Base(e.Path))
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "root.txt" {
+		t.Errorf("expected [root.txt], got %v", files)
+	}
+	if len(subdirs) != 1 || subdirs[0] != "sub" {
+		t.Errorf("expected [sub], got %v", subdirs)
+	}
+}
+
+// All shipped connectors must implement ShallowWalker so the agent's
+// type-assertion in runUnitCoordinated never falls back to legacy.
+// Compile-time check via the var-declaration trick.
+func TestAllConnectors_ImplementShallowWalker(t *testing.T) {
+	var _ ShallowWalker = (*LocalConnector)(nil)
+	var _ ShallowWalker = (*NFSConnector)(nil)
+	var _ ShallowWalker = (*SSHConnector)(nil)
+	var _ ShallowWalker = (*SMBConnector)(nil)
+	var _ ShallowWalker = (*S3Connector)(nil)
+}
+
 // Regression: directories must not be deletable. The duplicates flow
 // only ever passes file paths, so anything reaching Delete with a dir
 // is a bug — fail loudly rather than rmdir.

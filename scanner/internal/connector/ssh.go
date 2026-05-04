@@ -191,6 +191,62 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 	return nil
 }
 
+// WalkShallow implements connector.ShallowWalker.
+//
+// Lists immediate children of `root` via SFTP without recursing.
+// Files emit through fn; subdirectory names are returned to the
+// caller so the unit-coordinated agent can split each off as its own
+// work unit. ACL prefetch is restricted to per-dir mode for the
+// shallow case — the full-tree dump would walk the whole subtree
+// (defeating the shallow-walk point).
+func (c *SSHConnector) WalkShallow(
+	ctx context.Context, root string, excludePatterns []string,
+	computeHash bool, fn func(*models.EntryRecord) error,
+) ([]string, error) {
+	if c.sftpClient == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+
+	c.aclCache = make(map[string]*models.ACL)
+	c.aclMode = "perdir"
+	c.prefetchACLs(root, false)
+
+	infos, err := c.sftpClient.ReadDir(root)
+	if err != nil {
+		// Same swallow behaviour as Walk on permission-denied / race —
+		// caller treats zero entries as "nothing here, move on".
+		return nil, nil
+	}
+
+	var subdirs []string
+	for _, info := range infos {
+		name := info.Name()
+		if excludeSet[strings.ToLower(name)] {
+			continue
+		}
+		if info.IsDir() {
+			subdirs = append(subdirs, name)
+			continue
+		}
+		p := path.Join(root, name)
+		entry := fileInfoToEntry(ctx, p, info, computeHash, c)
+		if acl, ok := c.aclCache[p]; ok {
+			entry.Acl = acl
+		}
+		if err := fn(entry); err != nil {
+			return subdirs, err
+		}
+	}
+	return subdirs, nil
+}
+
 func (c *SSHConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	if c.sftpClient == nil {
 		return nil, fmt.Errorf("not connected")

@@ -24,6 +24,18 @@ func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns 
 	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 
+// WalkShallow implements connector.ShallowWalker.
+func (c *LocalConnector) WalkShallow(
+	ctx context.Context, root string, excludePatterns []string,
+	computeHash bool, fn func(*models.EntryRecord) error,
+) ([]string, error) {
+	res, err := walker.WalkShallow(ctx, root, excludePatterns, computeHash, fn)
+	if err != nil {
+		return nil, err
+	}
+	return res.SubdirNames, nil
+}
+
 func (c *LocalConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	return os.Open(path)
 }

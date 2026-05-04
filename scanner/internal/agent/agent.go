@@ -101,25 +101,12 @@ func Run(ctx context.Context, cfg Config) error {
 }
 
 // shouldUseUnits decides whether this leased scan goes down the
-// work-unit-coordinated path. Phase 2 supports local + nfs only —
-// other connectors don't have a cheap "list immediate subdirs" path
-// the enumerator can lean on, so they fall back to the legacy
-// single-walker run with a one-line warning.
+// work-unit-coordinated path. Connector type isn't checked here —
+// the runner type-asserts ShallowWalker on the built connector and
+// falls back to legacy if a future connector hasn't implemented it.
+// All shipped connectors (local, nfs, ssh, smb, s3) implement it.
 func shouldUseUnits(leased *leasedScan) bool {
-	if leased.Source.MaxParallelScanners <= 1 {
-		return false
-	}
-	switch leased.Source.Type {
-	case "local", "nfs":
-		return true
-	default:
-		log.Printf(
-			"scan %s: max_parallel_scanners=%d but source type %q "+
-				"not yet supported by unit-coordinated path; falling back to legacy",
-			leased.ScanID, leased.Source.MaxParallelScanners, leased.Source.Type,
-		)
-		return false
-	}
+	return leased.Source.MaxParallelScanners > 1
 }
 
 // newKeepaliveTransport returns an *http.Transport tuned for a long-

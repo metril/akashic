@@ -5,6 +5,30 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.3 — 2026-05-04
+
+- **Scanners (Phase 2 — full coverage):** parallel scanning is now
+  end-to-end working for **every** source type — local, nfs, ssh,
+  smb, and s3. The previous v0.5.2 release shipped the agent-side
+  unit-coordinated path but only wired it up for local + nfs;
+  remote connectors fell back to the legacy single-walker. This
+  release adds `WalkShallow` to every connector via a new optional
+  `connector.ShallowWalker` interface:
+  - SSH lists immediate children via SFTP `ReadDir` with per-dir
+    ACL prefetch (full-tree dump skipped — defeats shallow).
+  - SMB uses `share.ReadDir` with hashing + security-descriptor
+    capture preserved per-file.
+  - S3 uses `ListObjectsV2` with `Delimiter="/"` so the response
+    cleanly separates `CommonPrefixes` (subdirs) from `Contents`
+    (files at the current level).
+- **Agent:** the unit runner now type-asserts `ShallowWalker` rather
+  than gating on connector type, and the connection is opened once
+  for the whole unit-loop lifetime instead of being re-established
+  per unit (saves the SSH/SMB auth handshake on every claim).
+- **Tests:** compile-time assertion that all five shipped connectors
+  implement `ShallowWalker` so a future regression can't drop one
+  out of the parallel path silently.
+
 ## v0.5.2 — 2026-05-04
 
 - **Scanners (Phase 2):** parallel scanning is now end-to-end working
