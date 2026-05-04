@@ -250,20 +250,22 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
         ))}
       </ul>
 
-      <div className="sticky bottom-0 -mx-2 px-2 pt-2 pb-1 bg-surface/95 backdrop-blur-sm border-t border-line-subtle flex items-center justify-between gap-2">
-        <p className="text-[11px] text-fg-muted">
+      <div className="sticky bottom-0 -mx-2 px-2 pt-2 pb-1 bg-surface/95 backdrop-blur-sm border-t border-line-subtle space-y-1.5">
+        <p className="text-[11px] text-fg-muted leading-snug">
           Source names must be globally unique — duplicates skip and you can
           rename in place.
         </p>
-        <Button
-          size="sm"
-          onClick={handleAdd}
-          loading={addShares.isPending}
-          disabled={selectedCount === 0}
-        >
-          Add {selectedCount > 0 ? selectedCount : ""}{" "}
-          source{selectedCount === 1 ? "" : "s"}
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            loading={addShares.isPending}
+            disabled={selectedCount === 0}
+          >
+            Add{selectedCount > 0 ? ` ${selectedCount}` : ""}{" "}
+            source{selectedCount === 1 ? "" : "s"}
+          </Button>
+        </div>
       </div>
     </div>
   );

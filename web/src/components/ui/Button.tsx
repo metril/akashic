@@ -49,6 +49,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       className={cn(
         "inline-flex items-center justify-center font-medium rounded-lg",
+        // whitespace-nowrap + shrink-0 by default: buttons inside tight
+        // flex parents (e.g. `flex justify-between` toolbars) used to
+        // squish or wrap their label across two lines. Callers that
+        // genuinely want a wrapping/shrinking button can opt out via
+        // className overrides. v0.5.6.
+        "whitespace-nowrap shrink-0",
         "transition-colors duration-150",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2",
         "disabled:cursor-not-allowed",

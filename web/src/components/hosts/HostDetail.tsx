@@ -128,7 +128,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     if (!host) return;
     if (attachedSources.length > 0) {
       toast.error(
-        `Host has ${attachedSources.length} attached source(s); detach or delete them first.`,
+        `Host has ${attachedSources.length} attached source${attachedSources.length === 1 ? "" : "s"}; detach or delete them first.`,
       );
       return;
     }
