@@ -23,6 +23,17 @@ import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ReachabilityBadge } from "../components/sources/ReachabilityBadge";
 import { ScanLogPanel } from "../components/scans/ScanLogPanel";
 import { SourceDetail } from "../components/sources/SourceDetail";
+import { HostHeader } from "../components/sources/HostHeader";
+import {
+  buildGroupedRows,
+  buildUngroupedRows,
+  readGroupByPref,
+  readHostCollapsed,
+  writeGroupByPref,
+  writeHostCollapsed,
+  type GroupBy,
+  type SourceRow,
+} from "../lib/sourcesGrouping";
 import { api } from "../api/client";
 
 const KNOWN_STATUSES: BadgeVariant[] = [
@@ -260,22 +271,26 @@ function buildProgressLine(scan: Scan): ProgressLine {
  * 2D virtualizer pattern (~30 more LOC).
  */
 function VirtualSourceList({
-  sources, onOpen, onOpenLog,
+  rows, onOpen, onOpenLog, onToggleHost,
 }: {
-  sources: Source[];
+  rows: SourceRow[];
   onOpen: (id: string) => void;
   onOpenLog: (scanId: string) => void;
+  /** Called when a host header's chevron is clicked (group-by-host
+   *  mode only). Pre-grouped row streams already reflect the new
+   *  collapsed state on the next render via the parent's `collapsed`
+   *  Set, so this just updates persistence. */
+  onToggleHost: (hostKey: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
-    count: sources.length,
+    count: rows.length,
     getScrollElement: () => parentRef.current,
-    // SourceCard is a Card with header + status badges + summary +
-    // optional progress strip. v0.4.11: progress strip is now pinned
-    // to a fixed height; cards-with-progress measure ~168px, idle
-    // cards ~120px. The virtualizer auto-corrects post-mount via
-    // measureElement so the estimate just needs to be roughly right.
-    estimateSize: () => 168,
+    // Headers are tight (~36px); cards run ~120-168px depending on
+    // the optional progress strip. measureElement auto-corrects the
+    // initial estimate after mount so the per-kind switch is just an
+    // optimisation, not a correctness requirement.
+    estimateSize: (i) => (rows[i]?.kind === "header" ? 36 : 168),
     overscan: 4,
   });
 
@@ -294,10 +309,10 @@ function VirtualSourceList({
         }}
       >
         {rowVirtualizer.getVirtualItems().map((vrow) => {
-          const s = sources[vrow.index];
+          const r = rows[vrow.index];
           return (
             <div
-              key={s.id}
+              key={r.key}
               ref={rowVirtualizer.measureElement}
               data-index={vrow.index}
               style={{
@@ -306,19 +321,30 @@ function VirtualSourceList({
                 left: 0,
                 right: 0,
                 transform: `translateY(${vrow.start}px)`,
-                paddingBottom: "1rem",
+                paddingBottom: r.kind === "card" ? "1rem" : "0",
               }}
             >
-              {/* SourceCard subscribes to its own scan slice via
-                  useActiveScanForSource, so we no longer pass
-                  activeScans down. Selector-based subscription means
-                  a scan event for source A never re-renders source
-                  B's card. */}
-              <SourceCard
-                source={s}
-                onOpen={onOpen}
-                onOpenLog={onOpenLog}
-              />
+              {r.kind === "header" ? (
+                <HostHeader
+                  hostId={r.hostId}
+                  hostName={r.hostName}
+                  hostType={r.hostType}
+                  count={r.count}
+                  collapsed={false /* parent rebuilds rows on toggle */}
+                  onToggle={() => onToggleHost(r.hostId ?? "__none__")}
+                />
+              ) : (
+                /* SourceCard subscribes to its own scan slice via
+                   useActiveScanForSource, so we no longer pass
+                   activeScans down. Selector-based subscription means
+                   a scan event for source A never re-renders source
+                   B's card. */
+                <SourceCard
+                  source={r.source}
+                  onOpen={onOpen}
+                  onOpenLog={onOpenLog}
+                />
+              )}
             </div>
           );
         })}
@@ -395,6 +421,58 @@ export default function Sources() {
   const handleOpenLog = useCallback((id: string) => setLogScanId(id), []);
   const handleCloseLog = useCallback(() => setLogScanId(null), []);
 
+  // Group-by + collapse state. Default to "host" when at least one
+  // source actually has a host_id; otherwise "none" so the toggle
+  // doesn't pop a single empty header. localStorage wins over the
+  // auto-default once the user has expressed a preference.
+  const anyHostAttached = (sources ?? []).some((s) => s.host_id != null);
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => {
+    const stored = readGroupByPref();
+    return stored;
+  });
+  const effectiveGroupBy: GroupBy =
+    !anyHostAttached ? "none" : groupBy;
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Populate collapsed Set from localStorage once we know which hosts
+  // exist (after the sources query lands). The Set is rebuilt only
+  // when the host_ids actually change, so per-card re-renders don't
+  // ripple here.
+  const knownHostKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const s of sources ?? []) {
+      out.add(s.host_id ?? "__none__");
+    }
+    return out;
+  }, [sources]);
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const k of knownHostKeys) {
+      if (readHostCollapsed(k)) next.add(k);
+    }
+    setCollapsed(next);
+  }, [knownHostKeys]);
+
+  const handleToggleHost = useCallback((hostKey: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(hostKey)) {
+        next.delete(hostKey);
+        writeHostCollapsed(hostKey, false);
+      } else {
+        next.add(hostKey);
+        writeHostCollapsed(hostKey, true);
+      }
+      return next;
+    });
+  }, []);
+
+  const rows: SourceRow[] = useMemo(() => {
+    if (!sources || sources.length === 0) return [];
+    return effectiveGroupBy === "host"
+      ? buildGroupedRows(sources, collapsed)
+      : buildUngroupedRows(sources);
+  }, [sources, effectiveGroupBy, collapsed]);
+
   return (
     <Page
       title="Sources"
@@ -438,11 +516,38 @@ export default function Sources() {
               />
             </Card>
           ) : (
-            <VirtualSourceList
-              sources={sources ?? []}
-              onOpen={handleOpen}
-              onOpenLog={handleOpenLog}
-            />
+            <>
+              {anyHostAttached && (
+                <div className="flex items-center justify-end gap-2 -mt-1 mb-2">
+                  <span className="text-xs text-fg-muted">Group by:</span>
+                  <div className="inline-flex rounded-md border border-line text-xs overflow-hidden">
+                    {(["host", "none"] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          setGroupBy(opt);
+                          writeGroupByPref(opt);
+                        }}
+                        className={`px-2 py-1 ${
+                          effectiveGroupBy === opt
+                            ? "bg-blue-600 text-white"
+                            : "bg-surface text-fg-muted hover:bg-surface-muted"
+                        }`}
+                      >
+                        {opt === "host" ? "Host" : "None"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <VirtualSourceList
+                rows={rows}
+                onOpen={handleOpen}
+                onOpenLog={handleOpenLog}
+                onToggleHost={handleToggleHost}
+              />
+            </>
           )}
         </div>
 

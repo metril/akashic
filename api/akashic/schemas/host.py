@@ -35,6 +35,42 @@ class HostResponse(BaseModel):
         self.connection_config = _scrub_config(self.connection_config)
 
 
+class ListSharesResponse(BaseModel):
+    """POST /api/hosts/{id}/list-shares result.
+
+    `shares` is the enumerated list (possibly empty) on success. On
+    failure `step`/`error` carry the same step:reason classification
+    used by the source-tester (`connect`, `auth`, `mount`, `list`,
+    `config`); `shares` is empty in that case.
+    """
+
+    shares: list[str] = []
+    step: str | None = None
+    error: str | None = None
+
+
+class AddSharesItem(BaseModel):
+    """One row in an /add-shares batch."""
+
+    name: str          # Source.name (must be unique across all sources)
+    share: str         # The path/share/export_path/bucket value
+
+
+class AddSharesRequest(BaseModel):
+    shares: list[AddSharesItem]
+    scan_schedule: str | None = None
+    max_parallel_scanners: int | None = None
+    exclude_patterns: list[str] | None = None
+    preferred_pool: str | None = None
+    is_removable: bool | None = None
+
+
+class AddSharesResponse(BaseModel):
+    created: int
+    skipped: int  # rows whose name already existed (unique-name conflict)
+    sources: list[uuid.UUID]  # ids of the rows actually created
+
+
 class HostSummary(BaseModel):
     """Inlined-on-source shape: name + type only.
 

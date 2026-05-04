@@ -17,8 +17,17 @@ from akashic.database import get_db
 from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.schemas.host import HostCreate, HostResponse, HostUpdate
+from akashic.schemas.host import (
+    AddSharesRequest,
+    AddSharesResponse,
+    HostCreate,
+    HostResponse,
+    HostUpdate,
+    ListSharesResponse,
+)
+from akashic.services import share_enumerator
 from akashic.services.audit import record_event
+from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
     merge_connection_config,
@@ -293,3 +302,153 @@ async def test_host_connection(
         },
     )
     return CheckHostReachabilityResponse(result=result, checked_at=now)
+
+
+# ── Discover & batch-add shares (v0.5.4) ────────────────────────────────
+
+
+# Per host type, the share-shaped key on Source.connection_config that
+# identifies a single share. SMB → "share", NFS → "export_path",
+# S3 → "bucket". Used by /add-shares to build the per-source config.
+_SHARE_KEY_BY_TYPE = {
+    "smb": "share",
+    "nfs": "export_path",
+    "s3":  "bucket",
+}
+
+
+@router.post("/{host_id}/list-shares", response_model=ListSharesResponse)
+async def list_host_shares(
+    host_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Enumerate shares/exports/buckets visible to this host's
+    credentials. Local and SSH hosts have no "shares" concept and
+    return 400 — use the regular Add Source form for them.
+    """
+    host = (await db.execute(
+        select(Host).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+    if host.type not in share_enumerator.SUPPORTED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"list-shares does not support host type {host.type!r}; "
+                "use the Add Source form to attach shares manually."
+            ),
+        )
+    # Probe is a blocking subprocess — same pattern as check-reachability.
+    result = await asyncio.to_thread(
+        share_enumerator.list_shares, host.type, dict(host.connection_config or {}),
+    )
+    await record_event(
+        db=db, user=user, event_type="host_shares_listed",
+        request=request,
+        payload={
+            "host_id": str(host.id),
+            "share_count": len(result.shares),
+            "step": result.step,
+            "error": result.error,
+        },
+    )
+    return ListSharesResponse(
+        shares=result.shares, step=result.step, error=result.error,
+    )
+
+
+@router.post("/{host_id}/add-shares", response_model=AddSharesResponse)
+async def add_host_shares(
+    host_id: uuid.UUID,
+    body: AddSharesRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Batch-create Source rows attached to this host. Each entry's
+    `share` value populates the per-type share-shaped key
+    (`share` / `export_path` / `bucket`); credentials live on the Host
+    and aren't duplicated. Names that collide with existing sources
+    are skipped — the response reports created/skipped counts so the
+    caller can show "Added 3 of 5" in the UI.
+    """
+    host = (await db.execute(
+        select(Host).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+    share_key = _SHARE_KEY_BY_TYPE.get(host.type)
+    if share_key is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"add-shares does not support host type {host.type!r}; "
+                "use the Add Source form to attach a single source."
+            ),
+        )
+    if body.max_parallel_scanners is not None and not (
+        1 <= int(body.max_parallel_scanners) <= 16
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="max_parallel_scanners must be between 1 and 16",
+        )
+
+    created_ids: list[uuid.UUID] = []
+    skipped = 0
+    for item in body.shares:
+        source = Source(
+            name=item.name,
+            type=host.type,
+            host_id=host.id,
+            connection_config={share_key: item.share},
+            scan_schedule=body.scan_schedule,
+            exclude_patterns=body.exclude_patterns,
+            preferred_pool=body.preferred_pool,
+            max_parallel_scanners=(
+                int(body.max_parallel_scanners)
+                if body.max_parallel_scanners is not None else 1
+            ),
+            is_removable=(
+                body.is_removable
+                if body.is_removable is not None
+                # Network sources default to false; we mirror the
+                # default-inference helper rather than hard-coding false
+                # so a future is_removable-by-type rule applies.
+                else infer_is_removable(host.type, {share_key: item.share})
+            ),
+        )
+        db.add(source)
+        try:
+            await db.flush()
+            created_ids.append(source.id)
+        except IntegrityError:
+            await db.rollback()
+            skipped += 1
+            # Re-fetch the host so the next loop iteration has a clean
+            # session. Without this the next flush fails with "session
+            # is closed" / "object expired".
+            host = (await db.execute(
+                select(Host).where(Host.id == host_id)
+            )).scalar_one_or_none()
+            if host is None:
+                raise HTTPException(status_code=404, detail="Host vanished mid-batch")
+    await db.commit()
+
+    if created_ids:
+        await record_event(
+            db=db, user=user, event_type="host_shares_batch_added",
+            request=request,
+            payload={
+                "host_id": str(host_id),
+                "created": len(created_ids),
+                "skipped": skipped,
+                "source_ids": [str(i) for i in created_ids],
+            },
+        )
+    return AddSharesResponse(
+        created=len(created_ids), skipped=skipped, sources=created_ids,
+    )

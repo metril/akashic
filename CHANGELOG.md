@@ -5,6 +5,33 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.4 — 2026-05-04
+
+- **Hosts:** discover-and-batch-add. A new *Discover shares* button on
+  every SMB / NFS / S3 host in `/hosts` enumerates the shares the
+  saved credentials can see (SMB `NetShareEnumAll` over the IPC$
+  srvsvc pipe; NFS `MOUNT3 EXPORT`; S3 `ListBuckets`) and presents
+  them as a checkbox list — pick N, hit *Add N sources*, and the
+  matching `Source` rows are created in one transaction. Already-
+  attached shares render checked + disabled with an "(already
+  added)" tag so the user sees the delta. `AddSourceForm` gains a
+  one-line affordance "Or discover all shares on this host →" that
+  deep-links to the Hosts page with the discovery panel pre-expanded.
+  Local and SSH hosts skip discovery (no shares concept) and keep
+  the existing single-share form.
+- **Sources:** the page now groups cards by host. With 12 shares
+  across 3 hosts you see 3 collapsible host headers each carrying
+  their share count, a link to the host page, and a chevron that
+  collapses the section. Collapsed state is persisted per-host in
+  localStorage. A small *Group by: Host / None* toggle in the page
+  header lets you fall back to the flat list. Default is *Host*
+  whenever any source has a host_id.
+- **Backend:** new `akashic-scanner list-shares` subcommand (mirrors
+  `test-connection`'s shape — `--password-stdin` JSON creds, JSON
+  stdout, `step:reason` stderr); new `POST /api/hosts/{id}/list-shares`
+  and `POST /api/hosts/{id}/add-shares` endpoints (idempotent on
+  Source.name, returns created/skipped counts).
+
 ## v0.5.3 — 2026-05-04
 
 - **Scanners (Phase 2 — full coverage):** parallel scanning is now

@@ -33,6 +33,9 @@ func main() {
 		case "test-connection":
 			runTestConnection(os.Args[2:])
 			return
+		case "list-shares":
+			runListShares(os.Args[2:])
+			return
 		case "fetch":
 			runFetch(os.Args[2:])
 			return

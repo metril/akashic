@@ -15,14 +15,24 @@ import {
   type HostType,
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
+import { DiscoverSharesPanel } from "./DiscoverSharesPanel";
+
+// Host types whose protocol exposes a "shares" enumeration. Local
+// has no host; SSH has no shares. The Discover button is hidden for
+// either.
+const DISCOVERABLE: ReadonlySet<string> = new Set(["smb", "nfs", "s3"]);
 
 interface Props {
   hostId: string | null;
   open: boolean;
   onClose: () => void;
+  /** When true and the host supports discovery, auto-expand the
+   *  Discover Shares panel on open. Used by the deep-link from
+   *  AddSourceForm's "Or discover all shares on this host" link. */
+  autoDiscover?: boolean;
 }
 
-export function HostDetail({ hostId, open, onClose }: Props) {
+export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   const { isAdmin } = useAuth();
   const hostQuery = useHostDetail(hostId);
   const sourcesQuery = useSources();
@@ -40,6 +50,7 @@ export function HostDetail({ hostId, open, onClose }: Props) {
   const [draftName, setDraftName] = useState("");
   const [draftConfig, setDraftConfig] = useState<HostConfig>({});
   const [error, setError] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
 
   useEffect(() => {
     if (host) {
@@ -47,8 +58,13 @@ export function HostDetail({ hostId, open, onClose }: Props) {
       setDraftConfig((host.connection_config ?? {}) as HostConfig);
       setEditing(false);
       setError(null);
+      // Honour the deep-link's autoDiscover only when the host type
+      // actually supports discovery (smb/nfs/s3). Otherwise keep the
+      // panel collapsed.
+      setDiscovering(Boolean(autoDiscover) && DISCOVERABLE.has(host.type));
     }
-  }, [host?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host?.id, autoDiscover]);
 
   if (!hostId) return null;
 
@@ -195,6 +211,16 @@ export function HostDetail({ hostId, open, onClose }: Props) {
                   >
                     Test connection
                   </Button>
+                  {isAdmin && DISCOVERABLE.has(host.type) && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setDiscovering((d) => !d)}
+                      title="Enumerate shares using this host's credentials and add the ones you want as Source rows."
+                    >
+                      {discovering ? "Hide shares" : "Discover shares"}
+                    </Button>
+                  )}
                   {isAdmin && (
                     <Button
                       size="sm"
@@ -237,6 +263,18 @@ export function HostDetail({ hostId, open, onClose }: Props) {
                 </>
               )}
             </div>
+
+            {discovering && DISCOVERABLE.has(host.type) && (
+              <div className="pt-3 border-t border-line-subtle">
+                <p className="text-xs uppercase tracking-wide text-fg-subtle mb-2">
+                  Discover shares
+                </p>
+                <DiscoverSharesPanel
+                  host={host}
+                  onAdded={() => setDiscovering(false)}
+                />
+              </div>
+            )}
 
             {attachedSources.length > 0 && (
               <div className="pt-3 border-t border-line-subtle">

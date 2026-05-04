@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button, Card, CardHeader, Input, Select } from "../ui";
 import { useCreateSource } from "../../hooks/useSources";
 import { useCreateHost, useHosts } from "../../hooks/useHosts";
@@ -214,6 +215,17 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
             <p className="text-[11px] text-fg-muted -mt-1">
               Reuse credentials across many shares on the same server.
             </p>
+            {hostChoice && hostChoice !== NEW_HOST && (
+              // Deep-link into the Hosts page with the Discover panel
+              // pre-expanded for the selected host. Lets the user batch-
+              // add multiple shares without filling this form N times.
+              <Link
+                to={`/hosts?host=${hostChoice}&discover=1`}
+                className="inline-block text-[11px] text-blue-600 hover:underline"
+              >
+                Or discover all shares on this host →
+              </Link>
+            )}
             {isCreatingHost && (
               <div className="pt-2 border-t border-line">
                 <p className="text-xs text-fg-muted mb-2">

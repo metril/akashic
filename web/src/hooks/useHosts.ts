@@ -61,6 +61,53 @@ export function useDeleteHost() {
   });
 }
 
+// ── Share discovery + batch-add (v0.5.4) ─────────────────────────────────
+
+export interface ListSharesResult {
+  shares: string[];
+  step: string | null;
+  error: string | null;
+}
+
+export function useListShares() {
+  return useMutation({
+    mutationFn: (hostId: string) =>
+      api.post<ListSharesResult>(`/hosts/${hostId}/list-shares`, {}),
+  });
+}
+
+export interface AddSharesItem {
+  name: string;
+  share: string;
+}
+
+export interface AddSharesRequest {
+  shares: AddSharesItem[];
+  scan_schedule?: string | null;
+  max_parallel_scanners?: number | null;
+  exclude_patterns?: string[] | null;
+  preferred_pool?: string | null;
+  is_removable?: boolean | null;
+}
+
+export interface AddSharesResponse {
+  created: number;
+  skipped: number;
+  sources: string[];  // ids of newly-created Source rows
+}
+
+export function useAddShares() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hostId, body }: { hostId: string; body: AddSharesRequest }) =>
+      api.post<AddSharesResponse>(`/hosts/${hostId}/add-shares`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+    },
+  });
+}
+
 export interface HostTestResult {
   result: {
     ok: boolean;

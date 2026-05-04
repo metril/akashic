@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Badge, Card, EmptyState, Page, Skeleton } from "../components/ui";
 import { AddHostForm } from "../components/hosts/AddHostForm";
 import { HostDetail } from "../components/hosts/HostDetail";
@@ -9,6 +10,28 @@ export default function Hosts() {
   const { isAdmin } = useAuth();
   const hostsQuery = useHosts();
   const [openHostId, setOpenHostId] = useState<string | null>(null);
+  const [autoDiscover, setAutoDiscover] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep-link support: /hosts?host=<id>&discover=1 opens the drawer
+  // and auto-expands the Discover panel. Used by AddSourceForm's
+  // "Or discover all shares on this host" affordance to land the
+  // user directly in the right flow.
+  useEffect(() => {
+    const id = searchParams.get("host");
+    const discover = searchParams.get("discover") === "1";
+    if (id) {
+      setOpenHostId(id);
+      setAutoDiscover(discover);
+      // Clear the query string so a refresh doesn't re-trigger the
+      // deep-link behaviour.
+      const next = new URLSearchParams(searchParams);
+      next.delete("host");
+      next.delete("discover");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Page
@@ -67,7 +90,11 @@ export default function Hosts() {
       <HostDetail
         hostId={openHostId}
         open={openHostId !== null}
-        onClose={() => setOpenHostId(null)}
+        onClose={() => {
+          setOpenHostId(null);
+          setAutoDiscover(false);
+        }}
+        autoDiscover={autoDiscover}
       />
     </Page>
   );
