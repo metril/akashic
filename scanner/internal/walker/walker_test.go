@@ -201,3 +201,77 @@ func TestWalk_HonoursContextCancellation(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
+
+// TestWalkShallow verifies the shallow-walk mode used by the
+// unit-coordinated agent: emit files at the root level, return
+// subdirectory names instead of recursing into them.
+func TestWalkShallow_FilesEmittedSubdirsReturned(t *testing.T) {
+	dir := setupTestTree(t)
+
+	var entries []*models.EntryRecord
+	res, err := WalkShallow(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
+		entries = append(entries, entry)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Files at the root: just file1.txt
+	gotFiles := map[string]bool{}
+	for _, e := range entries {
+		gotFiles[filepath.Base(e.Path)] = true
+	}
+	if !gotFiles["file1.txt"] {
+		t.Errorf("expected file1.txt in shallow walk, got %v", gotFiles)
+	}
+	// Subdirectories returned, not recursed into:
+	if len(res.SubdirNames) != 1 || res.SubdirNames[0] != "subdir" {
+		t.Errorf("expected SubdirNames=[subdir], got %v", res.SubdirNames)
+	}
+	// No nested file emitted (recursion did NOT happen):
+	if gotFiles["file2.log"] {
+		t.Errorf("WalkShallow recursed into subdir; file2.log should not be emitted")
+	}
+}
+
+func TestWalkShallow_HonoursExcludePatterns(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "keep.txt"), []byte("k"), 0o644)
+	os.WriteFile(filepath.Join(dir, "skip.txt"), []byte("s"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "node_modules"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+
+	var emitted []string
+	res, err := WalkShallow(
+		context.Background(), dir,
+		[]string{"skip.txt", "node_modules"}, false,
+		func(e *models.EntryRecord) error {
+			emitted = append(emitted, filepath.Base(e.Path))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emitted) != 1 || emitted[0] != "keep.txt" {
+		t.Errorf("expected emitted=[keep.txt], got %v", emitted)
+	}
+	if len(res.SubdirNames) != 1 || res.SubdirNames[0] != "src" {
+		t.Errorf("expected SubdirNames=[src] (node_modules excluded), got %v", res.SubdirNames)
+	}
+}
+
+func TestWalkShallow_UnreadableRootReturnsZero(t *testing.T) {
+	res, err := WalkShallow(
+		context.Background(), "/no/such/path/akashic",
+		nil, false,
+		func(*models.EntryRecord) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("expected nil err on unreadable root (parity with Walk), got %v", err)
+	}
+	if len(res.SubdirNames) != 0 {
+		t.Errorf("expected zero SubdirNames on unreadable root, got %v", res.SubdirNames)
+	}
+}

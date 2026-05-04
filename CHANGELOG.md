@@ -5,6 +5,28 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.2 — 2026-05-04
+
+- **Scanners (Phase 2):** parallel scanning is now end-to-end working
+  for `local` and `nfs` sources. When `max_parallel_scanners > 1`, the
+  Go agent enters a unit-coordinated mode: the first scanner to lease
+  the scan enumerates the source root, splits each top-level
+  subdirectory off as a `scan_work_unit`, then re-enters the lease
+  loop. Sibling scanners in the same pool claim units concurrently
+  via the SKIP-LOCKED primitive, walk their subtree with the existing
+  scanner.Run path, and the API auto-finalises the scan once the last
+  unit completes. Per-unit heartbeats keep leases fresh; expired
+  leases are reclaimable by any sibling. The legacy single-walker
+  path is unchanged for `max_parallel_scanners=1` and for ssh/smb/s3
+  sources (which fall back with a one-line log warning until those
+  connectors learn to expose immediate-children listings).
+- **Walker:** new `walker.WalkShallow` — emits files at the root
+  level, returns subdirectory names instead of recursing. Used by the
+  unit-coordinated agent's "" root-files unit and tested end to end.
+- **API:** the `/api/scans/lease` response now carries
+  `source.max_parallel_scanners` so the agent can pick the right path
+  without an extra lookup.
+
 ## v0.5.1 — 2026-05-04
 
 - **Scanners (Phase 1):** data model + API for parallel scanning. A

@@ -114,6 +114,11 @@ class LeasedSource(BaseModel):
     type: str
     connection_config: dict
     exclude_patterns: list[str] | None = None
+    # Cap on cooperating scanners per scan (default 1). Agents that
+    # support unit-coordinated scanning use this to switch between the
+    # legacy single-walker path and the work-units lease loop. Older
+    # agents simply ignore the field.
+    max_parallel_scanners: int = 1
 
 
 class LeasedScan(BaseModel):
@@ -875,6 +880,7 @@ async def lease_scan(
             type=source.type,
             connection_config=merged_config,
             exclude_patterns=source.exclude_patterns,
+            max_parallel_scanners=source.max_parallel_scanners,
         ),
         api_jwt=api_jwt,
     )

@@ -81,12 +81,44 @@ func Run(ctx context.Context, cfg Config) error {
 			sleepWithJitter(ctx, cfg.LeasePoll)
 			continue
 		}
+		if shouldUseUnits(leased) {
+			// Unit-coordinated path: this scan is opted in for parallel
+			// scanning. The work-units API drives terminal status; we
+			// don't call /api/scans/{id}/complete ourselves (that would
+			// overwrite the auto-finalization).
+			if err := runUnitCoordinated(ctx, httpc, cfg, priv, leased); err != nil {
+				log.Printf("unit-scan %s failed: %v", leased.ScanID, err)
+			}
+			continue
+		}
 		if err := runLeasedScan(ctx, cfg, priv, leased); err != nil {
 			log.Printf("scan %s failed: %v", leased.ScanID, err)
 			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
 		} else {
 			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
 		}
+	}
+}
+
+// shouldUseUnits decides whether this leased scan goes down the
+// work-unit-coordinated path. Phase 2 supports local + nfs only —
+// other connectors don't have a cheap "list immediate subdirs" path
+// the enumerator can lean on, so they fall back to the legacy
+// single-walker run with a one-line warning.
+func shouldUseUnits(leased *leasedScan) bool {
+	if leased.Source.MaxParallelScanners <= 1 {
+		return false
+	}
+	switch leased.Source.Type {
+	case "local", "nfs":
+		return true
+	default:
+		log.Printf(
+			"scan %s: max_parallel_scanners=%d but source type %q "+
+				"not yet supported by unit-coordinated path; falling back to legacy",
+			leased.ScanID, leased.Source.MaxParallelScanners, leased.Source.Type,
+		)
+		return false
 	}
 }
 
@@ -104,10 +136,11 @@ func newKeepaliveTransport() *http.Transport {
 // ── Wire types ───────────────────────────────────────────────────────────
 
 type leasedSource struct {
-	ID               string         `json:"id"`
-	Type             string         `json:"type"`
-	ConnectionConfig map[string]any `json:"connection_config"`
-	ExcludePatterns  []string       `json:"exclude_patterns"`
+	ID                   string         `json:"id"`
+	Type                 string         `json:"type"`
+	ConnectionConfig     map[string]any `json:"connection_config"`
+	ExcludePatterns      []string       `json:"exclude_patterns"`
+	MaxParallelScanners  int            `json:"max_parallel_scanners"`
 }
 
 type leasedScan struct {

@@ -12,6 +12,78 @@ import (
 
 type WalkFunc func(entry *models.EntryRecord) error
 
+// ShallowResult is what WalkShallow returns: file/empty-dir entries
+// emitted in-line via fn, plus the relative names of subdirectories
+// the caller should split off as separate work units instead of
+// recursing into.
+type ShallowResult struct {
+	// Names of immediate subdirectories under root (basename only,
+	// no leading "/"). The caller turns these into work-unit paths.
+	SubdirNames []string
+}
+
+// WalkShallow lists `root` non-recursively. Files and the root directory
+// itself emit through fn. Subdirectories are NOT walked — their names
+// are returned in ShallowResult.SubdirNames so the caller can split
+// them off as separate work units for cooperating scanners to claim.
+//
+// Used by the unit-coordinated agent path (Phase 2 of v0.5.x parallel
+// scanning) on the root unit ("") of a scan, to fan out top-level
+// subtrees across siblings without one scanner walking the whole tree.
+func WalkShallow(
+	ctx context.Context,
+	root string,
+	excludePatterns []string,
+	computeHash bool,
+	fn WalkFunc,
+) (ShallowResult, error) {
+	res := ShallowResult{}
+	if err := ctx.Err(); err != nil {
+		return res, err
+	}
+
+	excludeSet := make(map[string]bool, len(excludePatterns))
+	for _, p := range excludePatterns {
+		excludeSet[strings.ToLower(p)] = true
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		// Same swallow behaviour as Walk — let an unreadable root
+		// surface as zero entries rather than failing the whole scan.
+		return res, nil
+	}
+
+	owners := metadata.NewOwnerResolver()
+
+	for _, d := range entries {
+		name := d.Name()
+		if excludeSet[strings.ToLower(name)] {
+			continue
+		}
+		childPath := filepath.Join(root, name)
+		if d.IsDir() {
+			// Don't emit a record here; the unit walker for this
+			// subdir will emit it post-order with its own subtree
+			// totals when the sibling claims and walks it.
+			res.SubdirNames = append(res.SubdirNames, name)
+			continue
+		}
+		info, err := d.Info()
+		if err != nil {
+			continue
+		}
+		entry, err := metadata.CollectFromInfo(childPath, info, computeHash, owners)
+		if err != nil {
+			continue
+		}
+		if err := fn(entry); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
 // Walk traverses `root` and emits EntryRecord values for every file AND
 // directory it visits (the root itself is skipped).
 //
