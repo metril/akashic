@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { Source } from "../../types";
 import { formatRelative } from "../../lib/format";
+import { ReachabilityDot, type ReachabilityState } from "../ui";
 
 interface Props {
   source: Source;
@@ -9,53 +10,99 @@ interface Props {
   compact?: boolean;
 }
 
+// v0.5.6 — match `2 × reachability_check_interval_seconds` (default
+// 5 min × 2 = 10 min). Server-side configuration; the badge falls
+// back to this constant if the operator hasn't exposed the setting.
+const STALENESS_THRESHOLD_MS = 10 * 60 * 1000;
+
+function isStale(checkedAt: string | null): boolean {
+  if (!checkedAt) return false;
+  return Date.now() - Date.parse(checkedAt) > STALENESS_THRESHOLD_MS;
+}
+
+function deriveState(source: Source): {
+  state: ReachabilityState;
+  label: string;
+  detail: string | null;
+} {
+  const stale = isStale(source.last_reachability_check_at);
+
+  if (source.is_reachable === true) {
+    if (stale) {
+      return {
+        state: "stale",
+        label: "Stale",
+        detail: source.last_reachable_at
+          ? `last seen ${formatRelative(source.last_reachable_at)}`
+          : null,
+      };
+    }
+    return {
+      state: "reachable",
+      label: "Reachable",
+      detail: source.last_reachable_at
+        ? `last seen ${formatRelative(source.last_reachable_at)}`
+        : null,
+    };
+  }
+
+  if (source.is_reachable === false) {
+    return {
+      state: "unreachable",
+      label: "Unreachable",
+      detail: source.last_reachable_at
+        ? `last reached ${formatRelative(source.last_reachable_at)}`
+        : "never reached",
+    };
+  }
+
+  // is_reachable === null
+  if (source.last_reachability_check_at && stale) {
+    // The misconfigured-pool case: a check was attempted but no
+    // probe ever returned, so we never learned reachability.
+    return {
+      state: "stale_unchecked",
+      label: "Stale",
+      detail: "no scanner has reported",
+    };
+  }
+  return {
+    state: "unchecked",
+    label: "Not yet checked",
+    detail: null,
+  };
+}
+
 /**
- * Reachability indicator for sources flagged `is_removable`.
- * Returns null for fixed sources — there's no "is the disk plugged in"
- * question to answer.
+ * Reachability indicator. v0.5.6 renders for every source — prior
+ * versions showed it only when ``is_removable`` was true, which hid
+ * the data the api was already collecting on every scan completion.
  *
- *  - is_reachable=true   → green dot, "Reachable, last seen Xm ago"
- *  - is_reachable=false  → amber dot, "Unmounted, last seen Xh ago"
- *  - is_reachable=null   → grey dot,  "Not yet checked"
+ * Five states:
+ *   - "Reachable" (green)              — fresh ok=true
+ *   - "Stale" (yellow)                 — was reachable but no probe
+ *                                         in 10 min
+ *   - "Unreachable" (red)              — fresh ok=false
+ *   - "Not yet checked" (grey)         — never probed
+ *   - "Stale" (yellow, "no scanner")   — probed but never returned;
+ *                                         signals a misconfigured pool
  */
 export const ReachabilityBadge = memo(function ReachabilityBadge({
   source,
   compact = false,
 }: Props) {
-  if (!source.is_removable) return null;
-
-  let dotClass: string;
-  let label: string;
-  let detail: string | null;
-
-  if (source.is_reachable === true) {
-    dotClass = "bg-emerald-500";
-    label = "Reachable";
-    detail = source.last_reachable_at
-      ? `last seen ${formatRelative(source.last_reachable_at)}`
-      : null;
-  } else if (source.is_reachable === false) {
-    dotClass = "bg-amber-500";
-    label = "Unmounted";
-    detail = source.last_reachable_at
-      ? `last seen ${formatRelative(source.last_reachable_at)}`
-      : "never reached";
-  } else {
-    dotClass = "bg-fg-subtle";
-    label = "Not yet checked";
-    detail = null;
-  }
+  const { state, label, detail } = deriveState(source);
+  const tooltip = source.last_reachability_check_at
+    ? `Last check: ${new Date(source.last_reachability_check_at).toLocaleString()}`
+    : "No reachability check has been run yet.";
 
   return (
     <span
+      data-state={state}
       className="inline-flex items-center gap-1.5 text-xs text-fg-muted"
-      title={
-        source.last_reachability_check_at
-          ? `Last check: ${new Date(source.last_reachability_check_at).toLocaleString()}`
-          : "No reachability check has been run yet."
-      }
+      title={tooltip}
     >
-      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+      <ReachabilityDot state={state} />
       <span className="font-medium text-fg">{label}</span>
       {!compact && detail && <span>· {detail}</span>}
     </span>

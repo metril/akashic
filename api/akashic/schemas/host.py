@@ -23,6 +23,10 @@ class HostResponse(BaseModel):
     type: str
     connection_config: dict
     source_count: int = 0
+    # v0.5.6 reachability — same shape as Source, plus a roll-up.
+    is_reachable: bool | None = None
+    last_reachable_at: datetime | None = None
+    last_reachability_check_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

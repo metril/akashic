@@ -20,6 +20,12 @@ export interface Host {
   // secrets masked as "***" (same convention as Source.connection_config).
   connection_config: Record<string, unknown>;
   source_count: number;
+  // v0.5.6 reachability — direct probe via /test-connection writes
+  // is_reachable + the timestamps; the source-side roll-up may
+  // overwrite is_reachable with the share-level truth.
+  is_reachable: boolean | null;
+  last_reachable_at: string | null;
+  last_reachability_check_at: string | null;
   created_at: string;
   updated_at: string;
 }

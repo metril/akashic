@@ -20,6 +20,8 @@ export { Page } from "./Page";
 export { ThemeToggle } from "./ThemeToggle";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { ModalShell } from "./ModalShell";
+export { ReachabilityDot } from "./ReachabilityDot";
+export type { ReachabilityState } from "./ReachabilityDot";
 export { FilterableCell, predicateLabel } from "./FilterableCell";
 export { FilterChips } from "./FilterChips";
 export { cn } from "./cn";

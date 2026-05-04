@@ -49,6 +49,11 @@ export default function App() {
         // Pull theme from <html class="dark"> via "system" — sonner reads
         // the class on render. The useTheme hook keeps that class in sync.
         theme="system"
+        // v0.5.6: richColors paints success=green, error=rose, warning=amber,
+        // info=blue. Without it, the default neutral palette renders dark
+        // text on a dark background in dark mode (the "black toast" report).
+        richColors
+        closeButton
         toastOptions={{ className: "rounded-lg" }}
       />
       <Routes>

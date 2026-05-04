@@ -1,10 +1,33 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Badge, Card, EmptyState, Page, Skeleton } from "../components/ui";
+import { Badge, Card, EmptyState, Page, ReachabilityDot, Skeleton, type ReachabilityState } from "../components/ui";
+import { formatRelative } from "../lib/format";
+import type { Host } from "../types";
 import { AddHostForm } from "../components/hosts/AddHostForm";
 import { HostDetail } from "../components/hosts/HostDetail";
 import { useHosts } from "../hooks/useHosts";
 import { useAuth } from "../hooks/useAuth";
+
+// Same staleness threshold the source badge uses (2× check interval).
+const STALENESS_THRESHOLD_MS = 10 * 60 * 1000;
+
+function deriveHostState(h: Host): { state: ReachabilityState; label: string } {
+  const stale =
+    h.last_reachability_check_at != null &&
+    Date.now() - Date.parse(h.last_reachability_check_at) > STALENESS_THRESHOLD_MS;
+  if (h.is_reachable === true) {
+    return stale
+      ? { state: "stale", label: "Stale" }
+      : { state: "reachable", label: "Reachable" };
+  }
+  if (h.is_reachable === false) {
+    return { state: "unreachable", label: "Unreachable" };
+  }
+  if (h.last_reachability_check_at && stale) {
+    return { state: "stale_unchecked", label: "Stale" };
+  }
+  return { state: "unchecked", label: "Not yet checked" };
+}
 
 export default function Hosts() {
   const { isAdmin } = useAuth();
@@ -54,32 +77,41 @@ export default function Hosts() {
               />
             </Card>
           )}
-          {hostsQuery.data?.map((h) => (
-            <button
-              key={h.id}
-              type="button"
-              onClick={() => setOpenHostId(h.id)}
-              className="block w-full text-left"
-            >
-              <Card padding="md" className="cursor-pointer hover:border-blue-300">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-fg truncate">
-                        {h.name}
-                      </span>
-                      <Badge variant="neutral">{h.type}</Badge>
+          {hostsQuery.data?.map((h) => {
+            const reach = deriveHostState(h);
+            const tooltip = h.last_reachability_check_at
+              ? `${reach.label} · last check ${formatRelative(h.last_reachability_check_at)}`
+              : reach.label;
+            return (
+              <button
+                key={h.id}
+                type="button"
+                onClick={() => setOpenHostId(h.id)}
+                className="block w-full text-left"
+              >
+                <Card padding="md" className="cursor-pointer hover:border-blue-300">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span title={tooltip}>
+                          <ReachabilityDot state={reach.state} />
+                        </span>
+                        <span className="font-semibold text-fg truncate">
+                          {h.name}
+                        </span>
+                        <Badge variant="neutral">{h.type}</Badge>
+                      </div>
+                      <p className="text-xs text-fg-muted">
+                        {h.source_count === 0
+                          ? "No attached shares"
+                          : `${h.source_count} attached share${h.source_count === 1 ? "" : "s"}`}
+                      </p>
                     </div>
-                    <p className="text-xs text-fg-muted">
-                      {h.source_count === 0
-                        ? "No attached shares"
-                        : `${h.source_count} attached share${h.source_count === 1 ? "" : "s"}`}
-                    </p>
                   </div>
-                </div>
-              </Card>
-            </button>
-          ))}
+                </Card>
+              </button>
+            );
+          })}
         </div>
 
         <div className="lg:col-span-1">

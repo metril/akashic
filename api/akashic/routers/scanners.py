@@ -33,6 +33,12 @@ from akashic.models.scanner import Scanner
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.protocol import ACCEPTED_MAX, ACCEPTED_MIN, PROTOCOL_VERSION
+from akashic.schemas.reachability import (
+    ReachabilityCheckClaim,
+    ReachabilityPollRequest,
+    ReachabilityPollResponse,
+    ReachabilityReport,
+)
 from akashic.services.scanner_auth import verify_scanner_jwt
 from akashic.services.scanner_keys import generate_keypair
 
@@ -772,16 +778,36 @@ async def lease_scan(
         extra_where += " AND scans.scan_type = ANY(:allowed_scan_types)"
         params["allowed_scan_types"] = scanner.allowed_scan_types
 
+    # v0.5.6: probe-as-eligibility guard for type=local. A scanner is
+    # excluded from claiming a `local` scan only when there's recent
+    # (within 15 min) PROOF it can't reach the path — a failed
+    # reachability_check by this scanner against this source. Absence
+    # of a probe means "no evidence either way", which still lets the
+    # claim proceed (the walker will surface the failure if any).
+    # Recent successful probes are evidence too but they don't
+    # restrict — they just confirm we're not in the negative case.
+    # Non-local sources skip this guard entirely.
     lease_sql = text(f"""
         WITH next_scan AS (
-            SELECT id FROM scans
-             WHERE status IN ('pending', 'running')
-               AND (assigned_scanner_id IS NULL OR lease_expires_at < now())
-               AND (pool = :pool OR pool IS NULL)
+            SELECT scans.id FROM scans
+             JOIN sources ON sources.id = scans.source_id
+             WHERE scans.status IN ('pending', 'running')
+               AND (scans.assigned_scanner_id IS NULL OR scans.lease_expires_at < now())
+               AND (scans.pool = :pool OR scans.pool IS NULL)
+               AND (
+                 sources.type <> 'local'
+                 OR NOT EXISTS (
+                   SELECT 1 FROM reachability_checks rc
+                    WHERE rc.source_id = scans.source_id
+                      AND rc.assigned_scanner_id = :scanner_id
+                      AND rc.result_ok = false
+                      AND rc.completed_at > now() - interval '15 minutes'
+                 )
+               )
                {extra_where}
-             ORDER BY started_at ASC NULLS FIRST, id ASC
+             ORDER BY scans.started_at ASC NULLS FIRST, scans.id ASC
              LIMIT 1
-             FOR UPDATE SKIP LOCKED
+             FOR UPDATE OF scans SKIP LOCKED
         )
         UPDATE scans
            SET assigned_scanner_id = :scanner_id,
@@ -959,6 +985,222 @@ async def complete_scan(
         # v0.4.11: terminal state — clear the snapshot so a future
         # re-trigger of this scan_id (rare; mostly tests) starts fresh.
         await scan_broadcast.clear_broadcast(str(scan_id))
+
+
+# ── Reachability work-item endpoints (v0.5.6) ─────────────────────────────
+
+
+_REACHABILITY_LEASE_SECONDS = 30
+
+
+@router.post("/api/scanners/{scanner_id}/reachability/poll")
+async def poll_reachability_checks(
+    scanner_id: uuid.UUID,
+    body: "ReachabilityPollRequest" = None,  # type: ignore[assignment]
+    db: AsyncSession = Depends(get_db),
+    scanner: Scanner = Depends(verify_scanner_jwt),
+):
+    """Atomically claim up to N pending reachability_check rows.
+
+    Scope filter mirrors /api/scans/lease (pool + allowed_source_ids)
+    EXCEPT for `type=local` sources, where both filters are dropped:
+    every successful local probe doubles as proof of eligibility, so
+    we want any online scanner to be able to try. The scan-lease
+    query reads the resulting reachability_checks rows back as the
+    eligibility cache for `type=local` scans.
+
+    Returns the leased rows with merged host+source connection_config
+    so the agent can run `test-connection` directly.
+    """
+    if scanner_id != scanner.id:
+        raise HTTPException(status_code=403, detail="scanner_id mismatch")
+    if not scanner.enabled:
+        raise HTTPException(status_code=403, detail="scanner is disabled")
+
+    # Default body when caller omits it (the agent posts an empty body).
+    limit = (body.limit if body is not None else 8)
+
+    # Sweep expired leases back to pending so a crashed scanner doesn't
+    # leave the row stuck in 'running' forever. Cheap; runs every poll.
+    await db.execute(text("""
+        UPDATE reachability_checks
+           SET status='pending', assigned_scanner_id=NULL,
+               lease_expires_at=NULL
+         WHERE status='running' AND lease_expires_at < now()
+    """))
+
+    extra_where = ""
+    params: dict[str, object] = {
+        "pool": scanner.pool,
+        "scanner_id": scanner.id,
+        "lease_seconds": _REACHABILITY_LEASE_SECONDS,
+        "limit": limit,
+    }
+    if scanner.allowed_source_ids:
+        extra_where = (
+            " AND (sources.type = 'local' "
+            "      OR rc.source_id = ANY(:allowed_source_ids))"
+        )
+        params["allowed_source_ids"] = scanner.allowed_source_ids
+
+    # Pool filter relaxes for type=local — see docstring.
+    lease_sql = text(f"""
+        WITH next_checks AS (
+            SELECT rc.id
+              FROM reachability_checks rc
+              JOIN sources ON sources.id = rc.source_id
+             WHERE rc.status = 'pending'
+               AND (sources.type = 'local'
+                    OR rc.pool = :pool OR rc.pool IS NULL)
+               {extra_where}
+             ORDER BY rc.created_at ASC, rc.id ASC
+             LIMIT :limit
+             FOR UPDATE OF rc SKIP LOCKED
+        )
+        UPDATE reachability_checks
+           SET assigned_scanner_id = :scanner_id,
+               lease_expires_at    = now() + (:lease_seconds * interval '1 second'),
+               status              = 'running',
+               started_at          = COALESCE(started_at, now())
+          FROM next_checks
+         WHERE reachability_checks.id = next_checks.id
+        RETURNING reachability_checks.id, reachability_checks.source_id
+    """)
+    res = await db.execute(lease_sql, params)
+    rows = list(res.fetchall())
+
+    # Heartbeat the scanner regardless of whether anything was leased.
+    scanner.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    if not rows:
+        return ReachabilityPollResponse(checks=[])
+
+    # Hydrate full source rows + merged config for each lease.
+    from akashic.services.source_config import merge_host_and_source
+    source_ids = [r[1] for r in rows]
+    sources = (await db.execute(
+        select(Source).where(Source.id.in_(source_ids))
+    )).scalars().all()
+    by_id = {s.id: s for s in sources}
+
+    claims: list[ReachabilityCheckClaim] = []
+    for check_id, source_id in rows:
+        src = by_id.get(source_id)
+        if src is None:
+            continue
+        claims.append(ReachabilityCheckClaim(
+            id=check_id,
+            source_id=source_id,
+            source_type=src.type,
+            connection_config=merge_host_and_source(getattr(src, "host", None), src),
+        ))
+
+    return ReachabilityPollResponse(checks=claims)
+
+
+@router.post(
+    "/api/scanners/{scanner_id}/reachability/{check_id}/report",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def report_reachability_result(
+    scanner_id: uuid.UUID,
+    check_id: uuid.UUID,
+    body: "ReachabilityReport",
+    db: AsyncSession = Depends(get_db),
+    scanner: Scanner = Depends(verify_scanner_jwt),
+):
+    """Persist a reachability probe result.
+
+    Auth: the reporting scanner must be the lease holder. An expired
+    lease (status reverted to 'pending' by the sweep) returns 409 so
+    the agent can drop the result and let the next poller try.
+    """
+    if scanner_id != scanner.id:
+        raise HTTPException(status_code=403, detail="scanner_id mismatch")
+
+    from akashic.models.reachability_check import ReachabilityCheck
+    check = (await db.execute(
+        select(ReachabilityCheck).where(ReachabilityCheck.id == check_id)
+    )).scalar_one_or_none()
+    if check is None:
+        raise HTTPException(status_code=404, detail="reachability check not found")
+    if check.assigned_scanner_id != scanner.id:
+        raise HTTPException(
+            status_code=403, detail="scanner is not the lease holder",
+        )
+    if check.status != "running":
+        raise HTTPException(status_code=409, detail="lease no longer active")
+
+    from akashic.services.reachability_report import apply_reachability_result
+    await apply_reachability_result(
+        db=db, check_id=check_id,
+        ok=body.ok, step=body.step, error=body.error,
+    )
+    scanner.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+# ── Eligibility-discovery for the scanner-side modal (v0.5.6) ────────────
+
+
+class SourceReachabilityRow(BaseModel):
+    source_id: uuid.UUID
+    source_name: str
+    source_type: str
+    host_name: str | None
+    currently_allowed: bool
+    ok: bool | None
+    last_probed_at: datetime | None
+    step: str | None
+    error: str | None
+
+
+@router.get("/api/scanners/{scanner_id}/source-reachability")
+async def list_scanner_source_reachability(
+    scanner_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """For a given scanner, return its latest probe result for every
+    source. Feeds the scanner-side AllowedSourcesModal so the user
+    can see "scanner X reaches source Y" before toggling allow/deny.
+    """
+    scanner = (await db.execute(
+        select(Scanner).where(Scanner.id == scanner_id)
+    )).scalar_one_or_none()
+    if scanner is None:
+        raise HTTPException(status_code=404, detail="scanner not found")
+
+    allowed = set(scanner.allowed_source_ids or [])
+    is_unrestricted = not scanner.allowed_source_ids
+
+    # Pull all sources + most recent probe by THIS scanner.
+    rows = (await db.execute(text("""
+        SELECT s.id, s.name, s.type, h.name AS host_name,
+               rc.result_ok, rc.completed_at, rc.result_step, rc.result_error
+          FROM sources s
+          LEFT JOIN hosts h ON h.id = s.host_id
+          LEFT JOIN LATERAL (
+              SELECT result_ok, completed_at, result_step, result_error
+                FROM reachability_checks
+               WHERE source_id = s.id
+                 AND assigned_scanner_id = :scanner_id
+                 AND status IN ('completed', 'failed')
+               ORDER BY completed_at DESC NULLS LAST
+               LIMIT 1
+          ) rc ON true
+         ORDER BY s.name ASC
+    """), {"scanner_id": scanner.id})).fetchall()
+
+    return [
+        SourceReachabilityRow(
+            source_id=r[0], source_name=r[1], source_type=r[2], host_name=r[3],
+            currently_allowed=is_unrestricted or r[0] in allowed,
+            ok=r[4], last_probed_at=r[5], step=r[6], error=r[7],
+        )
+        for r in rows
+    ]
 
 
 # Suppress unused-import warning when running with non-time-aware tools.

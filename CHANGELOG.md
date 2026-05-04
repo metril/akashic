@@ -5,6 +5,75 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.6 — 2026-05-04
+
+- **Reachability is now continuous.** Previously the api only knew if
+  a source was reachable when a scan completed or a user manually
+  clicked *Check now*, so a NAS that dropped at 9am stayed
+  "Reachable" in the UI until the next scan. v0.5.6 introduces
+  reachability **work items**: a `reachability_checks` table mirrors
+  the scan-work-unit pattern, the scheduler enqueues one row per
+  source whose last check is older than 5 minutes (configurable via
+  `REACHABILITY_CHECK_INTERVAL_SECONDS`), and either an api self-
+  worker or a scanner agent claims it via SELECT ... FOR UPDATE SKIP
+  LOCKED, runs the same `test-connection` probe the *Check now*
+  button uses, and reports back. Sources roll up into the parent
+  Host's reachability via a new helper, so the Hosts page now shows
+  a green/yellow/red dot per host without anyone having to click.
+- **Reachability badge for every source.** The badge used to only
+  render for `is_removable=true` sources, hiding probe data the api
+  was already collecting on every scan completion. Now it renders
+  for every source with five distinct states: Reachable (green),
+  Stale (yellow — was reachable but no probe in 10 min), Unreachable
+  (red), Not yet checked (grey), and Stale (yellow, "no scanner
+  reported" — the misconfigured-pool case after the staleness
+  window). A new shared `ReachabilityDot` component drives the same
+  dot on the Hosts page.
+- **Bulk scan triggers.** `/sources` gains a *Scan all* button next
+  to the Group-by toggle that fires an incremental scan for every
+  visible source via the existing dedup-aware `/scans/trigger`
+  endpoint (concurrency capped at 8 in-flight requests). Per-host:
+  HostDetail's drawer gains a *Scan all attached* button alongside
+  *Discover shares*. Both confirm via `ConfirmDialog` ("Trigger
+  scans for N sources?") and surface the result with a toast that
+  splits "triggered / already running / failed" counts. A new
+  `created: bool` field on the `/scans/trigger` response lets the
+  bulk hook distinguish fresh inserts from dedup hits without
+  timestamp-fuzzing.
+- **Black "Reachable" toast fixed.** Sonner's `<Toaster>` was missing
+  `richColors`, so success/error/warning toasts inherited a neutral
+  palette that rendered as dark text on a dark background in dark
+  mode. Adding `richColors` paints success green, error rose,
+  warning amber, info blue.
+- **Probe-as-eligibility for `type=local`.** A scanner is now
+  excluded from claiming a `type=local` scan when it has a recent
+  failed reachability probe against that source — so a wrongly-
+  pooled scanner that can't reach the path no longer produces silent
+  zero-files "ghost success" scans. Successful probes are evidence
+  of reachability; failed probes are evidence of inability; the
+  absence of a probe leaves the door open as before. The pool /
+  `allowed_source_ids` filters remain as optional pinning
+  primitives.
+- **Backend:** new `Host.is_reachable / last_reachable_at /
+  last_reachability_check_at` columns; `POST
+  /api/hosts/{id}/test-connection` now persists those instead of
+  discarding the result. Two new scanner endpoints:
+  `POST /api/scanners/{id}/reachability/poll` (atomic claim) and
+  `POST /api/scanners/{id}/reachability/{check_id}/report` (commit a
+  probe result). `GET /api/scanners/{id}/source-reachability`
+  returns each source's latest probe state for the upcoming
+  scanner-side eligibility modal. Three new settings:
+  `REACHABILITY_CHECK_ENABLED` (default true),
+  `REACHABILITY_CHECK_INTERVAL_SECONDS` (300),
+  `REACHABILITY_CHECK_MAX_CONCURRENCY` (4).
+- **Deferred to v0.5.7:** the Go scanner agent's reachability poll
+  loop (the api self-worker covers all non-local sources today; type=
+  local sources without an api-reachable bind-mount keep the existing
+  post-scan reachability path until the agent ships) and the
+  bidirectional eligibility-management UI (per-source / per-scanner /
+  per-host scanner-allow-list editors). Both are scoped and ready in
+  the plan; held back to keep this release reviewable.
+
 ## v0.5.5 — 2026-05-04
 
 - **UI:** retire native browser `confirm()` popups. Deleting a host,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge, Button, ConfirmDialog, Drawer } from "../ui";
+import { useBulkTriggerScans } from "../../hooks/useScanActions";
 import {
   useDeleteHost,
   useHostDetail,
@@ -52,6 +53,8 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingScanAll, setConfirmingScanAll] = useState(false);
+  const bulkTrigger = useBulkTriggerScans();
 
   useEffect(() => {
     if (host) {
@@ -228,6 +231,17 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       {discovering ? "Hide shares" : "Discover shares"}
                     </Button>
                   )}
+                  {isAdmin && attachedSources.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setConfirmingScanAll(true)}
+                      loading={bulkTrigger.isPending}
+                      title="Trigger an incremental scan for every attached share."
+                    >
+                      Scan all attached
+                    </Button>
+                  )}
                   {isAdmin && (
                     <Button
                       size="sm"
@@ -315,6 +329,25 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
         loading={deleteHost.isPending}
         onConfirm={performDelete}
         onCancel={() => !deleteHost.isPending && setConfirmingDelete(false)}
+      />
+      <ConfirmDialog
+        open={confirmingScanAll}
+        title={
+          host
+            ? `Trigger scans for ${attachedSources.length} attached source${attachedSources.length === 1 ? "" : "s"}?`
+            : "Trigger scans?"
+        }
+        description="Each share queues an incremental scan. Sources already running a scan are skipped automatically."
+        confirmLabel={`Scan ${attachedSources.length}`}
+        loading={bulkTrigger.isPending}
+        onConfirm={async () => {
+          await bulkTrigger.mutateAsync({
+            ids: attachedSources.map((s) => s.id),
+            scanType: "incremental",
+          });
+          setConfirmingScanAll(false);
+        }}
+        onCancel={() => !bulkTrigger.isPending && setConfirmingScanAll(false)}
       />
     </Drawer>
   );

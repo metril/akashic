@@ -8,12 +8,15 @@ import { useActiveScanForSource, useOpenScanForSource } from "../hooks/useScansS
 import { useSourceStatusReconciler } from "../hooks/useSourceStatusReconciler";
 import { useScannerSummary } from "../hooks/useScannerSummary";
 import {
+  Button,
   Card,
   Badge,
+  ConfirmDialog,
   Skeleton,
   EmptyState,
   Page,
 } from "../components/ui";
+import { useBulkTriggerScans } from "../hooks/useScanActions";
 import type { BadgeVariant } from "../components/ui";
 import type { Scan, Source } from "../types";
 import { computeETA, formatDate, formatDuration, formatNumber } from "../lib/format";
@@ -182,14 +185,12 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
             <dt className="text-fg-subtle">Last scan</dt>
             <dd>{formatDate(source.last_scan_at)}</dd>
           </div>
-          {source.is_removable && (
-            <div className="flex gap-2 pt-0.5">
-              <dt className="text-fg-subtle">Reachability</dt>
-              <dd className="min-w-0">
-                <ReachabilityBadge source={source} compact />
-              </dd>
-            </div>
-          )}
+          <div className="flex gap-2 pt-0.5">
+            <dt className="text-fg-subtle">Reachability</dt>
+            <dd className="min-w-0">
+              <ReachabilityBadge source={source} compact />
+            </dd>
+          </div>
         </dl>
       </button>
 
@@ -480,6 +481,17 @@ export default function Sources() {
       : buildUngroupedRows(sources);
   }, [sources, effectiveGroupBy, collapsed]);
 
+  // v0.5.6 — page-level "Scan all" button. Triggers an incremental
+  // scan for every visible source via the dedup-aware /scans/trigger
+  // endpoint. Confirms first because 50+ scans is a non-trivial
+  // amount of work to enqueue.
+  const bulkTrigger = useBulkTriggerScans();
+  const [confirmingScanAll, setConfirmingScanAll] = useState(false);
+  const visibleSourceIds = useMemo(
+    () => (sources ?? []).map((s) => s.id),
+    [sources],
+  );
+
   return (
     <Page
       title="Sources"
@@ -524,30 +536,42 @@ export default function Sources() {
             </Card>
           ) : (
             <>
-              {anyHostAttached && (
-                <div className="flex items-center justify-end gap-2 -mt-1 mb-2">
-                  <span className="text-xs text-fg-muted">Group by:</span>
-                  <div className="inline-flex rounded-md border border-line text-xs overflow-hidden">
-                    {(["host", "none"] as const).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => {
-                          setGroupBy(opt);
-                          writeGroupByPref(opt);
-                        }}
-                        className={`px-2 py-1 ${
-                          effectiveGroupBy === opt
-                            ? "bg-blue-600 text-white"
-                            : "bg-surface text-fg-muted hover:bg-surface-muted"
-                        }`}
-                      >
-                        {opt === "host" ? "Host" : "None"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="flex items-center justify-end gap-2 -mt-1 mb-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setConfirmingScanAll(true)}
+                  loading={bulkTrigger.isPending}
+                  disabled={visibleSourceIds.length === 0}
+                  title="Trigger an incremental scan for every visible source."
+                >
+                  Scan all
+                </Button>
+                {anyHostAttached && (
+                  <>
+                    <span className="text-xs text-fg-muted ml-2">Group by:</span>
+                    <div className="inline-flex rounded-md border border-line text-xs overflow-hidden">
+                      {(["host", "none"] as const).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            setGroupBy(opt);
+                            writeGroupByPref(opt);
+                          }}
+                          className={`px-2 py-1 ${
+                            effectiveGroupBy === opt
+                              ? "bg-blue-600 text-white"
+                              : "bg-surface text-fg-muted hover:bg-surface-muted"
+                          }`}
+                        >
+                          {opt === "host" ? "Host" : "None"}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               <VirtualSourceList
                 rows={rows}
                 onOpen={handleOpen}
@@ -575,6 +599,22 @@ export default function Sources() {
         onClose={handleCloseLog}
         scanId={logScanId}
         sourceName={logScanSourceName}
+      />
+
+      <ConfirmDialog
+        open={confirmingScanAll}
+        title={`Trigger scans for ${visibleSourceIds.length} source${visibleSourceIds.length === 1 ? "" : "s"}?`}
+        description="Each source queues an incremental scan. Sources already running a scan are skipped automatically."
+        confirmLabel={`Scan ${visibleSourceIds.length}`}
+        loading={bulkTrigger.isPending}
+        onConfirm={async () => {
+          await bulkTrigger.mutateAsync({
+            ids: visibleSourceIds,
+            scanType: "incremental",
+          });
+          setConfirmingScanAll(false);
+        }}
+        onCancel={() => !bulkTrigger.isPending && setConfirmingScanAll(false)}
       />
     </Page>
   );

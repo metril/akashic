@@ -28,6 +28,11 @@ class ScanTriggerResponse(BaseModel):
     source_name: str
     scan_type: str
     last_scan_at: str | None
+    # v0.5.6 — true when this call inserted a fresh Scan row, false
+    # when the dedup branch returned an already-pending/running scan.
+    # Lets the bulk-trigger UI distinguish "newly queued" from
+    # "already queued" without timestamp-fuzzing.
+    created: bool = True
 
 
 @router.post("/trigger", response_model=ScanTriggerResponse)
@@ -85,6 +90,7 @@ async def trigger_scan(
             source_name=source.name,
             scan_type=existing.scan_type,
             last_scan_at=source.last_scan_at.isoformat() if source.last_scan_at else None,
+            created=False,
         )
 
     from akashic.services.scan_factory import previous_files_for_source
@@ -145,6 +151,7 @@ async def trigger_scan(
         source_name=source.name,
         scan_type=data.scan_type,
         last_scan_at=source.last_scan_at.isoformat() if source.last_scan_at else None,
+        created=True,
     )
 
 
