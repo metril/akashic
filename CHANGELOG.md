@@ -5,6 +5,28 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.8 — 2026-05-04
+
+- **Host eligibility panel no longer 500s.** v0.5.7's
+  `GET /api/hosts/{id}/scanner-reachability-summary` had an off-by-one
+  (`r[8]` on a 0-7 result tuple) that raised `IndexError` on every
+  call, surfacing as "Failed to load scanner summary" on HostDetail.
+  Fixed and covered by a regression test that exercises both empty-
+  attachment and probed shapes.
+- **Scanner row alignment.** On `/settings/scanners` the badge row
+  used `flex-wrap`, so conditional `disabled` / `types` badges and
+  variable name lengths shifted the *sources: N* badge horizontally
+  row-to-row. The top row now uses a flat layout with *sources: N*
+  pinned to the right via `ml-auto`; `disabled` and `types: …` move
+  to the muted second metadata line.
+- **Online vs Reachable copy.** Adds an inline legend above the
+  scanner list and subtitle lines on each of the three eligibility
+  panels (per-source, per-scanner, per-host) explaining that
+  *Online* tracks scanner agent liveness (90s heartbeat) while
+  *Reachable* tracks per-(scanner, source) probe outcomes — they're
+  orthogonal. Tooltip on the online dot in ScannerRow restates the
+  90-second window.
+
 ## v0.5.7 — 2026-05-04
 
 - **Scanner agent runs reachability probes.** v0.5.6 shipped the api-

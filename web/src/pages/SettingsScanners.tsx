@@ -123,6 +123,10 @@ export default function SettingsScanners() {
         {/* ── Active scanners ─────────────────────────────────────── */}
         <section>
           <CardHeader title="Active scanners" />
+          <p className="text-xs text-fg-muted mb-2">
+            <em>Online</em> = the scanner agent has checked in within the last 90 seconds.{" "}
+            <em>Reachable</em> (per source) = a scanner has successfully probed the source's path.
+          </p>
           {scannersQ.isLoading ? (
             <div className="flex items-center justify-center py-12 text-fg-subtle">
               <Spinner />
@@ -259,16 +263,20 @@ function ScannerRow({
     <li className="px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
             <span
-              className={`size-2 rounded-full ${
+              className={`size-2 rounded-full shrink-0 ${
                 s.online ? "bg-emerald-500" : "bg-fg-subtle"
               }`}
               aria-label={s.online ? "online" : "offline"}
+              title={
+                s.online
+                  ? "Online: scanner agent has checked in within the last 90 seconds"
+                  : "Offline: scanner agent hasn't checked in for 90+ seconds"
+              }
             />
             <span className="font-medium text-fg truncate">{s.name}</span>
             <Badge variant="neutral">{s.pool}</Badge>
-            {!s.enabled && <Badge variant="neutral">disabled</Badge>}
             <button
               type="button"
               onClick={onEditSources}
@@ -279,25 +287,25 @@ function ScannerRow({
                       .map((id) => sourceNames[id] || id)
                       .join(", ")
               }
-              className="hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
+              className="ml-auto shrink-0 hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
             >
               <Badge variant="neutral">
                 sources: {sourceScope == null ? "all" : sourceScope.length}
               </Badge>
             </button>
-            {typeScope && typeScope.length > 0 && (
-              <span title={typeScope.join(", ")}>
-                <Badge variant="neutral">
-                  types: {typeScope.join("/")}
-                </Badge>
-              </span>
-            )}
           </div>
           <div className="mt-1 text-xs text-fg-muted truncate">
             {s.hostname || "—"}
             {s.version && ` · v${s.version}`}
             {" · last seen "}
             {formatRelative(s.last_seen_at)}
+            {!s.enabled && " · disabled"}
+            {typeScope && typeScope.length > 0 && (
+              <span title={typeScope.join(", ")}>
+                {" · types: "}
+                {typeScope.join("/")}
+              </span>
+            )}
           </div>
           <div
             className="mt-1 text-[10px] text-fg-subtle font-mono truncate"

@@ -24,6 +24,8 @@ from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.audit_event import AuditEvent
 from akashic.models.host import Host
+from akashic.models.reachability_check import ReachabilityCheck
+from akashic.models.scanner import Scanner
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.services import source_tester
@@ -418,6 +420,108 @@ async def test_create_source_unknown_host_id_returns_404(client: AsyncClient):
         },
     )
     assert r.status_code == 404
+
+
+# ── Scanner reachability summary endpoint ──────────────────────────────────
+# Regression: v0.5.7 shipped with an off-by-one (r[8] on a 0-7 result) that
+# 500s the host eligibility panel. Cover both the empty-attachments and
+# attached-with-probe shapes so the bug stays fixed.
+
+
+@pytest.mark.asyncio
+async def test_scanner_reachability_summary_with_no_sources(
+    client: AsyncClient, setup_db,
+):
+    async with setup_db() as session:
+        host = Host(
+            id=uuid.uuid4(),
+            name="empty-host",
+            type="ssh",
+            connection_config={
+                "host": "h", "username": "u",
+                "known_hosts_path": "/etc/ssh/known_hosts",
+            },
+        )
+        scanner = Scanner(
+            id=uuid.uuid4(),
+            name="scanner-a",
+            pool="default",
+            public_key_pem="x",
+            key_fingerprint="fp-a",
+        )
+        session.add_all([host, scanner])
+        await session.commit()
+        host_id = host.id
+        scanner_id = scanner.id
+
+    r = await client.get(f"/api/hosts/{host_id}/scanner-reachability-summary")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body) == 1
+    row = body[0]
+    assert row["scanner_id"] == str(scanner_id)
+    assert row["total_sources"] == 0
+    assert row["reaches_count"] == 0
+    assert row["unreachable_count"] == 0
+    assert row["not_yet_probed_count"] == 0
+    # No attached sources => "all" allowed_source_ids resolves to 0 of 0.
+    assert row["currently_allowed_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_scanner_reachability_summary_with_attached_source_and_probe(
+    client: AsyncClient, setup_db,
+):
+    async with setup_db() as session:
+        host = Host(
+            id=uuid.uuid4(),
+            name="probed-host",
+            type="smb",
+            connection_config={"host": "h", "username": "u", "password": "p"},
+        )
+        scanner = Scanner(
+            id=uuid.uuid4(),
+            name="scanner-b",
+            pool="default",
+            public_key_pem="x",
+            key_fingerprint="fp-b",
+        )
+        source = Source(
+            id=uuid.uuid4(),
+            name="probed-src",
+            type="smb",
+            connection_config={"share": "data"},
+        )
+        session.add_all([host, scanner, source])
+        await session.flush()
+        source.host_id = host.id
+        await session.commit()
+        host_id = host.id
+        scanner_id = scanner.id
+        source_id = source.id
+
+    # Seed a recent successful probe so reaches_count == 1.
+    from datetime import datetime, timezone
+    async with setup_db() as session:
+        check = ReachabilityCheck(
+            id=uuid.uuid4(),
+            source_id=source_id,
+            status="completed",
+            assigned_scanner_id=scanner_id,
+            result_ok=True,
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(check)
+        await session.commit()
+
+    r = await client.get(f"/api/hosts/{host_id}/scanner-reachability-summary")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    row = next(x for x in body if x["scanner_id"] == str(scanner_id))
+    assert row["total_sources"] == 1
+    assert row["reaches_count"] == 1
+    assert row["unreachable_count"] == 0
+    assert row["not_yet_probed_count"] == 0
 
 
 @pytest.mark.asyncio

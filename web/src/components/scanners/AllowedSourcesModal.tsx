@@ -147,8 +147,10 @@ export function AllowedSourcesModal({
         </h2>
         <p className="text-xs text-fg-muted mt-1">
           Each row shows this scanner's most recent reachability probe
-          against that source. Allowing a "won't work" source still
-          queues scans — just expect them to fail at connect time.
+          against that source — distinct from the scanner's online state
+          (whether the agent is checking in). Allowing a "won't work"
+          source still queues scans, just expect them to fail at connect
+          time.
         </p>
       </div>
 

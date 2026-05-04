@@ -398,7 +398,7 @@ async def host_scanner_reachability_summary(
             allowed_count = len(attached_ids)  # NULL = all
         else:
             allowed_count = sum(1 for a in allowed if a in attached_set)
-        not_probed = max(0, int(r[8]) - int(r[5]) - int(r[6]))
+        not_probed = max(0, int(r[7]) - int(r[5]) - int(r[6]))
         out.append(HostScannerSummaryRow(
             scanner_id=r[0], name=r[1], pool=r[2], online=bool(r[3]),
             currently_allowed_count=allowed_count,

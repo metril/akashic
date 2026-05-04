@@ -182,6 +182,10 @@ export function AllowedScannersPanel({ sourceId }: Props) {
 
   return (
     <div className="space-y-2">
+      <p className="text-[11px] text-fg-muted">
+        <em>Online</em> means the scanner agent is checking in.
+        The colored dot shows whether that scanner has reached this source.
+      </p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
           {selected.size} of {rows.length} scanner{rows.length === 1 ? "" : "s"} allowed

@@ -154,6 +154,10 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
 
   return (
     <div className="space-y-2">
+      <p className="text-[11px] text-fg-muted">
+        <em>Online</em> means the scanner agent is checking in.
+        The colored dot shows how many of this host's attached sources the scanner has reached.
+      </p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
           {selected.size} of {rows.length} scanner{rows.length === 1 ? "" : "s"} selected
