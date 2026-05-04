@@ -8,6 +8,12 @@ class SourceCreate(BaseModel):
     name: str
     type: str
     connection_config: dict
+    # Optional FK to a Host row that owns the connection-level config
+    # (hostname/credentials). When provided, `connection_config` only
+    # needs the share-level fields (path/share/export_path/bucket);
+    # the host's config is merged in at scan/test time. NULL is valid
+    # only for `local` sources.
+    host_id: uuid.UUID | None = None
     scan_schedule: str | None = None
     exclude_patterns: list[str] | None = None
     # Phase 2 multi-scanner — restrict scans to a specific pool. NULL
@@ -22,6 +28,7 @@ class SourceCreate(BaseModel):
 
 class SourceUpdate(BaseModel):
     name: str | None = None
+    host_id: uuid.UUID | None = None
     connection_config: dict | None = None
     scan_schedule: str | None = None
     exclude_patterns: list[str] | None = None
@@ -40,10 +47,27 @@ def _scrub_config(config: dict) -> dict:
     }
 
 
+class _HostInline(BaseModel):
+    """Inline shape carried on a SourceResponse — name + type only.
+
+    Full host details (including masked credentials) live behind
+    GET /api/hosts/{id}. Inlining the credentials on every source
+    response would be both heavy and a needless surface area.
+    """
+
+    id: uuid.UUID
+    name: str
+    type: str
+
+    model_config = {"from_attributes": True}
+
+
 class SourceResponse(BaseModel):
     id: uuid.UUID
     name: str
     type: str
+    host_id: uuid.UUID | None = None
+    host: _HostInline | None = None
     connection_config: dict
     scan_schedule: str | None
     exclude_patterns: list[str] | None
@@ -82,6 +106,8 @@ class SourceListResponse(BaseModel):
     id: uuid.UUID
     name: str
     type: str
+    host_id: uuid.UUID | None = None
+    host: _HostInline | None = None
     scan_schedule: str | None
     preferred_pool: str | None = None
     last_scan_at: datetime | None
@@ -106,6 +132,12 @@ class SourceListResponse(BaseModel):
             id=source.id,
             name=source.name,
             type=source.type,
+            host_id=source.host_id,
+            host=(
+                _HostInline.model_validate(source.host)
+                if source.host_id and getattr(source, "host", None) is not None
+                else None
+            ),
             scan_schedule=source.scan_schedule,
             preferred_pool=source.preferred_pool,
             last_scan_at=source.last_scan_at,
@@ -126,7 +158,14 @@ def _summary_for(source) -> str:
     list payload doesn't need to ship connection_config just to
     render a subtitle.
     """
-    cfg: dict = source.connection_config or {}
+    # Merge host config (if any) under the source's share-only fields
+    # so the summary still surfaces host:share / user@host even when
+    # the host-shaped keys live on the parent Host row.
+    host = getattr(source, "host", None)
+    cfg: dict = {}
+    if host is not None:
+        cfg.update(dict(getattr(host, "connection_config", None) or {}))
+    cfg.update(dict(source.connection_config or {}))
     name = source.name
     g = lambda k: cfg.get(k) if isinstance(cfg.get(k), str) else ""
 

@@ -12,6 +12,24 @@ export interface PublicAccessBlock {
   restrict_public_buckets: boolean;
 }
 
+export interface Host {
+  id: string;
+  name: string;
+  type: string;
+  // Host-only connection config — host/port/credentials. Returned with
+  // secrets masked as "***" (same convention as Source.connection_config).
+  connection_config: Record<string, unknown>;
+  source_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HostInline {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export interface SourceSecurityMetadata {
   captured_at: string;
   bucket_acl: Record<string, unknown> | null;
@@ -25,6 +43,12 @@ export interface Source {
   id: string;
   name: string;
   type: string;
+  // Optional FK to a Host that owns the connection-level config
+  // (hostname, credentials). NULL only for `local` sources.
+  host_id: string | null;
+  // Inlined host shape (id + name + type only — credentials live
+  // behind GET /api/hosts/{id}). Present whenever host_id is set.
+  host: HostInline | null;
   // Optional since v0.4.3 — the lean list endpoint omits these
   // heavy fields. Per-source detail (GET /sources/{id}) returns
   // them. UI code that needs them should fetch via

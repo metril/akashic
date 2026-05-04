@@ -14,6 +14,7 @@ const Dashboard          = lazy(() => import("./pages/Dashboard"));
 const Browse             = lazy(() => import("./pages/Browse"));
 const Search             = lazy(() => import("./pages/Search"));
 const Sources            = lazy(() => import("./pages/Sources"));
+const Hosts              = lazy(() => import("./pages/Hosts"));
 const Duplicates         = lazy(() => import("./pages/Duplicates"));
 const Analytics          = lazy(() => import("./pages/Analytics"));
 const StorageExplorer    = lazy(() => import("./pages/StorageExplorer"));
@@ -92,6 +93,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <Sources />
+            </Suspense>
+          }
+        />
+        <Route
+          path="hosts"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Hosts />
             </Suspense>
           }
         />

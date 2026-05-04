@@ -21,6 +21,12 @@ import { SourceAuditTab } from "./SourceAuditTab";
 import { ScanLogPanel } from "../scans/ScanLogPanel";
 import type { AnyConfig, SourceType } from "./sourceTypes";
 import { validateSourceConfig } from "./sourceTypes";
+import {
+  ShareFields,
+  type ShareConfig,
+  validateShareConfig,
+} from "./source-fields/ShareFields";
+import { Link } from "react-router-dom";
 
 interface SourceDetailProps {
   source: Source | null;
@@ -166,7 +172,13 @@ const DetailsTab = memo(function DetailsTab({
     setTestResult(null);
   }, [source.id]);
 
-  const validationError = validateSourceConfig(source.type as SourceType, draftConfig);
+  // Two validation paths: when a Host owns the connection-level
+  // config, only the share-only fields need to validate; otherwise
+  // the full legacy SourceFieldSet validator applies.
+  const hasHost = source.host_id != null;
+  const validationError = hasHost
+    ? validateShareConfig(source.type as SourceType, draftConfig as ShareConfig)
+    : validateSourceConfig(source.type as SourceType, draftConfig);
 
   async function handleSave() {
     setError(null);
@@ -318,6 +330,7 @@ const DetailsTab = memo(function DetailsTab({
       ) : (
         <EditRows
           type={source.type as SourceType}
+          hasHost={hasHost}
           name={draftName}
           onNameChange={setDraftName}
           config={draftConfig}
@@ -502,6 +515,19 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
     <dl className="text-sm space-y-2">
       <Row label="Summary"><span className="font-mono text-xs">{summary}</span></Row>
       <Row label="Status"><span>{source.status}</span></Row>
+      {source.host && (
+        <Row label="Host">
+          <Link
+            to="/hosts"
+            className="text-blue-600 hover:underline font-medium"
+          >
+            {source.host.name}
+          </Link>
+          <span className="text-xs text-fg-muted ml-2">
+            (edit credentials on the Hosts page)
+          </span>
+        </Row>
+      )}
       {source.is_removable && (
         <Row label="Reachability">
           <ReachabilityBadge source={source} />
@@ -551,6 +577,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 interface EditRowsProps {
   type: SourceType;
+  // True when the source belongs to a Host — connection_config holds
+  // only share-shaped fields; render the lean ShareFields editor and
+  // direct host edits to /hosts.
+  hasHost: boolean;
   name: string;
   onNameChange: (s: string) => void;
   config: Partial<AnyConfig>;
@@ -563,6 +593,7 @@ interface EditRowsProps {
 
 function EditRows({
   type,
+  hasHost,
   name,
   onNameChange,
   config,
@@ -588,7 +619,15 @@ function EditRows({
           Source type cannot be changed. Delete and re-create with the new type.
         </p>
       </div>
-      <SourceFieldSet type={type} value={config} onChange={onConfigChange} />
+      {hasHost ? (
+        <ShareFields
+          type={type}
+          value={config as ShareConfig}
+          onChange={onConfigChange as (c: ShareConfig) => void}
+        />
+      ) : (
+        <SourceFieldSet type={type} value={config} onChange={onConfigChange} />
+      )}
       <div>
         <label className="block text-xs font-medium text-fg mb-1">
           Scan schedule (cron, optional)

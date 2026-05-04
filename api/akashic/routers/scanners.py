@@ -861,13 +861,19 @@ async def lease_scan(
     )
 
     api_jwt = await _mint_ingest_jwt(db)
+    # Merge host config (if any) under the source's share-only fields so
+    # the scanner sees one combined dict, regardless of where the
+    # connection-level keys live. Legacy sources without a host_id keep
+    # behaving exactly as before.
+    from akashic.services.source_config import merge_host_and_source
+    merged_config = merge_host_and_source(getattr(source, "host", None), source)
     return LeasedScan(
         scan_id=scan_id,
         scan_type=scan_type or "incremental",
         source=LeasedSource(
             id=source.id,
             type=source.type,
-            connection_config=source.connection_config or {},
+            connection_config=merged_config,
             exclude_patterns=source.exclude_patterns,
         ),
         api_jwt=api_jwt,

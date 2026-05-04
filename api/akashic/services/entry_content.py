@@ -144,7 +144,8 @@ def _build_fetch_argv(source, entry_path: str) -> tuple[list[str], str, str]:
     if not binary:
         raise ContentFetchFailed("config", "akashic-scanner binary not found on PATH")
 
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     argv = [
         binary, "fetch",
         "--type", source.type,

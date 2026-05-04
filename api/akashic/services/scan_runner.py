@@ -47,7 +47,12 @@ def _build_argv(binary: str, source: Source, scan: Scan) -> tuple[list[str], dic
     /proc/<pid>/cmdline visibility is acceptable. Everything else
     (excludes, batch size) is non-secret.
     """
-    cfg: dict[str, Any] = source.connection_config or {}
+    # Merge host config (if any) under the source's share-only fields
+    # so the scanner sees the legacy combined dict regardless of
+    # whether the connection-level keys live on the Source row or on
+    # an attached Host row.
+    from akashic.services.source_config import merge_host_and_source
+    cfg: dict[str, Any] = merge_host_and_source(getattr(source, "host", None), source)
     argv: list[str] = [
         binary,
         "-source-id", str(source.id),

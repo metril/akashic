@@ -10,6 +10,7 @@ from akashic.auth.dependencies import check_source_access, get_current_user, req
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
 from akashic.models.entry import Entry
+from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.user import SourcePermission, User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
@@ -17,6 +18,7 @@ from akashic.schemas.source import (
     SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
 )
 from akashic.services.audit import record_event
+from akashic.services.source_config import merge_host_and_source
 from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
@@ -47,10 +49,36 @@ async def create_source(
     err = reject_sentinel_in_create(data.connection_config)
     if err:
         raise HTTPException(status_code=400, detail=err)
+
+    # Validate host_id semantics: local sources can't have one; non-local
+    # sources without one will keep working today (their connection_config
+    # carries everything), but users on the new flow are encouraged to
+    # attach a Host so credentials are reusable across shares.
+    if data.host_id is not None:
+        if data.type == "local":
+            raise HTTPException(
+                status_code=400,
+                detail="local sources cannot attach to a host",
+            )
+        host = (await db.execute(
+            select(Host).where(Host.id == data.host_id)
+        )).scalar_one_or_none()
+        if host is None:
+            raise HTTPException(status_code=404, detail="host_id not found")
+        if host.type != data.type:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"host type {host.type!r} does not match source type "
+                    f"{data.type!r}"
+                ),
+            )
+
     payload = data.model_dump()
     if payload.get("is_removable") is None:
-        # User left the checkbox at its default — infer from type/path.
-        # USB / network mount paths default to true; everything else false.
+        # Inference uses the merged config — host fields (e.g. NFS host)
+        # contribute too, but for "is removable?" we still only key off
+        # local mount-point prefixes today.
         payload["is_removable"] = infer_is_removable(
             data.type, data.connection_config
         )
@@ -195,6 +223,33 @@ async def update_source(
     }
 
     incoming = data.model_dump(exclude_unset=True)
+    if "host_id" in incoming:
+        new_host_id = incoming["host_id"]
+        if new_host_id is None:
+            if source.type != "local":
+                raise HTTPException(
+                    status_code=400,
+                    detail="host_id is required for non-local sources",
+                )
+        else:
+            if source.type == "local":
+                raise HTTPException(
+                    status_code=400,
+                    detail="local sources cannot attach to a host",
+                )
+            host = (await db.execute(
+                select(Host).where(Host.id == new_host_id)
+            )).scalar_one_or_none()
+            if host is None:
+                raise HTTPException(status_code=404, detail="host_id not found")
+            if host.type != source.type:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"host type {host.type!r} does not match source type "
+                        f"{source.type!r}"
+                    ),
+                )
     if "connection_config" in incoming and incoming["connection_config"]:
         # Reject "***" on non-secret keys at the validation layer —
         # never a meaningful value. Secret-named keys with "***" are
@@ -522,10 +577,13 @@ async def check_source_reachability(
 
     # source_tester probes are blocking subprocess calls (5–60s for
     # NFS, lower for the rest). Run in the default thread executor so
-    # we don't pin the event loop.
+    # we don't pin the event loop. The probe wants the merged
+    # host+source config; the host's connection-level fields layer
+    # under the source's share-only fields.
     import asyncio
+    merged_config = merge_host_and_source(src.host, src)
     result = await asyncio.to_thread(
-        test_connection, src.type, src.connection_config or {}
+        test_connection, src.type, merged_config
     )
 
     now = datetime.now(timezone.utc)

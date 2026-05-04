@@ -120,7 +120,8 @@ def _resolve_posix_local(identifier: str) -> ResolveResult:
 
 
 def _resolve_ldap(source, binding) -> ResolveResult:
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     url        = cfg.get("ldap_url")
     bind_dn    = cfg.get("ldap_bind_dn", "")
     bind_pw    = cfg.get("ldap_bind_password", "")
@@ -183,7 +184,8 @@ def _resolve_posix_ssh(source, binding) -> ResolveResult:
 
     Strict-host-key by default: if known_hosts_path is missing, refuses to
     auto-trust the remote host."""
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     host = cfg.get("host")
     if not host:
         raise UnsupportedResolution("Source missing host in connection_config")
@@ -298,7 +300,8 @@ def _resolve_smb_samr(source, binding) -> ResolveResult:
     `akashic-scanner resolve-groups`. The Go process opens a DCE/RPC
     connection over the SMB IPC$ \\PIPE\\samr endpoint, runs the SAMR
     sequence, and writes a JSON {groups, source} object to stdout."""
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     host = cfg.get("host")
     if not host:
         raise UnsupportedResolution("Source missing host in connection_config")

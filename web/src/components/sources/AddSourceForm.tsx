@@ -1,16 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, CardHeader, Input, Select } from "../ui";
 import { useCreateSource } from "../../hooks/useSources";
+import { useCreateHost, useHosts } from "../../hooks/useHosts";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { inferIsRemovable } from "../../lib/sources";
 import {
   SOURCE_TYPES,
   SOURCE_TYPE_LABELS,
-  validateSourceConfig,
   type AnyConfig,
   type SourceType,
 } from "./sourceTypes";
-import { SourceFieldSet } from "./SourceFieldSet";
+import {
+  HostFields,
+  type HostConfig,
+  validateHostConfig,
+} from "./source-fields/HostFields";
+import {
+  ShareFields,
+  type ShareConfig,
+  validateShareConfig,
+} from "./source-fields/ShareFields";
 
 const SOURCE_TYPE_OPTIONS = SOURCE_TYPES.map((t) => ({
   value: t,
@@ -21,40 +30,86 @@ interface AddSourceFormProps {
   onCreated?: () => void;
 }
 
+// Special sentinel for the host picker — "create a new host inline"
+// rather than picking an existing one. Empty string means "no host
+// selected yet"; "__new__" means the user explicitly wants to create.
+const NEW_HOST = "__new__";
+
 export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const createSource = useCreateSource();
+  const createHost = useCreateHost();
   const testSource = useTestSource();
+  const hostsQuery = useHosts();
 
   const [name, setName] = useState("");
   const [type, setType] = useState<SourceType>("local");
-  const [config, setConfig] = useState<Partial<AnyConfig>>({});
+  // Host picker state — "" = unselected (defaults to first compatible
+  // host on type change), "__new__" = create inline, otherwise host_id.
+  const [hostChoice, setHostChoice] = useState<string>("");
+  const [hostConfig, setHostConfig] = useState<HostConfig>({});
+  const [shareConfig, setShareConfig] = useState<ShareConfig>({});
   const [preferredPool, setPreferredPool] = useState("");
   const [isRemovable, setIsRemovable] = useState(false);
-  // Track whether the user has explicitly toggled the checkbox. Until
-  // they do, the checkbox follows the inferred default as they edit
-  // type/path. Once they touch it, we stop overriding their choice.
   const removableTouched = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
 
+  // Hosts of the same type — the picker.
+  const compatibleHosts = useMemo(
+    () =>
+      (hostsQuery.data ?? []).filter((h) => h.type === type),
+    [hostsQuery.data, type],
+  );
+
+  // On type change: reset both configs, default the host choice to
+  // the first compatible host (or NEW_HOST if there are none).
   useEffect(() => {
-    setConfig(type === "ssh" ? { auth: "password" } : ({} as Partial<AnyConfig>));
+    setShareConfig({});
+    setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
     setTestResult(null);
     setFormError(null);
+    if (type === "local") {
+      setHostChoice("");
+    } else if (compatibleHosts.length > 0) {
+      setHostChoice(compatibleHosts[0].id);
+    } else {
+      setHostChoice(NEW_HOST);
+    }
     if (!removableTouched.current) {
       setIsRemovable(inferIsRemovable(type, {}));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
-  // Re-infer when the user types into the local-source path field.
-  // Only runs while the user hasn't explicitly toggled the checkbox.
   useEffect(() => {
     if (removableTouched.current) return;
-    setIsRemovable(inferIsRemovable(type, config as Record<string, unknown>));
-  }, [type, config]);
+    setIsRemovable(inferIsRemovable(type, shareConfig as Record<string, unknown>));
+  }, [type, shareConfig]);
 
-  const validationError = validateSourceConfig(type, config);
-  const canSubmit = name.trim() !== "" && validationError === null;
+  const isLocal = type === "local";
+  const isCreatingHost = !isLocal && hostChoice === NEW_HOST;
+
+  const shareError = validateShareConfig(type, shareConfig);
+  const hostError =
+    isCreatingHost && !isLocal
+      ? validateHostConfig(type as Exclude<SourceType, "local">, hostConfig)
+      : null;
+  const validationError = shareError ?? hostError;
+  const canSubmit =
+    name.trim() !== "" &&
+    validationError === null &&
+    (isLocal || hostChoice !== "");
+
+  // Test connection uses the provisional merged config — host fields
+  // (either picked or being created inline) layered with share fields.
+  const mergedForTest: Record<string, unknown> = useMemo(() => {
+    if (isLocal) return { ...shareConfig };
+    if (isCreatingHost) {
+      return { ...hostConfig, ...shareConfig };
+    }
+    const picked = compatibleHosts.find((h) => h.id === hostChoice);
+    return { ...(picked?.connection_config ?? {}), ...shareConfig };
+  }, [isLocal, isCreatingHost, hostConfig, shareConfig, hostChoice, compatibleHosts]);
 
   async function handleTest() {
     setTestResult(null);
@@ -62,7 +117,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     try {
       const r = await testSource.mutateAsync({
         type,
-        connection_config: config as Record<string, unknown>,
+        connection_config: mergedForTest,
       });
       setTestResult(r);
     } catch (err) {
@@ -78,19 +133,37 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     e.preventDefault();
     setFormError(null);
     if (!canSubmit) {
-      setFormError(validationError ?? "Name is required");
+      setFormError(validationError ?? "Name and host required");
       return;
     }
     try {
+      let host_id: string | null = null;
+      if (!isLocal) {
+        if (isCreatingHost) {
+          // Create the host first; use the source name as the host
+          // name when no separate name is collected. Conflict-handling
+          // is left to the user (they can rename via /hosts after).
+          const newHost = await createHost.mutateAsync({
+            name: `${name} host`,
+            type,
+            connection_config: hostConfig as Record<string, unknown>,
+          });
+          host_id = newHost.id;
+        } else {
+          host_id = hostChoice;
+        }
+      }
       await createSource.mutateAsync({
         name,
         type,
-        connection_config: config as Record<string, unknown>,
+        host_id,
+        connection_config: shareConfig as Record<string, unknown>,
         preferred_pool: preferredPool.trim() || null,
         is_removable: isRemovable,
       });
       setName("");
-      setConfig(type === "ssh" ? { auth: "password" } : ({} as Partial<AnyConfig>));
+      setShareConfig({});
+      setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
       setPreferredPool("");
       setIsRemovable(false);
       removableTouched.current = false;
@@ -108,7 +181,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
       <CardHeader title="Add a source" description="Index any reachable filesystem." />
       <form onSubmit={handleSubmit} className="space-y-3">
         <Input
-          label="Name"
+          label="Share name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="My Documents"
@@ -120,7 +193,48 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           onChange={(e) => setType(e.target.value as SourceType)}
           options={SOURCE_TYPE_OPTIONS}
         />
-        <SourceFieldSet type={type} value={config} onChange={setConfig} />
+
+        {!isLocal && (
+          <div className="rounded-md border border-line p-3 bg-app space-y-3">
+            <Select
+              label="Host"
+              value={hostChoice}
+              onChange={(e) => setHostChoice(e.target.value)}
+              options={[
+                ...compatibleHosts.map((h) => ({
+                  value: h.id,
+                  label: h.name,
+                })),
+                { value: NEW_HOST, label: "+ Create new host inline" },
+              ]}
+            />
+            <p className="text-[11px] text-fg-muted -mt-1">
+              Reuse credentials across many shares on the same server.
+            </p>
+            {isCreatingHost && (
+              <div className="pt-2 border-t border-line">
+                <p className="text-xs text-fg-muted mb-2">
+                  New host will be saved alongside this source.
+                </p>
+                <HostFields
+                  type={type as Exclude<SourceType, "local">}
+                  value={hostConfig}
+                  onChange={setHostConfig}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        <div>
+          {!isLocal && (
+            <p className="text-xs uppercase tracking-wide text-fg-subtle mb-1">
+              Share details
+            </p>
+          )}
+          <ShareFields type={type} value={shareConfig} onChange={setShareConfig} />
+        </div>
+
         <Input
           label="Preferred scanner pool"
           value={preferredPool}
@@ -194,7 +308,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           </Button>
           <Button
             type="submit"
-            loading={createSource.isPending}
+            loading={createSource.isPending || createHost.isPending}
             disabled={!canSubmit}
             className="flex-1"
           >
@@ -205,3 +319,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     </Card>
   );
 }
+
+// AnyConfig is intentionally re-exported as a no-op to silence
+// downstream imports that still reference it.
+export type { AnyConfig };

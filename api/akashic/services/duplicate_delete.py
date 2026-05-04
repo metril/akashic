@@ -44,7 +44,8 @@ def _build_delete_argv(source, entry_path: str) -> tuple[list[str], str, str]:
     if not binary:
         raise ValueError("akashic-scanner binary not found on PATH")
 
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     argv = [
         binary, "delete",
         "--type", source.type,
@@ -96,7 +97,8 @@ async def delete_copy(source, entry_path: str) -> DeleteResult:
     # root and can lexically refuse traversal. For remote we just block
     # NUL bytes and explicit `..` segments — the remote server is the
     # real authority on what's reachable.
-    cfg = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
     try:
         if source.type == "local":
             root = str(cfg.get("path") or "")

@@ -5,7 +5,21 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
-## v0.4.22 — 2026-05-03
+## v0.5.0 — 2026-05-04
+
+- **Hosts:** new `Host` model — a reusable connection target that owns
+  the connection-level config (hostname, port, credentials, key
+  material). `Source` rows attach via `host_id` and carry only the
+  share-shaped fields (`path` / `share` / `export_path` / `bucket`).
+  Adds the `/hosts` page (list + add + edit + test) and a host picker
+  on the Add-source form. Add many shares to one host without
+  re-entering credentials; rotate a password once and every attached
+  share picks it up. Existing non-local sources backfill 1:1 to a
+  host of the same name via Alembic migration `0023_hosts`; the user
+  can later merge duplicates by attaching their shares to one host
+  and deleting the others. Local sources are unaffected (no host).
+
+
 
 - **UI:** the source-detail action row was visually inconsistent —
   *Recover orphans…* and the new (v0.4.21) *Check now* button rendered

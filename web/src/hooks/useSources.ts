@@ -35,6 +35,7 @@ export function useCreateSource() {
     mutationFn: (data: {
       name: string;
       type: string;
+      host_id?: string | null;
       connection_config: Record<string, unknown>;
       scan_schedule?: string | null;
       exclude_patterns?: string[] | null;

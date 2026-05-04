@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, String, DateTime, func
+from sqlalchemy import Boolean, ForeignKey, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from akashic.database import Base
 
@@ -14,6 +14,20 @@ class Source(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
+    # Optional FK to a Host row that owns the connection-level config
+    # (hostname, credentials). NULL only for `local` sources, which
+    # have no remote host. ON DELETE RESTRICT — deleting a host with
+    # attached sources requires explicit per-source action first.
+    host_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hosts.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    host = relationship("Host", lazy="joined", foreign_keys=[host_id])
+    # Share-only fields per type — `path` (local), `share` (smb),
+    # `export_path` (nfs), `bucket`+`prefix` (s3). The host's
+    # connection_config is merged in at scan/test time.
     connection_config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     scan_schedule: Mapped[str | None] = mapped_column(String, nullable=True)
     exclude_patterns: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)

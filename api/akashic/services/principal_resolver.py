@@ -126,7 +126,8 @@ async def _spawn_resolve_sids(source: Source, sids: list[str]) -> dict[str, Any]
     failure — the caller treats those as "couldn't resolve any of these
     SIDs" and writes negative cache rows.
     """
-    cfg: dict[str, Any] = source.connection_config or {}
+    from akashic.services.source_config import merge_host_and_source
+    cfg: dict[str, Any] = merge_host_and_source(getattr(source, "host", None), source)
     if source.type != "smb":
         raise RuntimeError(f"resolve-sids only supports smb sources (got {source.type!r})")
     host = (cfg.get("host") or "").strip()
