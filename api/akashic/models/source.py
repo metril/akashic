@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, DateTime, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,6 +38,12 @@ class Source(Base):
     # this source's scans. Set to a pool name (e.g. "site-amsterdam")
     # to lock the source to scanners in that pool.
     preferred_pool: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Multi-scanner cap. Default 1 = legacy behaviour (one scanner walks
+    # the whole tree). Bumping to N lets up to N scanners cooperate on
+    # a single scan via scan_work_units leases.
+    max_parallel_scanners: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1",
+    )
     # External / removable storage: USB drives, network shares whose host
     # may be offline, etc. Distinguishes "intentionally intermittent"
     # from "actually broken". `is_reachable` records the last on-demand

@@ -5,6 +5,25 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.1 — 2026-05-04
+
+- **Scanners (Phase 1):** data model + API for parallel scanning. A
+  scan can now be split into many `scan_work_units` rows (one per
+  directory subtree) that cooperating scanners lease independently
+  via the same `SELECT FOR UPDATE SKIP LOCKED` primitive used for
+  scan-level leasing. New endpoints under `/api/scans/{id}/work/`:
+  `lease`, `heartbeat`, `complete`, `fail`, `split`. Sources gain a
+  `max_parallel_scanners` setting (1–16, default 1) that caps the
+  distinct-scanner count per scan; the AddSource form and the source
+  detail's edit pane both expose it. The scan-level
+  `/api/scans/{id}/complete` contract is unchanged for backward
+  compatibility — when the last work unit terminates, the API
+  transitions the scan and fires the same side-effects (source
+  status, last_scan_at, is_reachable, broadcast). Phase 2 — the Go
+  scanner refactor that actually populates work units via a
+  walker-side split heuristic — ships in a follow-up release; today
+  the table is empty for all scans and behaviour is identical.
+
 ## v0.5.0 — 2026-05-04
 
 - **Hosts:** new `Host` model — a reusable connection target that owns

@@ -75,6 +75,14 @@ async def create_source(
             )
 
     payload = data.model_dump()
+    mps = payload.get("max_parallel_scanners")
+    if mps is None:
+        payload["max_parallel_scanners"] = 1
+    elif not (1 <= int(mps) <= 16):
+        raise HTTPException(
+            status_code=400,
+            detail="max_parallel_scanners must be between 1 and 16",
+        )
     if payload.get("is_removable") is None:
         # Inference uses the merged config — host fields (e.g. NFS host)
         # contribute too, but for "is removable?" we still only key off
@@ -223,6 +231,12 @@ async def update_source(
     }
 
     incoming = data.model_dump(exclude_unset=True)
+    if "max_parallel_scanners" in incoming and incoming["max_parallel_scanners"] is not None:
+        if not (1 <= int(incoming["max_parallel_scanners"]) <= 16):
+            raise HTTPException(
+                status_code=400,
+                detail="max_parallel_scanners must be between 1 and 16",
+            )
     if "host_id" in incoming:
         new_host_id = incoming["host_id"]
         if new_host_id is None:

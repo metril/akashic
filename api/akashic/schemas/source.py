@@ -20,6 +20,11 @@ class SourceCreate(BaseModel):
     # = any registered scanner can claim. Set to a pool tag (e.g.
     # "site-amsterdam") to lock the source to that pool.
     preferred_pool: str | None = None
+    # Multi-scanner cap: max number of distinct scanners that can hold
+    # unit leases on a single scan simultaneously. Default 1 = legacy
+    # one-scanner-per-scan. Bump to N to let N scanners cooperate via
+    # the scan_work_units lease primitive.
+    max_parallel_scanners: int | None = None
     # External / removable storage hint. None on create → server
     # infers from type/path (USB / network mounts → true; otherwise
     # false). See services/source_defaults.py.
@@ -33,6 +38,7 @@ class SourceUpdate(BaseModel):
     scan_schedule: str | None = None
     exclude_patterns: list[str] | None = None
     preferred_pool: str | None = None
+    max_parallel_scanners: int | None = None
     is_removable: bool | None = None
 
 
@@ -72,6 +78,7 @@ class SourceResponse(BaseModel):
     scan_schedule: str | None
     exclude_patterns: list[str] | None
     preferred_pool: str | None = None
+    max_parallel_scanners: int = 1
     last_scan_at: datetime | None
     status: str
     created_at: datetime
@@ -110,6 +117,7 @@ class SourceListResponse(BaseModel):
     host: _HostInline | None = None
     scan_schedule: str | None
     preferred_pool: str | None = None
+    max_parallel_scanners: int = 1
     last_scan_at: datetime | None
     status: str
     summary: str
@@ -140,6 +148,7 @@ class SourceListResponse(BaseModel):
             ),
             scan_schedule=source.scan_schedule,
             preferred_pool=source.preferred_pool,
+            max_parallel_scanners=source.max_parallel_scanners,
             last_scan_at=source.last_scan_at,
             status=source.status,
             summary=_summary_for(source),

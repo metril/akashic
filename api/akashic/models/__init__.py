@@ -2,6 +2,7 @@ from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.entry import Entry, EntryVersion, EntryEvent
 from akashic.models.scan import Scan
+from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.tag import Tag, EntryTag
@@ -25,6 +26,7 @@ __all__ = [
     "EntryVersion",
     "EntryEvent",
     "Scan",
+    "ScanWorkUnit",
     "ScanLogEntry",
     "ScanSnapshot",
     "Tag",

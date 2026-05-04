@@ -49,6 +49,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const [hostConfig, setHostConfig] = useState<HostConfig>({});
   const [shareConfig, setShareConfig] = useState<ShareConfig>({});
   const [preferredPool, setPreferredPool] = useState("");
+  const [maxParallelScanners, setMaxParallelScanners] = useState(1);
   const [isRemovable, setIsRemovable] = useState(false);
   const removableTouched = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -159,12 +160,14 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         host_id,
         connection_config: shareConfig as Record<string, unknown>,
         preferred_pool: preferredPool.trim() || null,
+        max_parallel_scanners: maxParallelScanners,
         is_removable: isRemovable,
       });
       setName("");
       setShareConfig({});
       setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
       setPreferredPool("");
+      setMaxParallelScanners(1);
       setIsRemovable(false);
       removableTouched.current = false;
       setTestResult(null);
@@ -241,6 +244,18 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           onChange={(e) => setPreferredPool(e.target.value)}
           placeholder="default"
           hint="Leave blank to let any registered scanner claim this source. Set to a pool tag (e.g. site-amsterdam) to lock it to scanners in that pool."
+        />
+        <Input
+          label="Max parallel scanners"
+          type="number"
+          value={maxParallelScanners}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (Number.isFinite(n) && n >= 1 && n <= 16) {
+              setMaxParallelScanners(n);
+            }
+          }}
+          hint="Cap (1–16) on cooperating scanners per scan. Default 1 = one scanner walks the whole tree. Higher values let scanners share work via the work-units queue (scanner-side support lands in a follow-up release)."
         />
         <label className="flex items-start gap-2 text-sm text-fg cursor-pointer select-none">
           <input

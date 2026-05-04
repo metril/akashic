@@ -150,6 +150,9 @@ const DetailsTab = memo(function DetailsTab({
   );
   const [draftSchedule, setDraftSchedule] = useState<string>(source.scan_schedule ?? "");
   const [draftIsRemovable, setDraftIsRemovable] = useState<boolean>(source.is_removable);
+  const [draftMaxParallelScanners, setDraftMaxParallelScanners] = useState<number>(
+    source.max_parallel_scanners ?? 1,
+  );
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -168,6 +171,7 @@ const DetailsTab = memo(function DetailsTab({
     setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
     setDraftSchedule(source.scan_schedule ?? "");
     setDraftIsRemovable(source.is_removable);
+    setDraftMaxParallelScanners(source.max_parallel_scanners ?? 1);
     setError(null);
     setTestResult(null);
   }, [source.id]);
@@ -203,6 +207,7 @@ const DetailsTab = memo(function DetailsTab({
           connection_config: cleaned,
           scan_schedule: draftSchedule || null,
           is_removable: draftIsRemovable,
+          max_parallel_scanners: draftMaxParallelScanners,
         },
       });
       toast.promise(promise, {
@@ -220,6 +225,7 @@ const DetailsTab = memo(function DetailsTab({
       setDraftConfig((updated.connection_config ?? {}) as Partial<AnyConfig>);
       setDraftSchedule(updated.scan_schedule ?? "");
       setDraftIsRemovable(updated.is_removable);
+      setDraftMaxParallelScanners(updated.max_parallel_scanners ?? 1);
       queryClient.invalidateQueries({ queryKey: ["sources", source.id, "audit"] });
       setEditing(false);
     } catch (e) {
@@ -339,6 +345,8 @@ const DetailsTab = memo(function DetailsTab({
           onScheduleChange={setDraftSchedule}
           isRemovable={draftIsRemovable}
           onIsRemovableChange={setDraftIsRemovable}
+          maxParallelScanners={draftMaxParallelScanners}
+          onMaxParallelScannersChange={setDraftMaxParallelScanners}
         />
       )}
 
@@ -455,6 +463,7 @@ const DetailsTab = memo(function DetailsTab({
                 setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
                 setDraftSchedule(source.scan_schedule ?? "");
                 setDraftIsRemovable(source.is_removable);
+                setDraftMaxParallelScanners(source.max_parallel_scanners ?? 1);
                 setError(null);
                 setTestResult(null);
               }}
@@ -589,6 +598,8 @@ interface EditRowsProps {
   onScheduleChange: (s: string) => void;
   isRemovable: boolean;
   onIsRemovableChange: (v: boolean) => void;
+  maxParallelScanners: number;
+  onMaxParallelScannersChange: (v: number) => void;
 }
 
 function EditRows({
@@ -602,6 +613,8 @@ function EditRows({
   onScheduleChange,
   isRemovable,
   onIsRemovableChange,
+  maxParallelScanners,
+  onMaxParallelScannersChange,
 }: EditRowsProps) {
   return (
     <div className="space-y-3">
@@ -639,6 +652,28 @@ function EditRows({
           placeholder="0 2 * * *"
           className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
         />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-fg mb-1">
+          Max parallel scanners
+        </label>
+        <input
+          type="number"
+          min={1}
+          max={16}
+          value={maxParallelScanners}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (Number.isFinite(n) && n >= 1 && n <= 16) {
+              onMaxParallelScannersChange(n);
+            }
+          }}
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+        />
+        <p className="text-[11px] text-fg-muted mt-1">
+          Cap (1–16) on cooperating scanners per scan. Default 1
+          preserves the legacy single-scanner walk.
+        </p>
       </div>
       <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
         <input

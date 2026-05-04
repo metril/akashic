@@ -61,6 +61,12 @@ export interface Source {
   summary?: string;
   scan_schedule: string | null;
   preferred_pool: string | null;
+  // Max distinct scanners that may hold work-unit leases on the same
+  // scan simultaneously. 1 = legacy (one scanner walks the whole
+  // tree). Higher values let scanners cooperate via the work-units
+  // queue (Phase 2 of v0.5.x — scanner-side support lands in a
+  // follow-up release).
+  max_parallel_scanners: number;
   last_scan_at: string | null;
   status: string;
   created_at: string;
