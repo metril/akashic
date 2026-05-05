@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Badge, EmptyState, Spinner, Page } from "../components/ui";
+import { Badge, Button, EmptyState, Spinner, Page } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -148,10 +148,9 @@ function PersonCard({
             <span className="ml-2 text-xs uppercase tracking-wider text-accent-700">primary</span>
           )}
         </div>
-        <button
-          type="button" onClick={onDelete}
-          className="text-xs text-fg-subtle hover:text-red-600"
-        >Delete identity</button>
+        <Button size="sm" variant="danger" onClick={onDelete}>
+          Delete identity
+        </Button>
       </div>
 
       {person.bindings.length === 0 && (
@@ -179,20 +178,24 @@ function PersonCard({
                   {new Date(b.groups_resolved_at).toLocaleDateString()}
                 </span>
               )}
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={() => resolveGroups.mutate(b.id)}
-                disabled={resolveGroups.isPending}
-                className="text-xs text-accent-700 hover:text-accent-900 disabled:opacity-50"
+                loading={resolveGroups.isPending}
                 title="Auto-resolve groups from the source"
               >
-                {resolveGroups.isPending ? "Resolving…" : "Resolve"}
-              </button>
-              <button
-                type="button" onClick={() => deleteBinding.mutate(b.id)}
-                className="ml-auto text-xs text-fg-subtle hover:text-red-600"
+                Resolve
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => deleteBinding.mutate(b.id)}
                 aria-label="Remove binding"
-              >×</button>
+                className="ml-auto"
+              >
+                ×
+              </Button>
             </li>
           );
         })}

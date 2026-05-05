@@ -47,10 +47,10 @@ export function FilterChips({ showSwitchToSearch = false, className }: FilterChi
       {showSwitchToSearch && (
         <Link
           to={`/search?filters=${serialize(filters)}`}
-          className="ml-auto text-xs font-medium text-accent-700 hover:text-accent-800 hover:underline"
+          className="ml-auto inline-flex items-center justify-center h-8 px-3 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 bg-surface text-fg border border-line hover:bg-surface-muted transition-colors"
           title="Apply these filters across all sources in Search"
         >
-          Switch to Search ›
+          Switch to Search
         </Link>
       )}
     </div>

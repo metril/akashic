@@ -8,6 +8,7 @@ import type { SearchResult, Source } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { usePalette } from "../hooks/usePalette";
 import { Icon, Scrim } from "./ui";
+import { useEntryDetail } from "../hooks/useEntryDetail";
 import { formatBytes } from "../lib/format";
 
 const RECENT_KEY = "palette-recent";
@@ -18,6 +19,10 @@ interface RecentItem {
   label: string;    // display text
   hint?: string;    // sub-line
   to?: string;      // route to navigate
+  // v0.5.12 — file results open the entry detail drawer (mounted
+  // globally in Layout) rather than navigating to /browse?path=
+  // which would treat the file as a directory.
+  entryId?: string;
   action?: string;  // for non-route actions ("toggle-theme", etc.)
 }
 
@@ -50,6 +55,7 @@ export function CommandPalette() {
   const { open, setOpen } = usePalette();
   const navigate = useNavigate();
   const { setMode, resolved } = useTheme();
+  const { openEntry } = useEntryDetail();
   const [query, setQuery] = useState("");
   const [recent] = useState<RecentItem[]>(() => readRecent());
 
@@ -129,6 +135,12 @@ export function CommandPalette() {
   function go(item: RecentItem) {
     pushRecent(item);
     setOpen(false);
+    if (item.entryId) {
+      // v0.5.12 — open the file detail drawer overlaid on the
+      // current page. Same UX as clicking a search result on /search.
+      openEntry(item.entryId);
+      return;
+    }
     if (item.to) {
       navigate(item.to);
       return;
@@ -247,7 +259,7 @@ export function CommandPalette() {
                       id: `file:${f.id}`,
                       label: f.filename,
                       hint: f.path,
-                      to: `/browse?source=${f.source_id}&path=${encodeURIComponent(f.path)}`,
+                      entryId: f.id,
                     })
                   }
                   className="flex items-center gap-2 px-3 py-2 text-sm text-fg rounded-md cursor-pointer aria-selected:bg-accent-50 aria-selected:text-accent-700"

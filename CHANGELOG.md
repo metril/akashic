@@ -5,6 +5,41 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.12 — 2026-05-05
+
+- **Cmd+K file results no longer break.** Picking a file from the
+  command palette navigated to `/browse?path=<file path>`, which
+  Browse interpreted as a *directory* path — the api 404'd or
+  returned an empty listing, leaving the user staring at "no
+  entries". The palette now opens the file detail drawer (via the
+  global `useEntryDetail` context that's already wired through
+  Layout) overlaid on whatever page the user was on, matching how
+  Search results behave.
+- **Button affordance audit, round 3.** A fresh sweep with the
+  Explore agent found 18 buttons styled as plain text or thin links
+  for actions that deserve real button chrome. Promoted to the
+  standard `Button` component:
+  - **High severity** (deletions / mutations / major navigation):
+    Settings → Identities → Delete identity / Resolve / Remove
+    binding; Duplicates → Select all but keeper; Storage Explorer
+    → Open Sources empty-state CTA; Storage Explorer → Up button
+    (now matches Browse's Up).
+  - **Medium severity** (selection toolbars in
+    [Browse](web/src/pages/Browse.tsx) and
+    [Search](web/src/pages/Search.tsx)): "Select all visible",
+    "Deselect all visible", "Clear" → ghost-Button variants;
+    Browse's "Show all" admin reveal → secondary Button.
+  - **Cross-page navigation**: FilterChips' "Switch to Search"
+    link, HoverSidebar's "Open in Browse" / "Filter Search to here"
+    links → button-styled Links (same chrome as
+    `Button variant="secondary"`); ScanLogPanel's "Stop scan" /
+    "Resume tail" → Button danger / ghost; EntryTags' inline
+    apply / cancel → Button.
+  - **Skipped**: tiny disclosure toggles (`▾ Search as…`,
+    AdminAudit row chevron) and Dashboard's "Manage →" / "Open →"
+    list-rows where the full-row hover background already reads as
+    a button.
+
 ## v0.5.11 — 2026-05-05
 
 ### Search modes + palette → Search transfer

@@ -430,13 +430,15 @@ export default function Browse() {
                 items hidden by your access permissions.
               </span>
               {isAdmin && !showAll && (
-                <button
-                  type="button"
-                  onClick={() => setShowAll(true)}
-                  className="ml-auto text-accent-700 hover:underline"
-                >
-                  Show all
-                </button>
+                <div className="ml-auto">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setShowAll(true)}
+                  >
+                    Show all
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -507,38 +509,37 @@ function BrowseSelectionBar({
         className="cursor-pointer"
       />
       {selectedIds.size === 0 ? (
-        <span className="text-fg-muted">
-          Select entries to bulk-tag, or
-          <button
-            type="button"
+        <>
+          <span className="text-fg-muted">Select entries to bulk-tag, or</span>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={toggleAllVisible}
-            className="ml-1 text-accent-700 hover:underline"
           >
-            select all {entries.length.toLocaleString()} visible
-          </button>
-          .
-        </span>
+            Select all {entries.length.toLocaleString()} visible
+          </Button>
+        </>
       ) : (
         <>
           <span className="font-medium text-fg">
             {selectedIds.size.toLocaleString()} selected
           </span>
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={toggleAllVisible}
-            className="text-accent-700 hover:underline"
           >
             {allVisibleSelected
               ? "Deselect all visible"
               : `Select all ${entries.length.toLocaleString()} visible`}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => setSelectedIds(new Set())}
-            className="text-fg-muted hover:text-fg hover:underline"
           >
             Clear
-          </button>
+          </Button>
           <div className="flex-1" />
           <Button size="sm" onClick={onTagSelected}>
             Tag selected ({selectedIds.size})

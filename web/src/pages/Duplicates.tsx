@@ -221,14 +221,14 @@ function DuplicateGroupRow({ group, isAdmin }: DuplicateGroupRowProps) {
                   <p className="text-xs text-fg-muted">
                     Pick one copy to keep; check the others to delete from disk.
                   </p>
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="secondary"
                     onClick={selectAllButKeep}
                     disabled={!keepId}
-                    className="text-xs text-accent-700 hover:text-accent-600 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Select all but keeper
-                  </button>
+                  </Button>
                 </div>
               )}
               <ul className="divide-y divide-line-subtle">

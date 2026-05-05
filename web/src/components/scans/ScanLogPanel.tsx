@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Drawer } from "../ui";
+import { Button, Drawer } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -190,28 +190,29 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                 scan is still being heartbeated. Once cancelled, the
                 stream closes shortly after and the button vanishes. */}
             {stream.status === "open" && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="danger"
                 onClick={handleStop}
                 disabled={stopping}
-                className="text-xs text-rose-700 hover:text-rose-900 font-medium disabled:opacity-50"
+                loading={stopping}
               >
                 {stopping ? "Stopping…" : "Stop scan"}
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => {
                 setAutoScroll(true);
                 if (scrollRef.current) {
                   scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
                 }
               }}
-              className="text-xs text-fg-muted hover:text-fg underline disabled:opacity-50"
               disabled={autoScroll}
             >
               {autoScroll ? "Auto-scrolling" : "Resume tail"}
-            </button>
+            </Button>
           </div>
         </div>
 

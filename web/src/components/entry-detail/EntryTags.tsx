@@ -19,6 +19,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import type { EntryTagAssignment } from "../../types";
+import { Button } from "../ui";
 import { FilterableCell } from "../ui/FilterableCell";
 import { cn } from "../ui/cn";
 
@@ -116,21 +117,21 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
             placeholder="comma-separated"
             className="px-2 py-0.5 text-xs border border-line-strong rounded-full bg-surface text-fg"
           />
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={submit}
-            disabled={applyMut.isPending}
-            className="text-xs text-accent-700 hover:underline disabled:opacity-50"
+            loading={applyMut.isPending}
           >
-            apply
-          </button>
-          <button
-            type="button"
+            Apply
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => { setAdding(false); setDraft(""); }}
-            className="text-xs text-fg-muted hover:underline"
           >
-            cancel
-          </button>
+            Cancel
+          </Button>
         </div>
       )}
     </div>

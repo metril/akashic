@@ -18,8 +18,10 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import {
   Breadcrumb,
+  Button,
   Card,
   EmptyState,
+  Icon,
   Page,
   Spinner,
 } from "../components/ui";
@@ -314,15 +316,16 @@ export default function StorageExplorer() {
     >
       <Card padding="sm" className="mb-4">
         <div className="flex flex-wrap items-center gap-3 px-2 py-1">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={goUp}
             disabled={!sourceId || (path === "/" && (sourcesQ.data?.sources.length ?? 0) <= 1)}
-            className="text-xs text-fg-muted hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed"
             title="Up one level"
+            leftIcon={<Icon name="arrow-left" className="size-3.5" />}
           >
-            ⬆ Up
-          </button>
+            Up
+          </Button>
           {breadcrumbs.length > 0 && <Breadcrumb segments={breadcrumbs} />}
           <div className="flex-1" />
           <LayoutToggle value={layoutMode} onChange={setLayoutMode} />
@@ -495,13 +498,7 @@ function SourceList({ sources, loading, onPick, onEmpty }: SourceListProps) {
           title="No sources yet"
           description="Add a source on the Sources page and run a scan to see the treemap."
           action={
-            <button
-              type="button"
-              onClick={onEmpty}
-              className="text-accent-700 hover:text-accent-800 text-sm font-medium"
-            >
-              Open Sources →
-            </button>
+            <Button onClick={onEmpty}>Open Sources</Button>
           }
         />
       </Card>

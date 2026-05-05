@@ -89,16 +89,16 @@ export function HoverSidebar({ chain, sourceId, onPathClick }: Props) {
       </div>
 
       {tail.kind !== "other" && tail.kind !== "hidden" && (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
           <Link
             to={`/browse?source=${sourceId}&path=${encodeURIComponent(browsePath)}`}
-            className="text-accent-700 hover:underline"
+            className="inline-flex items-center justify-center h-7 px-2.5 text-xs font-medium rounded-md whitespace-nowrap bg-surface text-fg border border-line hover:bg-surface-muted transition-colors"
           >
             Open in Browse
           </Link>
           <Link
             to={`/search?filters=${serializeFilters([pathPred])}`}
-            className="text-accent-700 hover:underline"
+            className="inline-flex items-center justify-center h-7 px-2.5 text-xs font-medium rounded-md whitespace-nowrap bg-surface text-fg border border-line hover:bg-surface-muted transition-colors"
           >
             Filter Search to here
           </Link>
