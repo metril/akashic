@@ -54,7 +54,7 @@ export function useUpdateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable" | "max_parallel_scanners">> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable" | "max_parallel_scanners" | "credential_profile_id">> }) =>
       api.patch<Source>(`/sources/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });

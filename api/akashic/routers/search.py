@@ -139,6 +139,13 @@ async def search(
             if grammar_str:
                 filters.append(f"({grammar_str})")
 
+        # v0.5.10 — exclude orphaned docs (source deleted with
+        # purge_entries=False leaves source_id=NULL in postgres and
+        # Meili). Without this filter every search that returned an
+        # orphan 500'd via SearchHit's UUID validation, and even after
+        # making the schema lenient, surfacing orphans gave the user
+        # results they couldn't navigate to.
+        filters.append("source_id IS NOT NULL")
         filter_str = " AND ".join(filters) if filters else None
         meili_results = await search_files(q, filters=filter_str, offset=offset, limit=limit)
 
@@ -175,6 +182,10 @@ async def search(
             Entry.kind == "file",
             Entry.is_deleted == False,  # noqa: E712
             Entry.name.ilike(f"%{q}%"),
+            # v0.5.10 — match the Meili-path filter: orphaned entries
+            # (source_id=NULL after a non-purging delete) stay invisible
+            # to search until they're reattached.
+            Entry.source_id.is_not(None),
         ]
         if source_id:
             conditions.append(Entry.source_id == source_id)

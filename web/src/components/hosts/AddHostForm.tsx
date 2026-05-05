@@ -35,7 +35,7 @@ export function AddHostForm({ onCreated }: Props) {
     setFormError(null);
   }, [type]);
 
-  const validationError = validateHostConfig(type, config);
+  const validationError = validateHostConfig(type, config, profileId !== null);
   const canSubmit = name.trim() !== "" && validationError === null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -83,16 +83,21 @@ export function AddHostForm({ onCreated }: Props) {
           onChange={(e) => setType(e.target.value as HostType)}
           options={HOST_TYPE_OPTIONS}
         />
-        <HostFields type={type} value={config} onChange={setConfig} />
         <ProfilePicker
           type={type}
           value={profileId}
           onChange={setProfileId}
           hint={
             profileId
-              ? "Profile values fill in any missing credentials. Inline fields above override."
-              : "Pick a saved profile to reuse credentials across hosts and shares."
+              ? "Credentials come from this profile. Edit them in Settings → Credentials."
+              : "Pick a saved profile, or fill credentials inline below."
           }
+        />
+        <HostFields
+          type={type}
+          value={config}
+          onChange={setConfig}
+          omitCredentials={profileId !== null}
         />
 
         {formError && (

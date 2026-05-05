@@ -9,6 +9,7 @@ import {
   useUpdateSource,
 } from "../../hooks/useSources";
 import { AllowedScannersPanel } from "./AllowedScannersPanel";
+import { ProfilePicker } from "../credentials/ProfilePicker";
 import { DeleteSourceModal } from "./DeleteSourceModal";
 import { ReachabilityBadge } from "./ReachabilityBadge";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
@@ -154,6 +155,11 @@ const DetailsTab = memo(function DetailsTab({
   const [draftMaxParallelScanners, setDraftMaxParallelScanners] = useState<number>(
     source.max_parallel_scanners ?? 1,
   );
+  // v0.5.10 — credential profile is editable post-create. null means
+  // "inline" (the existing connection_config carries credentials, or
+  // the host's credentials apply if attached).
+  const [draftCredentialProfileId, setDraftCredentialProfileId] =
+    useState<string | null>(source.credential_profile_id ?? null);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResult | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -173,6 +179,7 @@ const DetailsTab = memo(function DetailsTab({
     setDraftSchedule(source.scan_schedule ?? "");
     setDraftIsRemovable(source.is_removable);
     setDraftMaxParallelScanners(source.max_parallel_scanners ?? 1);
+    setDraftCredentialProfileId(source.credential_profile_id ?? null);
     setError(null);
     setTestResult(null);
   }, [source.id]);
@@ -209,6 +216,7 @@ const DetailsTab = memo(function DetailsTab({
           scan_schedule: draftSchedule || null,
           is_removable: draftIsRemovable,
           max_parallel_scanners: draftMaxParallelScanners,
+          credential_profile_id: draftCredentialProfileId,
         },
       });
       toast.promise(promise, {
@@ -227,6 +235,7 @@ const DetailsTab = memo(function DetailsTab({
       setDraftSchedule(updated.scan_schedule ?? "");
       setDraftIsRemovable(updated.is_removable);
       setDraftMaxParallelScanners(updated.max_parallel_scanners ?? 1);
+      setDraftCredentialProfileId(updated.credential_profile_id ?? null);
       queryClient.invalidateQueries({ queryKey: ["sources", source.id, "audit"] });
       setEditing(false);
     } catch (e) {
@@ -348,6 +357,8 @@ const DetailsTab = memo(function DetailsTab({
           onIsRemovableChange={setDraftIsRemovable}
           maxParallelScanners={draftMaxParallelScanners}
           onMaxParallelScannersChange={setDraftMaxParallelScanners}
+          credentialProfileId={draftCredentialProfileId}
+          onCredentialProfileIdChange={setDraftCredentialProfileId}
         />
       )}
 
@@ -608,6 +619,8 @@ interface EditRowsProps {
   onIsRemovableChange: (v: boolean) => void;
   maxParallelScanners: number;
   onMaxParallelScannersChange: (v: number) => void;
+  credentialProfileId: string | null;
+  onCredentialProfileIdChange: (id: string | null) => void;
 }
 
 function EditRows({
@@ -623,6 +636,8 @@ function EditRows({
   onIsRemovableChange,
   maxParallelScanners,
   onMaxParallelScannersChange,
+  credentialProfileId,
+  onCredentialProfileIdChange,
 }: EditRowsProps) {
   return (
     <div className="space-y-3">
@@ -648,6 +663,19 @@ function EditRows({
         />
       ) : (
         <SourceFieldSet type={type} value={config} onChange={onConfigChange} />
+      )}
+      {type !== "local" && (
+        <ProfilePicker
+          type={type as "ssh" | "smb" | "nfs" | "s3"}
+          value={credentialProfileId}
+          onChange={onCredentialProfileIdChange}
+          label="Credentials"
+          hint={
+            credentialProfileId
+              ? "Using credentials from this profile. Inline keys on this share still override."
+              : "Pick a saved profile to switch credentials without retyping. Leave on Inline to keep the host's defaults."
+          }
+        />
       )}
       <div>
         <label className="block text-xs font-medium text-fg mb-1">

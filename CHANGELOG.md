@@ -5,6 +5,30 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.10 — 2026-05-04
+
+- **Search returned 500 (or appeared empty) when any orphaned doc was
+  in the result set.** [SearchHit.source_id](api/akashic/schemas/search.py)
+  was non-nullable, but Meilisearch can hold docs with
+  `source_id=NULL` (left over after a source delete with
+  `purge_entries=False` — the entry rows survive in postgres for
+  later recovery, the Meili docs are updated to null). The Pydantic
+  validation crashed the response. Fixed two ways: schema is now
+  lenient (nullable), and the search handler explicitly filters
+  `source_id IS NOT NULL` in both the Meili and SQL fallback paths so
+  unreachable orphans stay out of search until they're reattached.
+- **Inline credential fields no longer show when a profile is
+  selected.** AddHostForm renders the ProfilePicker first; if the
+  user picks a saved profile, the username/password/key inputs in
+  HostFields disappear (host-shape fields like host/port/known_hosts
+  stay). `validateHostConfig` gained an `omitCredentials` flag so
+  the form doesn't fail validation for fields it deliberately hid.
+- **Source credentials editable post-create.** SourceDetail's edit
+  form now mounts the ProfilePicker so a credential profile can be
+  attached, swapped, or detached without deleting and recreating the
+  source. PATCH `/api/sources/{id}` already accepted
+  `credential_profile_id`; this surfaces it in the UI.
+
 ## v0.5.9 — 2026-05-04
 
 - **Credential profiles.** New first-class entity: a named, type-discriminated
