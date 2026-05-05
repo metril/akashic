@@ -1,5 +1,13 @@
-export const SOURCE_TYPES = ["local", "ssh", "smb", "nfs", "s3"] as const;
+export const SOURCE_TYPES = ["local", "ssh", "smb", "nfs", "s3", "paperless"] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
+
+// v0.7.0 — source types that don't attach to a Host row. The source
+// carries the URL/credentials directly in connection_config. Mirrors
+// HOSTLESS_SOURCE_TYPES on the api side.
+export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
+  "local",
+  "paperless",
+]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   local: "Local filesystem",
@@ -7,6 +15,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   smb: "SMB / CIFS",
   nfs: "NFS",
   s3: "S3-compatible",
+  paperless: "Paperless-ngx",
 };
 
 export type LocalConfig = {
@@ -75,12 +84,26 @@ export type S3Config = {
   secret_access_key: string;
 };
 
+// v0.7.0 — Paperless-ngx (Tier 3 self-hosted libraries). Hostless: no
+// Host row, all connection fields live on the source. tag_filter is a
+// comma-separated whitelist (case-insensitive) — when set, only
+// documents carrying at least one of those tags are indexed.
+export type PaperlessConfig = {
+  url: string;
+  api_token: string;
+  tag_filter?: string;
+  // Default true. Set to false for self-signed home installs; UI
+  // surfaces a warning when the toggle is off.
+  tls_verify?: boolean;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
   | SshConfig
   | SmbConfig
-  | S3Config;
+  | S3Config
+  | PaperlessConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -156,5 +179,18 @@ export function validateSourceConfig(
       if (!isStr("access_key_id")) return "Access key ID is required";
       if (!isStr("secret_access_key")) return "Secret access key is required";
       return null;
+    case "paperless": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
+      }
+      // Mask handling — "***" sentinel from the api represents
+      // "value preserved on disk", same as kerberos password handling
+      // in NFS. A field showing "***" is *valid*; only an empty/
+      // whitespace value should fail validation.
+      if (!isStr("api_token")) return "API token is required";
+      return null;
+    }
   }
 }

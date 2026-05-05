@@ -18,6 +18,7 @@ import os
 import subprocess
 from typing import Literal, Optional
 
+import httpx
 from pydantic import BaseModel
 
 from akashic.services.scanner_helpers import scanner_binary_path, stdin_creds_payload
@@ -335,12 +336,62 @@ def test_nfs(cfg: dict) -> TestResult:
     return _test_via_scanner(argv, timeout=sub_timeout, krb5_password=krb5_password)
 
 
+def test_paperless(cfg: dict) -> TestResult:
+    """v0.7.0 — Tier 3 self-hosted library probe.
+
+    Validates that the URL responds, the API token is accepted, and
+    the documents endpoint serves a page. Inline httpx call (not a
+    scanner subprocess) because the api container is closer to the
+    paperless instance than the scanner is for most deployments and
+    we don't need the agent's special process isolation here.
+
+    Auth-rejected (401/403) → step="auth"; non-2xx → step="list";
+    transport / TLS / DNS errors → step="connect".
+    """
+    raw_url = (cfg.get("url") or "").strip()
+    api_token = (cfg.get("api_token") or "").strip()
+    if not raw_url:
+        return TestResult(ok=False, step="config", error="url required")
+    if not api_token:
+        return TestResult(ok=False, step="config", error="api_token required")
+    base = raw_url.rstrip("/")
+    target = f"{base}/api/documents/?page_size=1"
+    verify = cfg.get("tls_verify")
+    # Default to True; allow explicit `false` to skip cert validation
+    # for self-signed installs. The boolean lands as a real bool when
+    # round-tripped through Pydantic; tolerate stringy values from
+    # the legacy connection_config blob.
+    if verify is None:
+        verify = True
+    elif isinstance(verify, str):
+        verify = verify.strip().lower() not in ("false", "0", "no")
+    headers = {"Authorization": f"Token {api_token}", "Accept": "application/json"}
+    try:
+        with httpx.Client(timeout=10.0, verify=bool(verify)) as client:
+            resp = client.get(target, headers=headers)
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"authentication rejected ({resp.status_code})",
+        )
+    if resp.status_code >= 400:
+        body = resp.text[:200]
+        return TestResult(
+            ok=False, step="list",
+            error=f"GET /api/documents/ returned {resp.status_code}: {body}",
+        )
+    return TestResult(ok=True)
+
+
 _DISPATCH = {
-    "local": test_local,
-    "ssh":   test_ssh,
-    "smb":   test_smb,
-    "s3":    test_s3,
-    "nfs":   test_nfs,
+    "local":     test_local,
+    "ssh":       test_ssh,
+    "smb":       test_smb,
+    "s3":        test_s3,
+    "nfs":       test_nfs,
+    "paperless": test_paperless,
 }
 
 

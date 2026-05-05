@@ -25,7 +25,8 @@ INDEX_NAME = "files"
 DOMAIN_METADATA_FACET_KEYS: tuple[str, ...] = (
     "correspondent",      # Paperless
     "document_type",      # Paperless
-    "person",             # Immich (face recognition label)
+    "tags",               # Paperless library tags (multi-valued)
+    "person",             # Immich (face recognition label, multi-valued)
     "album",              # Immich
     "camera_make",        # Immich EXIF
     "camera_model",       # Immich EXIF
@@ -159,15 +160,27 @@ def build_entry_doc(
     if content_text is not None:
         doc["content_text"] = content_text
     # v0.6.0 — flatten the well-known domain_metadata keys into top-level
-    # doc fields so they're individually filterable. Other keys are
-    # silently dropped from the index (still in postgres, still rendered
-    # in the entry detail drawer); promoting them into the facet config
-    # is a one-line change in DOMAIN_METADATA_FACET_KEYS.
+    # doc fields so they're individually filterable. v0.7.0 extends this
+    # to handle multi-valued keys (`tags`, `person`) by emitting the
+    # full string list — Meilisearch indexes each element as a
+    # filterable value and `field = "x"` matches if any element equals
+    # x. Dict values and arbitrary nested shapes are still dropped
+    # from the index; they remain in postgres and render in the entry
+    # detail drawer's Library Metadata section.
     dm = entry.domain_metadata or {}
     if isinstance(dm, dict):
         for key in DOMAIN_METADATA_FACET_KEYS:
             value = dm.get(key)
-            if value is not None and not isinstance(value, (dict, list)):
+            if value is None:
+                continue
+            if isinstance(value, list):
+                # Only string-arrays index cleanly. Numeric / mixed
+                # lists are unusual for the current keys; coerce
+                # everything to str for safety.
+                values = [str(v) for v in value if v is not None]
+                if values:
+                    doc[_domain_metadata_doc_field(key)] = values
+            elif not isinstance(value, dict):
                 doc[_domain_metadata_doc_field(key)] = value
     return doc
 

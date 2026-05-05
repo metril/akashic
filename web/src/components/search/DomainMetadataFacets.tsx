@@ -23,6 +23,7 @@ import { useFilterUrlState } from "../../hooks/useFilterUrlState";
 const FIELD_LABELS: Record<DomainMetadataField, string> = {
   correspondent: "Correspondent",
   document_type: "Document type",
+  tags: "Tags",
   person: "Person",
   album: "Album",
   camera_make: "Camera make",

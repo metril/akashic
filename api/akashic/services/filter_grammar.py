@@ -102,6 +102,7 @@ class TagPred(BaseModel):
 _DOMAIN_METADATA_FIELDS = Literal[
     "correspondent",
     "document_type",
+    "tags",
     "person",
     "album",
     "camera_make",

@@ -4,14 +4,16 @@ import { Input } from "../../ui";
 import type {
   LocalConfig,
   NfsConfig,
+  PaperlessConfig,
   S3Config,
   SmbConfig,
   SourceType,
   SshConfig,
 } from "../sourceTypes";
+import { PaperlessFields } from "./PaperlessFields";
 
 export type ShareConfig = Partial<
-  LocalConfig | SshConfig | SmbConfig | NfsConfig | S3Config
+  LocalConfig | SshConfig | SmbConfig | NfsConfig | S3Config | PaperlessConfig
 >;
 
 interface Props {
@@ -71,6 +73,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
       return <NfsShareFields value={value as Partial<NfsConfig>} onChange={onChange} />;
     case "s3":
       return <S3ShareFields value={value as Partial<S3Config>} onChange={onChange} />;
+    case "paperless":
+      // v0.7.0 — hostless. The "share" carries the whole config
+      // (url, api_token, optional tag_filter + tls_verify).
+      return (
+        <PaperlessFields
+          value={value as Partial<PaperlessConfig>}
+          onChange={onChange as (next: Partial<PaperlessConfig>) => void}
+        />
+      );
   }
 }
 
@@ -188,5 +199,14 @@ export function validateShareConfig(
       return isStr("export_path") ? null : "Export path is required";
     case "s3":
       return isStr("bucket") ? null : "Bucket is required";
+    case "paperless": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
+      }
+      if (!isStr("api_token")) return "API token is required";
+      return null;
+    }
   }
 }

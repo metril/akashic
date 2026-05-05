@@ -104,6 +104,14 @@ func buildConnector(
 		return connector.NewSMBConnector(host, p, user, password, share), "", nil
 	case "s3":
 		return connector.NewS3Connector(endpoint, bucket, region, user, password), "", nil
+	case "paperless":
+		// v0.7.0 — host carries the URL, password slot carries the
+		// API token (the CLI's --password flag was renamed in spirit
+		// for hostless self-hosted libs but kept under the same name
+		// to avoid widening the buildConnector signature). Tag
+		// filter / TLS-verify aren't reachable via this CLI path —
+		// they're scan-time only and live in connection_config.
+		return connector.NewPaperlessConnector(host, password, nil, true), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

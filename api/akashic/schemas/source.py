@@ -210,4 +210,16 @@ def _summary_for(source) -> str:
         if bucket and region:
             return f"{bucket} ({region})"
         return bucket or name
+    if t == "paperless":
+        # Strip the scheme so the card subtitle doesn't burn 8 chars
+        # on https:// — the user already knows the source is HTTP, the
+        # interesting part is which paperless instance.
+        url = g("url")
+        if url:
+            for prefix in ("https://", "http://"):
+                if url.startswith(prefix):
+                    url = url[len(prefix):]
+                    break
+            return url.rstrip("/") or name
+        return name
     return name

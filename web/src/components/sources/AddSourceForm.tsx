@@ -7,6 +7,7 @@ import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource"
 import { inferIsRemovable } from "../../lib/sources";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import {
+  HOSTLESS_SOURCE_TYPES,
   SOURCE_TYPES,
   SOURCE_TYPE_LABELS,
   type AnyConfig,
@@ -76,7 +77,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
     setTestResult(null);
     setFormError(null);
-    if (type === "local") {
+    if (HOSTLESS_SOURCE_TYPES.has(type)) {
       setHostChoice("");
     } else if (compatibleHosts.length > 0) {
       setHostChoice(compatibleHosts[0].id);
@@ -94,30 +95,32 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     setIsRemovable(inferIsRemovable(type, shareConfig as Record<string, unknown>));
   }, [type, shareConfig]);
 
-  const isLocal = type === "local";
-  const isCreatingHost = !isLocal && hostChoice === NEW_HOST;
+  // `isHostless` covers `local` (legacy) plus `paperless` (v0.7.0 Tier 3) —
+  // any source whose connection_config carries everything (no Host row).
+  const isHostless = HOSTLESS_SOURCE_TYPES.has(type);
+  const isCreatingHost = !isHostless && hostChoice === NEW_HOST;
 
   const shareError = validateShareConfig(type, shareConfig);
   const hostError =
-    isCreatingHost && !isLocal
-      ? validateHostConfig(type as Exclude<SourceType, "local">, hostConfig)
+    isCreatingHost && !isHostless
+      ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless">, hostConfig)
       : null;
   const validationError = shareError ?? hostError;
   const canSubmit =
     name.trim() !== "" &&
     validationError === null &&
-    (isLocal || hostChoice !== "");
+    (isHostless || hostChoice !== "");
 
   // Test connection uses the provisional merged config — host fields
   // (either picked or being created inline) layered with share fields.
   const mergedForTest: Record<string, unknown> = useMemo(() => {
-    if (isLocal) return { ...shareConfig };
+    if (isHostless) return { ...shareConfig };
     if (isCreatingHost) {
       return { ...hostConfig, ...shareConfig };
     }
     const picked = compatibleHosts.find((h) => h.id === hostChoice);
     return { ...(picked?.connection_config ?? {}), ...shareConfig };
-  }, [isLocal, isCreatingHost, hostConfig, shareConfig, hostChoice, compatibleHosts]);
+  }, [isHostless, isCreatingHost, hostConfig, shareConfig, hostChoice, compatibleHosts]);
 
   async function handleTest() {
     setTestResult(null);
@@ -146,7 +149,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     }
     try {
       let host_id: string | null = null;
-      if (!isLocal) {
+      if (!isHostless) {
         if (isCreatingHost) {
           // Create the host first; use the source name as the host
           // name when no separate name is collected. Conflict-handling
@@ -206,7 +209,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           options={SOURCE_TYPE_OPTIONS}
         />
 
-        {!isLocal && (
+        {!isHostless && (
           <div className="rounded-md border border-line p-3 bg-app space-y-3">
             <Select
               label="Host"
@@ -240,7 +243,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
                   New host will be saved alongside this source.
                 </p>
                 <HostFields
-                  type={type as Exclude<SourceType, "local">}
+                  type={type as Exclude<SourceType, "local" | "paperless">}
                   value={hostConfig}
                   onChange={setHostConfig}
                 />
@@ -250,7 +253,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         )}
 
         <div>
-          {!isLocal && (
+          {!isHostless && (
             <p className="text-xs uppercase tracking-wide text-fg-subtle mb-1">
               Share details
             </p>
@@ -258,7 +261,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           <ShareFields type={type} value={shareConfig} onChange={setShareConfig} />
         </div>
 
-        {!isLocal && hostChoice && hostChoice !== NEW_HOST && (
+        {!isHostless && hostChoice && hostChoice !== NEW_HOST && (
           <details
             className="border border-line rounded p-3"
             open={overrideCredentials}
@@ -274,7 +277,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               profile &gt; host inline &gt; host profile.
             </p>
             <ProfilePicker
-              type={type as Exclude<SourceType, "local">}
+              type={type as Exclude<SourceType, "local" | "paperless">}
               value={credentialProfileId}
               onChange={setCredentialProfileId}
             />

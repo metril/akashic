@@ -22,6 +22,7 @@ export type Right = "read" | "write" | "delete";
 export type DomainMetadataField =
   | "correspondent"
   | "document_type"
+  | "tags"
   | "person"
   | "album"
   | "camera_make"
@@ -30,6 +31,7 @@ export type DomainMetadataField =
 export const DOMAIN_METADATA_FIELDS: ReadonlyArray<DomainMetadataField> = [
   "correspondent",
   "document_type",
+  "tags",
   "person",
   "album",
   "camera_make",

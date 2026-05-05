@@ -438,9 +438,38 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			stringFromConfig(cfg, "access_key_id", ""),
 			stringFromConfig(cfg, "secret_access_key", ""),
 		), nil
+	case "paperless":
+		// v0.7.0 — Tier 3 self-hosted libraries. Hostless: url +
+		// api_token live on the source's connection_config.
+		// tag_filter is comma-separated; tls_verify defaults to true
+		// (api/router scrubs the value to bool).
+		return connector.NewPaperlessConnector(
+			stringFromConfig(cfg, "url", ""),
+			stringFromConfig(cfg, "api_token", ""),
+			splitCommaList(stringFromConfig(cfg, "tag_filter", "")),
+			boolFromConfig(cfg, "tls_verify", true),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}
+}
+
+// splitCommaList parses a "a, b , c" string into ["a","b","c"], skipping
+// empties. Used by hostless connectors that take their filter list as a
+// single connection_config string.
+func splitCommaList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func stringFromConfig(m map[string]any, k, dflt string) string {
@@ -462,6 +491,24 @@ func intFromConfig(m map[string]any, k string, dflt int) int {
 		case string:
 			// rarely needed; trust callers
 			_ = strings.TrimSpace(n)
+		}
+	}
+	return dflt
+}
+
+func boolFromConfig(m map[string]any, k string, dflt bool) bool {
+	if v, ok := m[k]; ok {
+		switch b := v.(type) {
+		case bool:
+			return b
+		case string:
+			s := strings.ToLower(strings.TrimSpace(b))
+			if s == "false" || s == "0" || s == "no" {
+				return false
+			}
+			if s == "true" || s == "1" || s == "yes" {
+				return true
+			}
 		}
 	}
 	return dflt

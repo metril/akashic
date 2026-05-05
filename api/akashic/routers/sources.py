@@ -29,6 +29,13 @@ from akashic.services.source_tester import TestResult, test_connection
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
+# Source types that don't attach to a Host row. `local` predates the
+# Host abstraction; `paperless` (v0.7.0) is a hostless self-hosted
+# library where the URL + API token live on the source's
+# connection_config directly. Both create+update paths key off this
+# set when validating host_id semantics.
+HOSTLESS_SOURCE_TYPES = {"local", "paperless"}
+
 
 def _config_safe_summary(cfg: dict | None) -> dict:
     """Audit-safe snapshot of a connection_config: state tokens for
@@ -55,10 +62,10 @@ async def create_source(
     # carries everything), but users on the new flow are encouraged to
     # attach a Host so credentials are reusable across shares.
     if data.host_id is not None:
-        if data.type == "local":
+        if data.type in HOSTLESS_SOURCE_TYPES:
             raise HTTPException(
                 status_code=400,
-                detail="local sources cannot attach to a host",
+                detail=f"{data.type} sources cannot attach to a host",
             )
         host = (await db.execute(
             select(Host).where(Host.id == data.host_id)
@@ -256,16 +263,16 @@ async def update_source(
     if "host_id" in incoming:
         new_host_id = incoming["host_id"]
         if new_host_id is None:
-            if source.type != "local":
+            if source.type not in HOSTLESS_SOURCE_TYPES:
                 raise HTTPException(
                     status_code=400,
-                    detail="host_id is required for non-local sources",
+                    detail="host_id is required for this source type",
                 )
         else:
-            if source.type == "local":
+            if source.type in HOSTLESS_SOURCE_TYPES:
                 raise HTTPException(
                     status_code=400,
-                    detail="local sources cannot attach to a host",
+                    detail=f"{source.type} sources cannot attach to a host",
                 )
             host = (await db.execute(
                 select(Host).where(Host.id == new_host_id)

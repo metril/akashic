@@ -4,6 +4,7 @@ import { NfsFields } from "./source-fields/NfsFields";
 import { SshFields } from "./source-fields/SshFields";
 import { SmbFields } from "./source-fields/SmbFields";
 import { S3Fields } from "./source-fields/S3Fields";
+import { PaperlessFields } from "./source-fields/PaperlessFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -33,5 +34,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <SmbFields value={value as never} onChange={onChange as never} />;
     case "s3":
       return <S3Fields value={value as never} onChange={onChange as never} />;
+    case "paperless":
+      return <PaperlessFields value={value as never} onChange={onChange as never} />;
   }
 }

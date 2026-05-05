@@ -5,6 +5,92 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.7.0 — 2026-05-05
+
+Tier 3 — Paperless-ngx, the first self-hosted library source type.
+v0.6.0 laid the data plumbing; this release makes it user-visible —
+point akashic at a Paperless instance and the Browse / Search / entry
+detail UI lights up with documents.
+
+- **Paperless-ngx as a source type.** Pick "Paperless-ngx" in Add
+  Source, paste your instance URL + an API token (created in
+  Paperless under *My Profile → Create Auth Token*), optionally
+  whitelist by tag, and akashic walks `/api/documents/` and indexes
+  every document. Hostless like local — the URL + token live on the
+  source itself, no separate Host row to manage. TLS verification is
+  on by default; a per-source toggle handles self-signed home
+  installs.
+- **Synthetic `/<correspondent>/<document_type>/<year>/` hierarchy.**
+  Paperless documents have no native paths, so the scanner builds
+  one. *Bank statements* from *Chase* in 2024 land at
+  `/Chase/Bank statement/2024/<title>.pdf` and Browse navigates them
+  the same as a real filesystem. Documents without a correspondent /
+  document_type / created date fall back to `Unsorted`, `Unfiled`,
+  `Undated`. Title collisions within the same year overwrite each
+  other today; documented in the connector code as a known
+  limitation pending the Tier 1 native-id work.
+- **Document metadata in the entry detail drawer.** The Library
+  Metadata section now surfaces correspondent, document type, tags
+  (multi-valued), Paperless ID, archive serial number, original
+  filename, and an OCR content preview. Each tag chip and
+  metadata cell is a `FilterableCell` — clicking jumps Search to
+  documents matching that key/value.
+- **Tags are multi-valued search facets.** Paperless library tags
+  (e.g., `tax`, `archived`) flow into `domain_metadata.tags` as a
+  list. The Meilisearch index now flattens string-array facets so
+  each individual tag is independently filterable, and the Library
+  Metadata facet panel on the Search page shows the top tags by
+  count alongside the existing scalar facets (correspondent,
+  document type).
+- **In-process test connection.** The "Test" button on Add Source
+  hits the Paperless API directly from the api container (httpx, no
+  scanner subprocess) so probe latency is one round trip. Auth
+  rejection (401/403) → `auth` step; non-2xx → `list`; transport →
+  `connect`.
+
+Internal:
+
+- New scanner connector at `scanner/internal/connector/paperless.go`
+  with full Walk + Connect + lookup-table caching. Eight unit tests
+  cover path synthesis, ancestor emission, tag filtering, mock
+  pagination, and auth rejection.
+- New probe `runPaperless` in `scanner/internal/probe/probe.go` for
+  the agent's reachability poll loop.
+- Three scanner dispatch sites updated: `connectorFromLeased`,
+  `buildConnector`, `probe.Run`. `agent.go` gains a `boolFromConfig`
+  helper and a `splitCommaList` for the new tag_filter input shape.
+- API: new `test_paperless` in `services/source_tester.py`,
+  `paperless` summary in `schemas/source.py`, `HOSTLESS_SOURCE_TYPES`
+  set in `routers/sources.py` so the host-attachment validation
+  treats local + paperless uniformly.
+- Search: `DOMAIN_METADATA_FACET_KEYS` gains `tags`; `build_entry_doc`
+  now flattens string-array values into Meilisearch's filterable
+  attributes (each element is a separate filterable token). Filter
+  grammar Literal extended in lockstep on web + python.
+- Web: `PaperlessFields` component, `ShareFields` + `SourceFieldSet`
+  dispatch, `HOSTLESS_SOURCE_TYPES` set + `PaperlessConfig` type,
+  `AddSourceForm` switched from per-call `isLocal` to `isHostless`
+  so `paperless` skips the host picker and credential override
+  panels the same way `local` always has. `LibraryMetadata` gains a
+  multi-value chip strip for string-array fields.
+
+Known limitations (deferred to follow-ups):
+
+- **Content preview / fetch from Paperless is not wired.** The OCR
+  text appears as a `content_preview` snippet in the entry detail
+  drawer's Library Metadata, but `ReadFile` returns "not supported"
+  — the scanner has no stable per-entry native id yet, which is
+  the Tier 1 CC2 work. When that lands, paperless content fetch is
+  a one-line wire-up.
+- **Title collisions overwrite.** Two documents with the same title
+  in the same correspondent/doc-type/year clobber each other on the
+  unique (source, path) constraint. Paperless titles are typically
+  date-stamped so collisions are rare; native-id paths fix this for
+  good when CC2 ships.
+- **Tag whitelist is naive.** Comma-separated case-insensitive
+  match. Boolean expressions or "exclude" tags would need UI work
+  not in scope for v0.7.0.
+
 ## v0.6.1 — 2026-05-05
 
 Bug fix — credential profiles now actually work on the **host edit**

@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -48,6 +49,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runNFS(ctx, connConfig)
 	case "local":
 		return runLocal(ctx, connConfig)
+	case "paperless":
+		return runPaperless(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -206,5 +209,43 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	return Result{OK: true}
+}
+
+// runPaperless validates a Paperless-ngx source by performing an
+// authenticated GET against /api/documents/?page_size=1. Auth-rejected
+// (401/403) maps to "auth"; non-2xx maps to "list"; transport errors
+// map to "connect". A green result means the URL resolves, the TLS /
+// HTTP layer is healthy, the token works, and the list endpoint
+// answers — i.e., everything the scanner needs to walk.
+func runPaperless(ctx context.Context, c map[string]any) Result {
+	rawURL := strings.TrimSpace(str(c, "url"))
+	token := str(c, "api_token")
+	if rawURL == "" {
+		return Result{OK: false, Step: "config", Error: "url required"}
+	}
+	if token == "" {
+		return Result{OK: false, Step: "config", Error: "api_token required"}
+	}
+	verify := true
+	if v, ok := c["tls_verify"]; ok {
+		if b, ok := v.(bool); ok {
+			verify = b
+		}
+	}
+	conn := connector.NewPaperlessConnector(rawURL, token, nil, verify)
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := conn.Connect(probeCtx); err != nil {
+		// Connect() smoke-tests `/api/documents/?page_size=1` then
+		// loads the lookup tables. The first failure surfaces
+		// here, so a 401/403 from the documents endpoint shows up
+		// as the documents-related error message.
+		msg := err.Error()
+		if strings.Contains(msg, "auth rejected") {
+			return Result{OK: false, Step: "auth", Error: msg}
+		}
+		return Result{OK: false, Step: "connect", Error: msg}
+	}
 	return Result{OK: true}
 }

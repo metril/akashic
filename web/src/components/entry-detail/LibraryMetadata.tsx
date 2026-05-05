@@ -20,6 +20,7 @@ import { FilterableCell } from "../ui/FilterableCell";
 const FIELD_LABELS: Record<DomainMetadataField, string> = {
   correspondent: "Correspondent",
   document_type: "Document type",
+  tags: "Tags",
   person: "Person",
   album: "Album",
   camera_make: "Camera make",
@@ -34,6 +35,10 @@ function renderValue(v: unknown): string {
     return String(v);
   }
   return JSON.stringify(v);
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
 interface Props {
@@ -62,6 +67,30 @@ export function LibraryMetadata({ metadata }: Props) {
   return (
     <dl className="space-y-1.5">
       {knownRows.map(({ field, value }) => {
+        // Multi-valued keys (paperless tags, immich faces) render as a
+        // wrap of clickable chips. Each chip filters Search to that
+        // single value via the existing crossPage predicate plumbing.
+        if (isStringArray(value)) {
+          return (
+            <div key={field} className="flex items-baseline gap-3 text-sm">
+              <dt className="w-32 flex-shrink-0 text-xs text-fg-muted">
+                {FIELD_LABELS[field]}
+              </dt>
+              <dd className="min-w-0 flex-1 text-fg break-words flex flex-wrap gap-1">
+                {value.map((v) => (
+                  <FilterableCell
+                    key={v}
+                    predicate={{ kind: "domain_metadata", field, value: v }}
+                    crossPage
+                    className="px-1.5 py-0.5 text-xs rounded-full border border-line bg-surface-muted"
+                  >
+                    {v}
+                  </FilterableCell>
+                ))}
+              </dd>
+            </div>
+          );
+        }
         const text = renderValue(value);
         return (
           <div key={field} className="flex items-baseline gap-3 text-sm">
