@@ -1,7 +1,29 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
+
+type SearchMode = "fuzzy" | "glob" | "regex";
+
+const MODE_HINTS: Record<SearchMode, string> = {
+  fuzzy:
+    "Typo-tolerant prefix matching. Use Glob or Regex for exact patterns.",
+  glob:
+    "* matches any name, ** matches across paths, ? matches one char. Example: **/invoices/*.csv",
+  regex:
+    "Postgres POSIX regex on the path. Example: ^/data/[0-9]{4}-Q[1-4]\\.pdf$",
+};
+
+const MODE_OPTIONS: { value: SearchMode; label: string }[] = [
+  { value: "fuzzy", label: "Fuzzy" },
+  { value: "glob", label: "Glob" },
+  { value: "regex", label: "Regex" },
+];
+
+function isSearchMode(s: string | null): s is SearchMode {
+  return s === "fuzzy" || s === "glob" || s === "regex";
+}
 import {
   Button,
   Card,
@@ -52,7 +74,17 @@ const SearchIcon = () => (
 );
 
 export default function Search() {
-  const [query, setQuery] = useState("");
+  // v0.5.11 — URL is the source of truth for `q` and `mode` so the
+  // command palette's "Show all results in Search →" link, browser
+  // refresh, and copy-paste links all populate the input. The
+  // existing `?filters=` chips already follow this pattern via
+  // useFilterUrlState.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const [mode, setMode] = useState<SearchMode>(() => {
+    const raw = searchParams.get("mode");
+    return isSearchMode(raw) ? raw : "fuzzy";
+  });
   const [sourceId, setSourceId] = useState<string>("");
   const [extension, setExtension] = useState("");
   const [minSize, setMinSize] = useState("");
@@ -76,6 +108,22 @@ export default function Search() {
       return next;
     });
   }, []);
+
+  // Mirror q + mode back to the URL, debounced so the address bar
+  // doesn't churn on every keystroke. `replace: true` keeps the back
+  // button useful (one history entry per real navigation, not per
+  // keystroke).
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const next = new URLSearchParams(searchParams);
+      const trimmed = query.trim();
+      if (trimmed) next.set("q", trimmed); else next.delete("q");
+      if (mode !== "fuzzy") next.set("mode", mode); else next.delete("mode");
+      setSearchParams(next, { replace: true });
+    }, 250);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, mode]);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -117,10 +165,11 @@ export default function Search() {
   );
 
   const searchQuery = useInfiniteQuery<SearchResponse>({
-    queryKey: ["search", query, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded],
+    queryKey: ["search", query, mode, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
+      if (mode !== "fuzzy") params.set("mode", mode);
       if (sourceId) params.set("source_id", sourceId);
       if (extension) params.set("extension", extension);
       if (minSize) params.set("min_size", minSize);
@@ -192,15 +241,36 @@ export default function Search() {
       )}
 
       <Card padding="md" className="mb-5">
+        <div className="flex items-center gap-2 mb-2" role="group" aria-label="Search mode">
+          {MODE_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              type="button"
+              size="sm"
+              variant={mode === opt.value ? "primary" : "secondary"}
+              aria-pressed={mode === opt.value}
+              onClick={() => setMode(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+          <span className="text-xs text-fg-muted ml-2">{MODE_HINTS[mode]}</span>
+        </div>
         <Input
           leftIcon={<SearchIcon />}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search files…"
+          placeholder={
+            mode === "glob"
+              ? "Glob pattern (e.g. **/invoices/*.csv)"
+              : mode === "regex"
+                ? "Regex pattern (POSIX)"
+                : "Search files…"
+          }
           className="h-11 text-[15px]"
           autoFocus
         />
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3">
           <Select
             value={effectivePermissionFilter}
             onChange={(e) => setPermissionFilter(e.target.value as "all" | "readable" | "writable")}
@@ -250,11 +320,18 @@ export default function Search() {
         </div>
       ) : searchQuery.isError ? (
         <Card>
-          <p className="text-sm text-rose-600">
-            {searchQuery.error instanceof Error
-              ? searchQuery.error.message
-              : "Search failed"}
-          </p>
+          <div className="rounded-md border border-rose-200 dark:border-rose-700/40 bg-rose-50 dark:bg-rose-950/30 px-3 py-2">
+            <p className="text-sm text-rose-800 dark:text-rose-200">
+              {searchQuery.error instanceof Error
+                ? searchQuery.error.message
+                : "Search failed."}
+            </p>
+            {mode === "regex" && (
+              <p className="text-xs text-fg-muted mt-1">
+                If this is a regex syntax error, the API returns the parser position. Try escaping reserved characters with <code>\</code>.
+              </p>
+            )}
+          </div>
         </Card>
       ) : results.length === 0 ? (
         <Card padding="lg">

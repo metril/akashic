@@ -135,7 +135,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
       toast.success("Allowed scanners updated.");
     } catch (e) {
       toast.error(
-        `Update failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't save allowed scanners: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -213,7 +213,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
                 type="checkbox"
                 checked={selected.has(r.scanner_id)}
                 onChange={() => toggle(r.scanner_id)}
-                className="mt-1 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+                className="mt-1 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">

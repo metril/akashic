@@ -43,6 +43,17 @@ class Scan(Base):
     # Snapshot of the last successful scan's files_found, captured at start.
     previous_scan_files: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # v0.5.11 — counts of entries the scanner silently skipped during
+    # walk (permission denied, ENOENT mid-scan). Accumulated across all
+    # IsFinal=true batches so the parallel-agent path (one final batch
+    # per unit) sums correctly across units. Surfaced in SourceDetail.
+    inaccessible_dirs: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False,
+    )
+    inaccessible_files: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False,
+    )
+
     # Phase 2 multi-scanner — pool-tagged lease queue.
     # `pool` is a snapshot of the source's preferred_pool at enqueue time
     # (NULL = any scanner can claim). `assigned_scanner_id` + `lease_expires_at`

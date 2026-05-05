@@ -495,10 +495,10 @@ function ManualKeyForm({
         Register with key
       </Button>
       {createMut.isError && (
-        <p className="sm:col-span-3 text-xs text-rose-600">
+        <p className="sm:col-span-3 text-xs text-rose-700 dark:text-rose-300" role="alert">
           {createMut.error instanceof Error
             ? createMut.error.message
-            : "Failed to create"}
+            : "Couldn't create scanner."}
         </p>
       )}
     </form>

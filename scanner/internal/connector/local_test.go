@@ -23,7 +23,7 @@ func TestLocalConnector_Walk(t *testing.T) {
 	defer c.Close()
 
 	var entries []*models.EntryRecord
-	err := c.Walk(context.Background(), dir, nil, true, true, func(e *models.EntryRecord) error {
+	_, err := c.Walk(context.Background(), dir, nil, true, true, func(e *models.EntryRecord) error {
 		entries = append(entries, e)
 		return nil
 	})

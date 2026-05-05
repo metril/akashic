@@ -115,7 +115,7 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
       );
     } catch (e) {
       toast.error(
-        `Apply failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't apply scanner changes: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -184,7 +184,7 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
                 type="checkbox"
                 checked={selected.has(r.scanner_id)}
                 onChange={() => toggle(r.scanner_id)}
-                className="mt-1 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+                className="mt-1 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">

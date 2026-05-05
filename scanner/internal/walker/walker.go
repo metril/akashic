@@ -12,6 +12,22 @@ import (
 
 type WalkFunc func(entry *models.EntryRecord) error
 
+// WalkStats tracks how many directory and file reads were silently
+// skipped during a walk. v0.5.11 — before this, ENOENT / permission
+// errors during walking were swallowed with no record. The scanner
+// now ships these counts up to the api in the IsFinal batch envelope
+// so SourceDetail can surface "N inaccessible items skipped" instead
+// of pretending the scan was clean.
+type WalkStats struct {
+	// Directory reads that failed (os.ReadDir returned an error or
+	// d.Info() on a directory entry failed). Each represents a subtree
+	// the scanner couldn't enter.
+	InaccessibleDirs int
+	// File entries that we couldn't read metadata for (d.Info() or
+	// CollectFromInfo failed on a non-directory entry).
+	InaccessibleFiles int
+}
+
 // ShallowResult is what WalkShallow returns: file/empty-dir entries
 // emitted in-line via fn, plus the relative names of subdirectories
 // the caller should split off as separate work units instead of
@@ -20,6 +36,10 @@ type ShallowResult struct {
 	// Names of immediate subdirectories under root (basename only,
 	// no leading "/"). The caller turns these into work-unit paths.
 	SubdirNames []string
+	// Stats accumulated during the shallow walk (current dir only —
+	// subdirs are claimed and walked separately by sibling scanners,
+	// each producing their own stats).
+	Stats WalkStats
 }
 
 // WalkShallow lists `root` non-recursively. Files and the root directory
@@ -51,6 +71,8 @@ func WalkShallow(
 	if err != nil {
 		// Same swallow behaviour as Walk — let an unreadable root
 		// surface as zero entries rather than failing the whole scan.
+		// Account for it so the api can surface the skip.
+		res.Stats.InaccessibleDirs++
 		return res, nil
 	}
 
@@ -71,10 +93,12 @@ func WalkShallow(
 		}
 		info, err := d.Info()
 		if err != nil {
+			res.Stats.InaccessibleFiles++
 			continue
 		}
 		entry, err := metadata.CollectFromInfo(childPath, info, computeHash, owners)
 		if err != nil {
+			res.Stats.InaccessibleFiles++
 			continue
 		}
 		if err := fn(entry); err != nil {
@@ -96,12 +120,12 @@ func WalkShallow(
 // skip the post-scan rollup CTE for any directory the connector
 // already aggregated.
 //
-// Errors from individual entries are swallowed (matches the previous
-// behaviour) so a single permission-denied subdirectory doesn't kill
-// the whole scan. ctx cancellation, however, is honored — the walk
-// returns ctx.Err() at the next directory boundary so a SIGTERM /
-// scan-cancel actually stops in-flight 10M+ scans.
-func Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn WalkFunc) error {
+// Errors from individual entries are accumulated in WalkStats but do
+// not abort the walk — a single permission-denied subdirectory
+// shouldn't kill the whole scan. ctx cancellation, however, is honored
+// — the walk returns ctx.Err() at the next directory boundary so a
+// SIGTERM / scan-cancel actually stops in-flight 10M+ scans.
+func Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fn WalkFunc) (WalkStats, error) {
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
@@ -109,10 +133,11 @@ func Walk(ctx context.Context, root string, excludePatterns []string, computeHas
 
 	owners := metadata.NewOwnerResolver()
 
+	var stats WalkStats
 	// We don't emit the root itself — `walkDir` returns its totals to
 	// nowhere. Real code only cares about descendants.
-	_, err := walkDir(ctx, root, root, excludeSet, computeHash, owners, fn)
-	return err
+	_, err := walkDir(ctx, root, root, excludeSet, computeHash, owners, fn, &stats)
+	return stats, err
 }
 
 // subtreeTotals captures what a recursive call returns to its parent so
@@ -138,6 +163,7 @@ func walkDir(
 	computeHash bool,
 	owners *metadata.OwnerResolver,
 	fn WalkFunc,
+	stats *WalkStats,
 ) (subtreeTotals, error) {
 	var totals subtreeTotals
 
@@ -147,9 +173,10 @@ func walkDir(
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		// Permission denied / race with deletion — same swallow
-		// behaviour as the old WalkDir. Subtree totals stay at zero,
-		// directory still gets emitted by our caller with what it knows.
+		// Permission denied / race with deletion. Subtree totals stay
+		// at zero and the scan continues; the api surfaces the skip
+		// via the inaccessible_dirs count on the Scan row.
+		stats.InaccessibleDirs++
 		return totals, nil
 	}
 
@@ -161,13 +188,18 @@ func walkDir(
 		childPath := filepath.Join(path, name)
 		info, err := d.Info()
 		if err != nil {
+			if d.IsDir() {
+				stats.InaccessibleDirs++
+			} else {
+				stats.InaccessibleFiles++
+			}
 			continue
 		}
 
 		if d.IsDir() {
 			// Recurse first, then emit the child directory's record
 			// with its accumulated totals.
-			childTotals, cerr := walkDir(ctx, childPath, root, excludeSet, computeHash, owners, fn)
+			childTotals, cerr := walkDir(ctx, childPath, root, excludeSet, computeHash, owners, fn, stats)
 			if cerr != nil {
 				// Propagate cancellation up; permission errors are
 				// already swallowed at the recursion site.
@@ -179,6 +211,7 @@ func walkDir(
 
 			entry, err := metadata.CollectFromInfo(childPath, info, computeHash, owners)
 			if err != nil {
+				stats.InaccessibleDirs++
 				continue
 			}
 			// Stamp the child directory's subtree fields and emit it.
@@ -194,6 +227,7 @@ func walkDir(
 			// contribute their size to this directory's totals.
 			entry, err := metadata.CollectFromInfo(childPath, info, computeHash, owners)
 			if err != nil {
+				stats.InaccessibleFiles++
 				continue
 			}
 			if entry.SizeBytes != nil {

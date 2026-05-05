@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { cn } from "./cn";
+import { Scrim } from "./Scrim";
 
 type MaxWidth = "sm" | "md" | "lg" | "xl";
 
@@ -63,10 +64,7 @@ export function ModalShell({
       aria-label={ariaLabel}
       className="fixed inset-0 z-50 flex items-center justify-center px-4"
     >
-      <div
-        className="absolute inset-0 bg-gray-900/55"
-        onClick={blocking ? undefined : onClose}
-      />
+      <Scrim onClick={blocking ? undefined : onClose} />
       <div
         onClick={(e) => e.stopPropagation()}
         className={cn(

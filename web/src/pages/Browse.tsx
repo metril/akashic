@@ -260,24 +260,27 @@ export default function Browse() {
       width="full"
     >
       <Card padding="md" className="mb-4">
-        <div className="flex flex-col md:flex-row md:items-center gap-3">
-          <div className="md:w-64">
-            <Select
-              label="Source"
-              value={sourceId}
-              onChange={(e) => handleSourceChange(e.target.value)}
-              options={
-                sources.length === 0
-                  ? [{ value: "", label: "No sources" }]
-                  : sourceOptions
-              }
-              disabled={sources.length === 0}
-            />
-          </div>
-          <div className="flex-1 min-w-0 md:pt-5">
+        {/* v0.5.11 — narrow-viewport toolbar. Used flex-col md:flex-row,
+            which compressed the Source dropdown awkwardly at tablet
+            widths. Grid lets each control occupy its natural column at
+            ≥sm; breadcrumb spans 2 cols on full-md so its truncation
+            is visible. Below sm everything stacks. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-[16rem,1fr,auto] gap-3 sm:items-end">
+          <Select
+            label="Source"
+            value={sourceId}
+            onChange={(e) => handleSourceChange(e.target.value)}
+            options={
+              sources.length === 0
+                ? [{ value: "", label: "No sources" }]
+                : sourceOptions
+            }
+            disabled={sources.length === 0}
+          />
+          <div className="min-w-0 sm:col-span-2 md:col-span-1">
             <Breadcrumb segments={segments} />
           </div>
-          <div className="flex gap-2 md:pt-5">
+          <div className="flex gap-2">
             {isAdmin && countsQuery.data?.enforced && (
               // Admin-only opt-out for the per-user ACL trim. Visible
               // only when filtering is actually being applied — no
@@ -399,6 +402,9 @@ export default function Browse() {
             isFetchingNextPage={browseQuery.isFetchingNextPage}
             fetchNextPage={() => { void browseQuery.fetchNextPage(); }}
             isAdmin={isAdmin}
+            aclHiddenCount={
+              countsQuery.data?.enforced ? countsQuery.data.hidden : 0
+            }
             selectedIds={selectedIds}
             toggleSelected={(id) =>
               setSelectedIds((prev) => {
@@ -573,6 +579,11 @@ interface BrowseListProps {
   isAdmin: boolean;
   selectedIds: Set<string>;
   toggleSelected: (id: string) => void;
+  /** v0.5.11 — when ACL filtering is active and the user's filter
+   *  matched only entries that are hidden by their permissions, the
+   *  empty state appends a hint so they don't think the filter is
+   *  broken. Number of currently hidden items at the same path. */
+  aclHiddenCount: number;
 }
 
 function BrowseList({
@@ -589,6 +600,7 @@ function BrowseList({
   isAdmin,
   selectedIds,
   toggleSelected,
+  aclHiddenCount,
 }: BrowseListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -624,6 +636,11 @@ function BrowseList({
         <div className="py-12 px-6 text-center text-sm text-fg-muted">
           No entries match{" "}
           <code className="font-mono text-xs">{filterText}</code> in this folder.
+          {aclHiddenCount > 0 && (
+            <div className="mt-2 text-xs text-fg-subtle">
+              {aclHiddenCount.toLocaleString()} item{aclHiddenCount !== 1 ? "s" : ""} hidden by your access permissions — your filter may match one of them.
+            </div>
+          )}
         </div>
       </>
     );

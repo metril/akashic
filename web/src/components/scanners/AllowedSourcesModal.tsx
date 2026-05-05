@@ -126,7 +126,7 @@ export function AllowedSourcesModal({
       onClose();
     } catch (e) {
       toast.error(
-        `Update failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't save allowed sources: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -194,7 +194,7 @@ export function AllowedSourcesModal({
                       type="checkbox"
                       checked={selected.has(r.source_id)}
                       onChange={() => toggle(r.source_id)}
-                      className="mt-1 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+                      className="mt-1 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">

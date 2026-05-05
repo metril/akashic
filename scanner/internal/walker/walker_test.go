@@ -28,7 +28,7 @@ func TestWalk_AllEntries(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var entries []*models.EntryRecord
-	err := Walk(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
+	_, err := Walk(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -60,7 +60,7 @@ func TestWalk_ExcludePatterns(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var entries []*models.EntryRecord
-	err := Walk(context.Background(), dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
+	_, err := Walk(context.Background(), dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -79,7 +79,7 @@ func TestWalk_WithHash(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var hashed int
-	err := Walk(context.Background(), dir, nil, true, func(entry *models.EntryRecord) error {
+	_, err := Walk(context.Background(), dir, nil, true, func(entry *models.EntryRecord) error {
 		if !entry.IsDir() && entry.ContentHash != "" {
 			hashed++
 		}
@@ -125,12 +125,13 @@ func TestWalk_PostOrderSubtreeTotals(t *testing.T) {
 	must(os.WriteFile(filepath.Join(dir, "b", "c", "z.bin"), []byte("12345678"), 0o644))
 
 	dirs := map[string]*models.EntryRecord{}
-	must(Walk(context.Background(), dir, nil, false, func(e *models.EntryRecord) error {
+	_, werr := Walk(context.Background(), dir, nil, false, func(e *models.EntryRecord) error {
 		if e.IsDir() {
 			dirs[filepath.Base(e.Path)] = e
 		}
 		return nil
-	}))
+	})
+	must(werr)
 
 	for _, name := range []string{"a", "b", "c"} {
 		if _, ok := dirs[name]; !ok {
@@ -188,7 +189,7 @@ func TestWalk_HonoursContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var seen atomic.Int64
-	err := Walk(ctx, dir, nil, false, func(e *models.EntryRecord) error {
+	_, err := Walk(ctx, dir, nil, false, func(e *models.EntryRecord) error {
 		// Cancel as soon as the first entry comes through. The next
 		// directory boundary should bail out.
 		if seen.Add(1) == 1 {
@@ -199,6 +200,40 @@ func TestWalk_HonoursContextCancellation(t *testing.T) {
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+// v0.5.11 — WalkStats counts entries the walker silently skipped
+// (permission denied / mid-scan ENOENT). Pre-fix, these were swallowed
+// with no record; the api had no way to surface "this scan touched
+// dirs it couldn't enter."
+func TestWalk_AccountsInaccessibleDirs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root — chmod 000 doesn't deny root reads")
+	}
+	dir := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(dir, "open"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "open", "x.txt"), []byte("ok"), 0o644))
+	must(os.MkdirAll(filepath.Join(dir, "denied"), 0o755))
+	must(os.WriteFile(filepath.Join(dir, "denied", "secret.txt"), []byte("nope"), 0o644))
+	// Lock the second subdir so ReadDir fails on it.
+	must(os.Chmod(filepath.Join(dir, "denied"), 0o000))
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "denied"), 0o755) })
+
+	stats, err := Walk(context.Background(), dir, nil, false, func(*models.EntryRecord) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if stats.InaccessibleDirs < 1 {
+		t.Errorf("expected at least 1 inaccessible dir, got %d", stats.InaccessibleDirs)
 	}
 }
 

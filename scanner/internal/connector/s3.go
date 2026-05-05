@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
+	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -163,7 +164,8 @@ func (c *S3Connector) WalkShallow(
 	return subdirs, nil
 }
 
-func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
+func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+	var stats walker.WalkStats
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
@@ -177,7 +179,7 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return fmt.Errorf("s3 list: %w", err)
+			return stats, fmt.Errorf("s3 list: %w", err)
 		}
 
 		for _, obj := range page.Contents {
@@ -185,7 +187,7 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			// scan-cancel doesn't have to wait for the rest of the
 			// page (up to 1000 objects with potential ACL/hash calls).
 			if err := ctx.Err(); err != nil {
-				return err
+				return stats, err
 			}
 			key := aws.ToString(obj.Key)
 
@@ -242,12 +244,12 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			}
 
 			if err := fn(entry); err != nil {
-				return err
+				return stats, err
 			}
 		}
 	}
 
-	return nil
+	return stats, nil
 }
 
 func (c *S3Connector) hashObject(ctx context.Context, key string) (string, error) {

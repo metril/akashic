@@ -395,6 +395,16 @@ async def ingest_batch(
         if source_row is not None:
             source_row.security_metadata = batch.source_security_metadata
 
+    # v0.5.11 — accumulate inaccessible counts across batches. The
+    # single-scanner path sends one IsFinal=true batch with totals; the
+    # parallel-agent path sends one IsFinal=true batch per work unit with
+    # per-unit totals. Both produce the right scan-level sum because we
+    # add (don't assign) on every batch carrying nonzero counts.
+    if batch.inaccessible_dirs:
+        scan.inaccessible_dirs = (scan.inaccessible_dirs or 0) + batch.inaccessible_dirs
+    if batch.inaccessible_files:
+        scan.inaccessible_files = (scan.inaccessible_files or 0) + batch.inaccessible_files
+
     if batch.is_final:
         scan.status = "completed"
         scan.completed_at = now

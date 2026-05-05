@@ -153,11 +153,19 @@ type EntryRecord struct {
 func (e *EntryRecord) IsDir() bool { return e.Kind == "directory" }
 
 type ScanBatch struct {
-	SourceID                string                  `json:"source_id"`
-	ScanID                  string                  `json:"scan_id"`
-	Entries                 []EntryRecord           `json:"entries"`
-	IsFinal                 bool                    `json:"is_final"`
-	SourceSecurityMetadata  *SourceSecurityMetadata `json:"source_security_metadata,omitempty"`
+	SourceID               string                  `json:"source_id"`
+	ScanID                 string                  `json:"scan_id"`
+	Entries                []EntryRecord           `json:"entries"`
+	IsFinal                bool                    `json:"is_final"`
+	SourceSecurityMetadata *SourceSecurityMetadata `json:"source_security_metadata,omitempty"`
+	// v0.5.11 — only set on the final batch (IsFinal=true). Counts of
+	// directory/file entries the connector silently skipped during the
+	// walk (permission denied, ENOENT mid-scan). The api persists these
+	// on the Scan row so SourceDetail can surface them. Omitted on
+	// intermediate batches; defaults to 0 on legacy scanners that
+	// don't send the field.
+	InaccessibleDirs  int `json:"inaccessible_dirs,omitempty"`
+	InaccessibleFiles int `json:"inaccessible_files,omitempty"`
 }
 
 // SourceSecurityMetadata is sent at scan-start for S3 sources.

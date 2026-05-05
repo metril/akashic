@@ -96,10 +96,10 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
       data: { name: draftName, connection_config: cleaned },
     });
     toast.promise(p, {
-      loading: "Saving…",
-      success: "Host updated.",
+      loading: "Saving host…",
+      success: `Saved "${host?.name ?? "host"}".`,
       error: (e: unknown) =>
-        `Save failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't save host: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -113,13 +113,13 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     if (!host) return;
     const p = testHost.mutateAsync(host.id);
     toast.promise(p, {
-      loading: "Testing…",
+      loading: "Testing connection…",
       success: (r) =>
         r.result.ok
-          ? "Reachable."
-          : `Unreachable: ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}`,
+          ? `${host.name}: reachable.`
+          : `${host.name} unreachable at ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}.`,
       error: (e: unknown) =>
-        `Test failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't test ${host.name}: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -132,7 +132,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     if (!host) return;
     if (attachedSources.length > 0) {
       toast.error(
-        `Host has ${attachedSources.length} attached source${attachedSources.length === 1 ? "" : "s"}; detach or delete them first.`,
+        `Can't delete host: ${attachedSources.length} attached source${attachedSources.length === 1 ? "" : "s"}. Detach or delete them first.`,
       );
       return;
     }
@@ -143,10 +143,10 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     if (!host) return;
     const p = deleteHost.mutateAsync(host.id);
     toast.promise(p, {
-      loading: "Deleting…",
-      success: `Deleted "${host.name}".`,
+      loading: `Deleting "${host.name}"…`,
+      success: `Deleted host "${host.name}".`,
       error: (e: unknown) =>
-        `Delete failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't delete host: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -193,7 +193,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                     type="text"
                     value={draftName}
                     onChange={(e) => setDraftName(e.target.value)}
-                    className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
                   />
                 </div>
                 <HostFields

@@ -48,7 +48,7 @@ export const BucketSecurityCard = memo(function BucketSecurityCard({
 
       {pab && (
         <>
-          <h4 className="text-[11px] uppercase tracking-wider text-fg-subtle mb-2">Public access block</h4>
+          <h4 className="text-meta uppercase text-fg-subtle mb-2">Public access block</h4>
           <div className="grid grid-cols-2 gap-2 mb-4">
             <PABBadge label="Block public ACLs" blocked={pab.block_public_acls} />
             <PABBadge label="Ignore public ACLs" blocked={pab.ignore_public_acls} />
@@ -60,7 +60,7 @@ export const BucketSecurityCard = memo(function BucketSecurityCard({
 
       {policyStr && (
         <>
-          <h4 className="text-[11px] uppercase tracking-wider text-fg-subtle mb-2">Bucket policy</h4>
+          <h4 className="text-meta uppercase text-fg-subtle mb-2">Bucket policy</h4>
           <pre className="text-xs bg-app p-3 rounded border border-line-subtle overflow-x-auto">
             {policyStr}
           </pre>

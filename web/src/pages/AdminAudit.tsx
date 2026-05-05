@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Spinner, EmptyState, Page } from "../components/ui";
+import { Spinner, EmptyState, Page, Select, Input, Button } from "../components/ui";
 import type { AuditEventList, AuditEvent } from "../types";
 
 const KNOWN_EVENT_TYPES = [
@@ -11,6 +11,11 @@ const KNOWN_EVENT_TYPES = [
   "binding_added",
   "binding_removed",
   "groups_auto_resolved",
+];
+
+const EVENT_TYPE_OPTIONS = [
+  { value: "", label: "All" },
+  ...KNOWN_EVENT_TYPES.map((t) => ({ value: t, label: t })),
 ];
 
 export default function AdminAudit() {
@@ -33,6 +38,9 @@ export default function AdminAudit() {
   });
 
   const items = audit.data?.items ?? [];
+  const totalPages = audit.data
+    ? Math.max(1, Math.ceil(audit.data.total / audit.data.page_size))
+    : 1;
 
   return (
     <Page
@@ -40,38 +48,33 @@ export default function AdminAudit() {
       description="Recent identity-management and search_as events."
       width="full"
     >
-      <div className="flex flex-wrap gap-3 mb-4 text-xs">
-        <label className="text-fg-muted flex flex-col">
-          Event type
-          <select
-            value={eventType} onChange={(e) => { setEventType(e.target.value); setPage(1); }}
-            className="mt-1 border border-line rounded px-2 py-1 text-sm"
-          >
-            <option value="">All</option>
-            {KNOWN_EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </label>
-        <label className="text-fg-muted flex flex-col">
-          From
-          <input
-            type="datetime-local" value={fromDate}
-            onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
-            className="mt-1 border border-line rounded px-2 py-1 text-sm"
-          />
-        </label>
-        <label className="text-fg-muted flex flex-col">
-          To
-          <input
-            type="datetime-local" value={toDate}
-            onChange={(e) => { setToDate(e.target.value); setPage(1); }}
-            className="mt-1 border border-line rounded px-2 py-1 text-sm"
-          />
-        </label>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <Select
+          label="Event type"
+          value={eventType}
+          onChange={(e) => { setEventType(e.target.value); setPage(1); }}
+          options={EVENT_TYPE_OPTIONS}
+        />
+        <Input
+          label="From"
+          type="datetime-local"
+          value={fromDate}
+          onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
+        />
+        <Input
+          label="To"
+          type="datetime-local"
+          value={toDate}
+          onChange={(e) => { setToDate(e.target.value); setPage(1); }}
+        />
       </div>
 
       {audit.error && (
-        <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2 mb-3">
-          {audit.error instanceof Error ? audit.error.message : "Error"}
+        <div
+          role="alert"
+          className="text-sm text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-700/40 rounded px-3 py-2 mb-3"
+        >
+          {audit.error instanceof Error ? audit.error.message : "Couldn't load audit events."}
         </div>
       )}
 
@@ -90,7 +93,7 @@ export default function AdminAudit() {
         <div className="border border-line rounded">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-fg-muted uppercase tracking-wider border-b border-line">
+              <tr className="text-meta text-fg-muted uppercase border-b border-line">
                 <th className="text-left px-3 py-2 font-semibold">Time</th>
                 <th className="text-left px-3 py-2 font-semibold">User</th>
                 <th className="text-left px-3 py-2 font-semibold">Event</th>
@@ -111,18 +114,28 @@ export default function AdminAudit() {
       {audit.data && audit.data.total > audit.data.page_size && (
         <div className="flex items-center justify-between mt-3 text-xs text-fg-muted">
           <div>{audit.data.total} total</div>
-          <div className="flex gap-2">
-            <button
-              type="button" disabled={page === 1}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={page === 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="border border-line rounded px-2 py-1 disabled:opacity-50 hover:bg-surface-muted"
-            >Prev</button>
-            <button
-              type="button"
+              aria-label="Previous page"
+            >
+              Prev
+            </Button>
+            <span aria-live="polite" className="text-fg">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
               disabled={page * audit.data.page_size >= audit.data.total}
               onClick={() => setPage((p) => p + 1)}
-              className="border border-line rounded px-2 py-1 disabled:opacity-50 hover:bg-surface-muted"
-            >Next</button>
+              aria-label="Next page"
+            >
+              Next
+            </Button>
           </div>
         </div>
       )}
@@ -146,15 +159,20 @@ function Row({
         <td className="px-3 py-1.5 text-fg-muted font-mono text-xs">{event.request_ip}</td>
         <td className="px-3 py-1.5 text-right">
           <button
-            type="button" onClick={onToggle}
-            className="text-xs text-fg-muted hover:text-fg"
-          >{expanded ? "▾" : "▸"}</button>
+            type="button"
+            onClick={onToggle}
+            aria-label={expanded ? "Collapse event details" : "Expand event details"}
+            aria-expanded={expanded}
+            className="text-xs text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded px-1"
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
         </td>
       </tr>
       {expanded && (
         <tr className="border-b border-line-subtle bg-app">
           <td colSpan={5} className="px-3 py-3">
-            <pre className="text-xs font-mono text-fg whitespace-pre-wrap break-all">
+            <pre className="text-xs font-mono text-fg whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
               {JSON.stringify(event.payload, null, 2)}
             </pre>
           </td>

@@ -36,6 +36,13 @@ type Result struct {
 	FilesFound  int
 	DirsFound   int
 	BatchesSent int
+	// v0.5.11 — entries the connector silently skipped during walk.
+	// Either a directory we couldn't enter (permission denied, ENOENT
+	// mid-scan) or a file we couldn't stat. The api persists these on
+	// the Scan row so SourceDetail can surface "N inaccessible items
+	// skipped" instead of pretending the scan was clean.
+	InaccessibleDirs  int
+	InaccessibleFiles int
 }
 
 type Scanner struct {
@@ -144,6 +151,14 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			scanBatch.SourceSecurityMetadata = bucketSecurity
 			firstBatch = false
 		}
+		// v0.5.11 — only the final batch carries the inaccessible
+		// counts. Intermediate batches don't have them set yet
+		// (the walker still has subdirs in flight) and the api
+		// only persists once per scan anyway.
+		if final {
+			scanBatch.InaccessibleDirs = result.InaccessibleDirs
+			scanBatch.InaccessibleFiles = result.InaccessibleFiles
+		}
 		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
 			// Same reasoning as the Connect path above: emit through
 			// the LogSink before returning so the user sees WHY the
@@ -164,7 +179,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	walkHash := s.opts.Hash && !incremental
 	fullScan := !incremental
 
-	err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
+	walkStats, err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
 			if s.opts.State != nil {
@@ -210,13 +225,17 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("walk: %w", err)
 	}
 
+	result.InaccessibleDirs = walkStats.InaccessibleDirs
+	result.InaccessibleFiles = walkStats.InaccessibleFiles
+
 	s.setPhase("finalize")
 	if err := flush(true); err != nil {
 		return nil, err
 	}
 
-	s.info("scan complete: %d files, %d dirs, %d batches",
-		result.FilesFound, result.DirsFound, result.BatchesSent)
+	s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",
+		result.FilesFound, result.DirsFound, result.BatchesSent,
+		result.InaccessibleDirs, result.InaccessibleFiles)
 	return result, nil
 }
 

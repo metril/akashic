@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { Badge, Button, Drawer } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
@@ -8,6 +9,7 @@ import {
   useDeleteSource,
   useUpdateSource,
 } from "../../hooks/useSources";
+import type { Scan } from "../../types";
 import { AllowedScannersPanel } from "./AllowedScannersPanel";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import { DeleteSourceModal } from "./DeleteSourceModal";
@@ -145,6 +147,7 @@ const DetailsTab = memo(function DetailsTab({
   const testSource = useTestSource();
   const checkReachability = useCheckSourceReachability();
 
+
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(source.name);
   const [draftConfig, setDraftConfig] = useState<Partial<AnyConfig>>(
@@ -220,10 +223,10 @@ const DetailsTab = memo(function DetailsTab({
         },
       });
       toast.promise(promise, {
-        loading: "Saving…",
-        success: "Source updated.",
+        loading: "Saving source…",
+        success: `Saved "${source.name}".`,
         error: (e: unknown) =>
-          `Save failed: ${e instanceof Error ? e.message : "unknown error"}`,
+          `Couldn't save source: ${e instanceof Error ? e.message : "unknown error"}.`,
       });
       const updated = await promise;
       // Seed local draft state from the PATCH response (the latest
@@ -268,15 +271,15 @@ const DetailsTab = memo(function DetailsTab({
   async function handleCheckNow() {
     const p = checkReachability.mutateAsync(source.id);
     toast.promise(p, {
-      loading: "Checking reachability…",
+      loading: `Checking reachability for "${source.name}"…`,
       success: (r) =>
         r.result.ok
           ? r.result.tier
-            ? `Reachable · ${r.result.tier}`
-            : "Reachable."
-          : `Unreachable: ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}`,
+            ? `Reachable · ${r.result.tier}.`
+            : `Reachable: "${source.name}".`
+          : `Unreachable: ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}.`,
       error: (e: unknown) =>
-        `Check failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't check reachability: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -300,10 +303,10 @@ const DetailsTab = memo(function DetailsTab({
       scan_type: "incremental",
     });
     toast.promise(p, {
-      loading: "Triggering scan…",
-      success: "Scan started.",
+      loading: `Triggering scan of "${source.name}"…`,
+      success: `Started scan of "${source.name}".`,
       error: (e: unknown) =>
-        `Couldn't start scan: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't start scan: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -323,12 +326,12 @@ const DetailsTab = memo(function DetailsTab({
   async function handleDeleteConfirmed({ purgeEntries }: { purgeEntries: boolean }) {
     const p = deleteSource.mutateAsync({ id: source.id, purgeEntries });
     toast.promise(p, {
-      loading: "Deleting source…",
+      loading: `Deleting "${source.name}"…`,
       success: purgeEntries
         ? `Deleted "${source.name}" and its indexed entries.`
         : `Deleted "${source.name}". Indexed entries kept.`,
       error: (e: unknown) =>
-        `Delete failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't delete source: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -523,6 +526,22 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
     () => formatDateTime(source.last_scan_at),
     [source.last_scan_at],
   );
+  // v0.5.11 — surface inaccessible-counts from the most recent
+  // completed scan inline with "Last scanned" so users can tell when
+  // a scan was incomplete (perm denied, ENOENT) vs. clean. Cheap
+  // single-row fetch keyed on source id.
+  const lastScanQuery = useQuery<Scan[]>({
+    queryKey: ["scans", "last-completed", source.id],
+    queryFn: () =>
+      api.get<Scan[]>(
+        `/scans?source_id=${source.id}&status=completed&limit=1`,
+      ),
+    staleTime: 30_000,
+  });
+  const lastScan = lastScanQuery.data?.[0] ?? null;
+  const inaccessibleDirs = lastScan?.inaccessible_dirs ?? 0;
+  const inaccessibleFiles = lastScan?.inaccessible_files ?? 0;
+  const inaccessibleTotal = inaccessibleDirs + inaccessibleFiles;
   const fieldRows = useMemo<DisplayFieldRow[]>(() => {
     const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
     return Object.entries(cfg).map(([k, v]) => ({
@@ -543,7 +562,7 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
         <Row label="Host">
           <Link
             to="/hosts"
-            className="text-blue-600 hover:underline font-medium"
+            className="text-accent-600 hover:underline font-medium"
           >
             {source.host.name}
           </Link>
@@ -556,7 +575,21 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
         <ReachabilityBadge source={source} />
       </Row>
       <Row label="Last scanned">
-        <span className="text-fg-muted">{lastScanStr}</span>
+        <div className="text-fg-muted">
+          <div>{lastScanStr}</div>
+          {inaccessibleTotal > 0 && (
+            <div
+              className="text-xs text-amber-700 dark:text-amber-300 mt-0.5"
+              title="The scanner couldn't enter these entries — usually permission-denied or files removed mid-scan. The scan completed but the affected subtrees are missing."
+            >
+              {inaccessibleTotal.toLocaleString()} inaccessible item
+              {inaccessibleTotal !== 1 ? "s" : ""} skipped
+              {inaccessibleDirs > 0 && inaccessibleFiles > 0
+                ? ` (${inaccessibleDirs} dir${inaccessibleDirs !== 1 ? "s" : ""}, ${inaccessibleFiles} file${inaccessibleFiles !== 1 ? "s" : ""})`
+                : ""}
+            </div>
+          )}
+        </div>
       </Row>
       {source.scan_schedule && (
         <Row label="Schedule">
@@ -647,7 +680,7 @@ function EditRows({
           type="text"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
-          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
         />
       </div>
       <div className="rounded-md bg-amber-50 border border-amber-100 px-2.5 py-1.5">
@@ -686,7 +719,7 @@ function EditRows({
           value={schedule}
           onChange={(e) => onScheduleChange(e.target.value)}
           placeholder="0 2 * * *"
-          className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
         />
       </div>
       <div>
@@ -704,7 +737,7 @@ function EditRows({
               onMaxParallelScannersChange(n);
             }
           }}
-          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
         />
         <p className="text-[11px] text-fg-muted mt-1">
           Cap (1–16) on cooperating scanners per scan. Default 1
@@ -716,7 +749,7 @@ function EditRows({
           type="checkbox"
           checked={isRemovable}
           onChange={(e) => onIsRemovableChange(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+          className="mt-0.5 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
         />
         <span>
           <span className="font-medium text-fg">Intermittently available</span>

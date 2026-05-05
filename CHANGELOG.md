@@ -5,6 +5,126 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.11 — 2026-05-05
+
+### Search modes + palette → Search transfer
+
+- **Cmd+K palette query now transfers to /search.** Pre-fix, clicking
+  "Show all results" navigated to `/search?q=foo` but
+  [Search.tsx](web/src/pages/Search.tsx) ignored the URL param — the
+  input arrived empty, the user re-typed, and the result set differed
+  because the new query wasn't identical to the palette's top-8.
+  [Search.tsx](web/src/pages/Search.tsx) now reads `?q=` and `?mode=`
+  via `useSearchParams` (same pattern as
+  [useFilterUrlState.ts](web/src/hooks/useFilterUrlState.ts) for
+  `?filters=`), and writes them back on every keystroke (debounced)
+  so refresh / back-button / copy-paste all preserve state.
+- **`Cmd+Enter` shortcut** in the command palette ([CommandPalette.tsx](web/src/components/CommandPalette.tsx))
+  jumps straight to `/search?q=<current input>` and closes the palette.
+  Linear / Raycast pattern — escape from the preview surface to the
+  full search experience without clicking the footer row. The footer
+  row now reads `↵ open · ⌘↵ see all in Search · Fuzzy preview · Search page supports glob/regex`.
+- **Glob and regex search modes.** New `mode` query param on
+  `GET /api/search` accepts `fuzzy` (default, unchanged), `glob`, or
+  `regex`. Glob translates `*`/`**`/`?` to SQL `LIKE` patterns
+  ([services/search.glob_to_sql_like](api/akashic/services/search.py))
+  and matches against `entries.path` when the pattern contains `/`,
+  otherwise against `entries.name`. Regex validates with `re.compile`
+  up-front (HTTP 400 on syntax error with parser position) and applies
+  postgres POSIX `~` on `entries.path`. Both modes force the SQL path
+  because Meilisearch can't express exact pattern matching. The
+  Search page surfaces a `[ Fuzzy | Glob | Regex ]` segment toggle
+  with a per-mode hint.
+
+### Walker observability
+
+- **Inaccessible-counts surfaced per scan.** Pre-fix, the Go walker
+  silently swallowed `os.ReadDir` permission errors, mid-scan ENOENT
+  on dir entries, and metadata read failures — scans completed
+  "successfully" with subtrees missing and no record of the skip.
+  [walker.WalkStats](scanner/internal/walker/walker.go) now tracks
+  `InaccessibleDirs` / `InaccessibleFiles`; the connector interface
+  returns them; [scanner.Result](scanner/internal/scanner/scanner.go)
+  ships them in the `IsFinal=true` batch envelope. The api accumulates
+  on the `scans` row across batches (so the parallel-agent path with
+  one final-per-unit sums correctly across units). SourceDetail's
+  "Last scanned" row now shows e.g. `3 inaccessible items skipped (1 dir, 2 files)`
+  in amber when the most recent completed scan touched anything it
+  couldn't enter. Migration `0027_scan_inaccessible` adds the columns
+  with default 0 — legacy scans / legacy scanners read clean zero.
+
+### UI consolidation
+
+- **Modal scrim consolidation.** [ModalShell](web/src/components/ui/ModalShell.tsx),
+  [Drawer](web/src/components/ui/Drawer.tsx), and
+  [CommandPalette](web/src/components/CommandPalette.tsx) used to each
+  hard-code their own `bg-gray-900/55` (or `/45` on Drawer) overlay.
+  Replaced with a single `<Scrim />` primitive
+  ([components/ui/Scrim.tsx](web/src/components/ui/Scrim.tsx)) backed
+  by a `bg-scrim` token in tailwind.config.js. Edit one token to
+  retheme every overlay.
+- **Treemap palette extracted.** The 10-color treemap palette + age
+  / risk semantic colors lived inline in three files
+  ([Treemap.tsx](web/src/components/storage/Treemap.tsx),
+  [sunburstLayout.ts](web/src/components/storage/sunburstLayout.ts),
+  [branchAccent.ts](web/src/components/storage/branchAccent.ts)).
+  Now centralized in
+  [categoryPalette.ts](web/src/components/storage/categoryPalette.ts)
+  and mirrored in tailwind.config.js as
+  `colors.category.{1..10}` / `colors.heat.*` / `colors.risk.*` so
+  HTML chrome can use class names while the WebGL canvas consumes
+  the same hex strings.
+- **Typography scale tokens.** Tailwind's `theme.extend.fontSize`
+  gains semantic composite tokens: `text-meta`, `text-label`,
+  `text-body`, `text-body-strong`, `text-h4`, `text-h3`, `text-h2`,
+  `text-h1`. Sweep replaces the most common
+  `text-[11px] uppercase tracking-wider text-fg-subtle` combo with
+  `text-meta uppercase text-fg-subtle` across CommandPalette, audit
+  pages, and BucketSecurityCard. Existing Tailwind size classes keep
+  working — adoption migrates incrementally.
+- **Accent token sweep.** Form chrome that used `text-blue-600 focus:ring-blue-400`
+  inline (checkboxes, focus rings, link styles) on AddSourceForm,
+  AllowedScannersPanel, AllowedSourcesModal, DiscoverSharesPanel,
+  HostAllowedScannersPanel, HostDetail, HostHeader, Hosts, SourceDetail
+  now reference `text-accent-600 focus:ring-accent-400`. Semantic
+  blue stays where it carries meaning (scanning progress, ACL diff
+  colors, audit event badges, modal "selected" highlights, the
+  scanner spinner).
+
+### UI/UX audit polish (round 2)
+
+- **AdminAudit dark mode + a11y.** Error box gained dark variants;
+  filter form refactored from raw `<select>`/`<input>` to the
+  standard `Select` + `Input` components; pagination buttons gained
+  `aria-label`s and a "Page X of Y" indicator with `aria-live`;
+  expand-row toggle gained `aria-label`/`aria-expanded` and a
+  scroll-clipping `max-h-96` on the JSON payload pane.
+- **Search.tsx error styling** uses the styled rose-on-rose card
+  pattern with dark variants and an inline regex-syntax hint when
+  `mode=regex` and the request errored.
+- **Browse.tsx mobile toolbar** moved from `flex-col md:flex-row`
+  (which compressed the Source dropdown awkwardly at 600-960px) to
+  a 3-column responsive grid with the breadcrumb spanning two cols
+  at `sm`. The empty-state when ACL filtering hides matches now
+  appends `(N items hidden by your access permissions — your filter may match one of them.)`.
+- **SettingsCredentials edit modal** — the create / edit forms gained
+  a `Settings → Credentials` breadcrumb above the title. Error path
+  uses the same dark-mode rose card.
+- **Toast voice sweep** — verb-first, sentence case, trailing
+  period, subject-when-relevant remediation hints. Updated in
+  HostDetail, SourceDetail, AllowedScannersPanel, AllowedSourcesModal,
+  HostAllowedScannersPanel, DiscoverSharesPanel, SettingsCredentials.
+  Examples: `Save failed: …` → `Couldn't save host: …`;
+  `"Source updated."` → `Saved "MyShare".`; `Apply failed` →
+  `Couldn't apply scanner changes`.
+- **Latent search router bug fixed.** Pre-fix, `_ForceSqlFallback`
+  was raised *outside* the try/except in
+  [routers/search.py](api/akashic/routers/search.py), so any query
+  with a `path:` predicate (or now non-fuzzy mode) would have 500'd
+  rather than falling through to SQL. The path-predicate path was
+  unexercised by tests, so this hadn't surfaced. Restructured to
+  raise inside the try block where the fallback handler can catch.
+
 ## v0.5.10 — 2026-05-04
 
 - **Search returned 500 (or appeared empty) when any orphaned doc was

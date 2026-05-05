@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 
 PermissionFilter = Literal["all", "readable", "writable"]
+SearchMode = Literal["fuzzy", "glob", "regex"]
 
 
 class _ForceSqlFallback(Exception):
@@ -58,6 +59,7 @@ def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
 @router.get("", response_model=SearchResults)
 async def search(
     q: str = Query(default=""),
+    mode: SearchMode = Query(default="fuzzy"),
     source_id: uuid.UUID | None = None,
     extension: str | None = None,
     min_size: int | None = None,
@@ -77,6 +79,20 @@ async def search(
 ):
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
+
+    # v0.5.11 — validate regex up front so a parser error returns 400
+    # cleanly instead of getting swallowed by the bare `except Exception:`
+    # below and falling through to the SQL path where postgres would
+    # raise a different error.
+    if mode == "regex" and q.strip():
+        from akashic.services.search import validate_regex
+        try:
+            validate_regex(q)
+        except re.error as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid regex: {exc.msg} at position {exc.pos}",
+            )
 
     # Phase-6 grammar predicates ride alongside the legacy individual
     # query params. Both styles are AND'd so a query string with both
@@ -103,13 +119,17 @@ async def search(
         else:
             permission_filter = "readable" if await user_has_any_bindings(user, db) else "all"
 
-    # Predicates Meilisearch can't express (today: `path` for path-prefix)
-    # force the SQL path so the filter actually applies. Raise to skip
-    # the Meili attempt cleanly.
-    if has_meili_inexpressible_predicate(grammar_preds):
-        raise _ForceSqlFallback()
+    # Force the SQL path when Meili can't express the query:
+    #  - path/grammar predicates Meili doesn't support (today: PathPred)
+    #  - non-fuzzy modes (glob/regex need exact pattern matching)
+    force_sql = (
+        has_meili_inexpressible_predicate(grammar_preds)
+        or mode != "fuzzy"
+    )
 
     try:
+        if force_sql:
+            raise _ForceSqlFallback()
         from akashic.services.search import search_files
 
         filters: list[str] = []
@@ -178,15 +198,31 @@ async def search(
         # path via the `entries.viewable_by_*` columns (Phase 4). Before
         # those columns existed this branch was an escape hatch around the
         # filter; it isn't anymore.
+        from akashic.services.search import glob_to_sql_like
+
         conditions = [
             Entry.kind == "file",
             Entry.is_deleted == False,  # noqa: E712
-            Entry.name.ilike(f"%{q}%"),
             # v0.5.10 — match the Meili-path filter: orphaned entries
             # (source_id=NULL after a non-purging delete) stay invisible
             # to search until they're reattached.
             Entry.source_id.is_not(None),
         ]
+        # v0.5.11 — query-string match dispatches by mode. Empty q in any
+        # mode means "filter only" (no name/path constraint), matching
+        # fuzzy's existing semantic of `ilike("%%")` (which collapses to
+        # "match anything") so filter-only searches keep working.
+        if q.strip():
+            if mode == "fuzzy":
+                conditions.append(Entry.name.ilike(f"%{q}%"))
+            elif mode == "glob":
+                like_pattern = glob_to_sql_like(q)
+                target_col = Entry.path if "/" in q else Entry.name
+                conditions.append(target_col.ilike(like_pattern, escape="\\"))
+            elif mode == "regex":
+                # validate_regex was already called up top; pattern is
+                # known good. Postgres `~` is POSIX regex on `path`.
+                conditions.append(Entry.path.op("~")(q))
         if source_id:
             conditions.append(Entry.source_id == source_id)
         elif allowed_source_ids is not None:

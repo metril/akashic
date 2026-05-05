@@ -53,7 +53,7 @@ export const HostHeader = memo(function HostHeader({
       {hostId ? (
         <Link
           to={`/hosts?host=${hostId}`}
-          className="text-sm font-semibold text-fg hover:text-blue-600 hover:underline truncate"
+          className="text-sm font-semibold text-fg hover:text-accent-600 hover:underline truncate"
         >
           {hostName}
         </Link>

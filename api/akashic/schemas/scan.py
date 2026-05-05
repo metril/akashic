@@ -13,6 +13,13 @@ class ScanBatchIn(BaseModel):
     entries: list[EntryIn]
     is_final: bool = False
     source_security_metadata: dict | None = None
+    # v0.5.11 — entries the scanner silently skipped during walk (permission
+    # denied, ENOENT mid-scan). Default 0 so legacy scanners that don't send
+    # the field don't break ingest. The api accumulates these on the Scan
+    # row, which makes the parallel-agent path (one IsFinal=true per unit)
+    # produce the correct sum across units.
+    inaccessible_dirs: int = 0
+    inaccessible_files: int = 0
 
 
 class ScanBatchResponse(BaseModel):
@@ -94,5 +101,11 @@ class ScanResponse(BaseModel):
     total_estimated: int | None = None
     phase: str | None = None
     previous_scan_files: int | None = None
+
+    # v0.5.11 — entries the walker silently skipped (permission denied,
+    # ENOENT mid-scan). Surfaced in SourceDetail "Last scan" so users
+    # know when a scan was incomplete vs. clean.
+    inaccessible_dirs: int = 0
+    inaccessible_files: int = 0
 
     model_config = {"from_attributes": True}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/akashic-project/akashic/scanner/internal/lsarpc"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
+	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -108,24 +109,27 @@ func (c *SMBConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
+func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
 	if c.smbShare == nil {
-		return fmt.Errorf("not connected")
+		return walker.WalkStats{}, fmt.Errorf("not connected")
 	}
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
 	}
 
-	return c.walkDir(ctx, root, excludeSet, computeHash, fn)
+	var stats walker.WalkStats
+	err := c.walkDir(ctx, root, excludeSet, computeHash, fn, &stats)
+	return stats, err
 }
 
-func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.EntryRecord) error) error {
+func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.EntryRecord) error, stats *walker.WalkStats) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	entries, err := c.smbShare.ReadDir(dir)
 	if err != nil {
+		stats.InaccessibleDirs++
 		return nil
 	}
 
@@ -155,7 +159,7 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 		}
 
 		if info.IsDir() {
-			if err := c.walkDir(ctx, path, excludeSet, computeHash, fn); err != nil {
+			if err := c.walkDir(ctx, path, excludeSet, computeHash, fn, stats); err != nil {
 				return err
 			}
 		}

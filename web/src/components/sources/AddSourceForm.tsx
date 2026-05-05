@@ -229,7 +229,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               // add multiple shares without filling this form N times.
               <Link
                 to={`/hosts?host=${hostChoice}&discover=1`}
-                className="inline-block text-[11px] text-blue-600 hover:underline"
+                className="inline-block text-[11px] text-accent-600 hover:underline"
               >
                 Or discover all shares on this host →
               </Link>
@@ -308,7 +308,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               removableTouched.current = true;
               setIsRemovable(e.target.checked);
             }}
-            className="mt-0.5 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+            className="mt-0.5 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
           />
           <span>
             <span className="font-medium">Intermittently available</span>

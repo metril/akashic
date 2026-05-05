@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
+import { Scrim } from "./Scrim";
 
 interface DrawerProps {
   open: boolean;
@@ -70,12 +71,12 @@ export function Drawer({
           two blur layers. Alpha bumped 30 -> 45 so the scrim still
           reads as "modal active" without relying on the blur for
           visual contrast. */}
-      <div
+      <Scrim
+        onClick={onClose}
         className={cn(
-          "absolute inset-0 bg-gray-900/45 transition-opacity duration-200",
+          "transition-opacity duration-200",
           open ? "opacity-100" : "opacity-0",
         )}
-        onClick={onClose}
       />
       <aside
         role="dialog"

@@ -1,3 +1,4 @@
+import re
 from typing import TYPE_CHECKING
 
 from meilisearch_python_sdk import AsyncClient
@@ -9,6 +10,45 @@ if TYPE_CHECKING:
     from akashic.models.entry import Entry
 
 INDEX_NAME = "files"
+
+
+def glob_to_sql_like(pattern: str) -> str:
+    """Translate a glob pattern to a SQL LIKE pattern.
+
+    `**` and `*` both collapse to `%` because LIKE has no path-segment
+    awareness; users get "matches across path segments" either way,
+    which matches their expectation when typing `**/invoices/*`.
+    `?` becomes `_`. Literal `%` and `_` in the input are escaped so
+    they don't accidentally widen the match.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "*":
+            if i + 1 < len(pattern) and pattern[i + 1] == "*":
+                out.append("%")
+                i += 2
+                continue
+            out.append("%")
+        elif ch == "?":
+            out.append("_")
+        elif ch == "%":
+            out.append("\\%")
+        elif ch == "_":
+            out.append("\\_")
+        elif ch == "\\":
+            out.append("\\\\")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def validate_regex(pattern: str) -> None:
+    """Raise re.error with a useful message if the regex is malformed.
+    Caller wraps the raise into HTTP 400."""
+    re.compile(pattern)
 
 # v0.4.14 — raise Meilisearch's deep-pagination cap from its 1000
 # default. The cap exists to bound per-query memory; 100k is well

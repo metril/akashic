@@ -177,6 +177,10 @@ export interface Scan {
   total_estimated?: number | null;
   phase?: "prewalk" | "walk" | "finalize" | null;
   previous_scan_files?: number | null;
+  // v0.5.11 — entries the scanner silently skipped during walk
+  // (permission denied, ENOENT mid-scan). 0 on legacy rows.
+  inaccessible_dirs?: number;
+  inaccessible_files?: number;
   source?: Source;
 }
 

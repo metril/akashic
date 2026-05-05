@@ -130,7 +130,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
           ? `Added ${r.created}; skipped ${r.skipped} (name conflict).`
           : `Added ${r.created} source${r.created === 1 ? "" : "s"}.`,
       error: (e: unknown) =>
-        `Add failed: ${e instanceof Error ? e.message : "unknown error"}`,
+        `Couldn't add shares: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -223,7 +223,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
               checked={r.selected}
               disabled={r.alreadyAdded}
               onChange={(e) => setRowSelected(idx, e.target.checked)}
-              className="mt-1.5 h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+              className="mt-1.5 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
             />
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-2">
@@ -242,7 +242,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
                   value={r.name}
                   onChange={(e) => setRowName(idx, e.target.value)}
                   placeholder="Source name"
-                  className="w-full rounded-md border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                  className="w-full rounded-md border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
                 />
               )}
             </div>
@@ -299,7 +299,7 @@ function IndeterminateCheckbox({
       checked={checked}
       disabled={disabled}
       onChange={onChange}
-      className="h-4 w-4 rounded border-line text-blue-600 focus:ring-blue-400"
+      className="h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
     />
   );
 }

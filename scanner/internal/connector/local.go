@@ -20,7 +20,7 @@ func (c *LocalConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) error {
+func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
 	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 

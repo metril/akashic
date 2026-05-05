@@ -31,6 +31,13 @@ import {
 
 import type { ColorMode } from "../../pages/StorageExplorer.types";
 import { branchAccent, mix } from "./branchAccent";
+import {
+  HEAT_COLORS,
+  NEUTRAL_CELL,
+  NEUTRAL_DIRECTORY,
+  RISK_COLORS,
+  categoryColorForKey,
+} from "./categoryPalette";
 import { createGLRenderer, parseColor, type GLRenderer, type RenderInstance, type Rgba } from "./treemapGL";
 import { buildHitIndex, hitTest, type HitRect } from "./treemapHitTest";
 import { interpolatePairs, matchInstances, runAnim } from "./treemapAnim";
@@ -67,30 +74,23 @@ interface TreemapProps {
   onGoUp?: () => void;
 }
 
-const PALETTE = [
-  "#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-  "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#0ea5e9",
-];
-
 function colorFor(key: string | undefined, mode: ColorMode): string {
-  if (!key) return "#94a3b8";
+  if (!key) return NEUTRAL_CELL;
   if (mode === "age") {
-    if (key === "hot") return "#10b981";
-    if (key === "warm") return "#f59e0b";
-    if (key === "cold") return "#94a3b8";
+    if (key === "hot") return HEAT_COLORS.hot;
+    if (key === "warm") return HEAT_COLORS.warm;
+    if (key === "cold") return HEAT_COLORS.cold;
     return "#cbd5e1";
   }
   if (mode === "risk") {
-    if (key === "public") return "#ef4444";
-    if (key === "authenticated") return "#f59e0b";
-    if (key === "restricted") return "#10b981";
-    return "#94a3b8";
+    if (key === "public") return RISK_COLORS.public;
+    if (key === "authenticated") return RISK_COLORS.authenticated;
+    if (key === "restricted") return RISK_COLORS.restricted;
+    return NEUTRAL_CELL;
   }
-  if (key === "other") return "#94a3b8";
-  if (key === "directory") return "#475569";
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(h) % PALETTE.length];
+  if (key === "other") return NEUTRAL_CELL;
+  if (key === "directory") return NEUTRAL_DIRECTORY;
+  return categoryColorForKey(key);
 }
 
 /** Headroom on each directory rectangle for its title strip. Recursive

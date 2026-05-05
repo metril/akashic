@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
+	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
@@ -118,9 +119,10 @@ func (c *SSHConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) error {
+func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+	var stats walker.WalkStats
 	if c.sftpClient == nil {
-		return fmt.Errorf("not connected")
+		return stats, fmt.Errorf("not connected")
 	}
 
 	excludeSet := make(map[string]bool, len(excludePatterns))
@@ -137,21 +139,25 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 		c.aclMode = "perdir"
 	}
 
-	walker := c.sftpClient.Walk(root)
+	w := c.sftpClient.Walk(root)
 	currentDir := ""
-	for walker.Step() {
+	for w.Step() {
 		// Honour cancellation between SFTP steps so a SIGTERM /
 		// scan-cancel actually interrupts a multi-million-file walk.
 		if err := ctx.Err(); err != nil {
-			return err
+			return stats, err
 		}
-		if err := walker.Err(); err != nil {
-			log.Printf("warning: walk error at %s: %v", walker.Path(), err)
+		if err := w.Err(); err != nil {
+			log.Printf("warning: walk error at %s: %v", w.Path(), err)
+			// SFTP doesn't tell us if the failed entry was a dir or
+			// file at this stage; bucket as inaccessible_files since
+			// most mid-walk SFTP errors are individual stat failures.
+			stats.InaccessibleFiles++
 			continue
 		}
 
-		p := walker.Path()
-		stat := walker.Stat()
+		p := w.Path()
+		stat := w.Stat()
 		name := stat.Name()
 
 		if p == root {
@@ -160,7 +166,7 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 
 		if excludeSet[strings.ToLower(name)] {
 			if stat.IsDir() {
-				walker.SkipDir()
+				w.SkipDir()
 			}
 			continue
 		}
@@ -184,11 +190,11 @@ func (c *SSHConnector) Walk(ctx context.Context, root string, excludePatterns []
 			entry.Acl = acl
 		}
 		if err := fn(entry); err != nil {
-			return err
+			return stats, err
 		}
 	}
 
-	return nil
+	return stats, nil
 }
 
 // WalkShallow implements connector.ShallowWalker.

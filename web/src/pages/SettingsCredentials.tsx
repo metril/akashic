@@ -48,7 +48,7 @@ export default function SettingsCredentials() {
       setConfirmDelete(null);
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Failed to delete profile.",
+        `Couldn't delete profile: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -180,7 +180,7 @@ function ProfileCreateModal({ onClose }: { onClose: () => void }) {
       onClose();
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Failed to create profile.",
+        `Couldn't create profile: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -188,9 +188,12 @@ function ProfileCreateModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalShell open onClose={onClose} maxWidth="lg" ariaLabelledBy="cp-create-title">
       <form onSubmit={handleSubmit} className="p-5 space-y-3">
-        <h2 id="cp-create-title" className="text-base font-semibold text-fg">
-          New credential profile
-        </h2>
+        <div>
+          <p className="text-xs text-fg-muted">Settings → Credentials</p>
+          <h2 id="cp-create-title" className="text-base font-semibold text-fg">
+            New credential profile
+          </h2>
+        </div>
         <Input
           label="Profile name"
           value={name}
@@ -271,11 +274,11 @@ function ProfileEditModal({
           credentials,
         },
       });
-      toast.success(`Saved "${name}".`);
+      toast.success(`Saved profile "${name}".`);
       onClose();
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Failed to save profile.",
+        `Couldn't save profile: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -283,20 +286,26 @@ function ProfileEditModal({
   return (
     <ModalShell open onClose={onClose} maxWidth="lg" ariaLabelledBy="cp-edit-title">
       <form onSubmit={handleSubmit} className="p-5 space-y-3">
-        <h2 id="cp-edit-title" className="text-base font-semibold text-fg">
-          Edit credential profile
-        </h2>
+        <div>
+          <p className="text-xs text-fg-muted">Settings → Credentials</p>
+          <h2 id="cp-edit-title" className="text-base font-semibold text-fg">
+            Edit credential profile
+          </h2>
+        </div>
         {detail.isLoading && (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex items-center justify-center py-8" role="status" aria-label="Loading profile">
             <Spinner />
           </div>
         )}
         {detail.isError && (
-          <p className="text-sm text-rose-600">
+          <div
+            role="alert"
+            className="rounded-md border border-rose-200 dark:border-rose-700/40 bg-rose-50 dark:bg-rose-950/30 px-3 py-2 text-sm text-rose-800 dark:text-rose-200"
+          >
             {detail.error instanceof Error
               ? detail.error.message
-              : "Failed to load profile"}
-          </p>
+              : "Couldn't load profile."}
+          </div>
         )}
         {detail.data && (
           <>

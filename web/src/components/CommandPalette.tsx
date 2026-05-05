@@ -7,7 +7,7 @@ import { api } from "../api/client";
 import type { SearchResult, Source } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { usePalette } from "../hooks/usePalette";
-import { Icon } from "./ui";
+import { Icon, Scrim } from "./ui";
 import { formatBytes } from "../lib/format";
 
 const RECENT_KEY = "palette-recent";
@@ -60,14 +60,26 @@ export function CommandPalette() {
 
   // Esc to close — sonner/cmdk also handles this internally but a
   // top-level guard avoids subtle ordering issues with other dialogs.
+  // Cmd/Ctrl+Enter on a non-empty query jumps straight to the
+  // /search page with the query attached — Linear/Raycast-pattern
+  // escape from the preview palette into the full search experience.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        const q = (e.target as HTMLInputElement | null)?.value?.trim?.()
+          ?? query.trim();
+        if (q) {
+          setOpen(false);
+          navigate(`/search?q=${encodeURIComponent(q)}`);
+          e.preventDefault();
+        }
+      }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
+  }, [open, setOpen, query, navigate]);
 
   // Load sources for the "Sources" group. The same useSources cache is
   // already warmed by the sidebar/dashboard so this is usually instant.
@@ -148,10 +160,7 @@ export function CommandPalette() {
       role="dialog"
       aria-modal="true"
     >
-      <div
-        className="absolute inset-0 bg-gray-900/55"
-        onClick={() => setOpen(false)}
-      />
+      <Scrim onClick={() => setOpen(false)} />
       <Command
         label="Command palette"
         className="relative w-full max-w-xl rounded-xl bg-surface border border-line/70 shadow-2xl overflow-hidden"
@@ -176,7 +185,7 @@ export function CommandPalette() {
           </Command.Empty>
 
           {!query && recent.length > 0 && (
-            <Command.Group heading="Recent" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+            <Command.Group heading="Recent" className="text-meta uppercase text-fg-subtle px-3 pt-2">
               {recent.map((r) => (
                 <Command.Item
                   key={`recent:${r.id}`}
@@ -201,7 +210,7 @@ export function CommandPalette() {
               the query string, but plain divs (the state messages) render
               unconditionally. */}
           {query.length > 0 && (
-            <Command.Group heading="Files" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+            <Command.Group heading="Files" className="text-meta uppercase text-fg-subtle px-3 pt-2">
               {query.length < 2 && (
                 <div className="px-3 py-2 text-xs text-fg-muted italic">
                   Type at least 2 characters to search files.
@@ -258,6 +267,12 @@ export function CommandPalette() {
                   No files match "{query}". Run a scan first if no source has been indexed yet.
                 </div>
               )}
+              {query.length === 1 && (
+                <div className="flex items-center gap-2 px-3 py-2 text-xs text-fg-subtle italic">
+                  <Icon name="search" className="h-3.5 w-3.5" />
+                  Type more to search files. Press ⌘↵ to open Search.
+                </div>
+              )}
               {query.length >= 2 && (fileResults.length > 0 || !fileSearch.isError) && (
                 <Command.Item
                   key="file-search-all"
@@ -265,20 +280,24 @@ export function CommandPalette() {
                   onSelect={() =>
                     go({
                       id: "search-all",
-                      label: `Show all results for "${query}"`,
+                      label: fileSearch.data?.total
+                        ? `Show all ${fileSearch.data.total.toLocaleString()} results in Search`
+                        : `Show all results in Search`,
                       to: `/search?q=${encodeURIComponent(query)}`,
                     })
                   }
                   className="flex items-center gap-2 px-3 py-2 text-xs text-accent-600 dark:text-accent-500 font-medium rounded-md cursor-pointer aria-selected:bg-accent-50 aria-selected:text-accent-700"
                 >
                   <Icon name="search" className="h-3.5 w-3.5" />
-                  Show all results in Search →
+                  {fileSearch.data?.total !== undefined && fileSearch.data.total > fileResults.length
+                    ? `Show all ${fileSearch.data.total.toLocaleString()} results in Search →`
+                    : "Show all results in Search →"}
                 </Command.Item>
               )}
             </Command.Group>
           )}
 
-          <Command.Group heading="Navigate" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+          <Command.Group heading="Navigate" className="text-meta uppercase text-fg-subtle px-3 pt-2">
             {navItems.map((n) => (
               <Command.Item
                 key={`nav:${n.id}`}
@@ -293,7 +312,7 @@ export function CommandPalette() {
           </Command.Group>
 
           {sources.length > 0 && (
-            <Command.Group heading="Sources" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+            <Command.Group heading="Sources" className="text-meta uppercase text-fg-subtle px-3 pt-2">
               {sources.map((s) => (
                 <Command.Item
                   key={`source:${s.id}`}
@@ -334,7 +353,7 @@ export function CommandPalette() {
             </Command.Group>
           )}
 
-          <Command.Group heading="Actions" className="text-[11px] uppercase tracking-wider text-fg-subtle px-3 pt-2">
+          <Command.Group heading="Actions" className="text-meta uppercase text-fg-subtle px-3 pt-2">
             <Command.Item
               key="toggle-theme"
               value="action toggle theme"
@@ -359,6 +378,14 @@ export function CommandPalette() {
             </Command.Item>
           </Command.Group>
         </Command.List>
+        <div className="flex items-center justify-between gap-3 border-t border-line-subtle px-3 py-1.5 text-[11px] text-fg-subtle">
+          <span>
+            <kbd className="font-mono bg-app border border-line rounded px-1">↵</kbd> open
+            <span className="mx-1.5">·</span>
+            <kbd className="font-mono bg-app border border-line rounded px-1">⌘↵</kbd> see all in Search
+          </span>
+          <span>Fuzzy preview · Search page supports glob/regex</span>
+        </div>
       </Command>
     </div>
   );
