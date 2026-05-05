@@ -53,7 +53,7 @@ export function ConfirmDialog({
         )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
             onClick={onCancel}
             disabled={loading}

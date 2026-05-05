@@ -10,6 +10,7 @@ import type {
   RightName,
 } from "../../types";
 import { Section, Chip } from "./shared";
+import { Button } from "../ui";
 
 const RIGHT_LABELS: Record<RightName, string> = {
   read: "Read",
@@ -117,26 +118,28 @@ export function EffectivePermissions({
             <button
               type="button"
               onClick={() => setGroups(groups.filter((_, j) => j !== i))}
-              className="text-xs text-fg-subtle hover:text-red-600 px-2"
+              className="inline-flex items-center justify-center h-5 w-5 rounded text-fg-subtle hover:bg-surface-muted hover:text-rose-600"
               aria-label="Remove group"
             >×</button>
           </div>
         ))}
 
         <div className="flex items-center gap-3">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={() => setGroups([...groups, { type: principalType, identifier: "" }])}
-            className="text-xs text-accent-600 hover:text-accent-800"
-          >+ Add group</button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!identifier.trim() || mutation.isPending}
-            className="text-sm bg-accent-600 text-white rounded px-3 py-1 disabled:opacity-50 hover:bg-accent-700"
           >
-            {mutation.isPending ? "Computing…" : "Compute"}
-          </button>
+            + Add group
+          </Button>
+          <Button
+            size="sm"
+            onClick={submit}
+            disabled={!identifier.trim()}
+            loading={mutation.isPending}
+          >
+            Compute
+          </Button>
         </div>
 
         {mutation.error && (

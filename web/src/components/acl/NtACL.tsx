@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { NtACL as NtACLType, NtACE, NtPrincipal } from "../../types";
 import { Chip, Mono } from "./shared";
+import { Button } from "../ui";
 import { formatNtMask, formatAceFlag, formatNtControl } from "../../lib/aclLabels";
 import { dedupeAces } from "../../lib/aclDedupe";
 import { useResolvePrincipals } from "../../hooks/useResolvePrincipals";
@@ -207,13 +208,15 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
         </tbody>
       </table>
       {inheritedGroups.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowInherited(!showInherited)}
-          className="mt-2 text-xs text-accent-600 hover:underline"
-        >
-          {showInherited ? "Hide" : "Show"} {inheritedGroups.length} inherited entr{inheritedGroups.length === 1 ? "y" : "ies"}
-        </button>
+        <div className="mt-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowInherited(!showInherited)}
+          >
+            {showInherited ? "Hide" : "Show"} {inheritedGroups.length} inherited entr{inheritedGroups.length === 1 ? "y" : "ies"}
+          </Button>
+        </div>
       )}
     </div>
   );

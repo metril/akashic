@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { Card, Drawer, EmptyState, Page, Spinner } from "../components/ui";
+import { Button, Card, Drawer, EmptyState, Page, Spinner } from "../components/ui";
 import { EntryDetail } from "../components/EntryDetail";
 import { PrincipalLookup } from "../components/access/PrincipalLookup";
 import {
@@ -234,13 +234,13 @@ function FileLookup({
           className="w-full h-10 px-3 rounded-lg border border-line bg-surface font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent-500"
         />
       </div>
-      <button
+      <Button
         type="submit"
-        disabled={!input.trim() || pending}
-        className="h-10 px-4 rounded-lg bg-accent-600 text-white text-sm font-medium hover:bg-accent-700 disabled:opacity-50"
+        disabled={!input.trim()}
+        loading={pending}
       >
-        {pending ? "Looking up…" : "Look up"}
-      </button>
+        Look up
+      </Button>
     </form>
   );
 }

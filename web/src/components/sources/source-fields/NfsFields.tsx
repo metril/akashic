@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Input } from "../../ui";
+import { Button, Input } from "../../ui";
 import type { FieldsProps, NfsAuthMethod, NfsConfig } from "../sourceTypes";
 
 const AUTH_METHOD_OPTIONS: ReadonlyArray<{ id: NfsAuthMethod; label: string; help: string }> = [
@@ -168,13 +168,14 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
         </div>
       )}
 
-      <button
+      <Button
         type="button"
+        size="sm"
+        variant="ghost"
         onClick={() => setShowAdvanced((s) => !s)}
-        className="text-xs text-fg-muted hover:text-fg underline"
       >
         {showAdvanced ? "Hide" : "Show"} advanced options
-      </button>
+      </Button>
       {showAdvanced && (
         <div className="space-y-3 rounded-md border border-line p-3">
           <Input

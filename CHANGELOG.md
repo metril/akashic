@@ -5,6 +5,49 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.5.13 — 2026-05-05
+
+Round 4 of the button affordance audit, after the user reported still
+seeing buttons that don't look like buttons. Three independent audit
+passes were run in parallel — grep-based pattern sweep, page-by-page
+visual walk, and design-system primitive review — surfacing overlapping
+but non-identical findings. v0.5.13 ships every HIGH and MEDIUM finding
+plus the design-system fix that has the biggest multiplier effect:
+
+- **ConfirmDialog Cancel is now visible.** Cancel was rendered with
+  `variant="ghost"` (no border, muted text), so on every confirm
+  dialog — delete source, delete profile, delete identity, rotate
+  keys, etc. — Cancel blended into the dialog background while the
+  primary/danger Confirm pulled focus. Users who wanted to back out
+  had to hover to find it. Switched to `variant="secondary"` so it
+  reads as a real button paired against the action.
+- **Form-submit buttons promoted to `Button`.** Settings → Identities
+  Add identity / Add binding, Admin Access File lookup, and ACL
+  Effective Permissions Compute were all bare
+  `<button class="bg-accent-600 text-white …">` with no focus ring,
+  no disabled-loading state. Now use the standard `Button` primitive
+  with `loading` prop.
+- **Tab strips now signal interactivity at rest.** Inactive tabs in
+  SourceDetail (Details / History / Live), ScanLogPanel (Activity /
+  Raw stderr), and JoinTokenWizard (shell / docker / compose / k8s)
+  used to render as plain muted text. Added `hover:bg-surface-muted/40`
+  + `transition-colors` + focus-visible ring so users see hover
+  feedback on the whole tab area, plus `role="tab"` / `aria-selected`
+  for screen readers.
+- **Chip × touch targets.** Filter-chip remove ×, tag-chip remove ×,
+  ACL group-chip remove × — all standardized to a 20×20 rounded
+  hit target with hover background. Pre-fix the × was a bare
+  character with no padding, sub-12×12 effective click area.
+- **Inline action links promoted.** FilterChips "Clear all", NfsFields
+  "Show advanced options", EffectivePermissions "+ Add group",
+  NtACL "Show N inherited entries" — were styled as
+  `text-fg-muted hover:underline` body-text links. Now rendered as
+  `Button` ghost / secondary so they read as real actions.
+- **Drawer close × bigger touch target.** The close × on every
+  drawer (Source / Host / Scan log / KeyboardShortcuts help) was a
+  20×20 effective target — below WCAG AA's 24×24 minimum. Bumped to
+  32×32 with explicit focus-visible ring.
+
 ## v0.5.12 — 2026-05-05
 
 - **Cmd+K file results no longer break.** Picking a file from the

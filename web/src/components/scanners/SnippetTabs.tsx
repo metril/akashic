@@ -48,10 +48,10 @@ export function SnippetTabs({ snippets }: Props) {
             role="tab"
             aria-selected={active === t.key}
             onClick={() => { setActive(t.key); setCopied(false); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-t -mb-px ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-t -mb-px transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
               active === t.key
                 ? "border border-line border-b-surface bg-surface text-fg"
-                : "text-fg-muted hover:text-fg"
+                : "text-fg-muted hover:text-fg hover:bg-surface-muted/40"
             }`}
           >
             {t.label}

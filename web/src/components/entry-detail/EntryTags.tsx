@@ -185,7 +185,7 @@ function TagChip({ tag, direct, inherited, onRemove, sourceId, parentPath }: Chi
         <button
           type="button"
           onClick={onRemove}
-          className="text-fg-subtle hover:text-danger ml-0.5"
+          className="inline-flex items-center justify-center h-5 w-5 rounded-full text-fg-subtle hover:bg-surface-muted hover:text-rose-600 transition-colors ml-0.5"
           aria-label={`Remove tag ${tag}`}
         >
           ×

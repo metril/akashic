@@ -110,13 +110,13 @@ export function Drawer({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex-shrink-0 p-1.5 rounded-md text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors"
+              className="flex-shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-md text-fg-subtle hover:text-fg hover:bg-surface-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
-                className="h-4 w-4"
+                className="h-5 w-5"
               >
                 <path
                   fillRule="evenodd"

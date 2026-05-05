@@ -40,7 +40,7 @@ export function FilterChips({ showSwitchToSearch = false, className }: FilterChi
       <button
         type="button"
         onClick={clearFilters}
-        className="text-xs text-fg-subtle hover:text-fg ml-1 underline-offset-2 hover:underline"
+        className="ml-1 inline-flex items-center justify-center h-7 px-2.5 text-xs font-medium rounded-md text-fg-muted hover:bg-surface-muted hover:text-fg transition-colors"
       >
         Clear all
       </button>
@@ -65,7 +65,7 @@ function Chip({ predicate, onRemove }: { predicate: Predicate; onRemove: () => v
         type="button"
         onClick={onRemove}
         aria-label={`Remove ${predicateLabel(predicate)} filter`}
-        className="text-fg-subtle hover:text-fg leading-none"
+        className="inline-flex items-center justify-center h-5 w-5 rounded-full text-fg-subtle hover:bg-surface-muted hover:text-fg transition-colors"
       >
         ×
       </button>

@@ -240,10 +240,14 @@ function AddPersonForm({
         <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
         Primary
       </label>
-      <button
-        type="submit" disabled={!label.trim() || pending}
-        className="text-sm bg-accent-600 text-white rounded px-3 py-1 disabled:opacity-50 hover:bg-accent-700"
-      >+ Add identity</button>
+      <Button
+        type="submit"
+        size="sm"
+        disabled={!label.trim()}
+        loading={pending}
+      >
+        Add identity
+      </Button>
     </form>
   );
 }
@@ -301,10 +305,14 @@ function AddBindingForm({
         placeholder="groups (comma-sep)"
         className="w-48 font-mono border border-line rounded px-2 py-1"
       />
-      <button
-        type="submit" disabled={!identifier.trim() || pending}
-        className="bg-accent-600 text-white rounded px-2 py-1 disabled:opacity-50 hover:bg-accent-700"
-      >+ Add binding</button>
+      <Button
+        type="submit"
+        size="sm"
+        disabled={!identifier.trim()}
+        loading={pending}
+      >
+        Add binding
+      </Button>
     </form>
   );
 }

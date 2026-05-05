@@ -217,14 +217,16 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-line mb-2 text-sm">
+        <div role="tablist" className="flex border-b border-line mb-2 text-sm">
           <button
             type="button"
+            role="tab"
+            aria-selected={tab === "activity"}
             onClick={() => setTab("activity")}
-            className={`px-3 py-1.5 -mb-px border-b-2 ${
+            className={`px-3 py-1.5 -mb-px border-b-2 transition-colors rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
               tab === "activity"
-                ? "border-gray-900 text-fg font-medium"
-                : "border-transparent text-fg-muted hover:text-fg"
+                ? "border-fg text-fg font-medium"
+                : "border-transparent text-fg-muted hover:text-fg hover:bg-surface-muted/40"
             }`}
           >
             Activity
@@ -234,11 +236,13 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={tab === "stderr"}
             onClick={() => setTab("stderr")}
-            className={`px-3 py-1.5 -mb-px border-b-2 ${
+            className={`px-3 py-1.5 -mb-px border-b-2 transition-colors rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
               tab === "stderr"
-                ? "border-gray-900 text-fg font-medium"
-                : "border-transparent text-fg-muted hover:text-fg"
+                ? "border-fg text-fg font-medium"
+                : "border-transparent text-fg-muted hover:text-fg hover:bg-surface-muted/40"
             }`}
           >
             Raw stderr
