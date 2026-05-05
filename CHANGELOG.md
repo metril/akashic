@@ -5,6 +5,28 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.6.1 — 2026-05-05
+
+Bug fix — credential profiles now actually work on the **host edit**
+form.
+
+- **Editing a host with a credential profile attached no longer
+  demands credentials.** When the user created a host through "Add
+  host", picked a saved credential profile, and later opened the host
+  to change something unrelated (port, hostname, name), the form
+  refused to save with "Username is required" / "Password is
+  required". Cause: the create form correctly told the validator and
+  field renderer to skip credential checks while a profile was
+  attached, but `HostDetail`'s edit flow never tracked the profile
+  id, never showed the picker, and never passed the
+  "omitCredentials" flag — so the validator saw the masked `"***"`
+  sentinels coming back from the API as empty values and rejected
+  the form. The edit form now mirrors AddHostForm: it has a
+  `<ProfilePicker>`, hides credential inputs when a profile is
+  selected, skips credential validation in that case, and sends
+  `credential_profile_id` on save so the user can also detach /
+  switch profiles inline.
+
 ## v0.6.0 — 2026-05-05
 
 Tier 3 foundation — first PR of the cloud-storage roadmap. No

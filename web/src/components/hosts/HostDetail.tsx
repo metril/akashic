@@ -16,6 +16,7 @@ import {
   type HostType,
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
+import { ProfilePicker } from "../credentials/ProfilePicker";
 import { DiscoverSharesPanel } from "./DiscoverSharesPanel";
 import { HostAllowedScannersPanel } from "./HostAllowedScannersPanel";
 
@@ -51,6 +52,14 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftConfig, setDraftConfig] = useState<HostConfig>({});
+  // v0.6.1 — track the credential profile id so the edit form mirrors
+  // AddHostForm. Without this, validateHostConfig and HostFields had
+  // no way to know "credentials come from a profile, skip the
+  // required-field gate", and editing any other field on a
+  // profile-attached host failed with "Username is required" because
+  // the masked "***" credentials in the response didn't satisfy the
+  // validator.
+  const [draftProfileId, setDraftProfileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -61,6 +70,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     if (host) {
       setDraftName(host.name);
       setDraftConfig((host.connection_config ?? {}) as HostConfig);
+      setDraftProfileId(host.credential_profile_id ?? null);
       setEditing(false);
       setError(null);
       // Honour the deep-link's autoDiscover only when the host type
@@ -74,7 +84,11 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   if (!hostId) return null;
 
   const validationError = host
-    ? validateHostConfig(host.type as HostType, draftConfig)
+    ? validateHostConfig(
+        host.type as HostType,
+        draftConfig,
+        draftProfileId !== null,
+      )
     : null;
 
   async function handleSave() {
@@ -93,7 +107,11 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     }
     const p = updateHost.mutateAsync({
       id: host.id,
-      data: { name: draftName, connection_config: cleaned },
+      data: {
+        name: draftName,
+        connection_config: cleaned,
+        credential_profile_id: draftProfileId,
+      },
     });
     toast.promise(p, {
       loading: "Saving host…",
@@ -196,10 +214,21 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                     className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
                   />
                 </div>
+                <ProfilePicker
+                  type={host.type as "ssh" | "smb" | "nfs" | "s3"}
+                  value={draftProfileId}
+                  onChange={setDraftProfileId}
+                  hint={
+                    draftProfileId
+                      ? "Credentials come from this profile. Edit them in Settings → Credentials."
+                      : "Pick a saved profile, or fill credentials inline below."
+                  }
+                />
                 <HostFields
                   type={host.type as HostType}
                   value={draftConfig}
                   onChange={setDraftConfig}
+                  omitCredentials={draftProfileId !== null}
                 />
               </div>
             )}
@@ -277,6 +306,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       setEditing(false);
                       setDraftName(host.name);
                       setDraftConfig((host.connection_config ?? {}) as HostConfig);
+                      setDraftProfileId(host.credential_profile_id ?? null);
                       setError(null);
                     }}
                   >
