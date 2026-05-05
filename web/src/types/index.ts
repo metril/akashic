@@ -144,6 +144,12 @@ export interface SearchResults {
   results: SearchResult[];
   total: number;
   query: string;
+  // v0.6.0 — Meilisearch facet distribution for the `domain_metadata.*`
+  // keys present in the current result set (Library Metadata facet
+  // panel). Keyed by the public dotted name (`domain_metadata.album`),
+  // not the underscore-flattened wire shape. Null when the SQL
+  // fallback path served the request.
+  facet_distribution?: Record<string, Record<string, number>> | null;
 }
 
 export interface DuplicateGroup {
@@ -382,6 +388,12 @@ export interface EntryVersion {
   detected_at: string;
 }
 
+// v0.6.0 — provider-specific metadata from Tier 3 self-hosted
+// libraries (Paperless-ngx, Immich). Filesystem sources leave it null.
+// Schemaless map; the Library Metadata renderer keys off well-known
+// names (correspondent, document_type, person, album, …).
+export type DomainMetadata = Record<string, unknown>;
+
 export interface EntryDetail {
   id: string;
   // Nullable since v0.4.0 — see FileEntry.source_id.
@@ -401,6 +413,7 @@ export interface EntryDetail {
   group_name: string | null;
   acl: ACL | null;
   xattrs: Record<string, string> | null;
+  domain_metadata: DomainMetadata | null;
   fs_created_at: string | null;
   fs_modified_at: string | null;
   fs_accessed_at: string | null;

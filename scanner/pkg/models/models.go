@@ -148,6 +148,14 @@ type EntryRecord struct {
 	SubtreeSizeBytes  *int64 `json:"subtree_size_bytes,omitempty"`
 	SubtreeFileCount  *int64 `json:"subtree_file_count,omitempty"`
 	SubtreeDirCount   *int64 `json:"subtree_dir_count,omitempty"`
+
+	// v0.6.0 — provider-specific metadata for self-hosted libraries
+	// (Paperless-ngx: correspondent, document_type, custom_fields;
+	// Immich: camera EXIF, person/face, GPS, datetime_original, album).
+	// Filesystem connectors leave this nil. Schemaless on purpose; the
+	// api stores the dict as-is in entries.domain_metadata, and a known
+	// subset of keys is exposed as Meilisearch filterable attributes.
+	DomainMetadata map[string]interface{} `json:"domain_metadata,omitempty"`
 }
 
 func (e *EntryRecord) IsDir() bool { return e.Kind == "directory" }

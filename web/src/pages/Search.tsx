@@ -38,6 +38,7 @@ import {
 } from "../components/ui";
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
+import { DomainMetadataFacets } from "../components/search/DomainMetadataFacets";
 import { BulkTagDialog } from "../components/tags/BulkTagDialog";
 import { useAuth } from "../hooks/useAuth";
 import { useEntryDetail } from "../hooks/useEntryDetail";
@@ -48,6 +49,10 @@ interface SearchResponse {
   results: SearchResult[];
   total: number;
   query: string;
+  // v0.6.0 — populated when the Meili path serves the request and the
+  // result set carries any well-known domain_metadata key. Null on the
+  // SQL fallback path; the facet panel just elides itself.
+  facet_distribution?: Record<string, Record<string, number>> | null;
 }
 
 // v0.4.14 — Search is now infinite-scroll. Page size matches the
@@ -306,6 +311,11 @@ export default function Search() {
       </Card>
 
       <FilterChips className="mb-3" />
+
+      <DomainMetadataFacets
+        className="mb-3"
+        facetDistribution={searchQuery.data?.pages[0]?.facet_distribution}
+      />
 
       {!hasFilter ? (
         <Card padding="lg">

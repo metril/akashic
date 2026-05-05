@@ -5,6 +5,61 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.6.0 — 2026-05-05
+
+Tier 3 foundation — first PR of the cloud-storage roadmap. No
+user-facing source types ship in this release; v0.6.0 lays the data
+and search plumbing the upcoming Paperless-ngx and Immich connectors
+need so those PRs land as small, self-contained connectors instead of
+multi-thousand-line beasts.
+
+- **`entries.domain_metadata` (JSONB).** Self-hosted libraries
+  surface metadata that doesn't fit POSIX fields — Paperless-ngx
+  carries correspondent / document_type / custom_fields per
+  document, Immich carries camera EXIF / face / GPS / album per
+  asset. Persisted in a new nullable JSONB column on entries with a
+  partial GIN index. Filesystem-source rows leave it NULL. Schemaless
+  on purpose — the facet UI keys off well-known names; connector-
+  emitted keys outside that list still index, they just aren't
+  filterable until they join the list.
+- **Library Metadata section in the entry detail drawer.** When an
+  entry carries domain_metadata, a new section renders below
+  Extended attributes. Well-known keys (Correspondent / Document
+  type / Person / Album / Camera make / Camera model) render as
+  `FilterableCell`s — clicking a value jumps to /search filtered to
+  that key/value pair. Other keys render as plain text since they
+  aren't predicate-filterable.
+- **Library Metadata facet panel on the Search page.** A strip
+  above the result list that shows the top values per
+  domain_metadata key in the current result set, with counts. The
+  panel reads Meilisearch's facet distribution returned by GET
+  /api/search (new `facet_distribution` field on the response).
+  Clicking a facet chip toggles the predicate in the URL filter
+  state. The panel elides itself when no entries in the result set
+  carry a known domain_metadata key, so filesystem-only result sets
+  see no UI change.
+- **`domain_metadata` predicate in the filter grammar.** Added to
+  both filter grammar implementations (web + py), the URL serializer,
+  the SQL fallback in `to_sqlalchemy()`, and the Meilisearch
+  expression in `to_meili()`. Unknown fields decode to no-op on
+  stale URLs, matching the existing behaviour for the predicate-
+  extension story.
+
+Internal:
+
+- New scanner `EntryRecord.DomainMetadata map[string]any`. Filesystem
+  connectors leave it nil; future Paperless-ngx / Immich connectors
+  populate it.
+- New alembic migration `0028_entries_domain_metadata` — adds the
+  column + partial GIN index, both reversible.
+- `services/search.DOMAIN_METADATA_FACET_KEYS` is the single source
+  of truth for which keys flatten into Meilisearch as filterable
+  attributes; mirrored as `DOMAIN_METADATA_FIELDS` in
+  `web/src/lib/filterGrammar.ts` and as the
+  `DomainMetadataPred.field` Literal in
+  `api/akashic/services/filter_grammar.py`. Adding a new well-known
+  key is a three-line change in lockstep across those three files.
+
 ## v0.5.13 — 2026-05-05
 
 Round 4 of the button affordance audit, after the user reported still

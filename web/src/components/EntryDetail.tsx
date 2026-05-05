@@ -10,6 +10,7 @@ import { S3ExposureBanner } from "./acl/S3ExposureBanner";
 import { EffectivePermissions } from "./acl/EffectivePermissions";
 import { ContentTab } from "./entry-detail/ContentTab";
 import { EntryTags } from "./entry-detail/EntryTags";
+import { LibraryMetadata } from "./entry-detail/LibraryMetadata";
 
 interface Props {
   entryId: string | null;
@@ -164,6 +165,12 @@ export function EntryDetail({ entryId }: Props) {
           </dl>
         )}
       </Section>
+
+      {entry.domain_metadata && Object.keys(entry.domain_metadata).length > 0 && (
+        <Section title="Library metadata">
+          <LibraryMetadata metadata={entry.domain_metadata} />
+        </Section>
+      )}
 
       {entry.kind === "file" && (
         <Section title="Content">

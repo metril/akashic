@@ -14,6 +14,28 @@
 
 export type Right = "read" | "write" | "delete";
 
+// v0.6.0 — well-known domain_metadata keys exposed as facets. Mirrors
+// DOMAIN_METADATA_FACET_KEYS in api/akashic/services/search.py — keep
+// the two in lockstep. Connectors that emit other keys will still index
+// them, but they won't be filterable until this list and the api side
+// gain the key.
+export type DomainMetadataField =
+  | "correspondent"
+  | "document_type"
+  | "person"
+  | "album"
+  | "camera_make"
+  | "camera_model";
+
+export const DOMAIN_METADATA_FIELDS: ReadonlyArray<DomainMetadataField> = [
+  "correspondent",
+  "document_type",
+  "person",
+  "album",
+  "camera_make",
+  "camera_model",
+];
+
 export type Predicate =
   | { kind: "extension"; value: string }
   | { kind: "source"; value: string }
@@ -23,7 +45,8 @@ export type Predicate =
   | { kind: "size"; op: "gte" | "lte" | "eq"; value: number }
   | { kind: "mtime"; op: "gte" | "lte"; value: string }
   | { kind: "path"; value: string }
-  | { kind: "tag"; value: string };
+  | { kind: "tag"; value: string }
+  | { kind: "domain_metadata"; field: DomainMetadataField; value: string };
 
 // ── Encoding ──────────────────────────────────────────────────────────────
 
@@ -49,6 +72,9 @@ function base64UrlToUtf8(s: string): string {
 const RIGHTS: ReadonlySet<Right> = new Set(["read", "write", "delete"]);
 const SIZE_OPS = new Set(["gte", "lte", "eq"]);
 const MTIME_OPS = new Set(["gte", "lte"]);
+const DOMAIN_METADATA_FIELD_SET: ReadonlySet<DomainMetadataField> = new Set(
+  DOMAIN_METADATA_FIELDS,
+);
 
 function isPredicate(p: unknown): p is Predicate {
   if (typeof p !== "object" || p === null) return false;
@@ -70,6 +96,12 @@ function isPredicate(p: unknown): p is Predicate {
       return typeof o.value === "number" && typeof o.op === "string" && SIZE_OPS.has(o.op);
     case "mtime":
       return typeof o.value === "string" && typeof o.op === "string" && MTIME_OPS.has(o.op);
+    case "domain_metadata":
+      return (
+        typeof o.value === "string"
+        && typeof o.field === "string"
+        && DOMAIN_METADATA_FIELD_SET.has(o.field as DomainMetadataField)
+      );
     default:
       return false;
   }
@@ -108,6 +140,9 @@ export function sameTarget(a: Predicate, b: Predicate): boolean {
   if (a.kind === "mtime" && b.kind === "mtime") return a.op === b.op;
   if (a.kind === "principal" && b.kind === "principal") {
     return a.value === b.value && (a.right ?? "read") === (b.right ?? "read");
+  }
+  if (a.kind === "domain_metadata" && b.kind === "domain_metadata") {
+    return a.field === b.field && a.value === b.value;
   }
   return (a as { value: string }).value === (b as { value: string }).value;
 }

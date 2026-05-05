@@ -214,6 +214,7 @@ def _apply_entry_fields(target: Entry, src):
     target.group_name = src.group_name
     target.acl = serialize_acl(src.acl)
     target.xattrs = src.xattrs
+    target.domain_metadata = getattr(src, "domain_metadata", None)
     target.fs_created_at = src.fs_created_at
     target.fs_modified_at = src.fs_modified_at
     target.fs_accessed_at = src.fs_accessed_at
@@ -349,6 +350,7 @@ async def ingest_batch(
                 group_name=incoming.group_name,
                 acl=serialize_acl(incoming.acl),
                 xattrs=incoming.xattrs,
+                domain_metadata=incoming.domain_metadata,
                 viewable_by_read=buckets["read"],
                 viewable_by_write=buckets["write"],
                 viewable_by_delete=buckets["delete"],

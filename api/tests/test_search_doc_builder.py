@@ -34,6 +34,8 @@ class _FakeEntry:
         self.viewable_by_read = viewable_read
         self.viewable_by_write = viewable_write
         self.viewable_by_delete = viewable_delete
+        # v0.6.0 — domain_metadata absent on filesystem-source rows.
+        self.domain_metadata = None
 
 
 def test_build_entry_doc_recomputes_when_columns_null():

@@ -95,6 +95,30 @@ class TagPred(BaseModel):
     value: str
 
 
+# v0.6.0 — must mirror DOMAIN_METADATA_FACET_KEYS in services/search.py
+# AND the DomainMetadataField union in web/src/lib/filterGrammar.ts.
+# Keep all three lists in lockstep; an unknown field on any side is
+# silently dropped on deserialise.
+_DOMAIN_METADATA_FIELDS = Literal[
+    "correspondent",
+    "document_type",
+    "person",
+    "album",
+    "camera_make",
+    "camera_model",
+]
+
+
+class DomainMetadataPred(BaseModel):
+    """Filter on a Tier 3 self-hosted library metadata key
+    (Paperless-ngx correspondent, Immich album, …). Each key maps to
+    a Meilisearch filterable attribute prefixed `domain_metadata__`."""
+
+    kind: Literal["domain_metadata"]
+    field: _DOMAIN_METADATA_FIELDS
+    value: str
+
+
 Predicate = Annotated[
     Union[
         ExtensionPred,
@@ -106,6 +130,7 @@ Predicate = Annotated[
         MtimePred,
         PathPred,
         TagPred,
+        DomainMetadataPred,
     ],
     Field(discriminator="kind"),
 ]
@@ -202,6 +227,14 @@ def to_meili(preds: list[Predicate]) -> str:
             # the filter behaves identically whether the tag was direct
             # or inherited.
             parts.append(f'tags = "{_meili_escape(p.value)}"')
+        elif isinstance(p, DomainMetadataPred):
+            # Indexed as flat field `domain_metadata__<key>` so each
+            # key is individually filterable. The connector emits the
+            # value as a scalar string/number; equality match is the
+            # only operator the chip UI offers today.
+            parts.append(
+                f'domain_metadata__{p.field} = "{_meili_escape(p.value)}"'
+            )
     return " AND ".join(parts)
 
 
@@ -276,6 +309,13 @@ def to_sqlalchemy(preds: list[Predicate]) -> list:
                 .where(EntryTag.tag == p.value)
                 .exists()
             )
+        elif isinstance(p, DomainMetadataPred):
+            # JSONB key-equality — `entries.domain_metadata @> '{"k": "v"}'`
+            # uses the GIN partial index from migration 0028 when the
+            # planner picks it. ->> coerces the value to text so the
+            # comparison handles both string-encoded and number-encoded
+            # connector outputs uniformly.
+            clauses.append(Entry.domain_metadata[p.field].astext == p.value)
     return clauses
 
 

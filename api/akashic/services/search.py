@@ -11,6 +11,30 @@ if TYPE_CHECKING:
 
 INDEX_NAME = "files"
 
+# v0.6.0 — Tier 3 self-hosted libraries (Paperless-ngx, Immich) emit
+# provider-specific metadata in `entries.domain_metadata`. The keys
+# below are mirrored into the index doc as flat fields prefixed
+# `domain_metadata__`, then registered as filterable attributes so
+# users can chip on `domain_metadata__correspondent = "Bank"`. Connectors
+# that emit other keys still index — those values just aren't filterable
+# until the key joins this list.
+#
+# Underscore separator (not dot) because Meilisearch treats `.` in
+# attribute names as nested-object access; a flat field with a dotted
+# name would index the wrong shape.
+DOMAIN_METADATA_FACET_KEYS: tuple[str, ...] = (
+    "correspondent",      # Paperless
+    "document_type",      # Paperless
+    "person",             # Immich (face recognition label)
+    "album",              # Immich
+    "camera_make",        # Immich EXIF
+    "camera_model",       # Immich EXIF
+)
+
+
+def _domain_metadata_doc_field(key: str) -> str:
+    return f"domain_metadata__{key}"
+
 
 def glob_to_sql_like(pattern: str) -> str:
     """Translate a glob pattern to a SQL LIKE pattern.
@@ -71,11 +95,13 @@ async def ensure_index():
         await client.create_index(INDEX_NAME, primary_key="id")
     index = await client.get_index(INDEX_NAME)
     await index.update_searchable_attributes(["filename", "path", "content_text", "tags"])
-    await index.update_filterable_attributes([
+    filterable = [
         "source_id", "extension", "mime_type", "size_bytes",
         "fs_modified_at", "tags", "owner_name", "group_name",
         "viewable_by_read", "viewable_by_write", "viewable_by_delete",
-    ])
+    ]
+    filterable.extend(_domain_metadata_doc_field(k) for k in DOMAIN_METADATA_FACET_KEYS)
+    await index.update_filterable_attributes(filterable)
     await index.update_sortable_attributes(["size_bytes", "fs_modified_at", "filename"])
     await index.update_pagination(Pagination(max_total_hits=MAX_TOTAL_HITS))
 
@@ -132,6 +158,17 @@ def build_entry_doc(
     }
     if content_text is not None:
         doc["content_text"] = content_text
+    # v0.6.0 — flatten the well-known domain_metadata keys into top-level
+    # doc fields so they're individually filterable. Other keys are
+    # silently dropped from the index (still in postgres, still rendered
+    # in the entry detail drawer); promoting them into the facet config
+    # is a one-line change in DOMAIN_METADATA_FACET_KEYS.
+    dm = entry.domain_metadata or {}
+    if isinstance(dm, dict):
+        for key in DOMAIN_METADATA_FACET_KEYS:
+            value = dm.get(key)
+            if value is not None and not isinstance(value, (dict, list)):
+                doc[_domain_metadata_doc_field(key)] = value
     return doc
 
 
@@ -150,10 +187,14 @@ async def index_files_batch(files: list[dict]):
 
 
 async def search_files(query: str, filters: str | None = None, sort: list[str] | None = None,
-                       offset: int = 0, limit: int = 20) -> dict:
+                       offset: int = 0, limit: int = 20,
+                       facets: list[str] | None = None) -> dict:
     client = await get_meili_client()
     index = await client.get_index(INDEX_NAME)
-    return await index.search(query, filter=filters, sort=sort, offset=offset, limit=limit)
+    return await index.search(
+        query, filter=filters, sort=sort, offset=offset, limit=limit,
+        facets=facets,
+    )
 
 
 async def delete_file_from_index(file_id: str):

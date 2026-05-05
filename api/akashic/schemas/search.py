@@ -33,3 +33,13 @@ class SearchResults(BaseModel):
     results: list[SearchHit]
     total: int
     query: str
+    # v0.6.0 — facet distribution returned by the Meilisearch path when
+    # the request asks for it (currently: domain_metadata.* keys for the
+    # Library Metadata facet panel on the Search page). Empty when the
+    # SQL fallback path served the request, since postgres doesn't
+    # produce these distributions cheaply. Shape:
+    #   {"domain_metadata.correspondent": {"Bank": 12, "ACME Inc.": 4}}
+    # The frontend uses key presence to decide whether to render the
+    # panel at all; absent keys mean "no entries with that field in
+    # this result set".
+    facet_distribution: dict[str, dict[str, int]] | None = None

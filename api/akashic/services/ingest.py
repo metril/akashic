@@ -19,6 +19,7 @@ VERSIONED_FIELDS = (
     "group_name",
     "acl",
     "xattrs",
+    "domain_metadata",
 )
 
 
@@ -43,6 +44,13 @@ def entry_state_changed(existing: Entry, incoming: EntryIn) -> bool:
         incoming_val = getattr(incoming, field)
         if field == "acl":
             if not acl_equal(_to_dict(existing_val), _to_dict(incoming_val)):
+                return True
+        elif field == "domain_metadata":
+            # JSON-stable comparison so dict key-order from the connector
+            # doesn't trigger a spurious version snapshot every scan.
+            if json.dumps(existing_val, sort_keys=True, default=str) != json.dumps(
+                incoming_val, sort_keys=True, default=str
+            ):
                 return True
         elif existing_val != incoming_val:
             return True

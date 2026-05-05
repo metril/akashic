@@ -138,6 +138,7 @@ async def get_entry(
         group_name=entry.group_name,
         acl=entry.acl,
         xattrs=entry.xattrs,
+        domain_metadata=entry.domain_metadata,
         fs_created_at=entry.fs_created_at,
         fs_modified_at=entry.fs_modified_at,
         fs_accessed_at=entry.fs_accessed_at,

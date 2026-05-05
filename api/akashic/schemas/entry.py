@@ -48,6 +48,11 @@ class EntryIn(BaseModel):
     subtree_file_count: int | None = None
     subtree_dir_count: int | None = None
 
+    # v0.6.0 — Tier 3 self-hosted libraries (Paperless-ngx, Immich)
+    # carry provider-specific metadata that doesn't fit the filesystem
+    # fields. Filesystem connectors leave this None.
+    domain_metadata: dict | None = None
+
 
 class EntryResponse(BaseModel):
     id: uuid.UUID
@@ -111,6 +116,7 @@ class EntryDetailResponse(EntryResponse):
 
     acl: ACL | None = None
     xattrs: dict[str, str] | None = None
+    domain_metadata: dict | None = None
     fs_created_at: datetime | None = None
     fs_accessed_at: datetime | None = None
     versions: list[EntryVersionResponse] = Field(default_factory=list)

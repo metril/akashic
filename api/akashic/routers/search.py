@@ -130,7 +130,11 @@ async def search(
     try:
         if force_sql:
             raise _ForceSqlFallback()
-        from akashic.services.search import search_files
+        from akashic.services.search import (
+            DOMAIN_METADATA_FACET_KEYS,
+            _domain_metadata_doc_field,
+            search_files,
+        )
 
         filters: list[str] = []
         if source_id:
@@ -167,7 +171,15 @@ async def search(
         # results they couldn't navigate to.
         filters.append("source_id IS NOT NULL")
         filter_str = " AND ".join(filters) if filters else None
-        meili_results = await search_files(q, filters=filter_str, offset=offset, limit=limit)
+        # v0.6.0 — always request domain_metadata facets on the Meili
+        # path. When no entries in the result set carry that key the
+        # distribution comes back empty/missing and the UI elides the
+        # panel; the request itself is cheap.
+        facet_fields = [_domain_metadata_doc_field(k) for k in DOMAIN_METADATA_FACET_KEYS]
+        meili_results = await search_files(
+            q, filters=filter_str, offset=offset, limit=limit,
+            facets=facet_fields,
+        )
 
         from akashic.schemas.search import SearchHit
         hits = [SearchHit(**h) if isinstance(h, dict) else h for h in (meili_results.hits or [])]
@@ -186,10 +198,27 @@ async def search(
                 source_id=source_id,
             )
 
+        # Project the meili facet distribution back to the dotted public
+        # form (`domain_metadata.correspondent`) so frontend code talks
+        # in product terms, not in the underscore-flattened wire shape.
+        facet_distribution: dict[str, dict[str, int]] | None = None
+        raw_facets = getattr(meili_results, "facet_distribution", None) or {}
+        if raw_facets:
+            projected: dict[str, dict[str, int]] = {}
+            for key in DOMAIN_METADATA_FACET_KEYS:
+                bucket = raw_facets.get(_domain_metadata_doc_field(key))
+                if bucket:
+                    projected[f"domain_metadata.{key}"] = {
+                        str(k): int(v) for k, v in bucket.items()
+                    }
+            if projected:
+                facet_distribution = projected
+
         return SearchResults(
             results=hits,
             total=meili_results.estimated_total_hits or 0,
             query=q,
+            facet_distribution=facet_distribution,
         )
     except HTTPException:
         raise

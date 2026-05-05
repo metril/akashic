@@ -132,6 +132,14 @@ class Entry(Base):
     # Shape: see api/alembic/versions/0020_directory_top_children.py.
     top_children: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # v0.6.0 — provider-specific metadata for self-hosted libraries
+    # (Paperless-ngx: correspondent, document_type, custom_fields;
+    # Immich: camera EXIF, person/face, GPS, datetime_original, album).
+    # NULL on filesystem-source rows. Schemaless; the facet UI knows
+    # which keys to render. A subset of well-known keys is mirrored
+    # into Meilisearch filterable_attributes (see services/search).
+    domain_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     # Filesystem timestamps
     fs_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
