@@ -5,6 +5,65 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.18.0 — 2026-05-06
+
+Tier 4 PR 3 — **Box** as a source type (OAuth variant). Closes out
+the planned roadmap for cloud-storage source coverage. The Box
+provider config has been in the OAuth registry since v0.12.0, so
+this release is the connector + UI on top of the existing OAuth +
+cloud_drive plumbing.
+
+- **Box connector.** ``scanner/internal/connector/box.go`` walks
+  ``/2.0/folders/{id}/items`` BFS keyed by parent id, paginated via
+  Box's offset/limit cursor (limit=200). ReadFile streams from
+  ``/2.0/files/{id}/content`` (Box hands back a 302 redirect to
+  the storage backend; the http.Client follows). No Box SDK dep —
+  plain net/http + JSON.
+- **Permissions → cloud_drive ACL.** Per-item ``/collaborations``
+  endpoint (``/files/{id}/collaborations`` for files,
+  ``/folders/{id}/collaborations`` for folders). Box's role lattice
+  maps onto the cloud_drive lattice cleanly:
+  - ``owner`` / ``co-owner`` → ``owner``
+  - ``editor`` / ``viewer_uploader`` / ``previewer_uploader`` /
+    ``uploader`` → ``writer``
+  - ``viewer`` / ``previewer`` → ``reader``
+  - unknown future roles floor to ``reader`` rather than dropping
+    the grant — Box may add new roles over time, and a soft floor
+    is friendlier than silently losing visibility.
+
+  Pending invitations (``status != "accepted"``) are skipped — the
+  recipient hasn't actually got access yet.
+- **Hash flow.** Box returns ``sha1`` inline on file rows; emit
+  ``sha1:<hex>`` to fit the existing prefix-tagged
+  content_hash vocabulary.
+- **Source-type registration.** ``box`` joins
+  HOSTLESS_SOURCE_TYPES on both api and web; ``test_box`` runs an
+  inline ``GET /2.0/users/me`` against api.box.com; the new
+  ``BoxFields`` TSX component hosts the Sign-in popup + optional
+  ``folder_id`` scope (Box's All Files root is the literal id "0";
+  empty scope walks from there).
+- **Tests.** Five new Go connector tests (Connect smoke,
+  missing-token guard, BFS walk + path/hash/native_id plumbing,
+  paginated walk via offset/limit cursor, role-mapping correctness
+  including pending-skip and unknown-role floor). Full pytest
+  642/642 green, vitest 133/133, ESLint 0 errors, tsc clean, Go
+  build + tests green.
+
+**JWT app-auth roadmap.** The original Tier-4 plan calls for Box's
+JWT app-auth as a second variant alongside OAuth — RSA-signed JWTs
+for unattended server-to-server scanning of an enterprise tenant
+without any user popup. That's a meaningfully different auth shape
+(stored RSA private key, JWT minting, no SourceOAuthCredential row)
+and ships as a follow-up release rather than crammed into this PR.
+
+This release closes out the planned cloud-storage source coverage
+in the sources roadmap: the original roadmap
+spanned 13 connectors across 4 tiers, and akashic now supports all
+of them — local, NFS, SMB, SSH, S3 (the original lineup), Paperless
++ Immich (Tier 3), Azure Blob + GCS (Tier 2), WebDAV (Tier 4 PR 1),
+Drive + OneDrive + SharePoint (Tier 1 PR-C), Dropbox (Tier 4 PR 2),
+and now Box (Tier 4 PR 3).
+
 ## v0.17.0 — 2026-05-06
 
 Tier 4 PR 2 — **Dropbox** as a source type. OAuth on top of the

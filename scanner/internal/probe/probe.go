@@ -67,6 +67,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runSharePoint(ctx, connConfig)
 	case "dropbox":
 		return runDropbox(ctx, connConfig)
+	case "box":
+		return runBox(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -541,6 +543,34 @@ func runDropbox(ctx context.Context, c map[string]any) Result {
 	conn := connector.NewDropboxConnector(&connector.DropboxConfig{
 		AccessToken: access,
 		Path:        str(c, "path"),
+	})
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "401"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
+	return Result{OK: true}
+}
+
+// runBox validates a Box source by calling /2.0/users/me with the
+// access token. Same router-injected access_token flow as the other
+// OAuth-shaped types. Failure shapes mapped: missing token →
+// "config"; 401 → "auth"; otherwise → "connect".
+func runBox(ctx context.Context, c map[string]any) Result {
+	access := str(c, "access_token")
+	if access == "" {
+		return Result{OK: false, Step: "config", Error: "no access_token (no OAuth credential connected)"}
+	}
+	conn := connector.NewBoxConnector(&connector.BoxConfig{
+		AccessToken: access,
+		FolderID:    str(c, "folder_id"),
 	})
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

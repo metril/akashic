@@ -1,7 +1,7 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
   "paperless", "immich", "azureblob", "gcs", "webdav",
-  "gdrive", "onedrive", "sharepoint", "dropbox",
+  "gdrive", "onedrive", "sharepoint", "dropbox", "box",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -19,6 +19,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "onedrive",
   "sharepoint",
   "dropbox",
+  "box",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -36,6 +37,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   onedrive: "OneDrive (Microsoft 365)",
   sharepoint: "SharePoint document library",
   dropbox: "Dropbox",
+  box: "Box",
 };
 
 export type LocalConfig = {
@@ -278,6 +280,14 @@ export type DropboxConfig = {
   path?: string;
 };
 
+// v0.18.0 — Box. OAuth-shaped (Tier 4 PR 3). Opaque-id addressing
+// like Drive — ``folder_id`` is optional (empty maps to the literal
+// "0", Box's All Files root).
+export type BoxConfig = {
+  oauth_credential_id?: string;
+  folder_id?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -292,7 +302,8 @@ export type AnyConfig =
   | GDriveConfig
   | OneDriveConfig
   | SharePointConfig
-  | DropboxConfig;
+  | DropboxConfig
+  | BoxConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -454,6 +465,12 @@ export function validateSourceConfig(
       const p = (c["path"] as string | undefined)?.trim();
       if (p && p !== "/" && !p.startsWith("/")) {
         return "Path must start with /";
+      }
+      return null;
+    }
+    case "box": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Box to connect an account";
       }
       return null;
     }

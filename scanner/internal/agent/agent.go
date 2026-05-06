@@ -549,6 +549,14 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			AccessToken: stringFromConfig(cfg, "access_token", ""),
 			Path:        stringFromConfig(cfg, "path", ""),
 		}), nil
+	case "box":
+		// v0.18.0 — Tier 4 PR 3. OAuth via the Box provider in the
+		// OAuth registry. Opaque-id addressing like Drive; FolderID
+		// empty maps to the literal "0" (Box's All Files root).
+		return connector.NewBoxConnector(&connector.BoxConfig{
+			AccessToken: stringFromConfig(cfg, "access_token", ""),
+			FolderID:    stringFromConfig(cfg, "folder_id", ""),
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

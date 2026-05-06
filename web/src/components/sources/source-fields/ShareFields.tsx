@@ -4,6 +4,7 @@ import { Input } from "../../ui";
 import type {
   AzureBlobAuthMode,
   AzureBlobConfig,
+  BoxConfig,
   DropboxConfig,
   GCSAuthMode,
   GCSConfig,
@@ -29,6 +30,7 @@ import { GDriveFields } from "./GDriveFields";
 import { OneDriveFields } from "./OneDriveFields";
 import { SharePointFields } from "./SharePointFields";
 import { DropboxFields } from "./DropboxFields";
+import { BoxFields } from "./BoxFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -45,6 +47,7 @@ export type ShareConfig = Partial<
   | OneDriveConfig
   | SharePointConfig
   | DropboxConfig
+  | BoxConfig
 >;
 
 interface Props {
@@ -182,6 +185,14 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <DropboxFields
           value={value as Partial<DropboxConfig>}
           onChange={onChange as (next: Partial<DropboxConfig>) => void}
+        />
+      );
+    case "box":
+      // v0.18.0 — hostless OAuth-shaped via Box.
+      return (
+        <BoxFields
+          value={value as Partial<BoxConfig>}
+          onChange={onChange as (next: Partial<BoxConfig>) => void}
         />
       );
   }
@@ -373,6 +384,12 @@ export function validateShareConfig(
       const p = (c["path"] as string | undefined)?.trim();
       if (p && p !== "/" && !p.startsWith("/")) {
         return "Path must start with /";
+      }
+      return null;
+    }
+    case "box": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Box to connect an account";
       }
       return null;
     }

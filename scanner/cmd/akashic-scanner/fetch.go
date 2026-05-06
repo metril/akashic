@@ -170,6 +170,12 @@ func buildConnector(
 		return connector.NewDropboxConnector(&connector.DropboxConfig{
 			AccessToken: password,
 		}), "", nil
+	case "box":
+		// v0.18.0 — `password` carries the access token; folder_id
+		// only reachable via the agent path.
+		return connector.NewBoxConnector(&connector.BoxConfig{
+			AccessToken: password,
+		}), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

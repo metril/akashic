@@ -274,4 +274,7 @@ def _summary_for(source) -> str:
         # the scoped path or fall back to the type name.
         path = g("path")
         return f"Dropbox {path}" if path else "Dropbox"
+    if t == "box":
+        folder = g("folder_id")
+        return f"Box folder {folder}" if folder else "Box"
     return name

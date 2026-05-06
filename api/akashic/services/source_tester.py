@@ -580,6 +580,43 @@ def test_immich(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_box(cfg: dict) -> TestResult:
+    """v0.18.0 — Tier 4 PR 3 probe (Box).
+
+    OAuth-shaped via the Box provider in the OAuth registry. Same
+    router-injected access_token flow as the other OAuth-shaped
+    types. Verifies the access token works against
+    ``/2.0/users/me``.
+    """
+    access_token = (cfg.get("access_token") or "").strip()
+    if not access_token:
+        return TestResult(
+            ok=False, step="auth",
+            error="no OAuth credential connected — sign in with Box "
+                  "from the source create or detail page",
+        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                "https://api.box.com/2.0/users/me",
+                params={"fields": "login,name"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"Box rejected the access token ({resp.status_code})",
+        )
+    if resp.status_code != 200:
+        return TestResult(
+            ok=False, step="list",
+            error=f"users/me returned {resp.status_code}: {resp.text[:200]}",
+        )
+    return TestResult(ok=True)
+
+
 def test_dropbox(cfg: dict) -> TestResult:
     """v0.17.0 — Tier 4 PR 2 probe (Dropbox).
 
@@ -774,6 +811,7 @@ _DISPATCH = {
     "onedrive":  test_onedrive,
     "sharepoint": test_sharepoint,
     "dropbox":   test_dropbox,
+    "box":       test_box,
 }
 
 

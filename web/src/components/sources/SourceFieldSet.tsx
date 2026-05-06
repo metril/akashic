@@ -13,6 +13,7 @@ import { GDriveFields } from "./source-fields/GDriveFields";
 import { OneDriveFields } from "./source-fields/OneDriveFields";
 import { SharePointFields } from "./source-fields/SharePointFields";
 import { DropboxFields } from "./source-fields/DropboxFields";
+import { BoxFields } from "./source-fields/BoxFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -60,5 +61,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <SharePointFields value={value as never} onChange={onChange as never} />;
     case "dropbox":
       return <DropboxFields value={value as never} onChange={onChange as never} />;
+    case "box":
+      return <BoxFields value={value as never} onChange={onChange as never} />;
   }
 }
