@@ -112,6 +112,12 @@ func buildConnector(
 		// filter / TLS-verify aren't reachable via this CLI path —
 		// they're scan-time only and live in connection_config.
 		return connector.NewPaperlessConnector(host, password, nil, true), "", nil
+	case "immich":
+		// v0.8.0 — same shape as paperless: host=URL, password=api_key.
+		// Album filter / include_archived aren't reachable via the
+		// CLI path; they're scan-time scoping flags that live in the
+		// scan-time connection_config.
+		return connector.NewImmichConnector(host, password, nil, false, true), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

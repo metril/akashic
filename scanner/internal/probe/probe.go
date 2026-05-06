@@ -51,6 +51,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runLocal(ctx, connConfig)
 	case "paperless":
 		return runPaperless(ctx, connConfig)
+	case "immich":
+		return runImmich(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -209,6 +211,39 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	return Result{OK: true}
+}
+
+// runImmich validates an Immich source by issuing the connector's
+// Connect (which probes /api/server-info/ping with the api_key).
+// Auth-rejected (401/403) → "auth"; transport / TLS / DNS → "connect".
+// Loading the album list also exercises pagination shape, so a green
+// probe is a real end-to-end go-signal for the scanner.
+func runImmich(ctx context.Context, c map[string]any) Result {
+	rawURL := strings.TrimSpace(str(c, "url"))
+	apiKey := str(c, "api_key")
+	if rawURL == "" {
+		return Result{OK: false, Step: "config", Error: "url required"}
+	}
+	if apiKey == "" {
+		return Result{OK: false, Step: "config", Error: "api_key required"}
+	}
+	verify := true
+	if v, ok := c["tls_verify"]; ok {
+		if b, ok := v.(bool); ok {
+			verify = b
+		}
+	}
+	conn := connector.NewImmichConnector(rawURL, apiKey, nil, false, verify)
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "auth rejected") {
+			return Result{OK: false, Step: "auth", Error: msg}
+		}
+		return Result{OK: false, Step: "connect", Error: msg}
+	}
 	return Result{OK: true}
 }
 

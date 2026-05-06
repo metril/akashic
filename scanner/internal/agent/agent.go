@@ -449,6 +449,19 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			splitCommaList(stringFromConfig(cfg, "tag_filter", "")),
 			boolFromConfig(cfg, "tls_verify", true),
 		), nil
+	case "immich":
+		// v0.8.0 — Tier 3 self-hosted libraries. Hostless. URL +
+		// api_key live on the source. include_archived defaults
+		// false to mirror the Immich UI's archive-hides-from-grid
+		// behaviour. album_filter is a comma-separated whitelist
+		// of album NAMES (case-insensitive).
+		return connector.NewImmichConnector(
+			stringFromConfig(cfg, "url", ""),
+			stringFromConfig(cfg, "api_key", ""),
+			splitCommaList(stringFromConfig(cfg, "album_filter", "")),
+			boolFromConfig(cfg, "include_archived", false),
+			boolFromConfig(cfg, "tls_verify", true),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

@@ -5,6 +5,85 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.8.0 — 2026-05-05
+
+Tier 3 complete — Immich joins Paperless-ngx as the second self-hosted
+library source type. Point akashic at an Immich instance and every
+photo/video lands in a chronological browse hierarchy with EXIF, GPS,
+faces, and album memberships filterable from Search.
+
+- **Immich as a source type.** Pick "Immich" in Add Source, paste your
+  instance URL + an API key (created in Immich under *Account
+  Settings → API Keys*), optionally whitelist by album and toggle
+  "Include archived". The scanner walks `POST /api/search/metadata`
+  with pagination and emits one entry per asset. Hostless like
+  Paperless and local — no Host row to manage.
+- **`/All Photos/<yyyy>/<mm>/` synthetic hierarchy.** Each asset's
+  path is keyed off its `fileCreatedAt` (falling back to EXIF
+  `dateTimeOriginal`, then "Undated") so Browse reads chronologically
+  regardless of how albums are organised. Album membership is
+  surfaced separately as `domain_metadata.album` (multi-valued) so
+  filtering by album works without making the path tree fragile to
+  album reorganisation. The 8-char asset ID is appended to the
+  filename so two photos with the same name in the same month don't
+  clobber each other on the unique (source, path) constraint.
+- **EXIF / GPS / people / album in the entry detail drawer.** The
+  Library Metadata section now surfaces, per asset: Immich ID,
+  original filename, original on-disk path, capture timestamp,
+  camera make + model, GPS lat/lng, image dimensions, recognized
+  people (multi-valued chips), and album memberships (multi-valued
+  chips). Each clickable cell jumps Search to assets matching that
+  value. The `person`, `album`, `camera_make`, and `camera_model`
+  facets are already in `DOMAIN_METADATA_FACET_KEYS` from v0.6.0,
+  so the Library Metadata facet panel on Search lights up
+  automatically with counts.
+- **Album whitelist + "include archived" toggle.** Set the album
+  filter (comma-separated, case-insensitive names) to scope the scan
+  to a subset — useful for indexing only "Public" albums. Archived
+  assets are skipped by default so akashic mirrors Immich's
+  hides-from-grid behaviour; flip the toggle to include them anyway.
+- **In-process test connection.** Same shape as the Paperless probe:
+  the api container hits `/api/server-info/ping` with the api_key,
+  classifies 401/403 as `auth`, non-2xx as `list`, transport errors
+  as `connect`. One round trip from Add Source's "Test" button.
+
+Internal:
+
+- New scanner connector at `scanner/internal/connector/immich.go`
+  with full Walk + Connect + album-membership cache. Connect loads
+  every album's asset list to build a per-asset `[]albumName` map so
+  the Walk's per-asset lookup is O(1). Five unit tests cover entry
+  build, no-EXIF fallback, mock pagination + album mapping, album
+  whitelist filtering, and auth rejection.
+- New probe `runImmich` in `scanner/internal/probe/probe.go` for the
+  agent's reachability poll loop.
+- Three scanner dispatch sites extended (`connectorFromLeased`,
+  `buildConnector`, `probe.Run`).
+- API: `test_immich` in `services/source_tester.py` mirrors the
+  Paperless probe pattern; `_summary_for` strips the URL scheme;
+  `HOSTLESS_SOURCE_TYPES` set extended to include `immich`.
+- Web: `ImmichFields` component, `ShareFields` + `SourceFieldSet`
+  dispatch, `HOSTLESS_SOURCE_TYPES` set + `ImmichConfig` type +
+  validation rule. AddSourceForm's `Exclude<SourceType, ...>` casts
+  extended to keep the host-shaped helpers narrow.
+
+Known limitations (deferred to follow-ups):
+
+- **Content fetch is not wired** for Immich either. Same reason as
+  Paperless — the per-entry native-id plumbing lands with the
+  Tier 1 CC2 work, after which both connectors get content fetch
+  as a one-line change.
+- **Album fan-out at Connect.** Loading every album's asset list is
+  one HTTP call per album; for libraries with hundreds of albums,
+  Connect (and so the "Test" button) takes a few seconds. Streaming
+  the membership map mid-scan instead of up-front is a v0.8.x
+  follow-up if anyone hits the slowness in practice.
+- **People require inline asset shape.** Older Immich versions
+  don't return `people` inline on `/api/search/metadata`; per-asset
+  resolution via `/api/asset/{id}` would fix this but isn't wired
+  in v0.8.0 because the typical install runs a recent enough
+  Immich for the inline shape.
+
 ## v0.7.0 — 2026-05-05
 
 Tier 3 — Paperless-ngx, the first self-hosted library source type.

@@ -222,4 +222,13 @@ def _summary_for(source) -> str:
                     break
             return url.rstrip("/") or name
         return name
+    if t == "immich":
+        url = g("url")
+        if url:
+            for prefix in ("https://", "http://"):
+                if url.startswith(prefix):
+                    url = url[len(prefix):]
+                    break
+            return url.rstrip("/") or name
+        return name
     return name

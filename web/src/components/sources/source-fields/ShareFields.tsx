@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "../../ui";
 import type {
+  ImmichConfig,
   LocalConfig,
   NfsConfig,
   PaperlessConfig,
@@ -11,9 +12,16 @@ import type {
   SshConfig,
 } from "../sourceTypes";
 import { PaperlessFields } from "./PaperlessFields";
+import { ImmichFields } from "./ImmichFields";
 
 export type ShareConfig = Partial<
-  LocalConfig | SshConfig | SmbConfig | NfsConfig | S3Config | PaperlessConfig
+  | LocalConfig
+  | SshConfig
+  | SmbConfig
+  | NfsConfig
+  | S3Config
+  | PaperlessConfig
+  | ImmichConfig
 >;
 
 interface Props {
@@ -80,6 +88,16 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <PaperlessFields
           value={value as Partial<PaperlessConfig>}
           onChange={onChange as (next: Partial<PaperlessConfig>) => void}
+        />
+      );
+    case "immich":
+      // v0.8.0 — same hostless shape: url, api_key, optional
+      // album_filter + include_archived + tls_verify all on the
+      // "share".
+      return (
+        <ImmichFields
+          value={value as Partial<ImmichConfig>}
+          onChange={onChange as (next: Partial<ImmichConfig>) => void}
         />
       );
   }
@@ -206,6 +224,15 @@ export function validateShareConfig(
         return "URL must start with http:// or https://";
       }
       if (!isStr("api_token")) return "API token is required";
+      return null;
+    }
+    case "immich": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
+      }
+      if (!isStr("api_key")) return "API key is required";
       return null;
     }
   }

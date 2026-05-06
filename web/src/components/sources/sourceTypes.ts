@@ -1,4 +1,6 @@
-export const SOURCE_TYPES = ["local", "ssh", "smb", "nfs", "s3", "paperless"] as const;
+export const SOURCE_TYPES = [
+  "local", "ssh", "smb", "nfs", "s3", "paperless", "immich",
+] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
 // v0.7.0 — source types that don't attach to a Host row. The source
@@ -7,6 +9,7 @@ export type SourceType = (typeof SOURCE_TYPES)[number];
 export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "local",
   "paperless",
+  "immich",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -16,6 +19,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   nfs: "NFS",
   s3: "S3-compatible",
   paperless: "Paperless-ngx",
+  immich: "Immich",
 };
 
 export type LocalConfig = {
@@ -97,13 +101,26 @@ export type PaperlessConfig = {
   tls_verify?: boolean;
 };
 
+// v0.8.0 — Immich (Tier 3 self-hosted photo / video library).
+// Hostless. album_filter is a comma-separated whitelist of album
+// NAMES (case-insensitive); empty = index every asset. Archived
+// assets are excluded by default to mirror Immich's UI behaviour.
+export type ImmichConfig = {
+  url: string;
+  api_key: string;
+  album_filter?: string;
+  include_archived?: boolean;
+  tls_verify?: boolean;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
   | SshConfig
   | SmbConfig
   | S3Config
-  | PaperlessConfig;
+  | PaperlessConfig
+  | ImmichConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -190,6 +207,15 @@ export function validateSourceConfig(
       // in NFS. A field showing "***" is *valid*; only an empty/
       // whitespace value should fail validation.
       if (!isStr("api_token")) return "API token is required";
+      return null;
+    }
+    case "immich": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
+      }
+      if (!isStr("api_key")) return "API key is required";
       return null;
     }
   }
