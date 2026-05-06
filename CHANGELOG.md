@@ -5,6 +5,54 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.16.0 — 2026-05-06
+
+Tier 1 PR-C (part 3, complete) — **SharePoint** document libraries as a
+source type. Closes out Tier 1: cloud-drive scanning is now end-to-end
+for the three providers people actually ask for first (Google Drive,
+OneDrive, SharePoint), with the OAuth foundation, native_id +
+cloud_drive ACL plumbing, and OneDrive's Graph machinery all reused
+underneath.
+
+- **SharePoint connector.** ``scanner/internal/connector/sharepoint.go``
+  walks ``/sites/{site_id}/drive[s/{drive_id}]/items/{id}/children`` via
+  Microsoft Graph v1.0. Reuses the OneDrive ``driveItem`` /
+  ``driveItemPermission`` JSON shapes and the ``buildOneDriveEntry`` /
+  ``buildOneDriveACL`` mappers — only the URL prefix and a handful of
+  edge cases (site display-name resolution at Connect, drive vs
+  drives endpoint toggle) are SharePoint-specific.
+- **Multi-library support.** ``drive_id`` is optional in
+  connection_config. Empty falls through to the site's default
+  document library; sites with multiple libraries set this to the
+  specific drive id. ``item_id`` scopes the walk to a folder
+  subtree.
+- **Site display-name as path root.** ``Connect`` resolves
+  ``/sites/{site_id}`` to fetch ``displayName`` and uses it as the
+  synthesized path's first segment (e.g.
+  ``/Marketing Team/Reports/Q1.pdf``). Falls back to ``name`` then
+  ``"SharePoint"`` when the display name is empty.
+- **Sign-in flow.** Same Microsoft OAuth flow as OneDrive — the form
+  uses the existing ``microsoft`` provider config. Add the
+  ``Sites.Read.All`` scope to your Azure App Registration
+  alongside the OneDrive ``Files.Read.All`` if you want one client
+  to cover both source types.
+- **Source-type registration.** ``sharepoint`` joins
+  HOSTLESS_SOURCE_TYPES on both api and web; ``test_sharepoint``
+  runs an inline ``GET /sites/{id}`` against Graph; the schema
+  summary shows the trailing fragment of the colon-triple site id
+  rather than the full hostname-comma-guid-comma-guid identifier.
+- **Tests.** Five new Go connector tests (Connect smoke,
+  missing-token / missing-site_id guards, BFS walk + path
+  synthesis with site display name, drive-base toggle between
+  default and explicit drive). Full pytest 642/642 green, vitest
+  133/133, ESLint 0 errors, tsc clean, Go build + tests green.
+
+Tier 1 is now complete: the OAuth foundation (v0.12.0), native_id +
+cloud_drive ACL plumbing (v0.13.0), and Drive / OneDrive / SharePoint
+connectors (v0.14.0–v0.16.0) collectively bring akashic from
+"filesystem indexer" to "indexer that handles the cloud storage where
+most files actually live."
+
 ## v0.15.0 — 2026-05-06
 
 Tier 1 PR-C (part 2) — **OneDrive** as a source type, via Microsoft

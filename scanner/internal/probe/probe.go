@@ -63,6 +63,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runGDrive(ctx, connConfig)
 	case "onedrive":
 		return runOneDrive(ctx, connConfig)
+	case "sharepoint":
+		return runSharePoint(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -481,6 +483,42 @@ func runOneDrive(ctx context.Context, c map[string]any) Result {
 		switch {
 		case strings.Contains(msg, "401"):
 			return Result{OK: false, Step: "auth", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
+	return Result{OK: true}
+}
+
+// runSharePoint validates a SharePoint document library source via
+// Graph's ``/sites/{site-id}`` endpoint. Site missing → "config";
+// 401 → "auth"; other errors → "connect" so the user gets the same
+// step-classified feedback as the other Graph-backed sources.
+func runSharePoint(ctx context.Context, c map[string]any) Result {
+	access := str(c, "access_token")
+	if access == "" {
+		return Result{OK: false, Step: "config", Error: "no access_token (no OAuth credential connected)"}
+	}
+	siteID := str(c, "site_id")
+	if siteID == "" {
+		return Result{OK: false, Step: "config", Error: "site_id is required for SharePoint sources"}
+	}
+	conn := connector.NewSharePointConnector(&connector.SharePointConfig{
+		AccessToken: access,
+		SiteID:      siteID,
+		DriveID:     str(c, "drive_id"),
+		ItemID:      str(c, "item_id"),
+	})
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "401"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		case strings.Contains(msg, "404"):
+			return Result{OK: false, Step: "config", Error: msg}
 		default:
 			return Result{OK: false, Step: "connect", Error: msg}
 		}

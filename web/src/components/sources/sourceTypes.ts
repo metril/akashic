@@ -1,7 +1,7 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
   "paperless", "immich", "azureblob", "gcs", "webdav",
-  "gdrive", "onedrive",
+  "gdrive", "onedrive", "sharepoint",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -17,6 +17,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "webdav",
   "gdrive",
   "onedrive",
+  "sharepoint",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -32,6 +33,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   webdav: "WebDAV (Nextcloud / ownCloud / Synology / mod_dav)",
   gdrive: "Google Drive",
   onedrive: "OneDrive (Microsoft 365)",
+  sharepoint: "SharePoint document library",
 };
 
 export type LocalConfig = {
@@ -253,6 +255,19 @@ export type OneDriveConfig = {
   item_id?: string;
 };
 
+// v0.16.0 — SharePoint document library. OAuth-shaped via Microsoft
+// Graph (shares the OneDrive client). ``site_id`` is the colon-
+// triple Graph uses to address a site; required.
+// ``drive_id`` is optional — empty falls through to the site's
+// default document library. ``item_id`` is the optional starting
+// folder.
+export type SharePointConfig = {
+  oauth_credential_id?: string;
+  site_id?: string;
+  drive_id?: string;
+  item_id?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -265,7 +280,8 @@ export type AnyConfig =
   | GCSConfig
   | WebDAVConfig
   | GDriveConfig
-  | OneDriveConfig;
+  | OneDriveConfig
+  | SharePointConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -410,6 +426,13 @@ export function validateSourceConfig(
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Microsoft to connect a OneDrive account";
       }
+      return null;
+    }
+    case "sharepoint": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Microsoft to connect a SharePoint account";
+      }
+      if (!isStr("site_id")) return "Site ID is required";
       return null;
     }
   }

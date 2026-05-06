@@ -260,4 +260,13 @@ def _summary_for(source) -> str:
     if t == "onedrive":
         item = g("item_id")
         return f"OneDrive item {item}" if item else "OneDrive"
+    if t == "sharepoint":
+        # The full Graph site_id is a colon-triple — too long for a
+        # card subtitle. Show only the trailing fragment (the site
+        # bit) which is the part most operators recognise.
+        site = g("site_id")
+        if site:
+            short = site.split(",")[-1] if "," in site else site
+            return f"SharePoint {short}"
+        return "SharePoint"
     return name

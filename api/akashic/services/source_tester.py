@@ -580,6 +580,54 @@ def test_immich(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_sharepoint(cfg: dict) -> TestResult:
+    """v0.16.0 — Tier 1 PR-C probe (SharePoint document library).
+
+    OAuth-shaped via Microsoft Graph. Same router-injected access_token
+    flow as test_onedrive. Verifies the site is reachable by hitting
+    ``/sites/{site_id}`` (not ``/drive``) so a missing-drive error
+    doesn't mask a missing-site one.
+    """
+    access_token = (cfg.get("access_token") or "").strip()
+    site_id = (cfg.get("site_id") or "").strip()
+    if not access_token:
+        return TestResult(
+            ok=False, step="auth",
+            error="no OAuth credential connected — sign in with Microsoft "
+                  "from the source create or detail page",
+        )
+    if not site_id:
+        return TestResult(
+            ok=False, step="config",
+            error="site_id is required for SharePoint sources",
+        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                f"https://graph.microsoft.com/v1.0/sites/{site_id}",
+                params={"$select": "id,displayName,name,webUrl"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"Microsoft Graph rejected the access token ({resp.status_code})",
+        )
+    if resp.status_code == 404:
+        return TestResult(
+            ok=False, step="config",
+            error=f"site not found ({resp.status_code}) — check site_id",
+        )
+    if resp.status_code != 200:
+        return TestResult(
+            ok=False, step="list",
+            error=f"sites/{{id}} returned {resp.status_code}: {resp.text[:200]}",
+        )
+    return TestResult(ok=True)
+
+
 def test_onedrive(cfg: dict) -> TestResult:
     """v0.15.0 — Tier 1 PR-C probe (OneDrive / Microsoft Graph).
 
@@ -678,6 +726,7 @@ _DISPATCH = {
     "webdav":    test_webdav,
     "gdrive":    test_gdrive,
     "onedrive":  test_onedrive,
+    "sharepoint": test_sharepoint,
 }
 
 

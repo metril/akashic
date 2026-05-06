@@ -529,6 +529,18 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			AccessToken: stringFromConfig(cfg, "access_token", ""),
 			ItemID:      stringFromConfig(cfg, "item_id", ""),
 		}), nil
+	case "sharepoint":
+		// v0.16.0 — Tier 1 PR-C part 3. Same OAuth + Graph
+		// machinery as OneDrive, just rooted at a SharePoint site
+		// instead of /me/drive. ``site_id`` is required; empty
+		// drive_id falls through to the site's default document
+		// library; empty item_id starts from the drive root.
+		return connector.NewSharePointConnector(&connector.SharePointConfig{
+			AccessToken: stringFromConfig(cfg, "access_token", ""),
+			SiteID:      stringFromConfig(cfg, "site_id", ""),
+			DriveID:     stringFromConfig(cfg, "drive_id", ""),
+			ItemID:      stringFromConfig(cfg, "item_id", ""),
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

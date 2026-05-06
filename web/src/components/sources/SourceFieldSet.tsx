@@ -11,6 +11,7 @@ import { GCSFields } from "./source-fields/GCSFields";
 import { WebDAVFields } from "./source-fields/WebDAVFields";
 import { GDriveFields } from "./source-fields/GDriveFields";
 import { OneDriveFields } from "./source-fields/OneDriveFields";
+import { SharePointFields } from "./source-fields/SharePointFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -54,5 +55,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <GDriveFields value={value as never} onChange={onChange as never} />;
     case "onedrive":
       return <OneDriveFields value={value as never} onChange={onChange as never} />;
+    case "sharepoint":
+      return <SharePointFields value={value as never} onChange={onChange as never} />;
   }
 }

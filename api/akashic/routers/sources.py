@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 # host_id semantics.
 HOSTLESS_SOURCE_TYPES = {
     "local", "paperless", "immich", "azureblob", "gcs", "webdav",
-    "gdrive", "onedrive",
+    "gdrive", "onedrive", "sharepoint",
 }
 
 

@@ -13,6 +13,7 @@ import type {
   OneDriveConfig,
   PaperlessConfig,
   S3Config,
+  SharePointConfig,
   SmbConfig,
   SourceType,
   SshConfig,
@@ -25,6 +26,7 @@ import { GCSFields } from "./GCSFields";
 import { WebDAVFields } from "./WebDAVFields";
 import { GDriveFields } from "./GDriveFields";
 import { OneDriveFields } from "./OneDriveFields";
+import { SharePointFields } from "./SharePointFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -39,6 +41,7 @@ export type ShareConfig = Partial<
   | WebDAVConfig
   | GDriveConfig
   | OneDriveConfig
+  | SharePointConfig
 >;
 
 interface Props {
@@ -159,6 +162,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <OneDriveFields
           value={value as Partial<OneDriveConfig>}
           onChange={onChange as (next: Partial<OneDriveConfig>) => void}
+        />
+      );
+    case "sharepoint":
+      // v0.16.0 — hostless OAuth-shaped via Microsoft Graph; adds
+      // site_id (required) + optional drive_id/item_id.
+      return (
+        <SharePointFields
+          value={value as Partial<SharePointConfig>}
+          onChange={onChange as (next: Partial<SharePointConfig>) => void}
         />
       );
   }
@@ -334,6 +346,13 @@ export function validateShareConfig(
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Microsoft to connect a OneDrive account";
       }
+      return null;
+    }
+    case "sharepoint": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Microsoft to connect a SharePoint account";
+      }
+      if (!isStr("site_id")) return "Site ID is required";
       return null;
     }
   }

@@ -155,6 +155,15 @@ func buildConnector(
 		return connector.NewOneDriveConnector(&connector.OneDriveConfig{
 			AccessToken: password,
 		}), "", nil
+	case "sharepoint":
+		// v0.16.0 — `password` carries the access token; site/drive
+		// ids would require widening the buildConnector signature
+		// and aren't in scope for the CLI path. Production scans go
+		// through the agent (connectorFromLeased) where site/drive
+		// ids are honoured.
+		return connector.NewSharePointConnector(&connector.SharePointConfig{
+			AccessToken: password,
+		}), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

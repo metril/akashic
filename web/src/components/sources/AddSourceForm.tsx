@@ -103,7 +103,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const shareError = validateShareConfig(type, shareConfig);
   const hostError =
     isCreatingHost && !isHostless
-      ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive">, hostConfig)
+      ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint">, hostConfig)
       : null;
   const validationError = shareError ?? hostError;
   const canSubmit =
@@ -243,7 +243,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
                   New host will be saved alongside this source.
                 </p>
                 <HostFields
-                  type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive">}
+                  type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint">}
                   value={hostConfig}
                   onChange={setHostConfig}
                 />
@@ -277,7 +277,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               profile &gt; host inline &gt; host profile.
             </p>
             <ProfilePicker
-              type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive">}
+              type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint">}
               value={credentialProfileId}
               onChange={setCredentialProfileId}
             />
