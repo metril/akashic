@@ -512,6 +512,15 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			stringFromConfig(cfg, "password", ""),
 			boolFromConfig(cfg, "tls_verify", true),
 		), nil
+	case "gdrive":
+		// v0.14.0 — Tier 1 PR-C. OAuth-shaped: access_token is minted
+		// at lease time by the API from the source's connected
+		// SourceOAuthCredential row. FolderID is optional; empty ==
+		// walk My Drive root.
+		return connector.NewGDriveConnector(&connector.GDriveConfig{
+			AccessToken: stringFromConfig(cfg, "access_token", ""),
+			FolderID:    stringFromConfig(cfg, "folder_id", ""),
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

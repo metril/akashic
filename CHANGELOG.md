@@ -5,6 +5,63 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.14.0 — 2026-05-06
+
+Tier 1 PR-C (part 1) — **Google Drive** as a source type. End-to-end on
+top of the OAuth foundation (v0.12.0) and the cloud_drive ACL plumbing
+(v0.13.0). Sign in with Google from the source create flow, paste an
+optional folder ID to scope the scan, save — the scanner walks Drive
+via the v3 REST API and emits one EntryRecord per file with the
+provider's permissions mapped onto the cloud_drive ACL discriminator.
+
+- **OAuth-token-injection at lease time.** When a scan leases for a
+  source with a connected SourceOAuthCredential, the API mints a
+  fresh access token and drops it into ``connection_config`` as
+  ``access_token`` alongside the existing keys. Scans that exhaust
+  the access-token TTL mid-walk re-mint via the new
+  ``POST /api/scanners/oauth/access-token`` endpoint, gated to
+  scanners holding an active lease on the source.
+- **Drive connector.** ``scanner/internal/connector/gdrive.go``
+  walks Drive via the v3 REST API (no Google Cloud SDK dependency
+  — the surface we use is small enough that the SDK's value
+  doesn't justify ~100 transitive deps). BFS by parent ID; ``files.list``
+  pagination via ``pageToken``; ``files.get?alt=media`` for content
+  fetch. Native ID and md5 checksum (when present — Google-format
+  docs leave it empty) flow into the entry row. The walker handles
+  Drive's name-collision quirk (siblings can share a name) by
+  appending `` (id)`` to the second collision and beyond, keeping
+  the synthesized display path unique.
+- **Permissions → cloud_drive ACL.** Each file's ``permissions[]``
+  is mapped principal-by-principal: Drive's ``owner`` /
+  ``organizer`` (Shared Drive admin) / ``fileOrganizer`` /
+  ``writer`` / ``commenter`` / ``reader`` roles, ``user`` /
+  ``group`` / ``domain`` / ``anyone`` principal types. Inherited
+  flags survive the round-trip so the entry-detail panel renders
+  inherited rows distinctly.
+- **Sign-in flow.** "Sign in with Google" from the AddSource form
+  opens an OAuth popup (mode=associate). The callback persists a
+  SourceOAuthCredential row with ``source_id=NULL``; the form
+  carries the credential id forward, and ``POST /api/sources``
+  attaches it to the new source row at create time. The
+  pre-create "Test connection" path mints an access token from the
+  not-yet-attached credential id so the user gets a green probe
+  before saving.
+- **Source-type registration.** ``gdrive`` joins the hostless source
+  registry on both api and web. ``test_gdrive`` runs an inline
+  ``about.get`` against drive.googleapis.com using the minted
+  access token, with auth/connect step classification matching the
+  WebDAV/Paperless probe shape.
+- **Tests.** Five new Go connector tests (Connect smoke,
+  missing-token guard, BFS walk + path synthesis, name-collision
+  disambiguation, cloud_drive ACL build). Four new pytest cases
+  (scanner-endpoint auth gate, force-refresh round-trip,
+  test-source with not-yet-attached credential, source-create
+  attaches credential). Full pytest 642/642 green, vitest 133/133,
+  ESLint 0 errors, tsc clean, Go scanner build + tests green.
+
+OneDrive + SharePoint follow next, sharing the OAuth + cloud_drive
+plumbing.
+
 ## v0.13.0 — 2026-05-06
 
 Tier 1 PR-B — **native_id + cloud_drive ACL plumbing.** The schema and

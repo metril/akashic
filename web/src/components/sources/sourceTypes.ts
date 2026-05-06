@@ -1,6 +1,6 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
-  "paperless", "immich", "azureblob", "gcs", "webdav",
+  "paperless", "immich", "azureblob", "gcs", "webdav", "gdrive",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -14,6 +14,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "azureblob",
   "gcs",
   "webdav",
+  "gdrive",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -27,6 +28,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   azureblob: "Azure Blob Storage",
   gcs: "Google Cloud Storage",
   webdav: "WebDAV (Nextcloud / ownCloud / Synology / mod_dav)",
+  gdrive: "Google Drive",
 };
 
 export type LocalConfig = {
@@ -225,6 +227,19 @@ export type WebDAVConfig = {
   tls_verify?: boolean;
 };
 
+// v0.14.0 — Google Drive (Tier 1 PR-C). The OAuth credential
+// (client_id / refresh token / access token) lives on the
+// SourceOAuthCredential row; the source's connection_config carries
+// only the optional folder scope. ``oauth_credential_id`` is set
+// post-Sign-in by the Add Source flow; the absence of it means
+// "no Drive account connected yet" and disables save.
+export type GDriveConfig = {
+  oauth_credential_id?: string;
+  // Optional — when empty, walk My Drive root. When set, walk only
+  // this folder ID's subtree.
+  folder_id?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -235,7 +250,8 @@ export type AnyConfig =
   | ImmichConfig
   | AzureBlobConfig
   | GCSConfig
-  | WebDAVConfig;
+  | WebDAVConfig
+  | GDriveConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -365,6 +381,15 @@ export function validateSourceConfig(
       }
       // username/password are intentionally optional — read-only
       // public WebDAV shares (rare but legal) need no auth.
+      return null;
+    }
+    case "gdrive": {
+      // Sign-in must complete before save. The form sets
+      // oauth_credential_id once the popup posts the success
+      // payload back. folder_id is optional.
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Google to connect a Drive account";
+      }
       return null;
     }
   }

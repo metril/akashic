@@ -67,7 +67,37 @@ async def post_test(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = test_connection(body.type, body.connection_config)
+    cfg = dict(body.connection_config or {})
+
+    # v0.14.0 — OAuth-shaped sources (gdrive, …) at create time. The
+    # source row doesn't exist yet, so mint_access_token_for_source
+    # can't help. The form ships ``oauth_credential_id`` for the
+    # not-yet-attached SourceOAuthCredential row; mint via that id.
+    oauth_credential_id = cfg.pop("oauth_credential_id", None)
+    if oauth_credential_id:
+        from akashic.models.oauth_credential import SourceOAuthCredential
+        from akashic.services.source_oauth import (
+            OAuthExchangeFailed,
+            mint_access_token,
+        )
+        cred = await db.get(SourceOAuthCredential, oauth_credential_id)
+        if cred is not None:
+            try:
+                cfg["access_token"] = await mint_access_token(db, cred)
+            except OAuthExchangeFailed as exc:
+                result = TestResult(
+                    ok=False, step="auth",
+                    error=f"oauth refresh failed: {exc.detail[:200]}",
+                )
+                await record_event(
+                    db=db, user=user,
+                    event_type="source_test_run",
+                    payload=_audit_payload(body, result),
+                    request=request,
+                )
+                return result
+
+    result = test_connection(body.type, cfg)
     await record_event(
         db=db, user=user,
         event_type="source_test_run",

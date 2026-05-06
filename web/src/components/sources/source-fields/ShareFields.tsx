@@ -6,6 +6,7 @@ import type {
   AzureBlobConfig,
   GCSAuthMode,
   GCSConfig,
+  GDriveConfig,
   ImmichConfig,
   LocalConfig,
   NfsConfig,
@@ -21,6 +22,7 @@ import { ImmichFields } from "./ImmichFields";
 import { AzureBlobFields } from "./AzureBlobFields";
 import { GCSFields } from "./GCSFields";
 import { WebDAVFields } from "./WebDAVFields";
+import { GDriveFields } from "./GDriveFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -33,6 +35,7 @@ export type ShareConfig = Partial<
   | AzureBlobConfig
   | GCSConfig
   | WebDAVConfig
+  | GDriveConfig
 >;
 
 interface Props {
@@ -136,6 +139,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <WebDAVFields
           value={value as Partial<WebDAVConfig>}
           onChange={onChange as (next: Partial<WebDAVConfig>) => void}
+        />
+      );
+    case "gdrive":
+      // v0.14.0 — hostless OAuth-shaped: oauth_credential_id +
+      // optional folder_id all on the "share".
+      return (
+        <GDriveFields
+          value={value as Partial<GDriveConfig>}
+          onChange={onChange as (next: Partial<GDriveConfig>) => void}
         />
       );
   }
@@ -298,6 +310,12 @@ export function validateShareConfig(
       const url = (c["url"] as string).trim();
       if (!/^https?:\/\//i.test(url)) {
         return "URL must start with http:// or https://";
+      }
+      return null;
+    }
+    case "gdrive": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Google to connect a Drive account";
       }
       return null;
     }

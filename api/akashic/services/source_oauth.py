@@ -358,6 +358,35 @@ async def mint_access_token(
     return new_access
 
 
+async def get_credential_for_source(
+    db: AsyncSession, source_id: uuid.UUID
+) -> SourceOAuthCredential | None:
+    result = await db.execute(
+        select(SourceOAuthCredential).where(
+            SourceOAuthCredential.source_id == source_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def mint_access_token_for_source(
+    db: AsyncSession, source_id: uuid.UUID
+) -> tuple[str, datetime | None] | None:
+    """If the source has a connected OAuth credential, return
+    ``(fresh_access_token, expires_at)``. Returns ``None`` when there's
+    no credential — the caller can then treat the source as
+    OAuth-disabled and skip the access-token injection.
+
+    Called at scan-lease time and from the scanner-facing refresh
+    endpoint. Refresh-token errors propagate as ``OAuthExchangeFailed``.
+    """
+    cred = await get_credential_for_source(db, source_id)
+    if cred is None:
+        return None
+    token = await mint_access_token(db, cred)
+    return token, cred.access_token_expires_at
+
+
 __all__ = [
     "OAuthAppNotConfigured",
     "OAuthExchangeFailed",
@@ -367,7 +396,9 @@ __all__ = [
     "exchange_code",
     "fetch_userinfo",
     "get_app_config",
+    "get_credential_for_source",
     "mint_access_token",
+    "mint_access_token_for_source",
     "refresh_access_token",
     "require_app_config",
     "store_credential_from_token_response",

@@ -580,6 +580,50 @@ def test_immich(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_gdrive(cfg: dict) -> TestResult:
+    """v0.14.0 — Tier 1 PR-C probe (Google Drive).
+
+    OAuth-shaped: the access token comes from the SourceOAuthCredential
+    row attached to this source, NOT from connection_config. The router
+    layer (sources.check_reachability + the create-flow's pre-creation
+    test) is responsible for minting a fresh token via
+    services.source_oauth.mint_access_token_for_source and dropping
+    ``access_token`` into ``cfg`` before calling here.
+
+    The probe itself is an inline httpx GET against
+    ``/drive/v3/about?fields=user/emailAddress`` — the same endpoint
+    the scanner connector's Connect() uses, so a green probe means the
+    scan-time auth path will work too.
+    """
+    access_token = (cfg.get("access_token") or "").strip()
+    if not access_token:
+        return TestResult(
+            ok=False, step="auth",
+            error="no OAuth credential connected — sign in with Google "
+                  "from the source create or detail page",
+        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                "https://www.googleapis.com/drive/v3/about",
+                params={"fields": "user/emailAddress"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"Drive rejected the access token ({resp.status_code})",
+        )
+    if resp.status_code != 200:
+        return TestResult(
+            ok=False, step="list",
+            error=f"about.get returned {resp.status_code}: {resp.text[:200]}",
+        )
+    return TestResult(ok=True)
+
+
 _DISPATCH = {
     "local":     test_local,
     "ssh":       test_ssh,
@@ -591,6 +635,7 @@ _DISPATCH = {
     "azureblob": test_azureblob,
     "gcs":       test_gcs,
     "webdav":    test_webdav,
+    "gdrive":    test_gdrive,
 }
 
 

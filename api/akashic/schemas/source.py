@@ -250,4 +250,11 @@ def _summary_for(source) -> str:
                     break
             return url.rstrip("/") or name
         return name
+    if t == "gdrive":
+        # The OAuth credential's account_email lives on the
+        # SourceOAuthCredential row, not on connection_config — the list
+        # payload doesn't have it joined in. Fall back to "My Drive" or
+        # the configured folder_id when set.
+        folder = g("folder_id")
+        return f"Drive folder {folder}" if folder else "Google Drive"
     return name

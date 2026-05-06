@@ -140,6 +140,14 @@ func buildConnector(
 		// CLI path; the agent (connectorFromLeased) honours the
 		// per-source toggle.
 		return connector.NewWebDAVConnector(host, user, password, true), "", nil
+	case "gdrive":
+		// v0.14.0 — CLI maps `password` → access_token (the OAuth
+		// access token minted by the API). FolderID isn't reachable
+		// via the CLI path; production scans go through the agent
+		// (connectorFromLeased) where folder_id is honoured.
+		return connector.NewGDriveConnector(&connector.GDriveConfig{
+			AccessToken: password,
+		}), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

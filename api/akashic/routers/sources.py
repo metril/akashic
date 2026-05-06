@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 # source. All create+update paths key off this set when validating
 # host_id semantics.
 HOSTLESS_SOURCE_TYPES = {
-    "local", "paperless", "immich", "azureblob", "gcs", "webdav",
+    "local", "paperless", "immich", "azureblob", "gcs", "webdav", "gdrive",
 }
 
 
@@ -118,10 +118,26 @@ async def create_source(
         payload["is_removable"] = infer_is_removable(
             data.type, data.connection_config
         )
+    # v0.14.0 — OAuth-shaped source types (gdrive, …) carry an
+    # oauth_credential_id in connection_config that points at a
+    # SourceOAuthCredential row created by the Sign-in flow with
+    # source_id=NULL. Strip it from the persisted config and use it to
+    # attach the credential to the new source post-create.
+    oauth_credential_id = None
+    if isinstance(payload.get("connection_config"), dict):
+        oauth_credential_id = payload["connection_config"].pop(
+            "oauth_credential_id", None
+        )
     source = Source(**payload)
     db.add(source)
     await db.commit()
     await db.refresh(source)
+    if oauth_credential_id is not None:
+        from akashic.models.oauth_credential import SourceOAuthCredential
+        cred = await db.get(SourceOAuthCredential, oauth_credential_id)
+        if cred is not None and cred.source_id is None:
+            cred.source_id = source.id
+            await db.commit()
     # Push to /ws/scans subscribers so the Sources page sees the
     # new card without polling.
     from akashic.services import scan_pubsub
@@ -640,6 +656,26 @@ async def check_source_reachability(
     # under the source's share-only fields.
     import asyncio
     merged_config = merge_host_and_source(src.host, src)
+    # v0.14.0 — OAuth-shaped sources (gdrive, …) need a fresh access
+    # token in the probe config too. mint_access_token_for_source
+    # refreshes if needed; missing credential surfaces as the probe's
+    # own auth-step error so the user gets a clear "sign in" message.
+    from akashic.services.source_oauth import (
+        OAuthExchangeFailed,
+        mint_access_token_for_source,
+    )
+    try:
+        oauth_pair = await mint_access_token_for_source(db, src.id)
+    except OAuthExchangeFailed as exc:
+        return CheckReachabilityResponse(
+            result=TestResult(
+                ok=False, step="auth",
+                error=f"oauth refresh failed: {exc.detail[:200]}",
+            ),
+            source=src,
+        )
+    if oauth_pair is not None:
+        merged_config["access_token"] = oauth_pair[0]
     result = await asyncio.to_thread(
         test_connection, src.type, merged_config
     )

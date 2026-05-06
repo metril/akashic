@@ -898,6 +898,35 @@ async def lease_scan(
     # behaving exactly as before.
     from akashic.services.source_config import merge_host_and_source
     merged_config = merge_host_and_source(getattr(source, "host", None), source)
+    # v0.14.0 — OAuth-shaped sources (gdrive, onedrive, …) get a fresh
+    # access token injected here. The scanner reads `access_token` from
+    # connection_config; for scans that outlast the access-token TTL,
+    # the agent re-mints via POST /api/scanners/oauth/access-token.
+    from akashic.services.source_oauth import (
+        mint_access_token_for_source,
+        OAuthExchangeFailed,
+    )
+    try:
+        oauth_pair = await mint_access_token_for_source(db, source.id)
+    except OAuthExchangeFailed as exc:
+        # Refresh failed — the OAuth grant is broken. Don't lease this
+        # scan; mark it failed so the watchdog moves on and the UI's
+        # reachability badge surfaces the broken state.
+        await db.execute(
+            text(
+                "UPDATE scans SET status='failed', "
+                "error_message=:msg WHERE id = :sid"
+            ),
+            {"msg": f"oauth refresh failed: {exc.detail[:200]}", "sid": scan_id},
+        )
+        await db.commit()
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+    if oauth_pair is not None:
+        access_token, expires_at = oauth_pair
+        merged_config["access_token"] = access_token
+        if expires_at is not None:
+            merged_config["access_token_expires_at"] = expires_at.isoformat()
     return LeasedScan(
         scan_id=scan_id,
         scan_type=scan_type or "incremental",
@@ -1201,6 +1230,103 @@ async def list_scanner_source_reachability(
         )
         for r in rows
     ]
+
+
+# ── Scanner-facing OAuth refresh (v0.14.0) ──────────────────────────────────
+
+
+class OAuthAccessTokenRequest(BaseModel):
+    source_id: uuid.UUID
+
+
+class OAuthAccessTokenResponse(BaseModel):
+    access_token: str
+    expires_at: datetime | None
+
+
+@router.post(
+    "/api/scanners/oauth/access-token",
+    response_model=OAuthAccessTokenResponse,
+)
+async def scanner_mint_oauth_access_token(
+    body: OAuthAccessTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    scanner: Scanner = Depends(verify_scanner_jwt),
+) -> OAuthAccessTokenResponse:
+    """Mint a fresh access token for a leased OAuth-shaped source.
+
+    Auth: scanner JWT. The scanner must hold an active scan lease on
+    this source — checked here so a compromised scanner that's lost its
+    lease can't mint tokens for arbitrary sources.
+
+    Used when a long scan exhausts the access-token TTL mid-walk. The
+    initial access token comes from the scan-lease payload; subsequent
+    refreshes go through this endpoint.
+    """
+    # Active-lease check: scanner currently holds a running-scan lease for
+    # this source — either as the single-scanner scan owner, or as a
+    # work-unit lease holder under a multi-scanner scan. Either path is
+    # legitimate; both gate against compromised-scanner-with-stale-token.
+    now = datetime.now(timezone.utc)
+    has_lease_q = await db.execute(
+        text(
+            """
+            SELECT 1
+              FROM scans
+             WHERE source_id = :sid
+               AND assigned_scanner_id = :scanner_id
+               AND status = 'running'
+             LIMIT 1
+            """
+        ),
+        {"sid": body.source_id, "scanner_id": scanner.id},
+    )
+    if has_lease_q.first() is None:
+        unit_lease_q = await db.execute(
+            text(
+                """
+                SELECT 1
+                  FROM scan_work_units u
+                  JOIN scans s ON s.id = u.scan_id
+                 WHERE s.source_id = :sid
+                   AND u.assigned_scanner_id = :scanner_id
+                   AND u.status = 'running'
+                   AND u.lease_expires_at > :now
+                 LIMIT 1
+                """
+            ),
+            {"sid": body.source_id, "scanner_id": scanner.id, "now": now},
+        )
+        has_lease = unit_lease_q.first() is not None
+    else:
+        has_lease = True
+    if not has_lease:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active lease for this source",
+        )
+
+    from akashic.services.source_oauth import (
+        OAuthExchangeFailed,
+        mint_access_token_for_source,
+    )
+
+    try:
+        pair = await mint_access_token_for_source(db, body.source_id)
+    except OAuthExchangeFailed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail
+        ) from exc
+
+    if pair is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Source has no connected OAuth credential",
+        )
+    access_token, expires_at = pair
+    return OAuthAccessTokenResponse(
+        access_token=access_token, expires_at=expires_at
+    )
 
 
 # Suppress unused-import warning when running with non-time-aware tools.
