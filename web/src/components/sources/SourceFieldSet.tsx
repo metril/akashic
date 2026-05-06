@@ -10,6 +10,7 @@ import { AzureBlobFields } from "./source-fields/AzureBlobFields";
 import { GCSFields } from "./source-fields/GCSFields";
 import { WebDAVFields } from "./source-fields/WebDAVFields";
 import { GDriveFields } from "./source-fields/GDriveFields";
+import { OneDriveFields } from "./source-fields/OneDriveFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -51,5 +52,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <WebDAVFields value={value as never} onChange={onChange as never} />;
     case "gdrive":
       return <GDriveFields value={value as never} onChange={onChange as never} />;
+    case "onedrive":
+      return <OneDriveFields value={value as never} onChange={onChange as never} />;
   }
 }

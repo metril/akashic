@@ -257,4 +257,7 @@ def _summary_for(source) -> str:
         # the configured folder_id when set.
         folder = g("folder_id")
         return f"Drive folder {folder}" if folder else "Google Drive"
+    if t == "onedrive":
+        item = g("item_id")
+        return f"OneDrive item {item}" if item else "OneDrive"
     return name

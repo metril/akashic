@@ -61,6 +61,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runWebDAV(ctx, connConfig)
 	case "gdrive":
 		return runGDrive(ctx, connConfig)
+	case "onedrive":
+		return runOneDrive(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -442,6 +444,34 @@ func runGDrive(ctx context.Context, c map[string]any) Result {
 	conn := connector.NewGDriveConnector(&connector.GDriveConfig{
 		AccessToken: access,
 		FolderID:    str(c, "folder_id"),
+	})
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "401"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
+	return Result{OK: true}
+}
+
+// runOneDrive validates a OneDrive (or work/school OneDrive) source
+// via Microsoft Graph's /me endpoint. Same auth/connect classification
+// as runGDrive — token minted by the API from the connected
+// SourceOAuthCredential row.
+func runOneDrive(ctx context.Context, c map[string]any) Result {
+	access := str(c, "access_token")
+	if access == "" {
+		return Result{OK: false, Step: "config", Error: "no access_token (no OAuth credential connected)"}
+	}
+	conn := connector.NewOneDriveConnector(&connector.OneDriveConfig{
+		AccessToken: access,
+		ItemID:      str(c, "item_id"),
 	})
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

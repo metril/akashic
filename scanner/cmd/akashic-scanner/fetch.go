@@ -148,6 +148,13 @@ func buildConnector(
 		return connector.NewGDriveConnector(&connector.GDriveConfig{
 			AccessToken: password,
 		}), "", nil
+	case "onedrive":
+		// v0.15.0 — same pattern as gdrive: `password` carries the
+		// access token. ItemID lives in connection_config and isn't
+		// reachable here.
+		return connector.NewOneDriveConnector(&connector.OneDriveConfig{
+			AccessToken: password,
+		}), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

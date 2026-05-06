@@ -521,6 +521,14 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			AccessToken: stringFromConfig(cfg, "access_token", ""),
 			FolderID:    stringFromConfig(cfg, "folder_id", ""),
 		}), nil
+	case "onedrive":
+		// v0.15.0 — Tier 1 PR-C part 2. OAuth-shaped via Microsoft
+		// Graph. Same access-token mechanism as gdrive. ItemID is
+		// optional; empty == walk OneDrive root.
+		return connector.NewOneDriveConnector(&connector.OneDriveConfig{
+			AccessToken: stringFromConfig(cfg, "access_token", ""),
+			ItemID:      stringFromConfig(cfg, "item_id", ""),
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

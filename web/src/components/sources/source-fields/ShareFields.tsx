@@ -10,6 +10,7 @@ import type {
   ImmichConfig,
   LocalConfig,
   NfsConfig,
+  OneDriveConfig,
   PaperlessConfig,
   S3Config,
   SmbConfig,
@@ -23,6 +24,7 @@ import { AzureBlobFields } from "./AzureBlobFields";
 import { GCSFields } from "./GCSFields";
 import { WebDAVFields } from "./WebDAVFields";
 import { GDriveFields } from "./GDriveFields";
+import { OneDriveFields } from "./OneDriveFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -36,6 +38,7 @@ export type ShareConfig = Partial<
   | GCSConfig
   | WebDAVConfig
   | GDriveConfig
+  | OneDriveConfig
 >;
 
 interface Props {
@@ -148,6 +151,14 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <GDriveFields
           value={value as Partial<GDriveConfig>}
           onChange={onChange as (next: Partial<GDriveConfig>) => void}
+        />
+      );
+    case "onedrive":
+      // v0.15.0 — hostless OAuth-shaped via Microsoft Graph.
+      return (
+        <OneDriveFields
+          value={value as Partial<OneDriveConfig>}
+          onChange={onChange as (next: Partial<OneDriveConfig>) => void}
         />
       );
   }
@@ -316,6 +327,12 @@ export function validateShareConfig(
     case "gdrive": {
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Google to connect a Drive account";
+      }
+      return null;
+    }
+    case "onedrive": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Microsoft to connect a OneDrive account";
       }
       return null;
     }

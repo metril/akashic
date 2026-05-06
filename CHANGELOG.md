@@ -5,6 +5,56 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.15.0 — 2026-05-06
+
+Tier 1 PR-C (part 2) — **OneDrive** as a source type, via Microsoft
+Graph. Reuses the OAuth foundation (v0.12.0), cloud_drive ACL
+(v0.13.0), and scanner-token plumbing (v0.14.0); adds the Graph
+endpoint differences and a "Sign in with Microsoft" UI. Both
+consumer (personal Microsoft accounts) and work/school (Azure AD)
+OneDrive are supported via the same `/me/drive/...` endpoint shape;
+the OAuth provider's `/common/` issuer accepts both.
+
+- **OneDrive connector.** ``scanner/internal/connector/onedrive.go``
+  walks DriveItems via Graph v1.0 — ``/me/drive/items/{id}/children``
+  with ``@odata.nextLink`` pagination, ``$top=200`` per page,
+  ``$select`` projection so we don't pull fields we don't use.
+  ``ReadFile`` streams from ``/items/{id}/content`` (Graph hands back
+  a 302 to a pre-signed storage URL; we follow). No msgraph-sdk
+  dependency.
+- **Permissions → cloud_drive ACL.** Per-item ``/permissions``
+  fetched after listing each child (Graph doesn't ship permissions
+  inline). Mapping: ``read`` → reader, ``write`` → writer, ``owner``
+  → owner; ``link.scope = anonymous`` → anyone-with-link, ``scope =
+  organization`` → domain. Graph's ``inheritedFrom`` populates the
+  cloud_drive grant's inherited / inherited_from_id /
+  inherited_from_path fields.
+- **Hash flow.** OneDrive returns hashes inline on file items —
+  prefer ``sha1Hash`` (universally available across consumer +
+  business OneDrive), fall back to ``sha256Hash``, then the
+  consumer-only ``quickXorHash`` (prefixed ``quickxor:`` to keep
+  it visually distinct).
+- **Sign-in flow.** "Sign in with Microsoft" mirrors the Drive flow
+  — popup → callback → SourceOAuthCredential row created with
+  ``source_id=NULL`` → form carries the credential id forward →
+  POST /api/sources attaches the credential to the new source row.
+  ``test_onedrive`` runs an inline ``GET /me`` against Graph using
+  the minted access token.
+- **Source-type registration.** ``onedrive`` joins
+  HOSTLESS_SOURCE_TYPES on both api and web; SOURCE_TYPE_LABELS
+  carries "OneDrive (Microsoft 365)"; a parallel ``OneDriveFields``
+  TSX component renders the Sign-in popup + optional ``item_id``
+  scope input.
+- **Tests.** Six new Go connector tests (Connect smoke,
+  missing-token guard, BFS walk + path synthesis, three ACL
+  mapping cases for user / anonymous-link / organization-link
+  grants, plus role-strongest selection). Full pytest 642/642
+  green, vitest 133/133, ESLint 0 errors, tsc clean, Go build +
+  tests green.
+
+SharePoint follows next, sharing the OneDrive Graph client and
+adding a site-picker step before the folder picker.
+
 ## v0.14.0 — 2026-05-06
 
 Tier 1 PR-C (part 1) — **Google Drive** as a source type. End-to-end on

@@ -38,7 +38,8 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 # source. All create+update paths key off this set when validating
 # host_id semantics.
 HOSTLESS_SOURCE_TYPES = {
-    "local", "paperless", "immich", "azureblob", "gcs", "webdav", "gdrive",
+    "local", "paperless", "immich", "azureblob", "gcs", "webdav",
+    "gdrive", "onedrive",
 }
 
 

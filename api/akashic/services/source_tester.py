@@ -580,6 +580,47 @@ def test_immich(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_onedrive(cfg: dict) -> TestResult:
+    """v0.15.0 — Tier 1 PR-C probe (OneDrive / Microsoft Graph).
+
+    OAuth-shaped, same flow as test_gdrive: the router layer mints a
+    fresh access token from the connected SourceOAuthCredential and
+    drops it in cfg['access_token'] before this probe runs.
+
+    The probe itself is an inline httpx GET against
+    ``https://graph.microsoft.com/v1.0/me`` — same endpoint the
+    scanner connector's Connect() uses, so a green probe means the
+    scan-time auth path will work.
+    """
+    access_token = (cfg.get("access_token") or "").strip()
+    if not access_token:
+        return TestResult(
+            ok=False, step="auth",
+            error="no OAuth credential connected — sign in with Microsoft "
+                  "from the source create or detail page",
+        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                "https://graph.microsoft.com/v1.0/me",
+                params={"$select": "displayName,mail,userPrincipalName"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"Microsoft Graph rejected the access token ({resp.status_code})",
+        )
+    if resp.status_code != 200:
+        return TestResult(
+            ok=False, step="list",
+            error=f"/me returned {resp.status_code}: {resp.text[:200]}",
+        )
+    return TestResult(ok=True)
+
+
 def test_gdrive(cfg: dict) -> TestResult:
     """v0.14.0 — Tier 1 PR-C probe (Google Drive).
 
@@ -636,6 +677,7 @@ _DISPATCH = {
     "gcs":       test_gcs,
     "webdav":    test_webdav,
     "gdrive":    test_gdrive,
+    "onedrive":  test_onedrive,
 }
 
 

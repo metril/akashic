@@ -1,6 +1,7 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
-  "paperless", "immich", "azureblob", "gcs", "webdav", "gdrive",
+  "paperless", "immich", "azureblob", "gcs", "webdav",
+  "gdrive", "onedrive",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -15,6 +16,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "gcs",
   "webdav",
   "gdrive",
+  "onedrive",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -29,6 +31,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   gcs: "Google Cloud Storage",
   webdav: "WebDAV (Nextcloud / ownCloud / Synology / mod_dav)",
   gdrive: "Google Drive",
+  onedrive: "OneDrive (Microsoft 365)",
 };
 
 export type LocalConfig = {
@@ -240,6 +243,16 @@ export type GDriveConfig = {
   folder_id?: string;
 };
 
+// v0.15.0 — OneDrive (Microsoft Graph). Same OAuth-shaped pattern
+// as gdrive: oauth_credential_id is the link to the
+// SourceOAuthCredential row created by the Sign-in flow. ``item_id``
+// is the optional drive-item id to scope the walk; empty walks the
+// drive root.
+export type OneDriveConfig = {
+  oauth_credential_id?: string;
+  item_id?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -251,7 +264,8 @@ export type AnyConfig =
   | AzureBlobConfig
   | GCSConfig
   | WebDAVConfig
-  | GDriveConfig;
+  | GDriveConfig
+  | OneDriveConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -389,6 +403,12 @@ export function validateSourceConfig(
       // payload back. folder_id is optional.
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Google to connect a Drive account";
+      }
+      return null;
+    }
+    case "onedrive": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Microsoft to connect a OneDrive account";
       }
       return null;
     }
