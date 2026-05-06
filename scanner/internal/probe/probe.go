@@ -53,6 +53,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runPaperless(ctx, connConfig)
 	case "immich":
 		return runImmich(ctx, connConfig)
+	case "azureblob":
+		return runAzureBlob(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -221,6 +223,51 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	return Result{OK: true}
+}
+
+// runAzureBlob validates an Azure Blob Storage source by issuing
+// the connector's Connect — which validates the auth chain and
+// probes container.GetProperties. Auth-rejected (the SDK surfaces
+// 403 / AuthenticationFailed) → "auth"; unreachable / DNS / TLS
+// → "connect"; other 4xx → "list".
+func runAzureBlob(ctx context.Context, c map[string]any) Result {
+	accountName := strings.TrimSpace(str(c, "account_name"))
+	containerName := strings.TrimSpace(str(c, "container"))
+	authMode := strings.TrimSpace(str(c, "auth_mode"))
+	if accountName == "" {
+		return Result{OK: false, Step: "config", Error: "account_name required"}
+	}
+	if containerName == "" {
+		return Result{OK: false, Step: "config", Error: "container required"}
+	}
+	conn := connector.NewAzureBlobConnector(
+		accountName,
+		containerName,
+		authMode,
+		str(c, "account_key"),
+		str(c, "sas_token"),
+		str(c, "endpoint_suffix"),
+	)
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "AuthenticationFailed"),
+			strings.Contains(msg, "AuthorizationFailure"),
+			strings.Contains(msg, "InvalidAuthenticationInfo"),
+			strings.Contains(msg, "account_key required"),
+			strings.Contains(msg, "sas_token required"),
+			strings.Contains(msg, "default azure credential"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		case strings.Contains(msg, "ContainerNotFound"),
+			strings.Contains(msg, "container "):
+			return Result{OK: false, Step: "list", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
 	return Result{OK: true}
 }
 

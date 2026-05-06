@@ -231,4 +231,9 @@ def _summary_for(source) -> str:
                     break
             return url.rstrip("/") or name
         return name
+    if t == "azureblob":
+        account, ctr = g("account_name"), g("container")
+        if account and ctr:
+            return f"{account}/{ctr}"
+        return account or ctr or name
     return name

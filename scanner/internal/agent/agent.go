@@ -473,6 +473,22 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			boolFromConfig(cfg, "include_archived", false),
 			boolFromConfig(cfg, "tls_verify", true),
 		), nil
+	case "azureblob":
+		// v0.9.0 — Tier 2 PR 2. Hostless: account_name + container +
+		// auth fields all on the source. Three auth modes:
+		// account_key (Shared Key auth), sas_token (Shared Access
+		// Signature query string), azure_ad (DefaultAzureCredential
+		// — picks up workload identity / env / az login). The auth
+		// secret arrives in the connection_config field that
+		// matches the chosen mode.
+		return connector.NewAzureBlobConnector(
+			stringFromConfig(cfg, "account_name", ""),
+			stringFromConfig(cfg, "container", ""),
+			stringFromConfig(cfg, "auth_mode", ""),
+			stringFromConfig(cfg, "account_key", ""),
+			stringFromConfig(cfg, "sas_token", ""),
+			stringFromConfig(cfg, "endpoint_suffix", ""),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

@@ -5,6 +5,84 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.9.0 — 2026-05-05
+
+Tier 2 PR 2 — **Azure Blob Storage** as a hostless source type. Three
+auth modes ship together so this works for both home setups (account
+key) and AKS workload-identity production deploys (Azure AD).
+
+- **Azure Blob as a source type.** Pick "Azure Blob Storage" in Add
+  Source. Fill in storage account name + container, pick an auth
+  mode, paste the matching credential. The scanner walks the
+  container via `ListBlobsFlatPager`, emits one entry per blob with
+  size / LastModified / ContentMD5 (or ETag fallback) populated, and
+  follows S3's prefix-as-folder convention so Browse navigates
+  hierarchically.
+- **Three auth modes.**
+  - `account_key` — Shared Key auth. Paste the access key from
+    Azure portal → Storage account → Access keys. Easiest one-off,
+    rotates poorly.
+  - `sas_token` — Shared Access Signature query string. Paste with
+    or without the leading `?` (the connector normalises). Bounded
+    lifetime + scoped permissions.
+  - `azure_ad` — `DefaultAzureCredential`. Picks up workload identity
+    (AKS), managed identity, env vars, or `az login` creds in that
+    order at scan time. The recommended production path — no inline
+    secret to rotate.
+- **Sovereign-cloud support.** New `endpoint_suffix` field defaults
+  to `core.windows.net`. Override with `core.usgovcloudapi.net` (US
+  gov), `core.chinacloudapi.cn` (China), or `core.cloudapi.de`
+  (legacy Germany).
+- **Explicit auth-step classification.** Test-connection probes
+  (both inline via reachability and via the api's "Test" button)
+  classify Azure SDK errors into the standard `auth | connect |
+  list | config` taxonomy: `AuthenticationFailed` /
+  `AuthorizationFailure` / `InvalidAuthenticationInfo` →
+  `auth`; `ContainerNotFound` / container-existence failure →
+  `list`; transport / DNS / TLS → `connect`.
+
+Internal:
+
+- New scanner connector at `scanner/internal/connector/azureblob.go`
+  with full Connect / Walk / WalkShallow / ReadFile / Delete and
+  three-mode auth dispatch. Dependencies pinned to azblob@v1.5.0 +
+  azidentity@v1.8.2 + azcore@v1.18.0 — the more recent SDK majors
+  bumped Go minimums to 1.25, beyond what the scanner Dockerfile
+  ships today (golang:1.23-alpine).
+- New probe `runAzureBlob` in `scanner/internal/probe/probe.go` —
+  reuses the connector's Connect for the reachability poll loop's
+  validation.
+- Three scanner dispatch sites extended (`connectorFromLeased`,
+  `buildConnector`, `probe.Run`).
+- New CLI subcommand args on `akashic-scanner test-connection`:
+  `--account-name`, `--container`, `--auth-mode`,
+  `--endpoint-suffix`. Auth secret arrives over the existing
+  `--password-stdin` plumbing so it never appears in
+  `/proc/<pid>/cmdline`.
+- API: `test_azureblob` in `services/source_tester.py` subprocesses
+  the CLI; `_summary_for` renders `<account>/<container>`;
+  `HOSTLESS_SOURCE_TYPES` set extended to include `azureblob`.
+- Web: `AzureBlobFields` component swaps the credential input by
+  auth mode; `ShareFields` + `SourceFieldSet` dispatch; `SourceType`
+  union + `AzureBlobConfig` + `AzureBlobAuthMode` + validation rule.
+- Five connector tests cover normalisePrefix, pathSegmentsExcluded,
+  buildAzureBlobEntry mapping, three-mode auth-validation paths,
+  and missing-required-field paths.
+
+Known limitations (v0.9.x follow-ups):
+
+- **Container ACL / Azure RBAC role enumeration** is not surfaced
+  per blob — the connector treats every blob as readable by the
+  scanner's caller identity. The wider akashic ACL model assumes
+  per-entry grants; mapping Azure RBAC + container-level shared
+  access policies into that shape is meaningful work and waits on
+  a Tier 4 follow-up.
+- **One container per source.** Multiple containers in the same
+  storage account today require multiple Source rows with the
+  credential typed each time. Promoting Azure Blob to host+source
+  (storage account = host, container = source) is a v0.9.x
+  follow-up if anyone hits the friction.
+
 ## v0.8.1 — 2026-05-05
 
 S3-compat polish — first slice of Tier 2. Akashic's S3 connector

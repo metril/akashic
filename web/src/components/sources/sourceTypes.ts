@@ -1,5 +1,5 @@
 export const SOURCE_TYPES = [
-  "local", "ssh", "smb", "nfs", "s3", "paperless", "immich",
+  "local", "ssh", "smb", "nfs", "s3", "paperless", "immich", "azureblob",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -10,6 +10,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "local",
   "paperless",
   "immich",
+  "azureblob",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -20,6 +21,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   s3: "S3-compatible",
   paperless: "Paperless-ngx",
   immich: "Immich",
+  azureblob: "Azure Blob Storage",
 };
 
 export type LocalConfig = {
@@ -170,6 +172,24 @@ export type ImmichConfig = {
   tls_verify?: boolean;
 };
 
+// v0.9.0 — Azure Blob Storage (Tier 2 PR 2). Hostless: account name
+// + container + auth fields on the source. Three auth modes:
+//   - account_key: Shared Key. Account access key over stdin.
+//   - sas_token: Shared Access Signature query string.
+//   - azure_ad: DefaultAzureCredential — pod identity / env / az login.
+// endpoint_suffix defaults to "core.windows.net"; sovereign clouds
+// (US gov / China) can override with "core.usgovcloudapi.net" etc.
+export type AzureBlobAuthMode = "account_key" | "sas_token" | "azure_ad";
+
+export type AzureBlobConfig = {
+  account_name: string;
+  container: string;
+  auth_mode: AzureBlobAuthMode;
+  account_key?: string;
+  sas_token?: string;
+  endpoint_suffix?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -177,7 +197,8 @@ export type AnyConfig =
   | SmbConfig
   | S3Config
   | PaperlessConfig
-  | ImmichConfig;
+  | ImmichConfig
+  | AzureBlobConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -273,6 +294,20 @@ export function validateSourceConfig(
         return "URL must start with http:// or https://";
       }
       if (!isStr("api_key")) return "API key is required";
+      return null;
+    }
+    case "azureblob": {
+      if (!isStr("account_name")) return "Account name is required";
+      if (!isStr("container")) return "Container is required";
+      const mode = (c["auth_mode"] as AzureBlobAuthMode | undefined) ?? "account_key";
+      if (mode === "account_key" && !isStr("account_key")) {
+        return "Account key is required";
+      }
+      if (mode === "sas_token" && !isStr("sas_token")) {
+        return "SAS token is required";
+      }
+      // azure_ad has no inline secret — DefaultAzureCredential pulls
+      // env / pod identity / az login at scan time.
       return null;
     }
   }

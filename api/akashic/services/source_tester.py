@@ -395,6 +395,50 @@ def test_paperless(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_azureblob(cfg: dict) -> TestResult:
+    """v0.9.0 — Tier 2 PR 2 probe (Azure Blob Storage).
+
+    Subprocesses the scanner CLI's `test-connection --type=azureblob`
+    so the same auth chain (Shared Key / SAS / DefaultAzureCredential)
+    that a production scan uses is exercised on the Test button. The
+    secret (account_key or sas_token) is piped over stdin via the
+    existing `--password-stdin` plumbing so it never appears in
+    `/proc/<pid>/cmdline`.
+    """
+    account = (cfg.get("account_name") or "").strip()
+    container = (cfg.get("container") or "").strip()
+    if not account or not container:
+        return TestResult(
+            ok=False, step="config", error="account_name and container required",
+        )
+    auth_mode = (cfg.get("auth_mode") or "").strip().lower()
+    if auth_mode not in ("", "account_key", "sas_token", "azure_ad"):
+        return TestResult(
+            ok=False, step="config",
+            error=f"invalid auth_mode {auth_mode!r}",
+        )
+    # Pick the credential matching the chosen auth mode. Empty
+    # auth_mode falls back the same way the connector does: account_key
+    # if account_key is set, sas_token if sas_token is set, else
+    # azure_ad (no inline secret needed).
+    secret = ""
+    if auth_mode == "account_key" or (auth_mode == "" and (cfg.get("account_key") or "").strip()):
+        secret = cfg.get("account_key") or ""
+    elif auth_mode == "sas_token" or (auth_mode == "" and (cfg.get("sas_token") or "").strip()):
+        secret = cfg.get("sas_token") or ""
+    argv = [
+        "test-connection", "--type=azureblob",
+        "--account-name", account,
+        "--container", container,
+        "--password-stdin",
+    ]
+    if auth_mode:
+        argv += ["--auth-mode", auth_mode]
+    if cfg.get("endpoint_suffix"):
+        argv += ["--endpoint-suffix", cfg["endpoint_suffix"]]
+    return _test_via_scanner(argv, password=secret)
+
+
 def test_immich(cfg: dict) -> TestResult:
     """v0.8.0 — Tier 3 self-hosted library probe (photos / videos).
 
@@ -445,6 +489,7 @@ _DISPATCH = {
     "nfs":       test_nfs,
     "paperless": test_paperless,
     "immich":    test_immich,
+    "azureblob": test_azureblob,
 }
 
 

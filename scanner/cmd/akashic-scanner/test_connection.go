@@ -49,6 +49,12 @@ func runTestConnection(args []string) {
 	// endpoint is set, else virtual-hosted). "true" / "false" override
 	// — Wasabi/B2 want "false" even with their endpoint set.
 	pathStyle := fs.String("path-style", "", "S3 addressing style: auto | true | false (default auto)")
+	// v0.9.0 — Azure Blob Storage flags. account-key / sas-token come
+	// over stdin; the CLI itself only takes the non-secret config.
+	accountName := fs.String("account-name", "", "Azure storage account name")
+	azContainer := fs.String("container", "", "Azure container")
+	authMode := fs.String("auth-mode", "", "Azure auth mode: account_key | sas_token | azure_ad")
+	endpointSuffix := fs.String("endpoint-suffix", "", "Azure endpoint suffix (default core.windows.net)")
 	exportPath := fs.String("export-path", "", "NFS export path to validate")
 	authUID := fs.Int("auth-uid", 0, "NFS AUTH_SYS uid (default 0; servers with root_squash may require a non-root uid)")
 	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
@@ -90,6 +96,12 @@ func runTestConnection(args []string) {
 		ok, step, msg = testSMB(*host, p, *user, pw, *share)
 	case "s3":
 		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw, *pathStyle)
+	case "azureblob":
+		// stdin password is reused as the auth secret — its actual
+		// meaning depends on auth-mode (account_key | sas_token).
+		// azure_ad mode ignores the password (DefaultAzureCredential
+		// reads env / IMDS / az login at probe time).
+		ok, step, msg = testAzureBlob(*accountName, *azContainer, *authMode, *endpointSuffix, pw)
 	case "nfs":
 		p := *port
 		if p == 0 {
@@ -246,6 +258,55 @@ func testS3(endpoint, bucket, region, accessKey, secretKey, pathStyleFlag string
 			return false, "auth", "access denied"
 		default:
 			return false, "list", s
+		}
+	}
+	return true, "", ""
+}
+
+// testAzureBlob is the CLI shim around connector.AzureBlobConnector's
+// Connect — same probe the agent's reachability poll uses. Auth-step
+// classification mirrors runAzureBlob in internal/probe/probe.go;
+// kept duplicated rather than imported because the CLI binary
+// shouldn't link the probe package's awsconfig deps.
+func testAzureBlob(accountName, container, authMode, endpointSuffix, secret string) (ok bool, step, msg string) {
+	if accountName == "" || container == "" {
+		return false, "config", "account_name and container required"
+	}
+	mode := strings.ToLower(strings.TrimSpace(authMode))
+	if mode == "" {
+		// Match connector's implicit default — use the credential
+		// the user actually supplied to pick the mode.
+		if secret != "" {
+			mode = "account_key"
+		} else {
+			mode = "azure_ad"
+		}
+	}
+	var accountKey, sasToken string
+	switch mode {
+	case "account_key":
+		accountKey = secret
+	case "sas_token":
+		sasToken = secret
+	}
+	c := connector.NewAzureBlobConnector(accountName, container, mode, accountKey, sasToken, endpointSuffix)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := c.Connect(ctx); err != nil {
+		s := err.Error()
+		switch {
+		case strings.Contains(s, "AuthenticationFailed"),
+			strings.Contains(s, "AuthorizationFailure"),
+			strings.Contains(s, "InvalidAuthenticationInfo"),
+			strings.Contains(s, "account_key required"),
+			strings.Contains(s, "sas_token required"),
+			strings.Contains(s, "default azure credential"):
+			return false, "auth", s
+		case strings.Contains(s, "ContainerNotFound"),
+			strings.Contains(s, "container "):
+			return false, "list", s
+		default:
+			return false, "connect", s
 		}
 	}
 	return true, "", ""

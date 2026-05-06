@@ -118,6 +118,12 @@ func buildConnector(
 		// CLI path; they're scan-time scoping flags that live in the
 		// scan-time connection_config.
 		return connector.NewImmichConnector(host, password, nil, false, true), "", nil
+	case "azureblob":
+		// v0.9.0 — CLI maps `host` → account_name, `bucket` →
+		// container, `password` → account_key. SAS / Azure AD modes
+		// aren't reachable via the CLI path; the agent path
+		// (connectorFromLeased) is where production scans land.
+		return connector.NewAzureBlobConnector(host, bucket, "account_key", password, "", ""), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

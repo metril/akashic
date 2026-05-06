@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "../../ui";
 import type {
+  AzureBlobAuthMode,
+  AzureBlobConfig,
   ImmichConfig,
   LocalConfig,
   NfsConfig,
@@ -13,6 +15,7 @@ import type {
 } from "../sourceTypes";
 import { PaperlessFields } from "./PaperlessFields";
 import { ImmichFields } from "./ImmichFields";
+import { AzureBlobFields } from "./AzureBlobFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -22,6 +25,7 @@ export type ShareConfig = Partial<
   | S3Config
   | PaperlessConfig
   | ImmichConfig
+  | AzureBlobConfig
 >;
 
 interface Props {
@@ -98,6 +102,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <ImmichFields
           value={value as Partial<ImmichConfig>}
           onChange={onChange as (next: Partial<ImmichConfig>) => void}
+        />
+      );
+    case "azureblob":
+      // v0.9.0 — hostless: account_name + container + auth fields
+      // all on the "share".
+      return (
+        <AzureBlobFields
+          value={value as Partial<AzureBlobConfig>}
+          onChange={onChange as (next: Partial<AzureBlobConfig>) => void}
         />
       );
   }
@@ -233,6 +246,18 @@ export function validateShareConfig(
         return "URL must start with http:// or https://";
       }
       if (!isStr("api_key")) return "API key is required";
+      return null;
+    }
+    case "azureblob": {
+      if (!isStr("account_name")) return "Account name is required";
+      if (!isStr("container")) return "Container is required";
+      const mode = (c["auth_mode"] as AzureBlobAuthMode | undefined) ?? "account_key";
+      if (mode === "account_key" && !isStr("account_key")) {
+        return "Account key is required";
+      }
+      if (mode === "sas_token" && !isStr("sas_token")) {
+        return "SAS token is required";
+      }
       return null;
     }
   }
