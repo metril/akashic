@@ -1,7 +1,7 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
   "paperless", "immich", "azureblob", "gcs", "webdav",
-  "gdrive", "onedrive", "sharepoint",
+  "gdrive", "onedrive", "sharepoint", "dropbox",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -18,6 +18,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "gdrive",
   "onedrive",
   "sharepoint",
+  "dropbox",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -34,6 +35,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   gdrive: "Google Drive",
   onedrive: "OneDrive (Microsoft 365)",
   sharepoint: "SharePoint document library",
+  dropbox: "Dropbox",
 };
 
 export type LocalConfig = {
@@ -268,6 +270,14 @@ export type SharePointConfig = {
   item_id?: string;
 };
 
+// v0.17.0 — Dropbox. OAuth-shaped (Tier 4 PR 2). Path-based
+// addressing: ``path`` is optional (empty == scan from the root of
+// the user's Dropbox); non-empty must start with ``/``.
+export type DropboxConfig = {
+  oauth_credential_id?: string;
+  path?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -281,7 +291,8 @@ export type AnyConfig =
   | WebDAVConfig
   | GDriveConfig
   | OneDriveConfig
-  | SharePointConfig;
+  | SharePointConfig
+  | DropboxConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -433,6 +444,17 @@ export function validateSourceConfig(
         return "Sign in with Microsoft to connect a SharePoint account";
       }
       if (!isStr("site_id")) return "Site ID is required";
+      return null;
+    }
+    case "dropbox": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Dropbox to connect an account";
+      }
+      // path is optional; if set, must start with /
+      const p = (c["path"] as string | undefined)?.trim();
+      if (p && p !== "/" && !p.startsWith("/")) {
+        return "Path must start with /";
+      }
       return null;
     }
   }

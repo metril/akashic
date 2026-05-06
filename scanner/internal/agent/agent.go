@@ -541,6 +541,14 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			DriveID:     stringFromConfig(cfg, "drive_id", ""),
 			ItemID:      stringFromConfig(cfg, "item_id", ""),
 		}), nil
+	case "dropbox":
+		// v0.17.0 — Tier 4 PR 2. OAuth via the Dropbox provider in
+		// the OAuth registry. Path-based addressing (no native_id
+		// juggling). Empty path == scan from the root.
+		return connector.NewDropboxConnector(&connector.DropboxConfig{
+			AccessToken: stringFromConfig(cfg, "access_token", ""),
+			Path:        stringFromConfig(cfg, "path", ""),
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

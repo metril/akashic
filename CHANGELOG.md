@@ -5,6 +5,49 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.17.0 — 2026-05-06
+
+Tier 4 PR 2 — **Dropbox** as a source type. OAuth on top of the
+foundation that's been in place since v0.12.0; the Dropbox provider
+config was wired into the OAuth registry then, so this release is
+just the connector + UI on top.
+
+- **Dropbox connector.** ``scanner/internal/connector/dropbox.go``
+  walks via ``/2/files/list_folder`` with ``recursive: true``, then
+  paginates via ``/2/files/list_folder/continue``. One round-trip
+  per page (default 2000 entries) covers the entire subtree —
+  substantially fewer calls than Drive's per-folder BFS. ReadFile
+  streams from ``/2/files/download`` with the path passed via the
+  ``Dropbox-API-Arg`` header per Dropbox convention.
+- **Path-based addressing.** Dropbox uses paths as canonical
+  identifiers, so the connector emits ``path_display`` directly —
+  no synthesized-path machinery, no name-collision suffix
+  (Dropbox enforces unique sibling names). The provider id is
+  still persisted in ``native_id`` for completeness.
+- **Block-based content hash.** Dropbox's ``content_hash`` is a
+  proprietary block-based SHA-256 that doesn't equal any standard
+  hash, so it's prefixed ``dropbox:`` in the entry record. Dedup
+  queries against entries from other sources won't accidentally
+  collide it with the standard ``sha256:`` from OneDrive.
+- **API and UI.** ``test_dropbox`` runs an inline POST against
+  ``/2/users/get_current_account``; ``dropbox`` joins
+  HOSTLESS_SOURCE_TYPES; the new ``DropboxFields`` TSX component
+  hosts the Sign-in popup + optional path scope. The form
+  surfaces a banner explaining that sharing-grant ACLs aren't yet
+  populated for Dropbox sources.
+- **Known limitation.** This release emits ``acl=null`` for every
+  Dropbox entry. Surfacing the per-file member list takes one
+  extra API call per shared item and would multiply round-trips
+  on the common case (most items unshared); a follow-up adds
+  best-effort enrichment via ``list_folder_members`` for
+  explicitly-shared folders only.
+- **Tests.** Eight new Go connector tests (Connect smoke,
+  missing-token guard, single-page walk, paginated walk,
+  deleted-entry skip, hash-omitted-when-computeHash-false, 401
+  → refresh-and-retry, ReadFile API-arg header). Full pytest
+  642/642 green, vitest 133/133, ESLint 0 errors, tsc clean,
+  Go build + tests green.
+
 ## v0.16.0 — 2026-05-06
 
 Tier 1 PR-C (part 3, complete) — **SharePoint** document libraries as a

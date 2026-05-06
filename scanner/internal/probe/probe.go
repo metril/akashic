@@ -65,6 +65,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runOneDrive(ctx, connConfig)
 	case "sharepoint":
 		return runSharePoint(ctx, connConfig)
+	case "dropbox":
+		return runDropbox(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -519,6 +521,35 @@ func runSharePoint(ctx context.Context, c map[string]any) Result {
 			return Result{OK: false, Step: "auth", Error: msg}
 		case strings.Contains(msg, "404"):
 			return Result{OK: false, Step: "config", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
+	return Result{OK: true}
+}
+
+// runDropbox validates a Dropbox source by calling
+// /2/users/get_current_account with the access token in
+// connection_config. Same router-injected access_token flow as the
+// other OAuth-shaped types. Failure shapes mapped: missing token
+// → "config"; 401 → "auth"; otherwise → "connect".
+func runDropbox(ctx context.Context, c map[string]any) Result {
+	access := str(c, "access_token")
+	if access == "" {
+		return Result{OK: false, Step: "config", Error: "no access_token (no OAuth credential connected)"}
+	}
+	conn := connector.NewDropboxConnector(&connector.DropboxConfig{
+		AccessToken: access,
+		Path:        str(c, "path"),
+	})
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "401"):
+			return Result{OK: false, Step: "auth", Error: msg}
 		default:
 			return Result{OK: false, Step: "connect", Error: msg}
 		}

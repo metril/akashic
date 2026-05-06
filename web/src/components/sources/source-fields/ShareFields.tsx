@@ -4,6 +4,7 @@ import { Input } from "../../ui";
 import type {
   AzureBlobAuthMode,
   AzureBlobConfig,
+  DropboxConfig,
   GCSAuthMode,
   GCSConfig,
   GDriveConfig,
@@ -27,6 +28,7 @@ import { WebDAVFields } from "./WebDAVFields";
 import { GDriveFields } from "./GDriveFields";
 import { OneDriveFields } from "./OneDriveFields";
 import { SharePointFields } from "./SharePointFields";
+import { DropboxFields } from "./DropboxFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -42,6 +44,7 @@ export type ShareConfig = Partial<
   | GDriveConfig
   | OneDriveConfig
   | SharePointConfig
+  | DropboxConfig
 >;
 
 interface Props {
@@ -171,6 +174,14 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <SharePointFields
           value={value as Partial<SharePointConfig>}
           onChange={onChange as (next: Partial<SharePointConfig>) => void}
+        />
+      );
+    case "dropbox":
+      // v0.17.0 — hostless OAuth-shaped via Dropbox.
+      return (
+        <DropboxFields
+          value={value as Partial<DropboxConfig>}
+          onChange={onChange as (next: Partial<DropboxConfig>) => void}
         />
       );
   }
@@ -353,6 +364,16 @@ export function validateShareConfig(
         return "Sign in with Microsoft to connect a SharePoint account";
       }
       if (!isStr("site_id")) return "Site ID is required";
+      return null;
+    }
+    case "dropbox": {
+      if (!isStr("oauth_credential_id")) {
+        return "Sign in with Dropbox to connect an account";
+      }
+      const p = (c["path"] as string | undefined)?.trim();
+      if (p && p !== "/" && !p.startsWith("/")) {
+        return "Path must start with /";
+      }
       return null;
     }
   }

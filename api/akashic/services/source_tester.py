@@ -580,6 +580,52 @@ def test_immich(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
+def test_dropbox(cfg: dict) -> TestResult:
+    """v0.17.0 — Tier 4 PR 2 probe (Dropbox).
+
+    OAuth-shaped, same flow as the Microsoft / Google probes. The
+    router layer mints a fresh access token from the connected
+    SourceOAuthCredential and drops it in cfg['access_token'] before
+    this probe runs.
+
+    Verifies the access token works by hitting Dropbox's
+    ``/2/users/get_current_account``. Note: Dropbox uses POST with a
+    JSON body for everything, including read-only endpoints; calls
+    that take no parameters expect a literal ``null`` body.
+    """
+    access_token = (cfg.get("access_token") or "").strip()
+    if not access_token:
+        return TestResult(
+            ok=False, step="auth",
+            error="no OAuth credential connected — sign in with Dropbox "
+                  "from the source create or detail page",
+        )
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                "https://api.dropboxapi.com/2/users/get_current_account",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                content=b"null",
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"Dropbox rejected the access token ({resp.status_code})",
+        )
+    if resp.status_code != 200:
+        return TestResult(
+            ok=False, step="list",
+            error=f"get_current_account returned {resp.status_code}: "
+                  f"{resp.text[:200]}",
+        )
+    return TestResult(ok=True)
+
+
 def test_sharepoint(cfg: dict) -> TestResult:
     """v0.16.0 — Tier 1 PR-C probe (SharePoint document library).
 
@@ -727,6 +773,7 @@ _DISPATCH = {
     "gdrive":    test_gdrive,
     "onedrive":  test_onedrive,
     "sharepoint": test_sharepoint,
+    "dropbox":   test_dropbox,
 }
 
 

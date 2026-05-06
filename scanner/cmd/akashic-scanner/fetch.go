@@ -164,6 +164,12 @@ func buildConnector(
 		return connector.NewSharePointConnector(&connector.SharePointConfig{
 			AccessToken: password,
 		}), "", nil
+	case "dropbox":
+		// v0.17.0 — `password` carries the access token; path scope
+		// only reachable via the agent path.
+		return connector.NewDropboxConnector(&connector.DropboxConfig{
+			AccessToken: password,
+		}), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

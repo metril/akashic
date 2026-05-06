@@ -12,6 +12,7 @@ import { WebDAVFields } from "./source-fields/WebDAVFields";
 import { GDriveFields } from "./source-fields/GDriveFields";
 import { OneDriveFields } from "./source-fields/OneDriveFields";
 import { SharePointFields } from "./source-fields/SharePointFields";
+import { DropboxFields } from "./source-fields/DropboxFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -57,5 +58,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <OneDriveFields value={value as never} onChange={onChange as never} />;
     case "sharepoint":
       return <SharePointFields value={value as never} onChange={onChange as never} />;
+    case "dropbox":
+      return <DropboxFields value={value as never} onChange={onChange as never} />;
   }
 }

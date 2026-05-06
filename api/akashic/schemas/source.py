@@ -269,4 +269,9 @@ def _summary_for(source) -> str:
             short = site.split(",")[-1] if "," in site else site
             return f"SharePoint {short}"
         return "SharePoint"
+    if t == "dropbox":
+        # Dropbox has no convenient identifier for the subtitle; show
+        # the scoped path or fall back to the type name.
+        path = g("path")
+        return f"Dropbox {path}" if path else "Dropbox"
     return name
