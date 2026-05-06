@@ -388,6 +388,16 @@ export function validateShareConfig(
       return null;
     }
     case "box": {
+      const mode = (c["auth_mode"] as string | undefined) ?? "oauth";
+      if (mode === "jwt") {
+        for (const k of [
+          "client_id", "client_secret", "enterprise_id",
+          "public_key_id", "private_key",
+        ]) {
+          if (!isStr(k)) return `${k.replace(/_/g, " ")} is required`;
+        }
+        return null;
+      }
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Box to connect an account";
       }

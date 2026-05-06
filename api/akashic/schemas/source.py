@@ -276,5 +276,11 @@ def _summary_for(source) -> str:
         return f"Dropbox {path}" if path else "Dropbox"
     if t == "box":
         folder = g("folder_id")
-        return f"Box folder {folder}" if folder else "Box"
+        # v0.19.0 — JWT app-auth sources tag the subtitle so it's
+        # visible at a glance on the Sources card list. The auth mode
+        # itself isn't a secret; the credentials are.
+        mode_tag = " (JWT)" if g("auth_mode") == "jwt" else ""
+        if folder:
+            return f"Box folder {folder}{mode_tag}"
+        return f"Box{mode_tag}"
     return name

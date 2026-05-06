@@ -97,6 +97,29 @@ async def post_test(
                 )
                 return result
 
+    # v0.19.0 — Box JWT app-auth at create time. Same shape, but
+    # there's no SourceOAuthCredential to look up — credentials live
+    # directly in cfg. Mint a JWT, exchange for an access token,
+    # inject as cfg["access_token"] so test_box runs against it.
+    if body.type == "box" and (cfg.get("auth_mode") or "") == "jwt":
+        from akashic.services import box_jwt
+        from akashic.services.source_oauth import OAuthExchangeFailed
+        try:
+            access_token, _ = await box_jwt.mint_access_token(cfg)
+            cfg["access_token"] = access_token
+        except OAuthExchangeFailed as exc:
+            result = TestResult(
+                ok=False, step="auth",
+                error=f"box jwt mint failed: {exc.detail[:200]}",
+            )
+            await record_event(
+                db=db, user=user,
+                event_type="source_test_run",
+                payload=_audit_payload(body, result),
+                request=request,
+            )
+            return result
+
     result = test_connection(body.type, cfg)
     await record_event(
         db=db, user=user,

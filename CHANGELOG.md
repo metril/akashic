@@ -5,6 +5,61 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.19.0 — 2026-05-06
+
+Box **JWT app-auth** as a second variant alongside OAuth — closes the
+last open follow-up from the cloud-storage roadmap. Server-to-server
+auth for unattended scanning of an enterprise tenant: operator
+generates an RSA keypair in their Box developer console, gets the app
+authorized in their Box admin console, and pastes the credentials
+into the source form. No user popup, no per-user grant.
+
+- **JWT mint helper.** ``services/box_jwt.py`` builds the
+  ``urn:ietf:params:oauth:grant-type:jwt-bearer`` assertion Box's
+  token endpoint expects: RS256 signature, ``kid`` header, claims =
+  ``iss=client_id`` / ``sub=enterprise_id`` / ``box_sub_type="enterprise"``
+  / ``aud=https://api.box.com/oauth2/token`` / random ``jti`` /
+  30s ``exp`` window. The exchange POST returns an access token
+  with the usual ~60min TTL; akashic re-mints fresh JWTs on each
+  scan rather than persisting refresh tokens (Box JWT app-auth
+  doesn't issue them).
+- **Encrypted private keys.** When the pasted PEM is encrypted, the
+  helper decrypts it through ``cryptography``'s
+  ``load_pem_private_key`` before signing — both encrypted and
+  unencrypted PKCS#8 PEMs work.
+- **Unified mint dispatch.** ``mint_access_token_for_source`` (used
+  by both the lease path and the scanner-facing refresh endpoint)
+  branches on ``connection_config["auth_mode"]``: ``"jwt"`` for Box
+  uses the new helper; everything else falls through to the
+  existing OAuth path. From the scanner's perspective both auth
+  modes are identical — same ``access_token`` injection, same
+  ``connector.NewBoxConnector(...)`` consumption.
+- **Pre-create probe support.** ``/api/sources/test`` mints from the
+  pasted JWT credentials when the source row doesn't exist yet, so
+  users get a green "Test connection" before saving a JWT-mode Box
+  source — same experience as the OAuth flow's
+  ``oauth_credential_id``-based pre-create mint.
+- **UI.** ``BoxFields`` grew an "Authentication" toggle (OAuth vs
+  JWT). JWT mode renders client_id, client_secret (password),
+  enterprise_id, public_key_id, private_key (textarea), and an
+  optional passphrase — masked-secret edit handling matches the
+  rest of the app (typing replaces, blank leaves unchanged).
+- **Subtitle hint.** The Sources card surfaces JWT-mode Box sources
+  as ``Box (JWT)`` so admins can see the auth shape at a glance.
+- **Tests.** Six new pytest cases (assertion shape + RS256 signature
+  verification against a generated keypair, encrypted-PEM
+  passphrase decrypt path, missing-field rejection, bad-PEM
+  rejection, exchange-success with stubbed httpx, and provider-
+  4xx → ``OAuthExchangeFailed``). Full pytest 648/648 green,
+  vitest 133/133, ESLint 0 errors, tsc clean, Go build + tests
+  green.
+
+This closes out **all** outstanding follow-ups from the cloud-storage
+roadmap. Akashic now supports every source type in the original
+13-connector plan, with full ACL coverage on the cloud-drive
+providers (Drive, OneDrive, SharePoint, Dropbox, Box) and both
+auth variants on Box.
+
 ## v0.18.1 — 2026-05-06
 
 Fills the v0.17.0 ACL gap on Dropbox sources — explicitly-shared

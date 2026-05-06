@@ -283,8 +283,28 @@ export type DropboxConfig = {
 // v0.18.0 — Box. OAuth-shaped (Tier 4 PR 3). Opaque-id addressing
 // like Drive — ``folder_id`` is optional (empty maps to the literal
 // "0", Box's All Files root).
+//
+// v0.19.0 added JWT app-auth as a second variant. When ``auth_mode
+// == "jwt"`` the form collects an RSA private key + Box client
+// credentials directly rather than going through the Sign-in popup;
+// the API mints a JWT assertion at scan/lease time and exchanges it
+// for an access token. Default (``auth_mode`` unset or "oauth") keeps
+// the v0.18.0 OAuth flow.
+export type BoxAuthMode = "oauth" | "jwt";
+
 export type BoxConfig = {
+  auth_mode?: BoxAuthMode;
+  // OAuth path (v0.18.0).
   oauth_credential_id?: string;
+  // JWT app-auth path (v0.19.0). All required when auth_mode="jwt".
+  client_id?: string;
+  client_secret?: string;
+  enterprise_id?: string;
+  public_key_id?: string;
+  private_key?: string;
+  // Optional — only when the PEM is encrypted.
+  private_key_passphrase?: string;
+  // Common.
   folder_id?: string;
 };
 
@@ -469,6 +489,18 @@ export function validateSourceConfig(
       return null;
     }
     case "box": {
+      const mode = (c["auth_mode"] as string | undefined) ?? "oauth";
+      if (mode === "jwt") {
+        // JWT app-auth requires the full Box-app config inline.
+        for (const k of [
+          "client_id", "client_secret", "enterprise_id",
+          "public_key_id", "private_key",
+        ]) {
+          if (!isStr(k)) return `${k.replace(/_/g, " ")} is required`;
+        }
+        return null;
+      }
+      // OAuth (default).
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Box to connect an account";
       }
