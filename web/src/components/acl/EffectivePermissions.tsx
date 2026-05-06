@@ -25,6 +25,7 @@ const PRINCIPAL_TYPES: { value: PrincipalType; label: string }[] = [
   { value: "sid",              label: "SID (Windows)" },
   { value: "nfsv4_principal",  label: "NFSv4 principal" },
   { value: "s3_canonical",     label: "S3 canonical user" },
+  { value: "cloud_drive_user", label: "Cloud-drive user" },
 ];
 
 function defaultPrincipalType(acl: ACL | null): PrincipalType {
@@ -34,6 +35,7 @@ function defaultPrincipalType(acl: ACL | null): PrincipalType {
     case "nfsv4":  return "nfsv4_principal";
     case "nt":     return "sid";
     case "s3":     return "s3_canonical";
+    case "cloud_drive": return "cloud_drive_user";
   }
 }
 

@@ -271,7 +271,7 @@ export interface StorageBySource {
 
 // ---- ACL discriminated-union types ----
 
-export type ACLType = "posix" | "nfsv4" | "nt" | "s3";
+export type ACLType = "posix" | "nfsv4" | "nt" | "s3" | "cloud_drive";
 
 export interface PosixACE {
   tag: string;
@@ -336,7 +336,47 @@ export interface S3ACL {
   grants: S3Grant[];
 }
 
-export type ACL = PosixACL | NfsV4ACL | NtACL | S3ACL;
+// ---- Cloud-drive ACL (Drive / OneDrive / SharePoint / Box / Dropbox) ----
+
+export type CloudDrivePrincipalType = "user" | "group" | "anyone" | "domain";
+
+export type CloudDriveRole =
+  | "owner"
+  | "writer"
+  | "commenter"
+  | "reader"
+  | "file_organizer";
+
+export type CloudDriveLinkScope = "anyone" | "domain" | "restricted";
+
+export interface CloudDrivePrincipal {
+  type: CloudDrivePrincipalType;
+  id: string;
+  email: string | null;
+  name: string | null;
+}
+
+export interface CloudDriveLink {
+  id: string;
+  scope: CloudDriveLinkScope;
+}
+
+export interface CloudDriveGrant {
+  principal: CloudDrivePrincipal;
+  role: CloudDriveRole;
+  link: CloudDriveLink | null;
+  inherited: boolean;
+  inherited_from_id: string | null;
+  inherited_from_path: string | null;
+}
+
+export interface CloudDriveACL {
+  type: "cloud_drive";
+  grants: CloudDriveGrant[];
+  domain_restricted_to: string | null;
+}
+
+export type ACL = PosixACL | NfsV4ACL | NtACL | S3ACL | CloudDriveACL;
 
 export type EntryKind = "file" | "directory";
 
@@ -414,6 +454,7 @@ export interface EntryDetail {
   acl: ACL | null;
   xattrs: Record<string, string> | null;
   domain_metadata: DomainMetadata | null;
+  native_id: string | null;
   fs_created_at: string | null;
   fs_modified_at: string | null;
   fs_accessed_at: string | null;

@@ -12,7 +12,7 @@ import (
 // of the typed sub-fields are populated; consumers call MarshalJSON to emit
 // the per-type discriminated shape.
 type ACL struct {
-	Type           string     `json:"type"` // "posix" | "nfsv4" | "nt" | "s3"
+	Type           string     `json:"type"` // "posix" | "nfsv4" | "nt" | "s3" | "cloud_drive"
 	Entries        []PosixACE `json:"entries,omitempty"`
 	DefaultEntries []PosixACE `json:"default_entries,omitempty"`
 
@@ -28,6 +28,10 @@ type ACL struct {
 	// S3-specific
 	S3Owner  *S3Owner  `json:"-"`
 	S3Grants []S3Grant `json:"-"`
+
+	// Cloud-drive-specific (Drive/OneDrive/SharePoint/Box/Dropbox).
+	CloudDriveGrants     []CloudDriveGrant `json:"-"`
+	CloudDriveDomain     string            `json:"-"`
 }
 
 // PosixACE is one POSIX ACL entry.
@@ -69,6 +73,31 @@ type S3Grant struct {
 	GranteeID   string `json:"grantee_id,omitempty"`
 	GranteeName string `json:"grantee_name,omitempty"`
 	Permission  string `json:"permission"`
+}
+
+// CloudDrivePrincipal is one principal in a cloud-drive grant — see
+// api/akashic/schemas/acl.py for the wire-shape contract.
+type CloudDrivePrincipal struct {
+	Type  string `json:"type"` // user | group | anyone | domain
+	ID    string `json:"id"`
+	Email string `json:"email,omitempty"`
+	Name  string `json:"name,omitempty"`
+}
+
+// CloudDriveLink is the shareable link an "anyone-with-link" grant rides on.
+type CloudDriveLink struct {
+	ID    string `json:"id"`
+	Scope string `json:"scope"` // anyone | domain | restricted
+}
+
+// CloudDriveGrant is one (principal, role) sharing grant on a cloud-drive entry.
+type CloudDriveGrant struct {
+	Principal         CloudDrivePrincipal `json:"principal"`
+	Role              string              `json:"role"` // owner | writer | commenter | reader | file_organizer
+	Link              *CloudDriveLink     `json:"link,omitempty"`
+	Inherited         bool                `json:"inherited,omitempty"`
+	InheritedFromID   string              `json:"inherited_from_id,omitempty"`
+	InheritedFromPath string              `json:"inherited_from_path,omitempty"`
 }
 
 // MarshalJSON emits the discriminated-union shape per Type.
@@ -115,6 +144,15 @@ func (a *ACL) MarshalJSON() ([]byte, error) {
 			out["owner"] = a.S3Owner
 		}
 		return json.Marshal(out)
+	case "cloud_drive":
+		out := map[string]interface{}{
+			"type":   "cloud_drive",
+			"grants": a.CloudDriveGrants,
+		}
+		if a.CloudDriveDomain != "" {
+			out["domain_restricted_to"] = a.CloudDriveDomain
+		}
+		return json.Marshal(out)
 	}
 	return nil, fmt.Errorf("acl: unknown type %q", a.Type)
 }
@@ -124,6 +162,11 @@ type EntryRecord struct {
 	Path        string `json:"path"`
 	Name        string `json:"name"`
 	Kind        string `json:"kind"` // "file" | "directory"
+	// v0.13.0 — provider-specific opaque identifier for cloud-drive
+	// connectors (Drive/OneDrive/SharePoint/Box/Dropbox). Empty on
+	// filesystem-shape connectors. Used by the API for permission /
+	// metadata lookups that have to round-trip to the provider.
+	NativeID    string `json:"native_id,omitempty"`
 	Extension   string `json:"extension,omitempty"`
 	SizeBytes   *int64 `json:"size_bytes,omitempty"`
 	MimeType    string `json:"mime_type,omitempty"`

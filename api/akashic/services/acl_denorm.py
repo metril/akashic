@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from akashic.schemas.acl import (
     ACL,
+    CloudDriveACL,
     NfsV4ACL,
     NtACL,
     PosixACL,
@@ -48,6 +49,22 @@ def nfsv4_group(principal: str) -> str:
 
 def s3_user(canonical_id: str) -> str:
     return f"s3:user:{canonical_id}"
+
+
+def cloud_drive_user(provider_id: str) -> str:
+    """Token for a cloud-drive principal (Drive permissionId, Graph user id,
+    Box user id, Dropbox account_id). Email goes through the same prefix
+    so a "shared with alice@example.com" grant ends up at
+    ``cloud_drive:user:alice@example.com``."""
+    return f"cloud_drive:user:{provider_id}"
+
+
+def cloud_drive_group(group_id: str) -> str:
+    return f"cloud_drive:group:{group_id}"
+
+
+def cloud_drive_domain(domain: str) -> str:
+    return f"cloud_drive:domain:{domain}"
 
 
 # ── Per-model principal enumeration ──────────────────────────────────────────
@@ -152,6 +169,61 @@ def _nt_principals(acl: NtACL) -> list[tuple[str, PrincipalRef, list[GroupRef]]]
     return out
 
 
+def _cloud_drive_principals(
+    acl: CloudDriveACL,
+) -> list[tuple[str, PrincipalRef, list[GroupRef]]]:
+    """One probe per named principal in the grant list. ``anyone`` grants
+    are handled via the ANYONE probe so they don't need to be enumerated
+    here. Domain grants emit a ``cloud_drive:domain:<d>`` token so a
+    user whose email's domain matches can be filter-matched without
+    needing every domain member to enumerate."""
+    out: list[tuple[str, PrincipalRef, list[GroupRef]]] = []
+    seen: set[str] = set()
+    for grant in acl.grants:
+        p = grant.principal
+        if p.type == "anyone":
+            continue  # ANYONE probe covers this
+        if p.type == "user":
+            # Prefer email when the provider returned one — that's what
+            # a viewable_by_read filter is most likely to match against.
+            ident = p.email or p.id
+            token = cloud_drive_user(ident)
+            if token in seen:
+                continue
+            seen.add(token)
+            out.append((
+                token,
+                PrincipalRef(type="cloud_drive_user", identifier=ident),
+                [],
+            ))
+        elif p.type == "group":
+            token = cloud_drive_group(p.id)
+            if token in seen:
+                continue
+            seen.add(token)
+            out.append((
+                token,
+                PrincipalRef(type="cloud_drive_user", identifier="__none__"),
+                [GroupRef(type="cloud_drive_user", identifier=p.id)],
+            ))
+        elif p.type == "domain":
+            token = cloud_drive_domain(p.id)
+            if token in seen:
+                continue
+            seen.add(token)
+            # A representative member of the domain — identifier shape is
+            # "@<domain>" so _cloud_drive_grant_matches' email-suffix
+            # check returns true.
+            out.append((
+                token,
+                PrincipalRef(
+                    type="cloud_drive_user", identifier=f"__domain_member__@{p.id}"
+                ),
+                [],
+            ))
+    return out
+
+
 def _s3_principals(acl: S3ACL) -> list[tuple[str, PrincipalRef, list[GroupRef]]]:
     out: list[tuple[str, PrincipalRef, list[GroupRef]]] = []
     seen: set[str] = set()
@@ -189,6 +261,13 @@ _ANYONE_PROBES = {
     "nfsv4": (PrincipalRef(type="nfsv4_principal", identifier="EVERYONE@"), []),
     "nt":    (PrincipalRef(type="sid", identifier="S-1-1-0"), []),
     "s3":    (PrincipalRef(type="s3_canonical", identifier="__nobody__"), []),
+    # Cloud drive: a fake principal that never matches a user/group/domain
+    # grant — only the "anyone" grant returns true for it, which is
+    # exactly the bucket-into-ANYONE behaviour we want.
+    "cloud_drive": (
+        PrincipalRef(type="cloud_drive_user", identifier="__nobody__"),
+        [],
+    ),
 }
 
 # AUTH probe: only NT and S3 distinguish authenticated from anonymous.
@@ -239,6 +318,8 @@ def denormalize_acl(
         model = "nt"
     elif isinstance(acl, S3ACL):
         model = "s3"
+    elif isinstance(acl, CloudDriveACL):
+        model = "cloud_drive"
 
     if model == "posix":
         principals = _posix_principals(acl if isinstance(acl, PosixACL) else None, base_uid, base_gid)
@@ -248,6 +329,8 @@ def denormalize_acl(
         principals = _nt_principals(acl)  # type: ignore[arg-type]
     elif model == "s3":
         principals = _s3_principals(acl)  # type: ignore[arg-type]
+    elif model == "cloud_drive":
+        principals = _cloud_drive_principals(acl)  # type: ignore[arg-type]
     else:
         principals = []
 

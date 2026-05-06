@@ -5,6 +5,55 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.13.0 — 2026-05-06
+
+Tier 1 PR-B — **native_id + cloud_drive ACL plumbing.** The schema and
+shared services that the upcoming Drive / OneDrive / SharePoint / Box /
+Dropbox connectors all need: an opaque-id column on entries, a fifth
+ACL discriminator (`cloud_drive`) with effective-permissions and
+denormalization wired up, and the matching scanner Go types. No
+connectors yet — those land in PR-C — but ingesting an `EntryRecord`
+with `native_id` and a `cloud_drive` ACL now round-trips end-to-end.
+
+- **`entries.native_id`.** Nullable text column for the provider's
+  opaque identifier (Drive permissionId, OneDrive driveItem id, Box
+  file id, Dropbox path_lower hash). Filesystem connectors leave it
+  NULL. A composite `(source_id, native_id)` partial index supports
+  the cloud connectors' "resolve provider id → entry row" lookup
+  during permission and metadata refreshes.
+- **`cloud_drive` ACL discriminator.** Added alongside the existing
+  posix / nfsv4 / nt / s3 union. Models the per-principal-grant shape
+  cloud drives actually use (no POSIX-style owner+mode+ACE):
+  `(principal, role, link?, inherited)` with `principal.type` in
+  `user | group | anyone | domain`, `role` in
+  `owner | writer | commenter | reader | file_organizer`, and a
+  `domain_restricted_to` field that surfaces deployment-level
+  external-sharing constraints captured at scan time.
+- **Effective-permissions evaluator.** `compute_effective` handles
+  the new variant: writer/file_organizer → r/w/d, owner adds
+  change_perms, reader/commenter → read-only, anyone-with-link
+  matches every principal, domain grants match by email-suffix.
+  First match wins — cloud drives have no deny grammar.
+- **Denormalization to `viewable_by_*` tokens.** New token vocabulary
+  alongside the existing `posix:`, `sid:`, `nfsv4:`, `s3:user:`
+  prefixes:
+  - `cloud_drive:user:<email-or-id>` for named users
+  - `cloud_drive:group:<id>` for groups
+  - `cloud_drive:domain:<domain>` for domain-restricted grants
+  - `*` (existing ANYONE) for anyone-with-link
+  Search filter chips and ACL-aware browse use the existing
+  `viewable_by_read && ARRAY[…]` machinery untouched.
+- **Scanner Go types.** `EntryRecord.NativeID` and `cloud_drive`
+  ACL JSON serialization (`CloudDrivePrincipal` /
+  `CloudDriveGrant` / `CloudDriveLink`). PR-C's connectors populate
+  these; existing filesystem connectors leave both empty so wire
+  format stays backwards-compatible.
+- **UI.** New "Sharing" section on the entry detail drawer renders
+  the cloud_drive grant list with role chips, inherited rows
+  styled subtly, and "anyone with link" highlighted with a public
+  badge. The provider's opaque id surfaces under "Hash" as a
+  dedicated **Provider ID** row when present.
+
 ## v0.12.0 — 2026-05-06
 
 Tier 1 PR-A — **OAuth foundation**. Lays the plumbing the upcoming

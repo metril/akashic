@@ -4,12 +4,14 @@ import { PosixACL } from "./PosixACL";
 import { NfsV4ACL } from "./NfsV4ACL";
 import { NtACL } from "./NtACL";
 import { S3ACL } from "./S3ACL";
+import { CloudDriveACL } from "./CloudDriveACL";
 
 const TITLE: Record<ACLType, string> = {
   posix: "POSIX ACL",
   nfsv4: "NFSv4 ACL",
   nt:    "NT ACL",
   s3:    "S3 ACL",
+  cloud_drive: "Sharing",
 };
 
 interface ACLSectionProps {
@@ -32,5 +34,7 @@ export function ACLSection({ acl, sourceId }: ACLSectionProps) {
     case "nfsv4": return <Section title={title}><NfsV4ACL acl={acl} /></Section>;
     case "nt":    return <Section title={title}><NtACL    acl={acl} sourceId={sourceId} /></Section>;
     case "s3":    return <Section title={title}><S3ACL    acl={acl} /></Section>;
+    case "cloud_drive":
+      return <Section title={title}><CloudDriveACL acl={acl} /></Section>;
   }
 }

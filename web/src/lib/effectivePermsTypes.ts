@@ -1,4 +1,9 @@
-export type PrincipalType = "posix_uid" | "sid" | "nfsv4_principal" | "s3_canonical";
+export type PrincipalType =
+  | "posix_uid"
+  | "sid"
+  | "nfsv4_principal"
+  | "s3_canonical"
+  | "cloud_drive_user";
 export type RightName = "read" | "write" | "execute" | "delete" | "change_perms";
 
 export interface PrincipalRef {
@@ -24,7 +29,7 @@ export interface RightResult {
 }
 
 export interface EffectivePermsEvaluatedWith {
-  model: "posix" | "nfsv4" | "nt" | "s3" | "none";
+  model: "posix" | "nfsv4" | "nt" | "s3" | "cloud_drive" | "none";
   principal: PrincipalRef;
   groups: GroupRef[];
   caveats: string[];

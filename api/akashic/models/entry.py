@@ -140,6 +140,14 @@ class Entry(Base):
     # into Meilisearch filterable_attributes (see services/search).
     domain_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # v0.13.0 — opaque provider-specific identifier for cloud drives
+    # (Google Drive, OneDrive, SharePoint, Box, Dropbox). The display
+    # path (synthesized at scan time) is what akashic shows; this
+    # column is what the cloud connector uses when calling the
+    # provider's permission / metadata APIs. NULL on filesystem-shape
+    # sources.
+    native_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # Filesystem timestamps
     fs_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

@@ -53,6 +53,10 @@ class EntryIn(BaseModel):
     # fields. Filesystem connectors leave this None.
     domain_metadata: dict | None = None
 
+    # v0.13.0 — opaque cloud-drive identifier (Drive/OneDrive/SharePoint/
+    # Box/Dropbox). Filesystem connectors leave this None.
+    native_id: str | None = None
+
 
 class EntryResponse(BaseModel):
     id: uuid.UUID
@@ -117,6 +121,7 @@ class EntryDetailResponse(EntryResponse):
     acl: ACL | None = None
     xattrs: dict[str, str] | None = None
     domain_metadata: dict | None = None
+    native_id: str | None = None
     fs_created_at: datetime | None = None
     fs_accessed_at: datetime | None = None
     versions: list[EntryVersionResponse] = Field(default_factory=list)

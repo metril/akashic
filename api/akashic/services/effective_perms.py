@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from akashic.schemas.acl import (
     ACL,
+    CloudDriveACL,
+    CloudDriveGrant,
     NfsV4ACE,
     NfsV4ACL,
     NtACE,
@@ -65,6 +67,23 @@ _S3_CAVEAT_IAM = (
     "bucket policy condition keys not evaluated."
 )
 
+# Cloud-drive role → right-set mapping. Drive's roles are the union; the
+# subset that overlaps OneDrive/SharePoint (reader/writer/owner) maps the
+# same way. file_organizer is Drive-specific; commenter and reader are
+# read-only. We don't model the per-feature granularity (download disabled,
+# etc.) — those become caveats if/when they matter.
+_CLOUD_DRIVE_PERMS: dict[RightName, set[str]] = {
+    "read":         {"owner", "writer", "commenter", "reader", "file_organizer"},
+    "write":        {"owner", "writer", "file_organizer"},
+    "delete":       {"owner", "writer", "file_organizer"},
+    "change_perms": {"owner"},
+    # execute intentionally absent — cloud drives have no execute concept.
+}
+_CLOUD_DRIVE_CAVEAT_DOMAIN = (
+    "Cloud-drive evaluation reflects sharing grants captured at scan time; "
+    "domain-level external-sharing policy / Trust Center settings not evaluated."
+)
+
 
 def _empty_rights() -> dict[RightName, RightResult]:
     return {r: RightResult(granted=False, by=[]) for r in _ALL_RIGHTS}
@@ -109,6 +128,8 @@ def compute_effective(
         return _eval_nt(acl, principal, groups)
     if isinstance(acl, S3ACL):
         return _eval_s3(acl, principal, groups, source_security)
+    if isinstance(acl, CloudDriveACL):
+        return _eval_cloud_drive(acl, principal, groups)
     return _effective(_empty_rights(), "none", principal, groups, [])
 
 
@@ -345,3 +366,67 @@ def _eval_s3(
     if source_security and source_security.get("is_public_inferred"):
         caveats.append("Bucket is publicly accessible per Public Access Block / bucket policy.")
     return _effective(rights, "s3", principal, groups, caveats)
+
+
+# ── Cloud drive (Google Drive / OneDrive / SharePoint / Box / Dropbox) ────
+
+
+def _cloud_drive_grant_matches(
+    grant: CloudDriveGrant,
+    principal: PrincipalRef,
+    groups: list[GroupRef],
+) -> bool:
+    p = grant.principal
+    if p.type == "anyone":
+        return True
+    if p.type == "user":
+        # Match by id (provider permissionId) or email when the principal
+        # was supplied with one. Cloud connectors emit principals with
+        # both, so the same effective-perms call works whether the caller
+        # passes "alice@example.com" or the Drive permissionId.
+        if p.id == principal.identifier:
+            return True
+        if p.email and p.email == principal.identifier:
+            return True
+        return False
+    if p.type == "group":
+        # Group membership is resolved upstream — the caller passes the
+        # principal's group memberships; we just check the grant's group
+        # id against any of them.
+        return any(g.identifier == p.id for g in groups)
+    if p.type == "domain":
+        # Domain-restricted grant: principal's email must end with that
+        # domain. We don't have a separate domain field on PrincipalRef,
+        # so we use the email-shaped identifier when present.
+        ident = principal.identifier or ""
+        return "@" in ident and ident.split("@", 1)[1] == p.id
+    return False
+
+
+def _eval_cloud_drive(
+    acl: CloudDriveACL,
+    principal: PrincipalRef,
+    groups: list[GroupRef],
+) -> EffectivePerms:
+    rights = _empty_rights()
+    for right, role_set in _CLOUD_DRIVE_PERMS.items():
+        for i, grant in enumerate(acl.grants):
+            if grant.role not in role_set:
+                continue
+            if not _cloud_drive_grant_matches(grant, principal, groups):
+                continue
+            p = grant.principal
+            label = p.email or p.name or p.id or p.type
+            ref = ACEReference(
+                ace_index=i,
+                summary=f"{p.type}:{label} {grant.role}"
+                + (" (inherited)" if grant.inherited else ""),
+            )
+            rights[right] = RightResult(granted=True, by=[ref])
+            break  # cloud drives have no deny grammar — first match wins
+    caveats = [_CLOUD_DRIVE_CAVEAT_DOMAIN]
+    if acl.domain_restricted_to:
+        caveats.append(
+            f"Sharing constrained to domain {acl.domain_restricted_to!r} at scan time."
+        )
+    return _effective(rights, "cloud_drive", principal, groups, caveats)

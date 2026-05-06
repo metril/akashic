@@ -188,6 +188,11 @@ export function EntryDetail({ entryId }: Props) {
                 <Mono>{entry.content_hash}</Mono>
               </Row>
             )}
+            {entry.native_id && (
+              <Row label="Provider ID">
+                <Mono>{entry.native_id}</Mono>
+              </Row>
+            )}
           </dl>
         </Section>
       )}
