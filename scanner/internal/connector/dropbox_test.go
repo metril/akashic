@@ -257,6 +257,175 @@ func TestDropboxRefreshOn401(t *testing.T) {
 	}
 }
 
+func TestDropboxBuildACLMapsAccessTypes(t *testing.T) {
+	resp := &dropboxMembersResponse{
+		Users: []dropboxMember{
+			{
+				User: &struct {
+					AccountID   string `json:"account_id"`
+					Email       string `json:"email"`
+					DisplayName string `json:"display_name"`
+				}{AccountID: "acc-1", Email: "alice@example.com", DisplayName: "Alice"},
+				AccessType:  struct{ Tag string `json:".tag"` }{Tag: "owner"},
+				IsInherited: false,
+			},
+			{
+				User: &struct {
+					AccountID   string `json:"account_id"`
+					Email       string `json:"email"`
+					DisplayName string `json:"display_name"`
+				}{AccountID: "acc-2", Email: "bob@example.com"},
+				AccessType:  struct{ Tag string `json:".tag"` }{Tag: "editor"},
+				IsInherited: true,
+			},
+			{
+				User: &struct {
+					AccountID   string `json:"account_id"`
+					Email       string `json:"email"`
+					DisplayName string `json:"display_name"`
+				}{AccountID: "acc-3", Email: "carol@example.com"},
+				AccessType: struct{ Tag string `json:".tag"` }{Tag: "viewer_no_comment"},
+			},
+		},
+		Groups: []dropboxMember{
+			{
+				Group: &struct {
+					GroupID   string `json:"group_id"`
+					GroupName string `json:"group_name"`
+				}{GroupID: "g-1", GroupName: "Marketing"},
+				AccessType: struct{ Tag string `json:".tag"` }{Tag: "viewer"},
+			},
+		},
+	}
+	acl := buildDropboxACL(resp)
+	if acl == nil || acl.Type != "cloud_drive" {
+		t.Fatalf("acl: %+v", acl)
+	}
+	if len(acl.CloudDriveGrants) != 4 {
+		t.Fatalf("want 4 grants (3 users + 1 group), got %d", len(acl.CloudDriveGrants))
+	}
+	if acl.CloudDriveGrants[0].Role != "owner" {
+		t.Errorf("owner role: %q", acl.CloudDriveGrants[0].Role)
+	}
+	if acl.CloudDriveGrants[1].Role != "writer" || !acl.CloudDriveGrants[1].Inherited {
+		t.Errorf("editor (inherited): %+v", acl.CloudDriveGrants[1])
+	}
+	if acl.CloudDriveGrants[2].Role != "reader" {
+		t.Errorf("viewer_no_comment should map to reader, got %q",
+			acl.CloudDriveGrants[2].Role)
+	}
+	if acl.CloudDriveGrants[3].Principal.Type != "group" ||
+		acl.CloudDriveGrants[3].Role != "reader" {
+		t.Errorf("group grant: %+v", acl.CloudDriveGrants[3])
+	}
+}
+
+func TestDropboxBuildACLEmptyReturnsNil(t *testing.T) {
+	if acl := buildDropboxACL(nil); acl != nil {
+		t.Errorf("nil response should yield nil acl")
+	}
+	if acl := buildDropboxACL(&dropboxMembersResponse{}); acl != nil {
+		t.Errorf("empty response should yield nil acl")
+	}
+}
+
+func TestMapDropboxAccessType(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"owner", "owner"},
+		{"editor", "writer"},
+		{"viewer", "reader"},
+		{"viewer_no_comment", "reader"},
+		{"", ""},
+		{"unknown", ""},
+	}
+	for _, tc := range cases {
+		got := mapDropboxAccessType(tc.in)
+		if got != tc.want {
+			t.Errorf("mapDropboxAccessType(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDropboxEnrichACLOnlySharedFolders(t *testing.T) {
+	// Server tracks list_folder_members invocations.
+	memberCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2/sharing/list_folder_members", func(w http.ResponseWriter, r *http.Request) {
+		memberCalls++
+		_ = json.NewEncoder(w).Encode(dropboxMembersResponse{
+			Users: []dropboxMember{
+				{
+					User: &struct {
+						AccountID   string `json:"account_id"`
+						Email       string `json:"email"`
+						DisplayName string `json:"display_name"`
+					}{AccountID: "u", Email: "alice@example.com"},
+					AccessType: struct{ Tag string `json:".tag"` }{Tag: "owner"},
+				},
+			},
+		})
+	})
+	mux.HandleFunc("/2/files/list_folder", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(dropboxListPage{
+			Entries: []dropboxEntry{
+				{
+					Tag:         "folder",
+					Name:        "Shared",
+					PathDisplay: "/Shared",
+					ID:          "id:1",
+					SharingInfo: &struct {
+						ParentSharedFolderID string `json:"parent_shared_folder_id"`
+						SharedFolderID       string `json:"shared_folder_id"`
+						ReadOnly             bool   `json:"read_only"`
+					}{SharedFolderID: "sfid-1"},
+				},
+				{
+					Tag:         "folder",
+					Name:        "Private",
+					PathDisplay: "/Private",
+					ID:          "id:2",
+					// No SharingInfo — should not trigger member lookup.
+				},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewDropboxConnector(&DropboxConfig{AccessToken: "x"})
+	c.httpClient = &http.Client{
+		Transport: rewriteDropboxTransport{
+			base:    http.DefaultTransport,
+			fakeURL: srv.URL,
+		},
+	}
+	emitted := []*models.EntryRecord{}
+	_, err := c.Walk(context.Background(), "/", nil, false, false,
+		func(r *models.EntryRecord) error {
+			emitted = append(emitted, r)
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if memberCalls != 1 {
+		t.Errorf("expected exactly 1 list_folder_members call (only Shared folder), got %d",
+			memberCalls)
+	}
+	if len(emitted) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(emitted))
+	}
+	if emitted[0].Acl == nil {
+		t.Errorf("Shared folder should have ACL")
+	}
+	if emitted[1].Acl != nil {
+		t.Errorf("Private folder should NOT have ACL, got %+v", emitted[1].Acl)
+	}
+}
+
 // Smoke-check that ReadFile builds the right header. We don't run a
 // real download here; just intercept and assert.
 func TestDropboxReadFileSendsAPIArgHeader(t *testing.T) {

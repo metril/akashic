@@ -5,6 +5,43 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.18.1 — 2026-05-06
+
+Fills the v0.17.0 ACL gap on Dropbox sources — explicitly-shared
+items now get a real cloud_drive ACL surfaced on the entry-detail
+drawer instead of an empty Sharing section.
+
+- **Dropbox sharing-grant ACL.** When a folder's ``sharing_info``
+  carries a ``shared_folder_id``, the connector calls
+  ``/2/sharing/list_folder_members`` once and builds a cloud_drive
+  ACL from the user + group members. When a file has
+  ``has_explicit_shared_members=true``, ``/2/sharing/list_file_members``
+  does the same. Items not flagged as shared skip the extra calls
+  so unshared drives stay fast — most users' Dropboxes have only a
+  small fraction of items shared, and the typical walk pays no
+  per-file ACL cost.
+- **Role mapping.** Dropbox's ``access_type`` maps to cloud_drive
+  roles cleanly: ``owner`` → owner, ``editor`` → writer,
+  ``viewer`` / ``viewer_no_comment`` → reader. Inherited grants
+  preserve the ``inherited`` flag so the ACL renderer styles them
+  the way it does for Drive / OneDrive / Box.
+- **Pending invitees ignored.** The Dropbox API surfaces pending
+  invitees in a separate ``invitees`` slice; we don't include them
+  in the ACL since they don't actually have access yet.
+- **UI.** The "ACLs aren't yet surfaced" warning that v0.17.0
+  shipped under the path-scope input is gone — the connector now
+  populates them as expected.
+- **Failure mode.** ACL enrichment is best-effort — a transient
+  ``list_*_members`` failure swallows quietly and leaves the entry
+  with no ACL, rather than failing the whole walk over a sharing
+  API hiccup.
+- **Tests.** Four new Go tests (access-type role mapping, empty-
+  response → nil ACL, shared-vs-private branching that asserts
+  ``list_folder_members`` only fires for the shared folder).
+  Existing Dropbox tests stay green; total connector tests now
+  11 — pytest 642/642, vitest 133/133, ESLint 0 errors, tsc clean,
+  Go build + tests green.
+
 ## v0.18.0 — 2026-05-06
 
 Tier 4 PR 3 — **Box** as a source type (OAuth variant). Closes out

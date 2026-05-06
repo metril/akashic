@@ -140,6 +140,7 @@ func (c *DropboxConnector) Walk(
 			if matchExcludes(excludePatterns, rec.Path) {
 				continue
 			}
+			c.enrichDropboxACL(ctx, e, rec)
 			if err := fn(rec); err != nil {
 				return err
 			}
@@ -217,6 +218,7 @@ func (c *DropboxConnector) WalkShallow(
 				subdirs = append(subdirs, rec.Path)
 				continue
 			}
+			c.enrichDropboxACL(ctx, e, rec)
 			if err := fn(rec); err != nil {
 				return subdirs, err
 			}
@@ -323,6 +325,33 @@ type dropboxListPage struct {
 	HasMore bool           `json:"has_more"`
 }
 
+// dropboxMember is one user / group entry returned by sharing/list_*
+// _members. Both the user-shaped and group-shaped responses fit; the
+// fields that aren't applicable stay zero. Pending invitees come back
+// in a separate ``invitees`` slice we don't surface — they don't have
+// access yet.
+type dropboxMember struct {
+	User *struct {
+		AccountID   string `json:"account_id"`
+		Email       string `json:"email"`
+		DisplayName string `json:"display_name"`
+	} `json:"user,omitempty"`
+	Group *struct {
+		GroupID   string `json:"group_id"`
+		GroupName string `json:"group_name"`
+	} `json:"group,omitempty"`
+	AccessType struct {
+		Tag string `json:".tag"` // owner | editor | viewer | viewer_no_comment
+	} `json:"access_type"`
+	IsInherited bool `json:"is_inherited"`
+}
+
+type dropboxMembersResponse struct {
+	Users  []dropboxMember `json:"users"`
+	Groups []dropboxMember `json:"groups"`
+	Cursor string          `json:"cursor"`
+}
+
 func decodeListFolderPage(body io.Reader) (dropboxListPage, error) {
 	var page dropboxListPage
 	if err := json.NewDecoder(body).Decode(&page); err != nil {
@@ -383,6 +412,151 @@ func (c *DropboxConnector) do(ctx context.Context, url string, body any) (io.Rea
 			url, resp.StatusCode, strings.TrimSpace(string(buf)))
 	}
 	return resp.Body, nil
+}
+
+// fetchFolderMembers / fetchFileMembers pull the explicit-share list
+// for an item that ``sharing_info`` flagged as shared. Pagination is
+// supported via ``list_*_members/continue`` in the Dropbox API but
+// in practice the default first-page limit (100) is plenty — items
+// shared with > 100 named principals are exceedingly rare and
+// truncating there is acceptable for v0.18.1. A future pass can
+// follow the cursor.
+func (c *DropboxConnector) fetchFolderMembers(
+	ctx context.Context, sharedFolderID string,
+) (*dropboxMembersResponse, error) {
+	body, err := c.do(ctx,
+		"https://api.dropboxapi.com/2/sharing/list_folder_members",
+		map[string]any{"shared_folder_id": sharedFolderID})
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	var resp dropboxMembersResponse
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("dropbox: list_folder_members decode: %w", err)
+	}
+	return &resp, nil
+}
+
+func (c *DropboxConnector) fetchFileMembers(
+	ctx context.Context, fileID string,
+) (*dropboxMembersResponse, error) {
+	body, err := c.do(ctx,
+		"https://api.dropboxapi.com/2/sharing/list_file_members",
+		map[string]any{
+			"file":                  fileID,
+			"include_inherited":     true,
+			"limit":                 100,
+		})
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	var resp dropboxMembersResponse
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("dropbox: list_file_members decode: %w", err)
+	}
+	return &resp, nil
+}
+
+// buildDropboxACL converts Dropbox's user + group member lists into
+// the cloud_drive ACL shape. Dropbox access types map cleanly:
+//
+//	owner             -> owner
+//	editor            -> writer
+//	viewer            -> reader
+//	viewer_no_comment -> reader
+//
+// Inherited grants survive the round-trip via ``IsInherited``.
+func buildDropboxACL(resp *dropboxMembersResponse) *models.ACL {
+	if resp == nil {
+		return nil
+	}
+	grants := make([]models.CloudDriveGrant, 0, len(resp.Users)+len(resp.Groups))
+	for _, m := range resp.Users {
+		role := mapDropboxAccessType(m.AccessType.Tag)
+		if role == "" || m.User == nil {
+			continue
+		}
+		grants = append(grants, models.CloudDriveGrant{
+			Principal: models.CloudDrivePrincipal{
+				Type:  "user",
+				ID:    m.User.AccountID,
+				Email: m.User.Email,
+				Name:  m.User.DisplayName,
+			},
+			Role:      role,
+			Inherited: m.IsInherited,
+		})
+	}
+	for _, m := range resp.Groups {
+		role := mapDropboxAccessType(m.AccessType.Tag)
+		if role == "" || m.Group == nil {
+			continue
+		}
+		grants = append(grants, models.CloudDriveGrant{
+			Principal: models.CloudDrivePrincipal{
+				Type: "group",
+				ID:   m.Group.GroupID,
+				Name: m.Group.GroupName,
+			},
+			Role:      role,
+			Inherited: m.IsInherited,
+		})
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	return &models.ACL{Type: "cloud_drive", CloudDriveGrants: grants}
+}
+
+func mapDropboxAccessType(tag string) string {
+	switch tag {
+	case "owner":
+		return "owner"
+	case "editor":
+		return "writer"
+	case "viewer", "viewer_no_comment":
+		return "reader"
+	}
+	return ""
+}
+
+// enrichDropboxACL fetches the per-item member list when sharing_info
+// indicates the item is explicitly shared, and attaches the resulting
+// cloud_drive ACL onto rec. Best-effort: API failures are swallowed
+// (we'd rather keep the entry with no ACL than fail the whole walk
+// over a transient sharing API hiccup).
+func (c *DropboxConnector) enrichDropboxACL(
+	ctx context.Context, e dropboxEntry, rec *models.EntryRecord,
+) {
+	if rec == nil || e.SharingInfo == nil {
+		return
+	}
+	switch e.Tag {
+	case "folder":
+		// shared_folder_id presence on a folder means the folder
+		// itself is the share root.
+		if e.SharingInfo.SharedFolderID == "" {
+			return
+		}
+		members, err := c.fetchFolderMembers(ctx, e.SharingInfo.SharedFolderID)
+		if err != nil {
+			return
+		}
+		rec.Acl = buildDropboxACL(members)
+	case "file":
+		// has_explicit_shared_members marks files that have been
+		// shared independently of any parent shared folder.
+		if !e.HasExplicitSharedMembers {
+			return
+		}
+		members, err := c.fetchFileMembers(ctx, e.ID)
+		if err != nil {
+			return
+		}
+		rec.Acl = buildDropboxACL(members)
+	}
 }
 
 // buildDropboxEntry converts a Dropbox API entry into the akashic

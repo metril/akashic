@@ -1,5 +1,5 @@
 /**
- * Dropbox source-config form (v0.17.0).
+ * Dropbox source-config form (v0.17.0+).
  *
  * Tier 4 PR 2. OAuth-shaped via the existing ``dropbox`` provider in
  * the OAuth registry. Same Sign-in popup pattern as the Drive /
@@ -7,10 +7,10 @@
  * optional path-scope input (Dropbox uses paths as canonical
  * identifiers rather than opaque ids).
  *
- * Sharing → cloud_drive ACL is not yet wired in this release; the
- * connector emits ``acl=null``. A follow-up adds best-effort
- * enrichment via ``list_folder_members`` for explicitly-shared
- * folders.
+ * v0.18.1 added best-effort cloud_drive ACL enrichment — the
+ * scanner calls ``list_folder_members`` / ``list_file_members``
+ * for items whose ``sharing_info`` flags them as explicitly shared
+ * and maps Dropbox's access_type onto cloud_drive roles.
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -121,13 +121,6 @@ export function DropboxFields({ value, onChange }: FieldsProps<DropboxConfig>) {
         Folder path within Dropbox to scope the scan, e.g. <code>/Reports</code>.
         Empty walks from the user's Dropbox root.
       </p>
-
-      <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-        Sharing-grant ACLs aren't yet surfaced for Dropbox sources. File
-        and folder paths, sizes, content hashes, and modification times
-        all index normally; the per-file member list (who's shared with
-        what) will land in a follow-up release.
-      </div>
     </div>
   );
 }
