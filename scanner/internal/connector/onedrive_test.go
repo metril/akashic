@@ -3,11 +3,13 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
@@ -245,6 +247,130 @@ func TestOneDriveBuildACLOrganizationLink(t *testing.T) {
 	g := acl.CloudDriveGrants[0]
 	if g.Principal.Type != "domain" {
 		t.Errorf("organization link should map to domain principal, got %q", g.Principal.Type)
+	}
+}
+
+// v0.22.0 — parallel-fan-out validation. The walker fans out the
+// per-item /permissions calls; the test injects an artificial delay
+// per /permissions request and asserts wall-clock < serial baseline.
+// 200 items × 50ms serial = 10s; with 8 workers it should be ~1.3s,
+// so 3s leaves plenty of CI headroom.
+func TestOneDriveWalkParallelizesPermissionFetches(t *testing.T) {
+	if testing.Short() {
+		t.Skip("perf-shape test")
+	}
+	fs := newFakeOneDriveServer(t)
+	defer fs.Close()
+
+	// Wrap the existing handler with a per-/permissions latency
+	// injector. Doing it here rather than mutating the constructor
+	// keeps the rest of the test fixtures untouched.
+	const perItemDelay = 50 * time.Millisecond
+	const itemCount = 200
+	delayMux := http.NewServeMux()
+	delayMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/permissions") {
+			time.Sleep(perItemDelay)
+		}
+		fs.Server.Config.Handler.ServeHTTP(w, r)
+	})
+	delaySrv := httptest.NewServer(delayMux)
+	defer delaySrv.Close()
+
+	// Register 200 file children + empty permissions for each.
+	kids := make([]driveItem, 0, itemCount)
+	for i := 0; i < itemCount; i++ {
+		id := fmt.Sprintf("file-%d", i)
+		kids = append(kids, driveItem{
+			ID:   id,
+			Name: fmt.Sprintf("file-%d.txt", i),
+			Size: 100,
+			File: &struct {
+				MimeType string `json:"mimeType"`
+				Hashes   struct {
+					SHA1Hash     string `json:"sha1Hash"`
+					SHA256Hash   string `json:"sha256Hash"`
+					QuickXorHash string `json:"quickXorHash"`
+					Crc32Hash    string `json:"crc32Hash"`
+				} `json:"hashes"`
+			}{},
+		})
+		fs.permissions[id] = nil
+	}
+	fs.children["root"] = kids
+
+	c := NewOneDriveConnector(&OneDriveConfig{AccessToken: "test-token"})
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	c.httpClient = &http.Client{
+		Transport: rewriteOneDriveTransport{base: transport, fakeURL: delaySrv.URL},
+	}
+
+	start := time.Now()
+	emitted := 0
+	_, err := c.Walk(
+		context.Background(), "/", nil, false, false,
+		func(r *models.EntryRecord) error { emitted++; return nil },
+	)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if emitted != itemCount+1 { // +1 for the root entry
+		t.Fatalf("want %d emitted, got %d", itemCount+1, emitted)
+	}
+	// Generous bound: with 8 workers and 50ms/perm, expected ~1.3s.
+	// Serial baseline is 10s+. 3s catches the regression.
+	if elapsed > 3*time.Second {
+		t.Errorf("parallel walk took %v, want < 3s — fan-out may have regressed", elapsed)
+	}
+}
+
+// v0.22.0 — sanity check that the post-fan-out emit order still
+// matches the API response order. Caller-visible callback ordering is
+// load-bearing for tag-inheritance and ACL-denorm assumptions.
+func TestOneDriveWalkPreservesChildOrder(t *testing.T) {
+	fs := newFakeOneDriveServer(t)
+	defer fs.Close()
+	names := []string{"alpha.txt", "beta.txt", "gamma.txt", "delta.txt", "epsilon.txt"}
+	kids := []driveItem{}
+	for i, name := range names {
+		id := fmt.Sprintf("file-%d", i)
+		kids = append(kids, driveItem{
+			ID:   id,
+			Name: name,
+			Size: 1,
+			File: &struct {
+				MimeType string `json:"mimeType"`
+				Hashes   struct {
+					SHA1Hash     string `json:"sha1Hash"`
+					SHA256Hash   string `json:"sha256Hash"`
+					QuickXorHash string `json:"quickXorHash"`
+					Crc32Hash    string `json:"crc32Hash"`
+				} `json:"hashes"`
+			}{},
+		})
+		fs.permissions[id] = nil
+	}
+	fs.children["root"] = kids
+
+	c := newOneDriveTestConnector(fs)
+	got := []string{}
+	_, err := c.Walk(
+		context.Background(), "/", nil, false, false,
+		func(r *models.EntryRecord) error {
+			if r.Kind == "file" {
+				got = append(got, r.Name)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	for i, want := range names {
+		if i >= len(got) || got[i] != want {
+			t.Errorf("at index %d: got %q, want %q (full=%v)", i, got[i], want, got)
+		}
 	}
 }
 

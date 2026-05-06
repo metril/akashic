@@ -5,6 +5,39 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.22.0 — 2026-05-06
+
+**Scanner perf — parallel permission fetches.** Final follow-up to the
+cloud-storage roadmap. The OneDrive and Box connectors used to fetch
+ACL metadata one item at a time inside the BFS callback; the v0.15.0
+OneDrive code even flagged it explicitly as future work. On a 200-item
+fixture with a 50ms-per-request /permissions delay, the OneDrive walk
+went from a 10s+ serial baseline to 1.3s with the new fan-out — ~8×
+on cloud-drive sources where ACL fetches dominate scan time.
+
+- **OneDrive: bounded fan-out for /permissions.** Walk and WalkShallow
+  now buffer each directory's children, fan out the permissions calls
+  through a semaphore-bounded worker pool (default 8), and emit
+  results in original API response order. ``stats.InaccessibleFiles``
+  is incremented in the post-fan-out pass on the main goroutine, so
+  no atomic was needed. Children-callback ordering is preserved —
+  load-bearing for tag-inheritance and ACL-denorm assumptions.
+- **Box: same pattern for /collaborations.** The Box connector hit the
+  same shape — one ``/2.0/{files,folders}/{id}/collaborations`` call
+  per child serially. Same 8-worker pool, same buffer-and-fanout. Box
+  rate-limits at 1000/min/app — well under what 8 workers can
+  generate at typical 100-200ms latency.
+- **Worker count is constant for now.** Both connectors share the
+  same shape but keep separate constants
+  (``onedrivePermWorkers`` / ``boxCollabWorkers``) so per-provider
+  rate-limit guidance can drift independently. Tunable via a config
+  field is on the table; no in-the-wild rate-limit complaint to
+  react to yet.
+- **Tests.** Added ``TestOneDriveWalkParallelizesPermissionFetches``
+  (200 items × 50ms ≈ 1.3s with 8 workers; 3s upper bound) and
+  ``TestOneDriveWalkPreservesChildOrder``. Existing OneDrive + Box
+  test suites stayed green.
+
 ## v0.21.0 — 2026-05-06
 
 **UX polish.** Second of three follow-ups after the cloud-storage

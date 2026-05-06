@@ -10,12 +10,19 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
+
+// v0.22.0 — concurrent /collaborations fetches per directory's
+// children page. Box allows ~1000 req/min/app — even at 8 workers
+// with 100ms latency we sit at ~80 QPS sustained, well clear. Same
+// constant rationale as onedrivePermWorkers.
+const boxCollabWorkers = 8
 
 // BoxConfig is the connection_config shape for a Box source.
 //
@@ -141,30 +148,74 @@ func (c *BoxConnector) Walk(
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
+		// v0.22.0 — buffer children, fan out collaborations fetches with
+		// a bounded worker pool, then emit in original order. Same shape
+		// as onedrive.go's Walk.
+		var children []boxItem
 		err := c.listChildren(ctx, cur.id, func(child boxItem) error {
-			childPath := path.Join(cur.path, child.Name)
-			if matchExcludes(excludePatterns, childPath) {
-				return nil
-			}
-			rec := buildBoxEntry(child, childPath)
-			if !computeHash {
-				rec.ContentHash = ""
-			}
-			if perms, err := c.fetchCollaborations(ctx, child.Type, child.ID); err == nil {
-				rec.Acl = buildBoxACL(perms)
-			} else if !rec.IsDir() {
-				stats.InaccessibleFiles++
-			}
-			if err := fn(rec); err != nil {
-				return err
-			}
-			if rec.IsDir() {
-				queue = append(queue, queued{id: child.ID, path: childPath})
-			}
+			children = append(children, child)
 			return nil
 		})
 		if err != nil {
 			stats.InaccessibleDirs++
+			continue
+		}
+
+		type kept struct {
+			item boxItem
+			path string
+		}
+		keepers := make([]kept, 0, len(children))
+		for _, ch := range children {
+			cp := path.Join(cur.path, ch.Name)
+			if matchExcludes(excludePatterns, cp) {
+				continue
+			}
+			keepers = append(keepers, kept{item: ch, path: cp})
+		}
+
+		type collabResult struct {
+			perms []boxCollaboration
+			err   error
+		}
+		results := make([]collabResult, len(keepers))
+		if len(keepers) > 0 {
+			sem := make(chan struct{}, boxCollabWorkers)
+			var wg sync.WaitGroup
+			for i, k := range keepers {
+				select {
+				case <-ctx.Done():
+					return stats, ctx.Err()
+				default:
+				}
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(i int, kind, id string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					p, err := c.fetchCollaborations(ctx, kind, id)
+					results[i] = collabResult{perms: p, err: err}
+				}(i, k.item.Type, k.item.ID)
+			}
+			wg.Wait()
+		}
+
+		for i, k := range keepers {
+			rec := buildBoxEntry(k.item, k.path)
+			if !computeHash {
+				rec.ContentHash = ""
+			}
+			if results[i].err == nil {
+				rec.Acl = buildBoxACL(results[i].perms)
+			} else if !rec.IsDir() {
+				stats.InaccessibleFiles++
+			}
+			if err := fn(rec); err != nil {
+				return stats, err
+			}
+			if rec.IsDir() {
+				queue = append(queue, queued{id: k.item.ID, path: k.path})
+			}
 		}
 	}
 	return stats, nil
@@ -195,26 +246,74 @@ func (c *BoxConnector) WalkShallow(
 	}); err != nil {
 		return nil, err
 	}
+	// Same buffer-and-fanout pattern as Walk above. Only file
+	// collaborations need fetching — directories surface as paths so
+	// the caller can recurse selectively.
 	subdirs := []string{}
-	err := c.listChildren(ctx, rootID, func(child boxItem) error {
-		childPath := path.Join(rootPath, child.Name)
-		if matchExcludes(excludePatterns, childPath) {
-			return nil
+	var children []boxItem
+	if err := c.listChildren(ctx, rootID, func(child boxItem) error {
+		children = append(children, child)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	type kept struct {
+		item boxItem
+		path string
+	}
+	var fileKeepers []kept
+	for _, ch := range children {
+		cp := path.Join(rootPath, ch.Name)
+		if matchExcludes(excludePatterns, cp) {
+			continue
 		}
-		rec := buildBoxEntry(child, childPath)
+		if ch.Type == "folder" {
+			subdirs = append(subdirs, cp)
+			continue
+		}
+		fileKeepers = append(fileKeepers, kept{item: ch, path: cp})
+	}
+
+	type collabResult struct {
+		perms []boxCollaboration
+		err   error
+	}
+	results := make([]collabResult, len(fileKeepers))
+	if len(fileKeepers) > 0 {
+		sem := make(chan struct{}, boxCollabWorkers)
+		var wg sync.WaitGroup
+		for i, k := range fileKeepers {
+			select {
+			case <-ctx.Done():
+				return subdirs, ctx.Err()
+			default:
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(i int, kind, id string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				p, err := c.fetchCollaborations(ctx, kind, id)
+				results[i] = collabResult{perms: p, err: err}
+			}(i, k.item.Type, k.item.ID)
+		}
+		wg.Wait()
+	}
+
+	for i, k := range fileKeepers {
+		rec := buildBoxEntry(k.item, k.path)
 		if !computeHash {
 			rec.ContentHash = ""
 		}
-		if rec.IsDir() {
-			subdirs = append(subdirs, childPath)
-			return nil
+		if results[i].err == nil {
+			rec.Acl = buildBoxACL(results[i].perms)
 		}
-		if perms, err := c.fetchCollaborations(ctx, child.Type, child.ID); err == nil {
-			rec.Acl = buildBoxACL(perms)
+		if err := fn(rec); err != nil {
+			return subdirs, err
 		}
-		return fn(rec)
-	})
-	return subdirs, err
+	}
+	return subdirs, nil
 }
 
 // ReadFile downloads the binary content for a Box file. The content

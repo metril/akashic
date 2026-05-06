@@ -10,12 +10,22 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
+
+// v0.22.0 — concurrent /permissions fetches per directory's children
+// page. Microsoft Graph allows ~10 req/sec/user/app and Box (where the
+// same pattern applies in box.go) tolerates 1000/min, so 8 workers
+// stays well clear at typical 100-200ms latency. Tunable in the future
+// via a config field if needed; not exposed yet because the win is
+// already 5-8x and there's no in-the-wild rate-limit complaint to
+// react to.
+const onedrivePermWorkers = 8
 
 // OneDriveConfig is the connection_config shape the api hands the
 // scanner for a OneDrive (personal or work/school) source.
@@ -137,41 +147,87 @@ func (c *OneDriveConnector) Walk(
 			return stats, ctx.Err()
 		}
 
+		// Phase 1: buffer the children of this directory. listChildren
+		// pages internally; we collect everything to disk first so the
+		// permissions fetches can fan out concurrently below.
+		var children []driveItem
 		err := c.listChildren(ctx, cur.id, func(child driveItem) error {
-			childPath := path.Join(cur.path, child.Name)
-			if matchExcludes(excludePatterns, childPath) {
-				return nil
-			}
-			rec := buildOneDriveEntry(child, childPath)
-			if !computeHash {
-				rec.ContentHash = ""
-			}
-			// Permissions are not returned with the children listing —
-			// pull them per-item. One Graph call per file is the
-			// not-cheap part of OneDrive scans; in a future pass we
-			// could parallelise via worker pool. For v0.15.0 we keep
-			// it serial.
-			if !rec.IsDir() {
-				if perms, err := c.fetchPermissions(ctx, child.ID); err == nil {
-					rec.Acl = buildOneDriveACL(perms)
-				} else {
-					stats.InaccessibleFiles++
-				}
-			} else {
-				if perms, err := c.fetchPermissions(ctx, child.ID); err == nil {
-					rec.Acl = buildOneDriveACL(perms)
-				}
-			}
-			if err := fn(rec); err != nil {
-				return err
-			}
-			if rec.IsDir() {
-				queue = append(queue, queued{id: child.ID, path: childPath})
-			}
+			children = append(children, child)
 			return nil
 		})
 		if err != nil {
 			stats.InaccessibleDirs++
+			continue
+		}
+
+		// Pre-filter against the exclude list so we don't waste Graph
+		// quota on items we're not going to surface anyway. Track the
+		// already-built childPath next to the item to avoid re-joining.
+		type kept struct {
+			item driveItem
+			path string
+		}
+		keepers := make([]kept, 0, len(children))
+		for _, ch := range children {
+			cp := path.Join(cur.path, ch.Name)
+			if matchExcludes(excludePatterns, cp) {
+				continue
+			}
+			keepers = append(keepers, kept{item: ch, path: cp})
+		}
+
+		// Phase 2: fan out permissions. Bounded by `onedrivePermWorkers`
+		// so we don't blow Graph's per-user rate budget; results parked
+		// in an index-aligned slice so the next phase can iterate in
+		// the original API response order (callers see deterministic
+		// emit order regardless of which goroutine finished first).
+		type permResult struct {
+			perms []driveItemPermission
+			err   error
+		}
+		results := make([]permResult, len(keepers))
+		if len(keepers) > 0 {
+			sem := make(chan struct{}, onedrivePermWorkers)
+			var wg sync.WaitGroup
+			for i, k := range keepers {
+				select {
+				case <-ctx.Done():
+					return stats, ctx.Err()
+				default:
+				}
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(i int, id string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					p, err := c.fetchPermissions(ctx, id)
+					results[i] = permResult{perms: p, err: err}
+				}(i, k.item.ID)
+			}
+			wg.Wait()
+		}
+
+		// Phase 3: emit in order. ACL on success; bump
+		// InaccessibleFiles only for files (directories with denied
+		// perms still surface for tree-walk completeness, mirroring
+		// the pre-v0.22.0 behaviour).
+		for i, k := range keepers {
+			rec := buildOneDriveEntry(k.item, k.path)
+			if !computeHash {
+				rec.ContentHash = ""
+			}
+			pr := results[i]
+			if pr.err == nil {
+				rec.Acl = buildOneDriveACL(pr.perms)
+			} else if !rec.IsDir() {
+				stats.InaccessibleFiles++
+			}
+			if err := fn(rec); err != nil {
+				return stats, err
+			}
+			if rec.IsDir() {
+				queue = append(queue, queued{id: k.item.ID, path: k.path})
+			}
 		}
 	}
 	return stats, nil
@@ -205,26 +261,76 @@ func (c *OneDriveConnector) WalkShallow(
 	}); err != nil {
 		return nil, err
 	}
+	// Same buffer-and-fanout pattern as Walk above. WalkShallow only
+	// emits files (directories are returned as paths so the caller can
+	// recurse selectively), so the permission fetches all hit
+	// non-directory items.
 	subdirs := []string{}
-	err := c.listChildren(ctx, rootID, func(child driveItem) error {
-		childPath := path.Join(rootPath, child.Name)
-		if matchExcludes(excludePatterns, childPath) {
-			return nil
+	var children []driveItem
+	if err := c.listChildren(ctx, rootID, func(child driveItem) error {
+		children = append(children, child)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	type kept struct {
+		item driveItem
+		path string
+	}
+	var fileKeepers []kept
+	for _, ch := range children {
+		cp := path.Join(rootPath, ch.Name)
+		if matchExcludes(excludePatterns, cp) {
+			continue
 		}
-		rec := buildOneDriveEntry(child, childPath)
+		// Surface dirs immediately; only files need a permissions fetch.
+		if ch.Folder != nil {
+			subdirs = append(subdirs, cp)
+			continue
+		}
+		fileKeepers = append(fileKeepers, kept{item: ch, path: cp})
+	}
+
+	type permResult struct {
+		perms []driveItemPermission
+		err   error
+	}
+	results := make([]permResult, len(fileKeepers))
+	if len(fileKeepers) > 0 {
+		sem := make(chan struct{}, onedrivePermWorkers)
+		var wg sync.WaitGroup
+		for i, k := range fileKeepers {
+			select {
+			case <-ctx.Done():
+				return subdirs, ctx.Err()
+			default:
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(i int, id string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				p, err := c.fetchPermissions(ctx, id)
+				results[i] = permResult{perms: p, err: err}
+			}(i, k.item.ID)
+		}
+		wg.Wait()
+	}
+
+	for i, k := range fileKeepers {
+		rec := buildOneDriveEntry(k.item, k.path)
 		if !computeHash {
 			rec.ContentHash = ""
 		}
-		if rec.IsDir() {
-			subdirs = append(subdirs, childPath)
-			return nil
+		if results[i].err == nil {
+			rec.Acl = buildOneDriveACL(results[i].perms)
 		}
-		if perms, err := c.fetchPermissions(ctx, child.ID); err == nil {
-			rec.Acl = buildOneDriveACL(perms)
+		if err := fn(rec); err != nil {
+			return subdirs, err
 		}
-		return fn(rec)
-	})
-	return subdirs, err
+	}
+	return subdirs, nil
 }
 
 // ReadFile downloads the binary content for an item. Graph hands back
