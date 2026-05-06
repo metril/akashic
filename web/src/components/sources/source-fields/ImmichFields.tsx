@@ -13,10 +13,10 @@
  * audit-log attribution and easy revocation.
  */
 import { useState } from "react";
-import { Button, Input } from "../../ui";
+import { Button, Input, MaskedInput } from "../../ui";
 import type { FieldsProps, ImmichConfig } from "../sourceTypes";
 
-export function ImmichFields({ value, onChange }: FieldsProps<ImmichConfig>) {
+export function ImmichFields({ value, onChange, errors, onFieldBlur }: FieldsProps<ImmichConfig>) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const tlsVerify = value.tls_verify ?? true;
   const includeArchived = value.include_archived ?? false;
@@ -29,15 +29,16 @@ export function ImmichFields({ value, onChange }: FieldsProps<ImmichConfig>) {
         onChange={(e) => onChange({ ...value, url: e.target.value })}
         placeholder="https://immich.example.com"
         required
+        error={errors?.url}
+        onBlur={() => onFieldBlur?.("url")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Base URL of the Immich instance. The scanner walks{" "}
         <code>/api/search/metadata</code> from here.
       </p>
 
-      <Input
+      <MaskedInput
         label="API key"
-        type="password"
         value={value.api_key === "***" ? "" : (value.api_key ?? "")}
         onChange={(e) => onChange({ ...value, api_key: e.target.value })}
         placeholder={
@@ -45,6 +46,8 @@ export function ImmichFields({ value, onChange }: FieldsProps<ImmichConfig>) {
         }
         autoComplete="new-password"
         required={value.api_key !== "***"}
+        error={errors?.api_key}
+        onBlur={() => onFieldBlur?.("api_key")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Create a key in Immich under <em>Account Settings → API Keys</em>.

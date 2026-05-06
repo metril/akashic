@@ -33,7 +33,7 @@ const AUTH_OPTIONS: { value: GCSAuthMode; label: string; hint: string }[] = [
   },
 ];
 
-export function GCSFields({ value, onChange }: FieldsProps<GCSConfig>) {
+export function GCSFields({ value, onChange, errors, onFieldBlur }: FieldsProps<GCSConfig>) {
   const mode: GCSAuthMode = value.auth_mode ?? "service_account_json";
   const optMeta = AUTH_OPTIONS.find((o) => o.value === mode)!;
 
@@ -45,6 +45,8 @@ export function GCSFields({ value, onChange }: FieldsProps<GCSConfig>) {
         onChange={(e) => onChange({ ...value, bucket: e.target.value })}
         placeholder="my-data-bucket"
         required
+        error={errors?.bucket}
+        onBlur={() => onFieldBlur?.("bucket")}
       />
       <Input
         label="Prefix (optional)"

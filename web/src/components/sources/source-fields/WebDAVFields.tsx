@@ -16,10 +16,10 @@
  * provider's "WebDAV setup" docs is the canonical workflow.
  */
 import { useState } from "react";
-import { Button, Input } from "../../ui";
+import { Button, Input, MaskedInput } from "../../ui";
 import type { FieldsProps, WebDAVConfig } from "../sourceTypes";
 
-export function WebDAVFields({ value, onChange }: FieldsProps<WebDAVConfig>) {
+export function WebDAVFields({ value, onChange, errors, onFieldBlur }: FieldsProps<WebDAVConfig>) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const tlsVerify = value.tls_verify ?? true;
 
@@ -31,6 +31,8 @@ export function WebDAVFields({ value, onChange }: FieldsProps<WebDAVConfig>) {
         onChange={(e) => onChange({ ...value, url: e.target.value })}
         placeholder="https://nextcloud.example.com/remote.php/dav/files/admin/"
         required
+        error={errors?.url}
+        onBlur={() => onFieldBlur?.("url")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Point at the share root the user has access to. Nextcloud /
@@ -45,9 +47,8 @@ export function WebDAVFields({ value, onChange }: FieldsProps<WebDAVConfig>) {
         onChange={(e) => onChange({ ...value, username: e.target.value })}
         placeholder="admin"
       />
-      <Input
+      <MaskedInput
         label="Password (optional)"
-        type="password"
         value={value.password === "***" ? "" : (value.password ?? "")}
         onChange={(e) => onChange({ ...value, password: e.target.value })}
         placeholder={

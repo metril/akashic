@@ -28,6 +28,8 @@ import type { FieldsProps, SharePointConfig } from "../sourceTypes";
 export function SharePointFields({
   value,
   onChange,
+  errors,
+  onFieldBlur,
 }: FieldsProps<SharePointConfig>) {
   const start = useStartOAuth();
   const credentials = useOAuthCredentials();
@@ -121,6 +123,8 @@ export function SharePointFields({
         onChange={(e) => onChange({ ...value, site_id: e.target.value })}
         placeholder="contoso.sharepoint.com,…,…"
         required
+        error={errors?.site_id}
+        onBlur={() => onFieldBlur?.("site_id")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Graph site identifier — paste the colon-triple from Graph

@@ -328,6 +328,11 @@ export type AnyConfig =
 export interface FieldsProps<C> {
   value: Partial<C>;
   onChange: (next: Partial<C>) => void;
+  // v0.21.0 — per-field errors keyed by field name (matching the
+  // mutation key used in onChange). Optional so existing callers that
+  // don't pass it stay valid; rendering branches off `error?.[fieldName]`.
+  errors?: Record<string, string>;
+  onFieldBlur?: (field: string) => void;
 }
 
 /**

@@ -16,7 +16,7 @@
  * The form swaps the credential input based on the chosen auth mode
  * so the user only ever sees the field that matters.
  */
-import { Input, Select } from "../../ui";
+import { Input, MaskedInput, Select } from "../../ui";
 import type {
   AzureBlobAuthMode,
   AzureBlobConfig,
@@ -41,7 +41,7 @@ const AUTH_OPTIONS: { value: AzureBlobAuthMode; label: string; hint: string }[] 
   },
 ];
 
-export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig>) {
+export function AzureBlobFields({ value, onChange, errors, onFieldBlur }: FieldsProps<AzureBlobConfig>) {
   const mode: AzureBlobAuthMode = value.auth_mode ?? "account_key";
   const optMeta = AUTH_OPTIONS.find((o) => o.value === mode)!;
 
@@ -53,6 +53,8 @@ export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig
         onChange={(e) => onChange({ ...value, account_name: e.target.value })}
         placeholder="mystorageaccount"
         required
+        error={errors?.account_name}
+        onBlur={() => onFieldBlur?.("account_name")}
       />
       <Input
         label="Container"
@@ -60,6 +62,8 @@ export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig
         onChange={(e) => onChange({ ...value, container: e.target.value })}
         placeholder="data"
         required
+        error={errors?.container}
+        onBlur={() => onFieldBlur?.("container")}
       />
 
       <Select
@@ -71,9 +75,8 @@ export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig
       <p className="text-[11px] text-fg-muted -mt-1">{optMeta.hint}</p>
 
       {mode === "account_key" && (
-        <Input
+        <MaskedInput
           label="Account key"
-          type="password"
           value={value.account_key === "***" ? "" : (value.account_key ?? "")}
           onChange={(e) => onChange({ ...value, account_key: e.target.value })}
           placeholder={
@@ -81,13 +84,14 @@ export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig
           }
           autoComplete="new-password"
           required={value.account_key !== "***"}
+          error={errors?.account_key}
+          onBlur={() => onFieldBlur?.("account_key")}
         />
       )}
 
       {mode === "sas_token" && (
-        <Input
+        <MaskedInput
           label="SAS token"
-          type="password"
           value={value.sas_token === "***" ? "" : (value.sas_token ?? "")}
           onChange={(e) => onChange({ ...value, sas_token: e.target.value })}
           placeholder={
@@ -97,6 +101,8 @@ export function AzureBlobFields({ value, onChange }: FieldsProps<AzureBlobConfig
           }
           autoComplete="new-password"
           required={value.sas_token !== "***"}
+          error={errors?.sas_token}
+          onBlur={() => onFieldBlur?.("sas_token")}
         />
       )}
 

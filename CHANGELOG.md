@@ -5,6 +5,54 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.21.0 — 2026-05-06
+
+**UX polish.** Second of three follow-ups after the cloud-storage
+roadmap. Tightens the source-config form (inline validation +
+masked-secret hide/show), makes tag mutations feel immediate via
+optimistic updates, and surfaces the source association on OAuth
+credentials so disconnect is no longer a guessing game.
+
+- **MaskedInput component.** New ``components/ui/MaskedInput.tsx``
+  wraps a single-line password-style input with an eye toggle for
+  reveal/hide. Hidden by default — shoulder-surf safe and aligned
+  with browser autofill UX. Adopted across S3, SMB, NFS (Kerberos
+  password), SSH (password + key passphrase), Box (client_secret
+  + JWT passphrase), Azure Blob (account_key, SAS token), Paperless
+  (api_token), Immich (api_key), WebDAV (password), and HostFields'
+  five password fields. Multi-line credentials (GCS service account
+  JSON, Box JWT private key) keep their textarea — the eye toggle
+  isn't a sensible affordance there and the existing "***"
+  unchanged-on-blank pattern handles the edit case.
+- **Inline form validation.** New ``hooks/useFieldValidation.ts``
+  tracks touched fields and intersects with a debounced live error
+  map; AddSourceForm computes per-field errors via the new
+  ``validateShareConfigFields`` (parallel to the existing single-
+  string ``validateShareConfig`` — both kept) and threads them to
+  ShareFields. Local / SMB / NFS / S3 / Paperless / Immich /
+  WebDAV / Azure Blob / GCS / SharePoint inputs now flash a red
+  border + error text on blur when invalid (URL must start with
+  http(s), bucket required, etc.) and clear it 300ms after typing
+  resumes. Touched-then-untouched isn't possible — the form-level
+  Save-disabled gate still uses the legacy validator so submit
+  failure paths are unchanged.
+- **Optimistic tag application.** ``EntryTags``' apply/remove
+  mutations now write into the entry-detail cache via ``onMutate``
+  and revert via ``onError`` if the server roundtrip fails (with a
+  toast). The chip flips visually before the network completes;
+  ``onSettled`` invalidates so the authoritative state catches up.
+  Inherited copies of a removed tag stay (matches the API's "only
+  remove direct" semantics).
+- **OAuth credentials show their attached source.** The credentials
+  endpoint now projects ``source_name`` (eagerly via the existing
+  ``lazy="joined"`` relationship — no extra query), and SettingsOAuth
+  renders a "Used by: <source name>" badge on each credential row.
+  The disconnect ConfirmDialog surfaces the same name in its body
+  copy so operators see exactly what'll break before clicking
+  through. (The original plan called for a count; the underlying
+  schema is 1:1 via migration 0029's partial unique index, so a
+  named association is more useful than a 0/1 number.)
+
 ## v0.20.0 — 2026-05-06
 
 **Search & browse polish.** First of three releases targeting the

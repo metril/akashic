@@ -1,6 +1,7 @@
 export { Card, CardHeader } from "./Card";
 export { Button } from "./Button";
 export { Input } from "./Input";
+export { MaskedInput } from "./MaskedInput";
 export { Select } from "./Select";
 export { Badge } from "./Badge";
 export type { BadgeVariant } from "./Badge";

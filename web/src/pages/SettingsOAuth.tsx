@@ -171,7 +171,9 @@ export default function SettingsOAuth() {
         title="Disconnect account?"
         description={
           confirmDeleteCred
-            ? `Disconnect ${confirmDeleteCred.account_email ?? "this account"} from ${PROVIDER_LABELS[confirmDeleteCred.provider]}. Any source attached to this credential will fail to scan until it's reauthorized.`
+            ? confirmDeleteCred.source_name
+              ? `Disconnect ${confirmDeleteCred.account_email ?? "this account"} from ${PROVIDER_LABELS[confirmDeleteCred.provider]}. Source "${confirmDeleteCred.source_name}" depends on this credential — it will fail to scan until you reauthorize.`
+              : `Disconnect ${confirmDeleteCred.account_email ?? "this account"} from ${PROVIDER_LABELS[confirmDeleteCred.provider]}. Any source attached to this credential will fail to scan until it's reauthorized.`
             : ""
         }
         confirmLabel="Disconnect"
@@ -401,6 +403,11 @@ function CredentialRow({
             {cred.account_email ?? cred.account_label ?? "?"}
           </Badge>
           {cred.source_id === null && <Badge variant="info">Unattached</Badge>}
+          {cred.source_name && (
+            <Badge variant="neutral" title="Source this credential is in use by">
+              Used by: {cred.source_name}
+            </Badge>
+          )}
         </div>
         <p className="text-[11px] text-fg-muted mt-0.5">
           Connected {new Date(cred.created_at).toLocaleDateString()} · access expires{" "}

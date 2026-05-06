@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Input } from "../../ui";
+import { Button, Input, MaskedInput } from "../../ui";
 import type { FieldsProps, NfsAuthMethod, NfsConfig } from "../sourceTypes";
 
 const AUTH_METHOD_OPTIONS: ReadonlyArray<{ id: NfsAuthMethod; label: string; help: string }> = [
@@ -148,9 +148,8 @@ export function NfsFields({ value, onChange }: FieldsProps<NfsConfig>) {
                 : "/etc/akashic/akashic.keytab"
             }
           />
-          <Input
+          <MaskedInput
             label="Password"
-            type="password"
             value={value.krb5_password === "***" ? "" : (value.krb5_password ?? "")}
             onChange={(e) => onChange({ ...value, krb5_password: e.target.value })}
             placeholder="(unchanged — type to replace)"

@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Button, Input } from "../../ui";
+import { Button, Input, MaskedInput } from "../../ui";
 import { api } from "../../../api/client";
 import {
   useStartOAuth,
@@ -194,13 +194,12 @@ function JWTSection({ value, onChange }: FieldsProps<BoxConfig>) {
         onChange={(e) => onChange({ ...value, client_id: e.target.value })}
         required
       />
-      <Input
+      <MaskedInput
         label={
           isMasked(value.client_secret)
             ? "Client secret (replace)"
             : "Client secret"
         }
-        type="password"
         value={isMasked(value.client_secret) ? "" : value.client_secret ?? ""}
         onChange={(e) =>
           onChange({ ...value, client_secret: e.target.value })
@@ -258,13 +257,12 @@ function JWTSection({ value, onChange }: FieldsProps<BoxConfig>) {
           }
         />
       </label>
-      <Input
+      <MaskedInput
         label={
           isMasked(value.private_key_passphrase)
             ? "Private key passphrase (replace, only if encrypted)"
             : "Private key passphrase (optional, only if encrypted)"
         }
-        type="password"
         value={
           isMasked(value.private_key_passphrase)
             ? ""

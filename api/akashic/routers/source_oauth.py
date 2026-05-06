@@ -386,6 +386,10 @@ def repr_json(s: str) -> str:
 
 
 def _summary_for_credential(cred: SourceOAuthCredential) -> OAuthCredentialSummary:
+    # cred.source is loaded eagerly via lazy="joined" on the relationship
+    # (see models/oauth_credential.py). Reading .name doesn't trigger an
+    # extra query.
+    source_name = cred.source.name if cred.source is not None else None
     return OAuthCredentialSummary(
         id=cred.id,
         source_id=cred.source_id,
@@ -396,6 +400,7 @@ def _summary_for_credential(cred: SourceOAuthCredential) -> OAuthCredentialSumma
         access_token_expires_at=cred.access_token_expires_at,
         created_at=cred.created_at,
         updated_at=cred.updated_at,
+        source_name=source_name,
     )
 
 

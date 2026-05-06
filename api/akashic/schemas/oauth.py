@@ -52,6 +52,12 @@ class OAuthCredentialSummary(BaseModel):
     access_token_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # v0.21.0 — name of the Source this credential is attached to (1:1
+    # relationship per migration 0029's partial unique index on
+    # source_id). Surfaced on the SettingsOAuth row so operators see
+    # which source they'd be breaking before clicking Disconnect.
+    # Null when source_id is null (unattached / in-flight create flow).
+    source_name: str | None = None
 
 
 class OAuthRefreshRequest(BaseModel):

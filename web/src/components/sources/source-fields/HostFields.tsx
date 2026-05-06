@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Input, Select } from "../../ui";
+import { Input, MaskedInput, Select } from "../../ui";
 import {
   S3_PRESETS,
   type NfsAuthMethod,
@@ -94,9 +94,8 @@ function SshHostFields({
             ]}
           />
           {auth === "password" ? (
-            <Input
+            <MaskedInput
               label="Password"
-              type="password"
               value={value.password === "***" ? "" : (value.password ?? "")}
               onChange={(e) => onChange({ ...value, password: e.target.value })}
               placeholder={value.password === "***" ? "(unchanged — type to replace)" : ""}
@@ -112,9 +111,8 @@ function SshHostFields({
                 placeholder="/etc/akashic/keys/id_rsa"
                 required
               />
-              <Input
+              <MaskedInput
                 label="Key passphrase (optional)"
-                type="password"
                 value={value.key_passphrase === "***" ? "" : (value.key_passphrase ?? "")}
                 onChange={(e) => onChange({ ...value, key_passphrase: e.target.value })}
                 placeholder={value.key_passphrase === "***" ? "(unchanged)" : ""}
@@ -166,9 +164,8 @@ function SmbHostFields({
             onChange={(e) => onChange({ ...value, username: e.target.value })}
             required
           />
-          <Input
+          <MaskedInput
             label="Password"
-            type="password"
             value={value.password === "***" ? "" : (value.password ?? "")}
             onChange={(e) => onChange({ ...value, password: e.target.value })}
             placeholder={value.password === "***" ? "(unchanged — type to replace)" : ""}
@@ -267,9 +264,8 @@ function NfsHostFields({
             onChange={(e) => onChange({ ...value, krb5_keytab_path: e.target.value })}
             placeholder={value.krb5_keytab_path === "***" ? "(unchanged)" : "/etc/akashic/akashic.keytab"}
           />
-          <Input
+          <MaskedInput
             label="Password"
-            type="password"
             value={value.krb5_password === "***" ? "" : (value.krb5_password ?? "")}
             onChange={(e) => onChange({ ...value, krb5_password: e.target.value })}
             placeholder={value.krb5_password === "***" ? "(unchanged)" : ""}
@@ -376,9 +372,8 @@ function S3HostFields({
             onChange={(e) => onChange({ ...value, access_key_id: e.target.value })}
             required
           />
-          <Input
+          <MaskedInput
             label="Secret access key"
-            type="password"
             value={value.secret_access_key === "***" ? "" : (value.secret_access_key ?? "")}
             onChange={(e) => onChange({ ...value, secret_access_key: e.target.value })}
             placeholder={value.secret_access_key === "***" ? "(unchanged — type to replace)" : ""}

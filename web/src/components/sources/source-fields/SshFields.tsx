@@ -1,4 +1,4 @@
-import { Input, Select } from "../../ui";
+import { Input, MaskedInput, Select } from "../../ui";
 import type { FieldsProps, SshConfig } from "../sourceTypes";
 
 export function SshFields({ value, onChange }: FieldsProps<SshConfig>) {
@@ -36,9 +36,8 @@ export function SshFields({ value, onChange }: FieldsProps<SshConfig>) {
         ]}
       />
       {auth === "password" ? (
-        <Input
+        <MaskedInput
           label="Password"
-          type="password"
           value={value.password ?? ""}
           onChange={(e) => onChange({ ...value, password: e.target.value })}
           required
@@ -52,9 +51,8 @@ export function SshFields({ value, onChange }: FieldsProps<SshConfig>) {
             placeholder="/etc/akashic/keys/id_rsa"
             required
           />
-          <Input
+          <MaskedInput
             label="Key passphrase (optional)"
-            type="password"
             value={value.key_passphrase ?? ""}
             onChange={(e) => onChange({ ...value, key_passphrase: e.target.value })}
           />

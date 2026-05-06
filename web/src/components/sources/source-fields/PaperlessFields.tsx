@@ -12,10 +12,10 @@
  * dropdown → "My Profile" → "Create Auth Token".
  */
 import { useState } from "react";
-import { Button, Input } from "../../ui";
+import { Button, Input, MaskedInput } from "../../ui";
 import type { FieldsProps, PaperlessConfig } from "../sourceTypes";
 
-export function PaperlessFields({ value, onChange }: FieldsProps<PaperlessConfig>) {
+export function PaperlessFields({ value, onChange, errors, onFieldBlur }: FieldsProps<PaperlessConfig>) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const tlsVerify = value.tls_verify ?? true;
 
@@ -27,15 +27,16 @@ export function PaperlessFields({ value, onChange }: FieldsProps<PaperlessConfig
         onChange={(e) => onChange({ ...value, url: e.target.value })}
         placeholder="https://paperless.example.com"
         required
+        error={errors?.url}
+        onBlur={() => onFieldBlur?.("url")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Base URL of the Paperless-ngx instance. The scanner walks{" "}
         <code>/api/documents/</code> from here.
       </p>
 
-      <Input
+      <MaskedInput
         label="API token"
-        type="password"
         value={value.api_token === "***" ? "" : (value.api_token ?? "")}
         onChange={(e) => onChange({ ...value, api_token: e.target.value })}
         placeholder={
@@ -45,6 +46,8 @@ export function PaperlessFields({ value, onChange }: FieldsProps<PaperlessConfig
         }
         autoComplete="new-password"
         required={value.api_token !== "***"}
+        error={errors?.api_token}
+        onBlur={() => onFieldBlur?.("api_token")}
       />
       <p className="text-[11px] text-fg-muted -mt-1">
         Create a token in Paperless under <em>My Profile → Create Auth Token</em>.

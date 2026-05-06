@@ -22,7 +22,9 @@ import {
   ShareFields,
   type ShareConfig,
   validateShareConfig,
+  validateShareConfigFields,
 } from "./source-fields/ShareFields";
+import { useFieldValidation } from "../../hooks/useFieldValidation";
 
 const SOURCE_TYPE_OPTIONS = SOURCE_TYPES.map((t) => ({
   value: t,
@@ -101,6 +103,14 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const isCreatingHost = !isHostless && hostChoice === NEW_HOST;
 
   const shareError = validateShareConfig(type, shareConfig);
+  // v0.21.0 — per-field error tracking for inline red-border feedback.
+  // The form-level shareError still drives "Save disabled"; this only
+  // affects per-input rendering, gated on user blur via the hook.
+  const liveFieldErrors = useMemo(
+    () => validateShareConfigFields(type, shareConfig),
+    [type, shareConfig],
+  );
+  const fieldValidation = useFieldValidation(liveFieldErrors);
   const hostError =
     isCreatingHost && !isHostless
       ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint" | "dropbox" | "box">, hostConfig)
@@ -258,7 +268,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               Share details
             </p>
           )}
-          <ShareFields type={type} value={shareConfig} onChange={setShareConfig} />
+          <ShareFields
+            type={type}
+            value={shareConfig}
+            onChange={setShareConfig}
+            errors={fieldValidation.errors}
+            onFieldBlur={fieldValidation.markTouched}
+          />
         </div>
 
         {!isHostless && hostChoice && hostChoice !== NEW_HOST && (

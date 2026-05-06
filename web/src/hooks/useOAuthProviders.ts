@@ -40,6 +40,9 @@ export interface OAuthCredentialSummary {
   access_token_expires_at: string | null;
   created_at: string;
   updated_at: string;
+  // v0.21.0 — name of the Source this credential is attached to.
+  // Null when unattached. Surfaced on the SettingsOAuth row.
+  source_name?: string | null;
 }
 
 export interface OAuthStartResponse {

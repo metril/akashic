@@ -15,10 +15,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
-import type { EntryTagAssignment } from "../../types";
+import type { EntryDetail, EntryTagAssignment } from "../../types";
 import { Button } from "../ui";
 import { FilterableCell } from "../ui/FilterableCell";
 import { cn } from "../ui/cn";
@@ -43,21 +44,65 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
   // tooltip for completeness.
   const consolidated = useMemo(() => groupByTag(tags), [tags]);
 
+  // v0.21.0 — optimistic apply/remove. Tag chips appear/vanish on click
+  // before the server roundtrip; a failure rolls back via the snapshot
+  // captured in onMutate and surfaces a toast. onSettled invalidates so
+  // the authoritative state (including any inherited-tag interactions
+  // that the local model doesn't fully simulate) catches up.
+  const queryKey = useMemo(() => ["entry", entryId] as const, [entryId]);
+
   const applyMut = useMutation({
     mutationFn: (newTags: string[]) =>
       api.post<void>(`/entries/${entryId}/tags`, { tags: newTags }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["entry", entryId] });
+    onMutate: async (newTags: string[]) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData<EntryDetail>(queryKey);
+      if (prev) {
+        const have = new Set(prev.tags.map((t) => t.tag));
+        const additions: EntryTagAssignment[] = newTags
+          .filter((t) => !have.has(t))
+          .map((tag) => ({ tag, inherited: false, inherited_from_path: null }));
+        queryClient.setQueryData<EntryDetail>(queryKey, {
+          ...prev,
+          tags: [...prev.tags, ...additions],
+        });
+      }
       setDraft("");
       setAdding(false);
+      return { prev };
+    },
+    onError: (err, _newTags, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      toast.error(`Couldn't apply tag: ${err instanceof Error ? err.message : "unknown error"}`);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 
   const removeMut = useMutation({
     mutationFn: (tag: string) =>
       api.delete<void>(`/entries/${entryId}/tags/${encodeURIComponent(tag)}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["entry", entryId] });
+    onMutate: async (tag: string) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData<EntryDetail>(queryKey);
+      if (prev) {
+        // Only remove the *direct* assignment — inherited copies of the
+        // same tag stay (the API does the same; the chip flips back to
+        // its inherited-only rendering on re-fetch).
+        queryClient.setQueryData<EntryDetail>(queryKey, {
+          ...prev,
+          tags: prev.tags.filter((t) => !(t.tag === tag && !t.inherited)),
+        });
+      }
+      return { prev };
+    },
+    onError: (err, _tag, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      toast.error(`Couldn't remove tag: ${err instanceof Error ? err.message : "unknown error"}`);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 

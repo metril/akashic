@@ -1,4 +1,4 @@
-import { Input } from "../../ui";
+import { Input, MaskedInput } from "../../ui";
 import type { FieldsProps, SmbConfig } from "../sourceTypes";
 
 export function SmbFields({ value, onChange }: FieldsProps<SmbConfig>) {
@@ -30,9 +30,8 @@ export function SmbFields({ value, onChange }: FieldsProps<SmbConfig>) {
         onChange={(e) => onChange({ ...value, username: e.target.value })}
         required
       />
-      <Input
+      <MaskedInput
         label="Password"
-        type="password"
         value={value.password ?? ""}
         onChange={(e) => onChange({ ...value, password: e.target.value })}
         required

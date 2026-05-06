@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Input, Select } from "../../ui";
+import { Input, MaskedInput, Select } from "../../ui";
 import {
   S3_PRESETS,
   type FieldsProps,
@@ -82,9 +82,8 @@ export function S3Fields({ value, onChange }: FieldsProps<S3Config>) {
         onChange={(e) => onChange({ ...value, access_key_id: e.target.value })}
         required
       />
-      <Input
+      <MaskedInput
         label="Secret access key"
-        type="password"
         value={value.secret_access_key === "***" ? "" : (value.secret_access_key ?? "")}
         onChange={(e) => onChange({ ...value, secret_access_key: e.target.value })}
         placeholder={value.secret_access_key === "***" ? "(unchanged — type to replace)" : ""}
