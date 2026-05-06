@@ -1,6 +1,6 @@
 export const SOURCE_TYPES = [
   "local", "ssh", "smb", "nfs", "s3",
-  "paperless", "immich", "azureblob", "gcs",
+  "paperless", "immich", "azureblob", "gcs", "webdav",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -13,6 +13,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "immich",
   "azureblob",
   "gcs",
+  "webdav",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -25,6 +26,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   immich: "Immich",
   azureblob: "Azure Blob Storage",
   gcs: "Google Cloud Storage",
+  webdav: "WebDAV (Nextcloud / ownCloud / Synology / mod_dav)",
 };
 
 export type LocalConfig = {
@@ -209,6 +211,20 @@ export type GCSConfig = {
   service_account_json?: string;
 };
 
+// v0.11.0 — WebDAV (Tier 4 PR 1). Hostless: URL + basic auth on the
+// source. The URL points at the share root: for Nextcloud,
+// https://nextcloud.example.com/remote.php/dav/files/<user>/; for
+// generic mod_dav installs, just the share's mount point. Empty
+// username/password is allowed for read-only public shares.
+export type WebDAVConfig = {
+  url: string;
+  username?: string;
+  password?: string;
+  // Default true. Set to false for self-signed home installs; UI
+  // surfaces a warning when the toggle is off.
+  tls_verify?: boolean;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -218,7 +234,8 @@ export type AnyConfig =
   | PaperlessConfig
   | ImmichConfig
   | AzureBlobConfig
-  | GCSConfig;
+  | GCSConfig
+  | WebDAVConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -338,6 +355,16 @@ export function validateSourceConfig(
       }
       // application_default has no inline secret — ADC chain pulls
       // workload identity / env / gcloud at scan time.
+      return null;
+    }
+    case "webdav": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
+      }
+      // username/password are intentionally optional — read-only
+      // public WebDAV shares (rare but legal) need no auth.
       return null;
     }
   }

@@ -14,11 +14,13 @@ import type {
   SmbConfig,
   SourceType,
   SshConfig,
+  WebDAVConfig,
 } from "../sourceTypes";
 import { PaperlessFields } from "./PaperlessFields";
 import { ImmichFields } from "./ImmichFields";
 import { AzureBlobFields } from "./AzureBlobFields";
 import { GCSFields } from "./GCSFields";
+import { WebDAVFields } from "./WebDAVFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -30,6 +32,7 @@ export type ShareConfig = Partial<
   | ImmichConfig
   | AzureBlobConfig
   | GCSConfig
+  | WebDAVConfig
 >;
 
 interface Props {
@@ -124,6 +127,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <GCSFields
           value={value as Partial<GCSConfig>}
           onChange={onChange as (next: Partial<GCSConfig>) => void}
+        />
+      );
+    case "webdav":
+      // v0.11.0 — hostless: URL + basic auth + tls_verify all on
+      // the "share".
+      return (
+        <WebDAVFields
+          value={value as Partial<WebDAVConfig>}
+          onChange={onChange as (next: Partial<WebDAVConfig>) => void}
         />
       );
   }
@@ -278,6 +290,14 @@ export function validateShareConfig(
       const mode = (c["auth_mode"] as GCSAuthMode | undefined) ?? "service_account_json";
       if (mode === "service_account_json" && !isStr("service_account_json")) {
         return "Service account JSON is required";
+      }
+      return null;
+    }
+    case "webdav": {
+      if (!isStr("url")) return "URL is required";
+      const url = (c["url"] as string).trim();
+      if (!/^https?:\/\//i.test(url)) {
+        return "URL must start with http:// or https://";
       }
       return null;
     }

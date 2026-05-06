@@ -134,6 +134,12 @@ func buildConnector(
 			mode = "application_default"
 		}
 		return connector.NewGCSConnector(bucket, "", mode, password), "", nil
+	case "webdav":
+		// v0.11.0 — CLI maps `host` → URL, `user`+`password` →
+		// basic auth creds. tls_verify is hard-coded true on the
+		// CLI path; the agent (connectorFromLeased) honours the
+		// per-source toggle.
+		return connector.NewWebDAVConnector(host, user, password, true), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

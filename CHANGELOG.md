@@ -5,6 +5,82 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.11.0 — 2026-05-06
+
+Tier 4 PR 1 — **WebDAV** as a hostless source type. The plan called
+this "the highest deploy-count coverage per LOC of any connector,"
+and that holds: one PROPFIND-shaped connector covers Nextcloud,
+ownCloud, Synology File Station, generic Apache mod_dav, and
+sabredav installs.
+
+- **WebDAV as a source type.** Pick "WebDAV" in Add Source. Paste
+  the share-root URL (Nextcloud appends
+  `/remote.php/dav/files/<user>/`; Synology DSM proxies WebDAV at
+  port 5006; mod_dav uses whatever the operator mounted), optional
+  basic-auth username + password, and a TLS-verify toggle for
+  self-signed home installs. The scanner walks via
+  `PROPFIND Depth: 1` BFS — most servers reject `Depth: infinity`
+  for safety, so we paginate per directory instead of asking for
+  the whole subtree in one shot.
+- **Standard PROPFIND props surfaced.** Each emitted entry carries
+  size (`getcontentlength`), modified time
+  (`getlastmodified`, parsed as RFC1123 with RFC1123Z and RFC850
+  tolerance), creation time when present, MIME type
+  (`getcontenttype`), and the server's ETag as the content_hash
+  (prefixed `etag:` to keep it visually distinct from MD5/SHA
+  hashes). Directory entries are detected via
+  `<D:resourcetype><D:collection/></D:resourcetype>`.
+- **Symlink-cycle protection.** Some servers happily follow
+  filesystem symlinks back into already-visited directories. The
+  walk maintains a `seen` map keyed by relative path so the same
+  directory is never PROPFIND'd twice — the worst a symlink loop
+  can do is duplicate one entry's emit, not infinite-loop the scan.
+- **Per-directory error tolerance.** A 4xx / 5xx on a single
+  subdirectory bumps the scan's `inaccessible_dirs` counter and
+  the walk continues — matches the local walker's permission-
+  denied semantics. The api surfaces "N inaccessible items
+  skipped" on the source's scan history card.
+- **Inline httpx test connection.** The "Test" button on Add
+  Source hits PROPFIND directly from the api container; auth
+  rejection (401/403) → `auth`, method-not-allowed (server doesn't
+  speak WebDAV at this URL) → `list`, transport / TLS / DNS →
+  `connect`. One round trip, no scanner subprocess.
+
+Internal:
+
+- New scanner connector at `scanner/internal/connector/webdav.go`
+  with full Connect / Walk / WalkShallow / ReadFile / Delete. No
+  external WebDAV library — the protocol is straightforward enough
+  that `encoding/xml` + `net/http` cover it inline. 6 unit tests
+  cover PROPFIND XML parsing (including percent-encoded hrefs,
+  multistatus dispatch, RFC1123 date parsing), buildWebDAVEntry
+  for files vs directories, BFS Walk against a fake server, auth
+  rejection, and method-not-allowed handling.
+- New probe `runWebDAV` in `scanner/internal/probe/probe.go`
+  reuses the connector's Connect for the agent's reachability
+  poll loop.
+- Three scanner dispatch sites extended (`connectorFromLeased`,
+  `buildConnector`, `probe.Run`).
+- API: `test_webdav` in `services/source_tester.py` (inline
+  httpx); `_summary_for` strips URL scheme;
+  `HOSTLESS_SOURCE_TYPES` set extended.
+- Web: `WebDAVFields` component with URL / username / password /
+  tls-verify; `ShareFields` + `SourceFieldSet` dispatch;
+  `SourceType` union + `WebDAVConfig` + validation rule.
+
+Known limitations (v0.11.x follow-ups):
+
+- **No ACL surface.** Standard PROPFIND doesn't return permissions;
+  Nextcloud's `oc:permissions` extension exposes an opaque
+  permission string, but mapping that into akashic's per-principal
+  ACL model is meaningful work — punted to a Tier 4 follow-up if
+  there's demand. For now, every WebDAV entry is treated as
+  accessible to whoever can reach the source.
+- **Bearer / digest / mTLS not supported.** Basic Auth covers the
+  vast majority of WebDAV deploys today; bearer and digest auth
+  modes can be added as new `auth_mode` values without touching
+  the walk path. Client certs likewise wait on real demand.
+
 ## v0.10.0 — 2026-05-05
 
 Tier 2 complete — **Google Cloud Storage** as a hostless source type.

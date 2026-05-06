@@ -439,6 +439,69 @@ def test_azureblob(cfg: dict) -> TestResult:
     return _test_via_scanner(argv, password=secret)
 
 
+def test_webdav(cfg: dict) -> TestResult:
+    """v0.11.0 — Tier 4 PR 1 probe (WebDAV).
+
+    Inline httpx PROPFIND against the source URL. The api container
+    is closer to most self-hosted WebDAV instances than the scanner
+    is, and the protocol is plain HTTP, so the round trip via the
+    scanner subprocess would just add latency without any signal
+    the inline probe doesn't already give.
+    """
+    raw_url = (cfg.get("url") or "").strip()
+    username = cfg.get("username") or ""
+    password = cfg.get("password") or ""
+    if not raw_url:
+        return TestResult(ok=False, step="config", error="url required")
+    base = raw_url.rstrip("/") + "/"
+    verify = cfg.get("tls_verify")
+    if verify is None:
+        verify = True
+    elif isinstance(verify, str):
+        verify = verify.strip().lower() not in ("false", "0", "no")
+    propfind_body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>'
+    )
+    headers = {
+        "Depth": "0",
+        "Content-Type": "application/xml; charset=utf-8",
+    }
+    try:
+        with httpx.Client(timeout=10.0, verify=bool(verify)) as client:
+            resp = client.request(
+                "PROPFIND",
+                base,
+                headers=headers,
+                content=propfind_body,
+                auth=(username, password) if (username or password) else None,
+            )
+    except httpx.RequestError as exc:
+        return TestResult(ok=False, step="connect", error=str(exc))
+    if resp.status_code in (401, 403):
+        return TestResult(
+            ok=False, step="auth",
+            error=f"authentication rejected ({resp.status_code})",
+        )
+    if resp.status_code == 405:
+        return TestResult(
+            ok=False, step="list",
+            error="PROPFIND not allowed — server may not speak WebDAV at this URL",
+        )
+    if resp.status_code == 404:
+        return TestResult(
+            ok=False, step="list",
+            error=f"resource not found ({resp.status_code})",
+        )
+    if resp.status_code not in (200, 207):
+        body = resp.text[:200]
+        return TestResult(
+            ok=False, step="list",
+            error=f"PROPFIND returned {resp.status_code}: {body}",
+        )
+    return TestResult(ok=True)
+
+
 def test_gcs(cfg: dict) -> TestResult:
     """v0.10.0 — Tier 2 PR 3 probe (Google Cloud Storage).
 
@@ -527,6 +590,7 @@ _DISPATCH = {
     "immich":    test_immich,
     "azureblob": test_azureblob,
     "gcs":       test_gcs,
+    "webdav":    test_webdav,
 }
 
 

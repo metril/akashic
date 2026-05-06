@@ -502,6 +502,16 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			stringFromConfig(cfg, "auth_mode", ""),
 			stringFromConfig(cfg, "service_account_json", ""),
 		), nil
+	case "webdav":
+		// v0.11.0 — Tier 4 PR 1. Hostless. URL + basic auth creds
+		// on the source. Covers Nextcloud, ownCloud, Synology File
+		// Station, generic Apache mod_dav, sabredav.
+		return connector.NewWebDAVConnector(
+			stringFromConfig(cfg, "url", ""),
+			stringFromConfig(cfg, "username", ""),
+			stringFromConfig(cfg, "password", ""),
+			boolFromConfig(cfg, "tls_verify", true),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}

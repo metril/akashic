@@ -57,6 +57,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runAzureBlob(ctx, connConfig)
 	case "gcs":
 		return runGCS(ctx, connConfig)
+	case "webdav":
+		return runWebDAV(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -225,6 +227,42 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	return Result{OK: true}
+}
+
+// runWebDAV validates a WebDAV source by issuing the connector's
+// Connect — which sends a `PROPFIND Depth: 0` against the source
+// URL. 401/403 → "auth"; 405 (server doesn't speak WebDAV at this
+// path) → "list"; transport / DNS / TLS → "connect".
+func runWebDAV(ctx context.Context, c map[string]any) Result {
+	rawURL := strings.TrimSpace(str(c, "url"))
+	username := str(c, "username")
+	password := str(c, "password")
+	if rawURL == "" {
+		return Result{OK: false, Step: "config", Error: "url required"}
+	}
+	verify := true
+	if v, ok := c["tls_verify"]; ok {
+		if b, ok := v.(bool); ok {
+			verify = b
+		}
+	}
+	conn := connector.NewWebDAVConnector(rawURL, username, password, verify)
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "auth rejected"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		case strings.Contains(msg, "PROPFIND not allowed"),
+			strings.Contains(msg, "resource not found"):
+			return Result{OK: false, Step: "list", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
 	return Result{OK: true}
 }
 

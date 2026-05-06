@@ -8,6 +8,7 @@ import { PaperlessFields } from "./source-fields/PaperlessFields";
 import { ImmichFields } from "./source-fields/ImmichFields";
 import { AzureBlobFields } from "./source-fields/AzureBlobFields";
 import { GCSFields } from "./source-fields/GCSFields";
+import { WebDAVFields } from "./source-fields/WebDAVFields";
 
 interface SourceFieldSetProps {
   type: SourceType;
@@ -45,5 +46,7 @@ export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
       return <AzureBlobFields value={value as never} onChange={onChange as never} />;
     case "gcs":
       return <GCSFields value={value as never} onChange={onChange as never} />;
+    case "webdav":
+      return <WebDAVFields value={value as never} onChange={onChange as never} />;
   }
 }

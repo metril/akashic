@@ -241,4 +241,13 @@ def _summary_for(source) -> str:
         if bucket and prefix:
             return f"gs://{bucket}/{prefix.strip('/')}"
         return f"gs://{bucket}" if bucket else name
+    if t == "webdav":
+        url = g("url")
+        if url:
+            for prefix in ("https://", "http://"):
+                if url.startswith(prefix):
+                    url = url[len(prefix):]
+                    break
+            return url.rstrip("/") or name
+        return name
     return name
