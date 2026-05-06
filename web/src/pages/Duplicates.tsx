@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { DuplicateGroup, FileEntry } from "../types";
@@ -50,11 +51,28 @@ function pickDefaultKeep(files: FileEntry[]): string | null {
 interface DuplicateGroupRowProps {
   group: DuplicateGroup;
   isAdmin: boolean;
+  /** v0.20.0 — when set, the row opens itself and scrolls into view on
+   *  mount. Used by the ?hash= deep-link from Search-result rows. */
+  autoOpen?: boolean;
 }
 
-function DuplicateGroupRow({ group, isAdmin }: DuplicateGroupRowProps) {
+function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps) {
   const queryClient = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(autoOpen ?? false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // Deep-link entry: scroll the auto-opened group into view once. Done
+  // in an effect because the parent's data may arrive in stages — we
+  // mount with autoOpen=true and then need to wait for the layout to
+  // settle before scrolling.
+  useEffect(() => {
+    if (autoOpen && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // Run once on mount; if autoOpen flips later we don't want to fight
+    // the user's scroll position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [selection, setSelection] = useState<Selection>(new Map());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -179,6 +197,7 @@ function DuplicateGroupRow({ group, isAdmin }: DuplicateGroupRowProps) {
   }
 
   return (
+    <div ref={cardRef}>
     <Card padding="none">
       <button
         type="button"
@@ -362,11 +381,17 @@ function DuplicateGroupRow({ group, isAdmin }: DuplicateGroupRowProps) {
         onCancel={() => !busy && setConfirming(false)}
       />
     </Card>
+    </div>
   );
 }
 
 export default function Duplicates() {
   const { isAdmin } = useAuth();
+  const [searchParams] = useSearchParams();
+  // v0.20.0 — `?hash=...` deep-link from the +N copies badge on Search.
+  // The matching DuplicateGroupRow auto-expands and scrolls into view.
+  const targetHash = searchParams.get("hash");
+
   const {
     data: groups,
     isLoading,
@@ -438,6 +463,7 @@ export default function Duplicates() {
                 key={g.content_hash}
                 group={g}
                 isAdmin={isAdmin}
+                autoOpen={targetHash === g.content_hash}
               />
             ))}
           </div>

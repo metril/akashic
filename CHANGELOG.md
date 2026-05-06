@@ -5,6 +5,47 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.20.0 — 2026-05-06
+
+**Search & browse polish.** First of three releases targeting the
+cracks that surfaced after the cloud-storage roadmap closed out.
+Closes the search-result → browse navigation gap, surfaces the
+existing duplicate-detection work inline on search rows, adds
+sort + facet chips on Search, and confirms the folder-count
+badges that landed earlier in the Browse tree.
+
+- **"Open containing folder" link in entry detail.** Inside the
+  drawer's Identity section, a Folder row links straight back into
+  Browse at the entry's parent path. Hidden for orphaned entries
+  (source deleted) and for filesystem-root entries — there's
+  nothing to open.
+- **Inline duplicate-count badge on Search rows.** The Search row
+  now renders a "+N copies" Badge when the entry's
+  ``content_hash`` is shared with other indexed files in the
+  user's permitted source set. Click → ``/duplicates?hash=<...>``,
+  which auto-expands the matching group and scrolls it into view.
+  ``content_hash`` and ``dup_count`` ride on the SearchHit; the
+  count is computed server-side per request rather than indexed
+  in Meili (it'd churn whenever any other row's hash mutated).
+- **Sort UI on Search.** Results were always relevance-ordered;
+  the new dropdown adds Name / Size / Modified with an
+  asc/desc toggle. Both the Meilisearch path (sortable attrs
+  already configured) and the SQL fallback honor the same sort
+  knob; ``?sort=size&order=asc`` survives reload like the rest of
+  the URL state.
+- **Result-shape facet chips.** Source / MIME / extension are now
+  surfaced as click-to-filter chips with hit counts on the Search
+  page, alongside the existing Library Metadata facets. They
+  were already filterable Meilisearch attrs; the API just wasn't
+  asking Meili for the per-bucket distribution. The Source row
+  hides itself when the user has already restricted to a single
+  source via the dropdown.
+- **Folder count badges in Browse.** Already wired in an earlier
+  release (we'd missed it during the audit). Direct-child counts
+  ride on each directory entry's ``BrowseChild.child_count``; the
+  Browse tree renders them as a neutral Badge next to the folder
+  name. Re-confirmed and documented here.
+
 ## v0.19.0 — 2026-05-06
 
 Box **JWT app-auth** as a second variant alongside OAuth — closes the

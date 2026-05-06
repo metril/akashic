@@ -27,6 +27,13 @@ class SearchHit(BaseModel):
     fs_modified_at: int | None = None
     content_text: str | None = None
     tags: list[str] = []
+    # v0.20.0 — opaque content_hash + count of *other* entries that share
+    # it (within the user's permitted source set). Computed server-side
+    # per request rather than indexed in Meili because dup_count would
+    # churn whenever any other row's hash mutated. content_hash is plumbed
+    # through so the Search row can deep-link to /duplicates?hash=...
+    content_hash: str | None = None
+    dup_count: int = 0
 
 
 class SearchResults(BaseModel):

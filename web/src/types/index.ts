@@ -138,6 +138,11 @@ export interface SearchResult {
   source_id: string | null;
   fs_modified_at: number | null;
   tags: string[];
+  // v0.20.0 — number of *other* entries that share content_hash within
+  // the user's permitted source set. Populated server-side per request
+  // (not indexed in Meili because it churns on every other row's hash
+  // mutation). Zero or absent when the row is unique.
+  dup_count?: number;
 }
 
 export interface SearchResults {

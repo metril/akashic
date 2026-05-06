@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
-from sqlalchemy import select, and_
+from sqlalchemy import func, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
@@ -34,6 +34,15 @@ _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 
 PermissionFilter = Literal["all", "readable", "writable"]
 SearchMode = Literal["fuzzy", "glob", "regex"]
+SortField = Literal["relevance", "name", "size", "mtime"]
+SortOrder = Literal["asc", "desc"]
+
+
+_SORT_MEILI_FIELD: dict[str, str] = {
+    "name": "filename",
+    "size": "size_bytes",
+    "mtime": "fs_modified_at",
+}
 
 
 class _ForceSqlFallback(Exception):
@@ -45,6 +54,58 @@ class _ForceSqlFallback(Exception):
 def _escape_meili_value(s: str) -> str:
     """Escape backslash and double-quote for use inside a Meili filter string literal."""
     return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+async def _enrich_hits_with_dups(
+    db: AsyncSession,
+    hits: list,
+    allowed_source_ids: set | None,
+) -> None:
+    """Populate ``content_hash`` + ``dup_count`` on every hit.
+
+    Two cheap queries (both hit the existing `ix_entries_active_content_hash`
+    partial composite from migration 0021):
+
+    1. Look up content_hash for each returned entry id.
+    2. Count occurrences per hash within the user's permitted source set.
+
+    dup_count is then ``count - 1`` (subtract the row itself). Hits with
+    no content_hash (directories, unfinished scans) skip both fields.
+    """
+    if not hits:
+        return
+    hit_ids = [h.id for h in hits]
+    rows = (
+        await db.execute(
+            select(Entry.id, Entry.content_hash).where(Entry.id.in_(hit_ids))
+        )
+    ).all()
+    hash_by_id: dict = {r.id: r.content_hash for r in rows if r.content_hash}
+    if not hash_by_id:
+        return
+
+    hashes = list(set(hash_by_id.values()))
+    conditions = [
+        Entry.content_hash.in_(hashes),
+        Entry.is_deleted == False,  # noqa: E712
+        Entry.kind == "file",
+        Entry.source_id.is_not(None),
+    ]
+    if allowed_source_ids is not None:
+        conditions.append(Entry.source_id.in_(allowed_source_ids))
+    count_rows = (
+        await db.execute(
+            select(Entry.content_hash, func.count(Entry.id))
+            .where(and_(*conditions))
+            .group_by(Entry.content_hash)
+        )
+    ).all()
+    count_by_hash = {r[0]: int(r[1]) for r in count_rows}
+    for h in hits:
+        ch = hash_by_id.get(h.id)
+        if ch:
+            h.content_hash = ch
+            h.dup_count = max(0, count_by_hash.get(ch, 1) - 1)
 
 
 def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
@@ -67,6 +128,8 @@ async def search(
     permission_filter: PermissionFilter | None = None,
     search_as: str | None = Query(default=None),
     filters: str | None = Query(default=None, description="base64url(json) predicate list"),
+    sort: SortField = Query(default="relevance"),
+    order: SortOrder = Query(default="desc"),
     # v0.4.14 — Search page is now infinite-scroll, so the page size
     # default should be something a viewport actually fills. Cap at 500
     # so one bad client can't ask for the entire index in a single
@@ -175,14 +238,34 @@ async def search(
         # path. When no entries in the result set carry that key the
         # distribution comes back empty/missing and the UI elides the
         # panel; the request itself is cheap.
-        facet_fields = [_domain_metadata_doc_field(k) for k in DOMAIN_METADATA_FACET_KEYS]
+        # v0.20.0 — also request the three "result shape" facets
+        # (source / mime / extension). They were filterable already; this
+        # exposes the per-bucket counts so the UI can render facet chips
+        # with hit counts instead of an empty <Select> dropdown.
+        facet_fields = [
+            "source_id",
+            "mime_type",
+            "extension",
+            *(_domain_metadata_doc_field(k) for k in DOMAIN_METADATA_FACET_KEYS),
+        ]
+        # v0.20.0 — explicit sort override. relevance leaves the param
+        # unset so Meili applies its default ranking rules (typo, words,
+        # proximity, attribute, sort, exactness).
+        meili_sort = (
+            [f"{_SORT_MEILI_FIELD[sort]}:{order}"] if sort != "relevance" else None
+        )
         meili_results = await search_files(
-            q, filters=filter_str, offset=offset, limit=limit,
+            q, filters=filter_str, sort=meili_sort,
+            offset=offset, limit=limit,
             facets=facet_fields,
         )
 
         from akashic.schemas.search import SearchHit
         hits = [SearchHit(**h) if isinstance(h, dict) else h for h in (meili_results.hits or [])]
+
+        # v0.20.0 — attach content_hash + dup_count so the row UI can
+        # surface a "+N copies" badge linking into /duplicates.
+        await _enrich_hits_with_dups(db, hits, allowed_source_ids)
 
         if override is not None:
             await record_event(
@@ -201,10 +284,16 @@ async def search(
         # Project the meili facet distribution back to the dotted public
         # form (`domain_metadata.correspondent`) so frontend code talks
         # in product terms, not in the underscore-flattened wire shape.
+        # v0.20.0 — top-level facets (source_id / mime_type / extension)
+        # pass through verbatim; the UI looks them up by their wire name.
         facet_distribution: dict[str, dict[str, int]] | None = None
         raw_facets = getattr(meili_results, "facet_distribution", None) or {}
         if raw_facets:
             projected: dict[str, dict[str, int]] = {}
+            for key in ("source_id", "mime_type", "extension"):
+                bucket = raw_facets.get(key)
+                if bucket:
+                    projected[key] = {str(k): int(v) for k, v in bucket.items()}
             for key in DOMAIN_METADATA_FACET_KEYS:
                 bucket = raw_facets.get(_domain_metadata_doc_field(key))
                 if bucket:
@@ -274,11 +363,26 @@ async def search(
         if grammar_preds:
             conditions.extend(filters_to_sqlalchemy(grammar_preds))
 
-        query_stmt = select(Entry).where(and_(*conditions)).offset(offset).limit(limit)
+        # v0.20.0 — match the Meili sort knob on the fallback path so
+        # users get the same ordering whether or not the request fell
+        # back. relevance has no SQL analogue (Postgres has no equivalent
+        # to Meili's ranking pipeline), so it implicitly orders by
+        # primary key for deterministic pagination.
+        query_stmt = select(Entry).where(and_(*conditions))
+        if sort == "name":
+            col = Entry.name
+        elif sort == "size":
+            col = Entry.size_bytes
+        elif sort == "mtime":
+            col = Entry.fs_modified_at
+        else:
+            col = None
+        if col is not None:
+            query_stmt = query_stmt.order_by(col.desc() if order == "desc" else col.asc())
+        query_stmt = query_stmt.offset(offset).limit(limit)
         result = await db.execute(query_stmt)
         entries = result.scalars().all()
 
-        from sqlalchemy import func
         from akashic.schemas.search import SearchHit
         count_stmt = select(func.count(Entry.id)).where(and_(*conditions))
         count_result = await db.execute(count_stmt)
@@ -293,6 +397,12 @@ async def search(
             )
             for e in entries
         ]
+
+        # v0.20.0 — same content_hash + dup_count enrichment as the
+        # Meili path. SQL fallback already has the entries in scope; we
+        # could short-cut by reading e.content_hash directly, but using
+        # the helper keeps both paths producing identical hit shapes.
+        await _enrich_hits_with_dups(db, hits, allowed_source_ids)
 
         if override is not None:
             await record_event(

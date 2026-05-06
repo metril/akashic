@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { EntryDetail as EntryDetailT } from "../types";
 import { formatBytes, formatDateTime } from "../lib/format";
@@ -101,6 +102,22 @@ export function EntryDetail({ entryId }: Props) {
           <Row label="Path">
             <Mono>{entry.path}</Mono>
           </Row>
+          {/* Direct path from search-result drawer back into Browse at the
+              entry's containing folder. Hidden for orphaned entries (source
+              gone) and for filesystem-root entries where there's no parent
+              to open. */}
+          {entry.source_id && entry.parent_path && entry.parent_path !== "/" && (
+            <Row label="Folder">
+              <Link
+                to={`/browse?source=${entry.source_id}&path=${encodeURIComponent(entry.parent_path)}`}
+                className="text-accent-700 hover:text-accent-800 hover:underline inline-flex items-center gap-1"
+                title={`Open ${entry.parent_path} in Browse`}
+              >
+                <Mono>{entry.parent_path}</Mono>
+                <span className="text-fg-subtle">↗</span>
+              </Link>
+            </Row>
+          )}
           <Row label="Kind">
             <Badge variant={entry.kind === "directory" ? "info" : "neutral"}>
               {entry.kind}

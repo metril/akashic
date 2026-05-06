@@ -1,10 +1,26 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
 
 type SearchMode = "fuzzy" | "glob" | "regex";
+type SortField = "relevance" | "name" | "size" | "mtime";
+type SortOrder = "asc" | "desc";
+
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: "relevance", label: "Relevance" },
+  { value: "name", label: "Name" },
+  { value: "size", label: "Size" },
+  { value: "mtime", label: "Modified" },
+];
+
+function isSortField(s: string | null): s is SortField {
+  return s === "relevance" || s === "name" || s === "size" || s === "mtime";
+}
+function isSortOrder(s: string | null): s is SortOrder {
+  return s === "asc" || s === "desc";
+}
 
 const MODE_HINTS: Record<SearchMode, string> = {
   fuzzy:
@@ -39,6 +55,7 @@ import {
 import { formatBytes } from "../lib/format";
 import { SearchAsForm } from "../components/search/SearchAsForm";
 import { DomainMetadataFacets } from "../components/search/DomainMetadataFacets";
+import { ResultFacets } from "../components/search/ResultFacets";
 import { BulkTagDialog } from "../components/tags/BulkTagDialog";
 import { useAuth } from "../hooks/useAuth";
 import { useEntryDetail } from "../hooks/useEntryDetail";
@@ -90,6 +107,14 @@ export default function Search() {
     const raw = searchParams.get("mode");
     return isSearchMode(raw) ? raw : "fuzzy";
   });
+  const [sort, setSort] = useState<SortField>(() => {
+    const raw = searchParams.get("sort");
+    return isSortField(raw) ? raw : "relevance";
+  });
+  const [order, setOrder] = useState<SortOrder>(() => {
+    const raw = searchParams.get("order");
+    return isSortOrder(raw) ? raw : "desc";
+  });
   const [sourceId, setSourceId] = useState<string>("");
   const [extension, setExtension] = useState("");
   const [minSize, setMinSize] = useState("");
@@ -124,11 +149,17 @@ export default function Search() {
       const trimmed = query.trim();
       if (trimmed) next.set("q", trimmed); else next.delete("q");
       if (mode !== "fuzzy") next.set("mode", mode); else next.delete("mode");
+      if (sort !== "relevance") next.set("sort", sort); else next.delete("sort");
+      // Order only matters when there's a sort field — clean default to
+      // keep the URL bar tidy. desc is the right intuition for size and
+      // mtime; the asc toggle is the user's explicit ask.
+      if (sort !== "relevance" && order !== "desc") next.set("order", order);
+      else next.delete("order");
       setSearchParams(next, { replace: true });
     }, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, mode]);
+  }, [query, mode, sort, order]);
 
   const sourcesQuery = useQuery<Source[]>({
     queryKey: ["sources"],
@@ -170,7 +201,7 @@ export default function Search() {
   );
 
   const searchQuery = useInfiniteQuery<SearchResponse>({
-    queryKey: ["search", query, mode, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded],
+    queryKey: ["search", query, mode, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded, sort, order],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
@@ -182,6 +213,8 @@ export default function Search() {
       params.set("permission_filter", effectivePermissionFilter);
       if (searchAs) params.set("search_as", JSON.stringify(searchAs));
       if (filtersEncoded) params.set("filters", filtersEncoded);
+      if (sort !== "relevance") params.set("sort", sort);
+      if (sort !== "relevance" && order !== "desc") params.set("order", order);
       params.set("offset", String(pageParam ?? 0));
       params.set("limit", String(PAGE_SIZE));
       return api.get<SearchResponse>(`/search?${params.toString()}`);
@@ -308,9 +341,35 @@ export default function Search() {
             placeholder="Max size (bytes)"
           />
         </div>
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-xs text-fg-muted">Sort by</span>
+          <Select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortField)}
+            options={SORT_OPTIONS}
+            className="w-auto"
+          />
+          {sort !== "relevance" && (
+            <button
+              type="button"
+              onClick={() => setOrder((o) => (o === "asc" ? "desc" : "asc"))}
+              className="text-xs px-2 py-1 rounded border border-line bg-surface hover:bg-surface-muted text-fg"
+              aria-pressed={order === "desc"}
+              title={order === "desc" ? "Descending — click for ascending" : "Ascending — click for descending"}
+            >
+              {order === "desc" ? "↓ desc" : "↑ asc"}
+            </button>
+          )}
+        </div>
       </Card>
 
       <FilterChips className="mb-3" />
+
+      <ResultFacets
+        className="mb-3"
+        facetDistribution={searchQuery.data?.pages[0]?.facet_distribution}
+        hideSource={Boolean(sourceId)}
+      />
 
       <DomainMetadataFacets
         className="mb-3"
@@ -469,6 +528,16 @@ const SearchResultRow = memo(function SearchResultRow({
               >
                 <Badge variant="neutral">.{file.extension}</Badge>
               </FilterableCell>
+            )}
+            {file.dup_count != null && file.dup_count > 0 && file.content_hash && (
+              <Link
+                to={`/duplicates?hash=${encodeURIComponent(file.content_hash)}`}
+                onClick={(e) => e.stopPropagation()}
+                title={`Open the duplicate group in /duplicates (${file.dup_count} other ${file.dup_count === 1 ? "copy" : "copies"})`}
+                className="flex-shrink-0"
+              >
+                <Badge variant="info">+{file.dup_count} {file.dup_count === 1 ? "copy" : "copies"}</Badge>
+              </Link>
             )}
           </div>
           <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
