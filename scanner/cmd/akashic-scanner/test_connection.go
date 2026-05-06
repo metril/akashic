@@ -45,6 +45,10 @@ func runTestConnection(args []string) {
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
 	endpoint := fs.String("endpoint", "", "S3 endpoint URL (non-AWS)")
+	// v0.8.1 — empty / "auto" lets testS3 derive (path-style when
+	// endpoint is set, else virtual-hosted). "true" / "false" override
+	// — Wasabi/B2 want "false" even with their endpoint set.
+	pathStyle := fs.String("path-style", "", "S3 addressing style: auto | true | false (default auto)")
 	exportPath := fs.String("export-path", "", "NFS export path to validate")
 	authUID := fs.Int("auth-uid", 0, "NFS AUTH_SYS uid (default 0; servers with root_squash may require a non-root uid)")
 	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
@@ -85,7 +89,7 @@ func runTestConnection(args []string) {
 		}
 		ok, step, msg = testSMB(*host, p, *user, pw, *share)
 	case "s3":
-		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw)
+		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw, *pathStyle)
 	case "nfs":
 		p := *port
 		if p == 0 {
@@ -191,7 +195,7 @@ func testSMB(host string, port int, user, password, share string) (ok bool, step
 	return true, "", ""
 }
 
-func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, step, msg string) {
+func testS3(endpoint, bucket, region, accessKey, secretKey, pathStyleFlag string) (ok bool, step, msg string) {
 	if bucket == "" {
 		return false, "config", "bucket required"
 	}
@@ -206,11 +210,24 @@ func testS3(endpoint, bucket, region, accessKey, secretKey string) (ok bool, ste
 		return false, "config", fmt.Sprintf("aws config: %v", err)
 	}
 
+	// v0.8.1 — auto (empty/auto) → path-style when endpoint is set,
+	// virtual-hosted otherwise. Explicit true/false honoured for the
+	// providers where the auto rule is wrong (Wasabi/B2 with endpoint
+	// set want virtual-hosted; reverse-proxied AWS-shaped URLs may
+	// want path-style).
+	usePath := endpoint != ""
+	switch strings.ToLower(strings.TrimSpace(pathStyleFlag)) {
+	case "true", "1", "yes":
+		usePath = true
+	case "false", "0", "no":
+		usePath = false
+	}
+
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
-			o.UsePathStyle = true
 		}
+		o.UsePathStyle = usePath
 	})
 
 	if _, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)}); err != nil {

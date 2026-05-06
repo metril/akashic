@@ -86,6 +86,63 @@ export type S3Config = {
   region: string;
   access_key_id: string;
   secret_access_key: string;
+  // v0.8.1 — explicit override for the S3 SDK's UsePathStyle. Omit
+  // for auto (path-style when endpoint is set, virtual-hosted
+  // otherwise — works for AWS + MinIO). Set to false for Wasabi /
+  // Backblaze B2 (their endpoint URLs want virtual-hosted-style),
+  // or true for AWS-shaped URLs behind a reverse proxy that needs
+  // path-style routing.
+  path_style?: boolean;
+};
+
+// v0.8.1 — S3-compatible storage providers we ship a one-click preset
+// for. The preset prefills endpoint + path_style; the user still
+// needs to fill region + bucket + credentials. "other" is the legacy
+// "fill the endpoint by hand" path (no defaults applied beyond auto
+// path_style).
+export type S3Preset = "aws" | "minio" | "wasabi" | "backblaze_b2" | "other";
+
+export interface S3PresetDefaults {
+  endpoint?: string;
+  path_style?: boolean;
+  region_placeholder: string;
+  endpoint_placeholder?: string;
+  // Short blurb shown under the preset dropdown.
+  hint: string;
+}
+
+export const S3_PRESETS: Record<S3Preset, S3PresetDefaults & { label: string }> = {
+  aws: {
+    label: "AWS S3",
+    region_placeholder: "us-east-1",
+    hint: "Standard AWS. Endpoint blank, virtual-hosted-style addressing.",
+  },
+  minio: {
+    label: "MinIO",
+    endpoint_placeholder: "http://minio.local:9000",
+    region_placeholder: "us-east-1",
+    path_style: true,
+    hint: "Requires path-style addressing. Region is decorative — use any value.",
+  },
+  wasabi: {
+    label: "Wasabi",
+    endpoint_placeholder: "https://s3.us-east-1.wasabisys.com",
+    region_placeholder: "us-east-1",
+    path_style: false,
+    hint: "Wasabi uses virtual-hosted-style with the regional endpoint. Set the region explicitly.",
+  },
+  backblaze_b2: {
+    label: "Backblaze B2",
+    endpoint_placeholder: "https://s3.us-west-002.backblazeb2.com",
+    region_placeholder: "us-west-002",
+    path_style: false,
+    hint: "B2's S3-compatible API uses virtual-hosted-style with the regional endpoint.",
+  },
+  other: {
+    label: "Other / custom",
+    region_placeholder: "us-east-1",
+    hint: "Fill in endpoint manually. Path-style auto-on when endpoint is set.",
+  },
 };
 
 // v0.7.0 — Paperless-ngx (Tier 3 self-hosted libraries). Hostless: no

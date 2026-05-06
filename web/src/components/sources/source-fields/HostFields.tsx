@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { Input, Select } from "../../ui";
-import type {
-  NfsAuthMethod,
-  NfsConfig,
-  S3Config,
-  SmbConfig,
-  SshConfig,
+import {
+  S3_PRESETS,
+  type NfsAuthMethod,
+  type NfsConfig,
+  type S3Config,
+  type S3Preset,
+  type SmbConfig,
+  type SshConfig,
 } from "../sourceTypes";
 
 export type HostType = "ssh" | "smb" | "nfs" | "s3";
@@ -319,19 +321,51 @@ function S3HostFields({
   onChange: (next: Partial<S3Config>) => void;
   omitCredentials?: boolean;
 }) {
+  // v0.8.1 — same preset detection as S3Fields. Kept inline (instead
+  // of imported) because the host-shaped config doesn't carry
+  // `path_style` reliably in legacy host rows; falling back via
+  // domain-name sniff catches the common providers.
+  const presetKey: S3Preset = (() => {
+    const endpoint = (value.endpoint ?? "").toLowerCase();
+    if (!endpoint) return "aws";
+    if (endpoint.includes("amazonaws.com")) return "aws";
+    if (endpoint.includes("wasabisys.com")) return "wasabi";
+    if (endpoint.includes("backblazeb2.com")) return "backblaze_b2";
+    if (value.path_style === true) return "minio";
+    return "other";
+  })();
+  const meta = S3_PRESETS[presetKey];
+
+  function applyPreset(next: S3Preset) {
+    const m = S3_PRESETS[next];
+    const endpoint = m.endpoint ?? value.endpoint ?? "";
+    onChange({ ...value, endpoint, path_style: m.path_style });
+  }
+
   return (
     <div className="space-y-3">
+      <Select
+        label="Provider preset"
+        value={presetKey}
+        onChange={(e) => applyPreset(e.target.value as S3Preset)}
+        options={(Object.keys(S3_PRESETS) as S3Preset[]).map((k) => ({
+          value: k,
+          label: S3_PRESETS[k].label,
+        }))}
+      />
+      <p className="text-[11px] text-fg-muted -mt-1">{meta.hint}</p>
+
       <Input
-        label="Endpoint (optional, for non-AWS / MinIO)"
+        label={presetKey === "aws" ? "Endpoint (optional, AWS uses default)" : "Endpoint"}
         value={value.endpoint ?? ""}
         onChange={(e) => onChange({ ...value, endpoint: e.target.value })}
-        placeholder="https://s3.us-east-1.amazonaws.com"
+        placeholder={meta.endpoint_placeholder ?? "https://s3.us-east-1.amazonaws.com"}
       />
       <Input
         label="Region"
         value={value.region ?? ""}
         onChange={(e) => onChange({ ...value, region: e.target.value })}
-        placeholder="us-east-1"
+        placeholder={meta.region_placeholder}
         required
       />
       {!omitCredentials && (
@@ -352,6 +386,22 @@ function S3HostFields({
             required={value.secret_access_key !== "***"}
           />
         </>
+      )}
+      {value.path_style !== undefined && (
+        <label className="flex items-center gap-2 text-xs text-fg cursor-pointer">
+          <input
+            type="checkbox"
+            checked={value.path_style}
+            onChange={(e) => onChange({ ...value, path_style: e.target.checked })}
+          />
+          <span>
+            Use path-style addressing (preset default:{" "}
+            {meta.path_style === undefined
+              ? "auto — on when endpoint is set"
+              : meta.path_style ? "on" : "off"}
+            )
+          </span>
+        </label>
       )}
     </div>
   );

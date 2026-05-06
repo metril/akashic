@@ -172,11 +172,21 @@ func runS3(ctx context.Context, c map[string]any) Result {
 	if err != nil {
 		return Result{OK: false, Step: "config", Error: err.Error()}
 	}
+	// v0.8.1 — honour the explicit path_style override when set.
+	// nil = auto (path-style when endpoint is set, virtual-hosted
+	// otherwise). MinIO wants true; Wasabi/B2 want false even with
+	// their endpoint set.
+	pathStyle := endpoint != ""
+	if v, ok := c["path_style"]; ok {
+		if b, ok := v.(bool); ok {
+			pathStyle = b
+		}
+	}
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
-			o.UsePathStyle = true
 		}
+		o.UsePathStyle = pathStyle
 	})
 	if _, err := client.HeadBucket(probeCtx, &s3.HeadBucketInput{Bucket: aws.String(bucket)}); err != nil {
 		// HeadBucket distinguishes 403 (auth ok, perms wrong) from 404

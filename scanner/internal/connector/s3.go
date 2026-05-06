@@ -27,10 +27,25 @@ type S3Connector struct {
 	secretKey         string
 	client            *s3.Client
 	captureObjectACLs bool
+	// pathStyle tri-state: nil = auto (true when endpoint is set,
+	// false otherwise — matches MinIO's path-style requirement and
+	// AWS's virtual-hosted default). Set explicitly to override —
+	// Wasabi and Backblaze B2 want virtual-hosted-style even with
+	// endpoint set; some self-hosted deployments behind reverse
+	// proxies want path-style even on AWS-shaped URLs. v0.8.1.
+	pathStyle *bool
 }
 
 func (c *S3Connector) SetCaptureObjectACLs(v bool) {
 	c.captureObjectACLs = v
+}
+
+// SetPathStyle overrides the auto-derived UsePathStyle. Pass nil to
+// fall back to "true if endpoint is set". Unlike a bare bool, the
+// pointer lets callers distinguish "explicitly false" from "leave
+// default".
+func (c *S3Connector) SetPathStyle(v *bool) {
+	c.pathStyle = v
 }
 
 func NewS3Connector(endpoint, bucket, region, accessKey, secretKey string) *S3Connector {
@@ -55,11 +70,21 @@ func (c *S3Connector) Connect(ctx context.Context) error {
 	c.client = s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if c.endpoint != "" {
 			o.BaseEndpoint = aws.String(c.endpoint)
-			o.UsePathStyle = true
 		}
+		o.UsePathStyle = c.resolvePathStyle()
 	})
 
 	return nil
+}
+
+// resolvePathStyle picks the effective UsePathStyle for the current
+// configuration. Explicit override wins; otherwise: path-style on
+// when endpoint is set (MinIO et al), off when not (AWS).
+func (c *S3Connector) resolvePathStyle() bool {
+	if c.pathStyle != nil {
+		return *c.pathStyle
+	}
+	return c.endpoint != ""
 }
 
 // WalkShallow implements connector.ShallowWalker.

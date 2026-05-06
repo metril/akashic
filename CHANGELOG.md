@@ -5,6 +5,51 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.8.1 — 2026-05-05
+
+S3-compat polish — first slice of Tier 2. Akashic's S3 connector
+already supported MinIO via the `endpoint` field, but the
+hard-coded `UsePathStyle = true` whenever `endpoint` was set broke
+Wasabi and Backblaze B2 (both want virtual-hosted-style with their
+endpoint URLs). v0.8.1 makes the addressing style explicit and adds
+a one-click provider preset.
+
+- **Provider preset dropdown** on the S3 source / host form. Pick
+  AWS / MinIO / Wasabi / Backblaze B2 / Other — the preset prefills
+  the endpoint placeholder + path-style default + region
+  placeholder, and adds a one-line hint about that provider's
+  quirks. The dropdown sticks across edits via domain-name
+  detection (so a saved Wasabi source still shows "Wasabi" in the
+  dropdown when re-opened).
+- **Explicit `path_style` override.** New optional boolean on S3Config
+  (and the host-shaped variant). Omit for auto (path-style on when
+  endpoint is set, off otherwise — matches the legacy behaviour for
+  AWS + MinIO). Set explicitly to `false` for Wasabi / B2 with a
+  regional endpoint, or to `true` for AWS-shaped URLs behind a
+  reverse proxy that needs path-style routing. The toggle stays
+  hidden in the UI unless the value is already explicit (i.e., the
+  user picked a preset that defines it, or they came from a host
+  edit drawer with an existing override) — most users should rely
+  on the preset's default.
+
+Internal:
+
+- `S3Connector.SetPathStyle(*bool)` sets the override; nil falls
+  back to "true if endpoint is set". `Connect()` now always sets
+  `UsePathStyle` explicitly (instead of conditionally inside an
+  `if endpoint != ""` block) so the override applies for AWS too.
+- `agent.go connectorFromLeased` reads `path_style` from
+  connection_config and threads it into the connector.
+- `probe.runS3` honours the same override on the reachability poll
+  loop's path.
+- `scanner test-connection --path-style=auto|true|false` (default
+  auto) wires the override through the CLI subcommand. Auto/empty
+  preserves the legacy behaviour for callers that don't set the
+  flag.
+- API `services/source_tester.test_s3` forwards
+  `connection_config["path_style"]` as `--path-style` so the "Test"
+  button matches what a real scan would do.
+
 ## v0.8.0 — 2026-05-05
 
 Tier 3 complete — Immich joins Paperless-ngx as the second self-hosted

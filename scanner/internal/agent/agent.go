@@ -431,13 +431,24 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			stringFromConfig(cfg, "share", ""),
 		), nil
 	case "s3":
-		return connector.NewS3Connector(
+		s3conn := connector.NewS3Connector(
 			stringFromConfig(cfg, "endpoint", ""),
 			stringFromConfig(cfg, "bucket", ""),
 			stringFromConfig(cfg, "region", "us-east-1"),
 			stringFromConfig(cfg, "access_key_id", ""),
 			stringFromConfig(cfg, "secret_access_key", ""),
-		), nil
+		)
+		// v0.8.1 — explicit path_style override (tri-state). The web
+		// preset dropdown writes path_style=false for Wasabi/B2 (which
+		// expect virtual-hosted-style with their endpoint set) and
+		// path_style=true for MinIO. Absent key falls through to the
+		// connector's auto-derive (path-style when endpoint != "").
+		if v, ok := cfg["path_style"]; ok {
+			if b, ok := v.(bool); ok {
+				s3conn.SetPathStyle(&b)
+			}
+		}
+		return s3conn, nil
 	case "paperless":
 		// v0.7.0 — Tier 3 self-hosted libraries. Hostless: url +
 		// api_token live on the source's connection_config.

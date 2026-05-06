@@ -202,6 +202,16 @@ def test_s3(cfg: dict) -> TestResult:
         argv += ["--endpoint", cfg["endpoint"]]
     if cfg.get("access_key_id"):
         argv += ["--user", cfg["access_key_id"]]
+    # v0.8.1 — forward path_style override when present so the test
+    # path matches what a real scan would do. Auto (omit flag) keeps
+    # the legacy behaviour for AWS / MinIO; explicit true/false is
+    # the Wasabi/B2/proxy-rewrite escape hatch.
+    if "path_style" in cfg:
+        v = cfg.get("path_style")
+        if isinstance(v, bool):
+            argv += ["--path-style", "true" if v else "false"]
+        elif isinstance(v, str) and v.strip().lower() in ("true", "false", "0", "1", "yes", "no"):
+            argv += ["--path-style", v.strip().lower()]
     return _test_via_scanner(argv, password=cfg.get("secret_access_key") or "")
 
 
