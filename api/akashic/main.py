@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles
+from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth
 from akashic.services import metrics as metrics_svc
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,7 @@ def create_app() -> FastAPI:
     app.include_router(scanners.router)
     app.include_router(scanner_discovery.router)
     app.include_router(server_settings.router)
+    app.include_router(source_oauth.router)
     return app
 
 

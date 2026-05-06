@@ -20,6 +20,8 @@ from akashic.models.scanner import Scanner
 from akashic.models.scanner_claim_token import ScannerClaimToken
 from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
 from akashic.models.server_setting import ServerSetting
+from akashic.models.oauth_app_config import OAuthAppConfig
+from akashic.models.oauth_credential import SourceOAuthCredential
 
 __all__ = [
     "CredentialProfile",
@@ -51,4 +53,6 @@ __all__ = [
     "ScannerClaimToken",
     "ScannerDiscoveryRequest",
     "ServerSetting",
+    "OAuthAppConfig",
+    "SourceOAuthCredential",
 ]

@@ -38,6 +38,12 @@ const tiles: Tile[] = [
     description:
       "Reusable credential profiles — define once, attach to many hosts and shares. Inline values on a host or source still override.",
   },
+  {
+    to: "/settings/oauth",
+    label: "OAuth providers",
+    description:
+      "Per-provider OAuth client apps for Google Drive, OneDrive, Dropbox, Box. Paste your client_id / client_secret and verify the round-trip without committing to a source yet.",
+  },
 ];
 
 export default function Settings() {

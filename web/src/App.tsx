@@ -24,6 +24,7 @@ const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
 const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
 const SettingsScanners   = lazy(() => import("./pages/SettingsScanners"));
 const SettingsCredentials = lazy(() => import("./pages/SettingsCredentials"));
+const SettingsOAuth      = lazy(() => import("./pages/SettingsOAuth"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 
@@ -180,6 +181,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <SettingsCredentials />
+              </Suspense>
+            }
+          />
+          <Route
+            path="oauth"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <SettingsOAuth />
               </Suspense>
             }
           />

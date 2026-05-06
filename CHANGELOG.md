@@ -5,6 +5,57 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.12.0 — 2026-05-06
+
+Tier 1 PR-A — **OAuth foundation**. Lays the plumbing the upcoming
+Drive / OneDrive / SharePoint / Dropbox / Box connectors all need:
+encrypted refresh-token storage, server-side token minting, a callback
+route, and a Settings → OAuth providers page where the deployment
+owner pastes their own OAuth app credentials. No source-type
+connectors yet — those land in PR-C — but the round-trip is fully
+verifiable end-to-end via the **Test** button on the providers page.
+
+- **Per-provider OAuth client config.** Settings → OAuth providers
+  lists Google, Microsoft, Dropbox, and Box. Configure each with the
+  `client_id` / `client_secret` / `redirect_uri` from your own OAuth
+  app registration (Google Cloud Console, Azure App Registrations,
+  Dropbox app console, Box developer console). Akashic does **not**
+  ship a shared OAuth app — first-party trust and the regulatory
+  story are cleaner this way.
+- **Encrypted-at-rest secrets.** `client_secret` and OAuth refresh
+  tokens are stored as Fernet ciphertext, with the symmetric key
+  derived from `AKASHIC_SECRET_KEY` via HKDF-SHA-256
+  (`services/secret_encryption.py`). Rotating that key invalidates
+  every stored OAuth grant — re-run the authorize flow per source
+  after rotation.
+- **Refresh-token isolation.** Refresh tokens never leave the API.
+  When a scanner needs to read from a future Drive/OneDrive/etc
+  source, it'll receive a short-lived access token minted on demand
+  (`services/source_oauth.mint_access_token`); long scans re-mint
+  mid-run. Compromising a scanner host doesn't expose the
+  long-lived secret.
+- **Test button.** "Test" on each provider row opens the provider's
+  consent screen in a popup, runs the full authorization-code
+  exchange against the configured client app, fetches the connected
+  account's email, and immediately discards the resulting credential
+  — proving the round-trip works without leaving a row that nothing
+  yet consumes.
+- **Connected accounts panel.** Lists OAuth grants the API has
+  stored, including the connected account email + access-token
+  expiry. The **Refresh** button forces a refresh-token round-trip so
+  ops can verify token rotation works against the live provider
+  before any scanner connector is wired up.
+- **Stateless callback.** State for the authorize → callback round
+  trip is a 10-minute JWT signed with `AKASHIC_SECRET_KEY` (no Redis
+  dependency); audience and expiry guards are enforced on decode.
+- **Schema:** new tables `oauth_app_configs` (per-provider client app)
+  and `source_oauth_credentials` (per-source grants — `source_id`
+  nullable so PR-A's smoke-test grants can exist before any source
+  references them; PR-C ties them to source rows).
+
+Plumbing only — Drive / OneDrive / SharePoint connectors land in
+Tier 1 PR-C, after the native-id + cloud-drive ACL plumbing of PR-B.
+
 ## v0.11.0 — 2026-05-06
 
 Tier 4 PR 1 — **WebDAV** as a hostless source type. The plan called
