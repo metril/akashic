@@ -4,6 +4,8 @@ import { Input } from "../../ui";
 import type {
   AzureBlobAuthMode,
   AzureBlobConfig,
+  GCSAuthMode,
+  GCSConfig,
   ImmichConfig,
   LocalConfig,
   NfsConfig,
@@ -16,6 +18,7 @@ import type {
 import { PaperlessFields } from "./PaperlessFields";
 import { ImmichFields } from "./ImmichFields";
 import { AzureBlobFields } from "./AzureBlobFields";
+import { GCSFields } from "./GCSFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
@@ -26,6 +29,7 @@ export type ShareConfig = Partial<
   | PaperlessConfig
   | ImmichConfig
   | AzureBlobConfig
+  | GCSConfig
 >;
 
 interface Props {
@@ -111,6 +115,15 @@ export function ShareFields({ type, value, onChange }: Props): ReactNode {
         <AzureBlobFields
           value={value as Partial<AzureBlobConfig>}
           onChange={onChange as (next: Partial<AzureBlobConfig>) => void}
+        />
+      );
+    case "gcs":
+      // v0.10.0 — hostless: bucket + (optional) prefix + auth fields
+      // all on the "share".
+      return (
+        <GCSFields
+          value={value as Partial<GCSConfig>}
+          onChange={onChange as (next: Partial<GCSConfig>) => void}
         />
       );
   }
@@ -257,6 +270,14 @@ export function validateShareConfig(
       }
       if (mode === "sas_token" && !isStr("sas_token")) {
         return "SAS token is required";
+      }
+      return null;
+    }
+    case "gcs": {
+      if (!isStr("bucket")) return "Bucket is required";
+      const mode = (c["auth_mode"] as GCSAuthMode | undefined) ?? "service_account_json";
+      if (mode === "service_account_json" && !isStr("service_account_json")) {
+        return "Service account JSON is required";
       }
       return null;
     }

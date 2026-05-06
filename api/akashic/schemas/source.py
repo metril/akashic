@@ -236,4 +236,9 @@ def _summary_for(source) -> str:
         if account and ctr:
             return f"{account}/{ctr}"
         return account or ctr or name
+    if t == "gcs":
+        bucket, prefix = g("bucket"), g("prefix")
+        if bucket and prefix:
+            return f"gs://{bucket}/{prefix.strip('/')}"
+        return f"gs://{bucket}" if bucket else name
     return name

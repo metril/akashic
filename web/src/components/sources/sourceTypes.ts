@@ -1,5 +1,6 @@
 export const SOURCE_TYPES = [
-  "local", "ssh", "smb", "nfs", "s3", "paperless", "immich", "azureblob",
+  "local", "ssh", "smb", "nfs", "s3",
+  "paperless", "immich", "azureblob", "gcs",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -11,6 +12,7 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "paperless",
   "immich",
   "azureblob",
+  "gcs",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
@@ -22,6 +24,7 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   paperless: "Paperless-ngx",
   immich: "Immich",
   azureblob: "Azure Blob Storage",
+  gcs: "Google Cloud Storage",
 };
 
 export type LocalConfig = {
@@ -190,6 +193,22 @@ export type AzureBlobConfig = {
   endpoint_suffix?: string;
 };
 
+// v0.10.0 — Google Cloud Storage (Tier 2 PR 3). Hostless: bucket +
+// auth fields on the source. Two auth modes:
+//   - service_account_json: paste service-account JSON key contents.
+//   - application_default: ADC chain (workload identity / env / gcloud).
+// HMAC users go through the S3 source type with endpoint
+// `https://storage.googleapis.com` instead — the existing S3
+// connector handles the XML API correctly.
+export type GCSAuthMode = "service_account_json" | "application_default";
+
+export type GCSConfig = {
+  bucket: string;
+  prefix?: string;
+  auth_mode: GCSAuthMode;
+  service_account_json?: string;
+};
+
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
@@ -198,7 +217,8 @@ export type AnyConfig =
   | S3Config
   | PaperlessConfig
   | ImmichConfig
-  | AzureBlobConfig;
+  | AzureBlobConfig
+  | GCSConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -308,6 +328,16 @@ export function validateSourceConfig(
       }
       // azure_ad has no inline secret — DefaultAzureCredential pulls
       // env / pod identity / az login at scan time.
+      return null;
+    }
+    case "gcs": {
+      if (!isStr("bucket")) return "Bucket is required";
+      const mode = (c["auth_mode"] as GCSAuthMode | undefined) ?? "service_account_json";
+      if (mode === "service_account_json" && !isStr("service_account_json")) {
+        return "Service account JSON is required";
+      }
+      // application_default has no inline secret — ADC chain pulls
+      // workload identity / env / gcloud at scan time.
       return null;
     }
   }

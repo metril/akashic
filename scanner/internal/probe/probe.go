@@ -55,6 +55,8 @@ func Run(ctx context.Context, sourceType string, connConfig map[string]any) Resu
 		return runImmich(ctx, connConfig)
 	case "azureblob":
 		return runAzureBlob(ctx, connConfig)
+	case "gcs":
+		return runGCS(ctx, connConfig)
 	}
 	return Result{OK: false, Step: "config", Error: "unsupported source type " + sourceType}
 }
@@ -223,6 +225,48 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	return Result{OK: true}
+}
+
+// runGCS validates a GCS source by issuing the connector's Connect.
+// Connect builds the storage client (validating the JSON key or
+// triggering the ADC chain) and then calls Bucket.Attrs to confirm
+// the bucket is readable. SDK errors map to the standard taxonomy:
+// permission / 401 / 403 → "auth"; bucket-doesnt-exist → "list";
+// transport / DNS / TLS → "connect".
+func runGCS(ctx context.Context, c map[string]any) Result {
+	bucket := strings.TrimSpace(str(c, "bucket"))
+	authMode := strings.TrimSpace(str(c, "auth_mode"))
+	if bucket == "" {
+		return Result{OK: false, Step: "config", Error: "bucket required"}
+	}
+	conn := connector.NewGCSConnector(
+		bucket,
+		str(c, "prefix"),
+		authMode,
+		str(c, "service_account_json"),
+	)
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	defer conn.Close()
+	if err := conn.Connect(probeCtx); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "service_account_json required"),
+			strings.Contains(msg, "unsupported auth_mode"),
+			strings.Contains(strings.ToLower(msg), "permission denied"),
+			strings.Contains(strings.ToLower(msg), "unauthorized"),
+			strings.Contains(strings.ToLower(msg), "invalid_grant"),
+			strings.Contains(strings.ToLower(msg), "credentials"),
+			strings.Contains(strings.ToLower(msg), "could not find default"):
+			return Result{OK: false, Step: "auth", Error: msg}
+		case strings.Contains(strings.ToLower(msg), "bucket "),
+			strings.Contains(strings.ToLower(msg), "notfound"):
+			return Result{OK: false, Step: "list", Error: msg}
+		default:
+			return Result{OK: false, Step: "connect", Error: msg}
+		}
+	}
 	return Result{OK: true}
 }
 

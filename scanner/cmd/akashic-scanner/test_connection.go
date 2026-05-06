@@ -52,9 +52,12 @@ func runTestConnection(args []string) {
 	// v0.9.0 — Azure Blob Storage flags. account-key / sas-token come
 	// over stdin; the CLI itself only takes the non-secret config.
 	accountName := fs.String("account-name", "", "Azure storage account name")
-	azContainer := fs.String("container", "", "Azure container")
-	authMode := fs.String("auth-mode", "", "Azure auth mode: account_key | sas_token | azure_ad")
+	azContainer := fs.String("container", "", "Azure container (or GCS bucket prefix)")
+	authMode := fs.String("auth-mode", "", "auth mode: per source type (azure: account_key|sas_token|azure_ad; gcs: service_account_json|application_default)")
 	endpointSuffix := fs.String("endpoint-suffix", "", "Azure endpoint suffix (default core.windows.net)")
+	// v0.10.0 — GCS prefix flag. bucket reuses --bucket; service
+	// account JSON arrives over stdin via --password-stdin.
+	gcsPrefix := fs.String("gcs-prefix", "", "GCS object key prefix (optional)")
 	exportPath := fs.String("export-path", "", "NFS export path to validate")
 	authUID := fs.Int("auth-uid", 0, "NFS AUTH_SYS uid (default 0; servers with root_squash may require a non-root uid)")
 	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
@@ -102,6 +105,11 @@ func runTestConnection(args []string) {
 		// azure_ad mode ignores the password (DefaultAzureCredential
 		// reads env / IMDS / az login at probe time).
 		ok, step, msg = testAzureBlob(*accountName, *azContainer, *authMode, *endpointSuffix, pw)
+	case "gcs":
+		// stdin password carries the service account JSON key
+		// content. application_default mode ignores it (the SDK
+		// pulls ADC chain at probe time).
+		ok, step, msg = testGCS(*bucket, *gcsPrefix, *authMode, pw)
 	case "nfs":
 		p := *port
 		if p == 0 {
@@ -304,6 +312,52 @@ func testAzureBlob(accountName, container, authMode, endpointSuffix, secret stri
 			return false, "auth", s
 		case strings.Contains(s, "ContainerNotFound"),
 			strings.Contains(s, "container "):
+			return false, "list", s
+		default:
+			return false, "connect", s
+		}
+	}
+	return true, "", ""
+}
+
+// testGCS is the CLI shim around connector.GCSConnector's Connect.
+// Same auth-step taxonomy as runGCS in internal/probe/probe.go;
+// duplicated rather than imported because the CLI binary shouldn't
+// link the probe package's awsconfig deps.
+func testGCS(bucket, prefix, authMode, secret string) (ok bool, step, msg string) {
+	if bucket == "" {
+		return false, "config", "bucket required"
+	}
+	mode := strings.ToLower(strings.TrimSpace(authMode))
+	if mode == "" {
+		if secret != "" {
+			mode = "service_account_json"
+		} else {
+			mode = "application_default"
+		}
+	}
+	jsonContent := ""
+	if mode == "service_account_json" {
+		jsonContent = secret
+	}
+	c := connector.NewGCSConnector(bucket, prefix, mode, jsonContent)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	defer c.Close()
+	if err := c.Connect(ctx); err != nil {
+		s := err.Error()
+		lower := strings.ToLower(s)
+		switch {
+		case strings.Contains(s, "service_account_json required"),
+			strings.Contains(s, "unsupported auth_mode"),
+			strings.Contains(lower, "permission denied"),
+			strings.Contains(lower, "unauthorized"),
+			strings.Contains(lower, "invalid_grant"),
+			strings.Contains(lower, "credentials"),
+			strings.Contains(lower, "could not find default"):
+			return false, "auth", s
+		case strings.Contains(lower, "bucket "),
+			strings.Contains(lower, "notfound"):
 			return false, "list", s
 		default:
 			return false, "connect", s

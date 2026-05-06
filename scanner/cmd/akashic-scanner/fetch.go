@@ -124,6 +124,16 @@ func buildConnector(
 		// aren't reachable via the CLI path; the agent path
 		// (connectorFromLeased) is where production scans land.
 		return connector.NewAzureBlobConnector(host, bucket, "account_key", password, "", ""), "", nil
+	case "gcs":
+		// v0.10.0 — CLI maps `bucket` → GCS bucket, `password` →
+		// service account JSON contents. Application-default mode
+		// isn't reachable via the CLI path (it'd need the same
+		// goroutine ADC chain the production agent walks).
+		mode := "service_account_json"
+		if password == "" {
+			mode = "application_default"
+		}
+		return connector.NewGCSConnector(bucket, "", mode, password), "", nil
 	default:
 		return nil, "config", fmt.Errorf("unsupported source type %q", srcType)
 	}

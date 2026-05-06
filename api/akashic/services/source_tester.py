@@ -439,6 +439,42 @@ def test_azureblob(cfg: dict) -> TestResult:
     return _test_via_scanner(argv, password=secret)
 
 
+def test_gcs(cfg: dict) -> TestResult:
+    """v0.10.0 — Tier 2 PR 3 probe (Google Cloud Storage).
+
+    Subprocesses the scanner CLI's `test-connection --type=gcs`. The
+    service account JSON key (when service_account_json mode is
+    chosen) goes over stdin via `--password-stdin` so the multi-KB
+    JSON payload doesn't bloat /proc/<pid>/cmdline. application_default
+    mode skips the secret entirely; the scanner picks up workload
+    identity at probe time.
+    """
+    bucket = (cfg.get("bucket") or "").strip()
+    if not bucket:
+        return TestResult(ok=False, step="config", error="bucket required")
+    auth_mode = (cfg.get("auth_mode") or "").strip().lower()
+    if auth_mode not in ("", "service_account_json", "application_default"):
+        return TestResult(
+            ok=False, step="config",
+            error=f"invalid auth_mode {auth_mode!r}",
+        )
+    secret = ""
+    if auth_mode == "service_account_json" or (
+        auth_mode == "" and (cfg.get("service_account_json") or "").strip()
+    ):
+        secret = cfg.get("service_account_json") or ""
+    argv = [
+        "test-connection", "--type=gcs",
+        "--bucket", bucket,
+        "--password-stdin",
+    ]
+    if auth_mode:
+        argv += ["--auth-mode", auth_mode]
+    if cfg.get("prefix"):
+        argv += ["--gcs-prefix", cfg["prefix"]]
+    return _test_via_scanner(argv, password=secret)
+
+
 def test_immich(cfg: dict) -> TestResult:
     """v0.8.0 — Tier 3 self-hosted library probe (photos / videos).
 
@@ -490,6 +526,7 @@ _DISPATCH = {
     "paperless": test_paperless,
     "immich":    test_immich,
     "azureblob": test_azureblob,
+    "gcs":       test_gcs,
 }
 
 

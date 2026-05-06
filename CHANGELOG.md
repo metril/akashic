@@ -5,6 +5,78 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.10.0 — 2026-05-05
+
+Tier 2 complete — **Google Cloud Storage** as a hostless source type.
+With v0.8.1 (S3-compat polish) and v0.9.0 (Azure Blob), this closes
+the object-store family: every cloud storage backend a typical user
+has is now natively supported.
+
+- **GCS as a source type.** Pick "Google Cloud Storage" in Add
+  Source. Fill in bucket, an optional key prefix, and pick an auth
+  mode. The scanner walks the bucket via the JSON API
+  (`storage.Bucket.Objects`), emits one entry per object with
+  size / Updated / MD5 (or CRC32C+gen+size fallback), and follows
+  the same prefix-as-folder convention as S3 + Azure Blob so Browse
+  navigates hierarchically.
+- **Two auth modes.**
+  - `service_account_json` — paste the contents of a service account
+    JSON key file (Google Cloud → IAM &amp; Admin → Service
+    Accounts → Keys → Add key). The form uses a multi-line textarea
+    since the JSON is ~2KB; the api masks it on response via the
+    existing "json" → "***" scrubber convention.
+  - `application_default` — Application Default Credentials. Picks
+    up GKE workload identity, `GOOGLE_APPLICATION_CREDENTIALS` env
+    var, or `gcloud auth application-default login` creds at scan
+    time. The recommended production path — no inline secret.
+- **Optional bucket-prefix scoping.** Set a prefix to index a
+  subtree only — useful for per-tenant prefixes in shared buckets.
+  Empty = whole bucket.
+- **HMAC users keep using the S3 type.** GCS exposes an
+  S3-compatible XML API at `storage.googleapis.com` for HMAC
+  interop access keys. Users who can only get HMAC creds (no
+  service account, no workload identity) add an S3 source with
+  provider preset "Other" and that endpoint. The GCS connector
+  here focuses on the JSON API where it has access to richer
+  per-object metadata.
+
+Internal:
+
+- New scanner connector at `scanner/internal/connector/gcs.go` with
+  full Connect / Walk / WalkShallow / ReadFile / Delete and
+  two-mode auth dispatch. Pinned to
+  `cloud.google.com/go/storage@v1.43.0` +
+  `google.golang.org/api@v0.190.0` because the more recent
+  releases bumped Go minimums to 1.25 (the scanner Dockerfile
+  ships golang:1.23-alpine — same constraint that drove the
+  Azure SDK pin in v0.9.0).
+- New probe `runGCS` in `scanner/internal/probe/probe.go` reuses
+  the connector's Connect for the agent's reachability poll loop.
+- Three scanner dispatch sites extended (`connectorFromLeased`,
+  `buildConnector`, `probe.Run`).
+- New CLI flags on `akashic-scanner test-connection`:
+  `--gcs-prefix` plus `--bucket` reused. Service account JSON
+  arrives over `--password-stdin` so the multi-KB payload
+  doesn't bloat `/proc/<pid>/cmdline`.
+- API: `test_gcs` in `services/source_tester.py` subprocesses
+  the CLI; `_summary_for` renders `gs://<bucket>` (or
+  `gs://<bucket>/<prefix>`); `HOSTLESS_SOURCE_TYPES` set
+  extended to include `gcs`.
+- Web: `GCSFields` component swaps the credential input by
+  auth mode (textarea for the JSON key, info banner for ADC);
+  `ShareFields` + `SourceFieldSet` dispatch; `SourceType` union
+  + `GCSConfig` + `GCSAuthMode` + validation rule.
+- Five connector tests cover joinPrefix, ObjectAttrs → EntryRecord
+  mapping, MD5/CRC32C hash fallback, two-mode auth validation,
+  and missing-bucket / invalid-JSON paths.
+
+**Tier 2 status: complete.** v0.8.1 (S3-compat presets + path_style
+override) + v0.9.0 (Azure Blob + 3 auth modes) + v0.10.0 (GCS + 2
+auth modes) ship the full object-store family. The remaining
+items in the cloud-storage roadmap are Tier 1 (Drive + OneDrive +
+SharePoint + the OAuth foundation) and Tier 4 (Dropbox + WebDAV +
+Box).
+
 ## v0.9.0 — 2026-05-05
 
 Tier 2 PR 2 — **Azure Blob Storage** as a hostless source type. Three

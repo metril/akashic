@@ -489,6 +489,19 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			stringFromConfig(cfg, "sas_token", ""),
 			stringFromConfig(cfg, "endpoint_suffix", ""),
 		), nil
+	case "gcs":
+		// v0.10.0 — Tier 2 PR 3. Hostless: bucket + (optional prefix)
+		// + auth fields all on the source. Two auth modes:
+		// service_account_json (paste JSON key contents),
+		// application_default (workload identity / env / gcloud).
+		// HMAC users go through the S3 connector pointed at
+		// storage.googleapis.com instead.
+		return connector.NewGCSConnector(
+			stringFromConfig(cfg, "bucket", ""),
+			stringFromConfig(cfg, "prefix", ""),
+			stringFromConfig(cfg, "auth_mode", ""),
+			stringFromConfig(cfg, "service_account_json", ""),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)
 	}
