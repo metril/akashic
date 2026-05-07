@@ -131,7 +131,6 @@ func TestLocalConnector_WalkShallow_SubdirsReturnedFilesEmitted(t *testing.T) {
 func TestAllConnectors_ImplementShallowWalker(t *testing.T) {
 	var _ ShallowWalker = (*LocalConnector)(nil)
 	var _ ShallowWalker = (*NFSConnector)(nil)
-	var _ ShallowWalker = (*SSHConnector)(nil)
 	var _ ShallowWalker = (*SMBConnector)(nil)
 	var _ ShallowWalker = (*S3Connector)(nil)
 }

@@ -82,11 +82,6 @@ async def _create_host(client: AsyncClient, *, type_: str = "smb") -> str:
             "access_key_id": "AKIA...",
             "secret_access_key": "secret",
         }
-    elif type_ == "ssh":
-        body["connection_config"] = {
-            "host": "h", "username": "u",
-            "known_hosts_path": "/etc/ssh/known_hosts",
-        }
     r = await client.post("/api/hosts", json=body)
     assert r.status_code == 201, r.text
     return r.json()["id"]
@@ -131,14 +126,6 @@ async def test_list_shares_propagates_step_reason_on_failure(
     assert body["shares"] == []
     assert body["step"] == "auth"
     assert body["error"] == "bad password"
-
-
-@pytest.mark.asyncio
-async def test_list_shares_unsupported_type_returns_400(client: AsyncClient):
-    host_id = await _create_host(client, type_="ssh")
-    r = await client.post(f"/api/hosts/{host_id}/list-shares")
-    assert r.status_code == 400
-    assert "ssh" in r.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -274,16 +261,6 @@ async def test_add_shares_for_s3_uses_bucket_key(
             select(Source).where(Source.name == "s3/logs")
         )).scalar_one()
     assert row.connection_config == {"bucket": "company-logs"}
-
-
-@pytest.mark.asyncio
-async def test_add_shares_unsupported_type_returns_400(client: AsyncClient):
-    host_id = await _create_host(client, type_="ssh")
-    r = await client.post(
-        f"/api/hosts/{host_id}/add-shares",
-        json={"shares": [{"name": "x", "share": "y"}]},
-    )
-    assert r.status_code == 400
 
 
 @pytest.mark.asyncio

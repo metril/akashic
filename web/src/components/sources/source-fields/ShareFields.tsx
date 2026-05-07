@@ -2,12 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "../../ui";
 import type {
-  AzureBlobAuthMode,
-  AzureBlobConfig,
-  BoxConfig,
   DropboxConfig,
-  GCSAuthMode,
-  GCSConfig,
   GDriveConfig,
   ImmichConfig,
   LocalConfig,
@@ -15,39 +10,28 @@ import type {
   OneDriveConfig,
   PaperlessConfig,
   S3Config,
-  SharePointConfig,
   SmbConfig,
   SourceType,
-  SshConfig,
   WebDAVConfig,
 } from "../sourceTypes";
 import { PaperlessFields } from "./PaperlessFields";
 import { ImmichFields } from "./ImmichFields";
-import { AzureBlobFields } from "./AzureBlobFields";
-import { GCSFields } from "./GCSFields";
 import { WebDAVFields } from "./WebDAVFields";
 import { GDriveFields } from "./GDriveFields";
 import { OneDriveFields } from "./OneDriveFields";
-import { SharePointFields } from "./SharePointFields";
 import { DropboxFields } from "./DropboxFields";
-import { BoxFields } from "./BoxFields";
 
 export type ShareConfig = Partial<
   | LocalConfig
-  | SshConfig
   | SmbConfig
   | NfsConfig
   | S3Config
   | PaperlessConfig
   | ImmichConfig
-  | AzureBlobConfig
-  | GCSConfig
   | WebDAVConfig
   | GDriveConfig
   | OneDriveConfig
-  | SharePointConfig
   | DropboxConfig
-  | BoxConfig
 >;
 
 interface Props {
@@ -84,25 +68,6 @@ export function ShareFields({ type, value, onChange, errors, onFieldBlur }: Prop
           {...bind("path")}
         />
       );
-    case "ssh": {
-      // root_path is a v0.5.0 share-shaped extension to SshConfig that
-      // doesn't exist in the type yet — cast through a local extension.
-      type SshShare = Partial<SshConfig> & { root_path?: string };
-      const v = value as SshShare;
-      return (
-        <Input
-          label="Root path on remote (optional)"
-          value={v.root_path ?? ""}
-          onChange={(e) =>
-            (onChange as (next: SshShare) => void)({
-              ...v,
-              root_path: e.target.value,
-            })
-          }
-          placeholder="/ (entire remote tree)"
-        />
-      );
-    }
     case "smb":
       return (
         <Input
@@ -155,28 +120,6 @@ export function ShareFields({ type, value, onChange, errors, onFieldBlur }: Prop
           onFieldBlur={onFieldBlur}
         />
       );
-    case "azureblob":
-      // v0.9.0 — hostless: account_name + container + auth fields
-      // all on the "share".
-      return (
-        <AzureBlobFields
-          value={value as Partial<AzureBlobConfig>}
-          onChange={onChange as (next: Partial<AzureBlobConfig>) => void}
-          errors={errors}
-          onFieldBlur={onFieldBlur}
-        />
-      );
-    case "gcs":
-      // v0.10.0 — hostless: bucket + (optional) prefix + auth fields
-      // all on the "share".
-      return (
-        <GCSFields
-          value={value as Partial<GCSConfig>}
-          onChange={onChange as (next: Partial<GCSConfig>) => void}
-          errors={errors}
-          onFieldBlur={onFieldBlur}
-        />
-      );
     case "webdav":
       // v0.11.0 — hostless: URL + basic auth + tls_verify all on
       // the "share".
@@ -205,29 +148,12 @@ export function ShareFields({ type, value, onChange, errors, onFieldBlur }: Prop
           onChange={onChange as (next: Partial<OneDriveConfig>) => void}
         />
       );
-    case "sharepoint":
-      // v0.16.0 — hostless OAuth-shaped via Microsoft Graph; adds
-      // site_id (required) + optional drive_id/item_id.
-      return (
-        <SharePointFields
-          value={value as Partial<SharePointConfig>}
-          onChange={onChange as (next: Partial<SharePointConfig>) => void}
-        />
-      );
     case "dropbox":
       // v0.17.0 — hostless OAuth-shaped via Dropbox.
       return (
         <DropboxFields
           value={value as Partial<DropboxConfig>}
           onChange={onChange as (next: Partial<DropboxConfig>) => void}
-        />
-      );
-    case "box":
-      // v0.18.0 — hostless OAuth-shaped via Box.
-      return (
-        <BoxFields
-          value={value as Partial<BoxConfig>}
-          onChange={onChange as (next: Partial<BoxConfig>) => void}
         />
       );
   }
@@ -351,8 +277,6 @@ export function validateShareConfig(
   switch (type) {
     case "local":
       return isStr("path") ? null : "Path is required";
-    case "ssh":
-      return null;  // root_path is optional
     case "smb":
       return isStr("share") ? null : "Share is required";
     case "nfs":
@@ -377,26 +301,6 @@ export function validateShareConfig(
       if (!isStr("api_key")) return "API key is required";
       return null;
     }
-    case "azureblob": {
-      if (!isStr("account_name")) return "Account name is required";
-      if (!isStr("container")) return "Container is required";
-      const mode = (c["auth_mode"] as AzureBlobAuthMode | undefined) ?? "account_key";
-      if (mode === "account_key" && !isStr("account_key")) {
-        return "Account key is required";
-      }
-      if (mode === "sas_token" && !isStr("sas_token")) {
-        return "SAS token is required";
-      }
-      return null;
-    }
-    case "gcs": {
-      if (!isStr("bucket")) return "Bucket is required";
-      const mode = (c["auth_mode"] as GCSAuthMode | undefined) ?? "service_account_json";
-      if (mode === "service_account_json" && !isStr("service_account_json")) {
-        return "Service account JSON is required";
-      }
-      return null;
-    }
     case "webdav": {
       if (!isStr("url")) return "URL is required";
       const url = (c["url"] as string).trim();
@@ -417,13 +321,6 @@ export function validateShareConfig(
       }
       return null;
     }
-    case "sharepoint": {
-      if (!isStr("oauth_credential_id")) {
-        return "Sign in with Microsoft to connect a SharePoint account";
-      }
-      if (!isStr("site_id")) return "Site ID is required";
-      return null;
-    }
     case "dropbox": {
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Dropbox to connect an account";
@@ -431,22 +328,6 @@ export function validateShareConfig(
       const p = (c["path"] as string | undefined)?.trim();
       if (p && p !== "/" && !p.startsWith("/")) {
         return "Path must start with /";
-      }
-      return null;
-    }
-    case "box": {
-      const mode = (c["auth_mode"] as string | undefined) ?? "oauth";
-      if (mode === "jwt") {
-        for (const k of [
-          "client_id", "client_secret", "enterprise_id",
-          "public_key_id", "private_key",
-        ]) {
-          if (!isStr(k)) return `${k.replace(/_/g, " ")} is required`;
-        }
-        return null;
-      }
-      if (!isStr("oauth_credential_id")) {
-        return "Sign in with Box to connect an account";
       }
       return null;
     }
@@ -475,8 +356,6 @@ export function validateShareConfigFields(
     case "local":
       if (!isStr("path")) out.path = "Path is required";
       return out;
-    case "ssh":
-      return out;
     case "smb":
       if (!isStr("share")) out.share = "Share is required";
       return out;
@@ -502,26 +381,6 @@ export function validateShareConfigFields(
       if (!isStr("api_key")) out.api_key = "API key is required";
       return out;
     }
-    case "azureblob": {
-      if (!isStr("account_name")) out.account_name = "Account name is required";
-      if (!isStr("container")) out.container = "Container is required";
-      const mode = (c.auth_mode as AzureBlobAuthMode | undefined) ?? "account_key";
-      if (mode === "account_key" && !isStr("account_key")) {
-        out.account_key = "Account key is required";
-      }
-      if (mode === "sas_token" && !isStr("sas_token")) {
-        out.sas_token = "SAS token is required";
-      }
-      return out;
-    }
-    case "gcs": {
-      if (!isStr("bucket")) out.bucket = "Bucket is required";
-      const mode = (c.auth_mode as GCSAuthMode | undefined) ?? "service_account_json";
-      if (mode === "service_account_json" && !isStr("service_account_json")) {
-        out.service_account_json = "Service account JSON is required";
-      }
-      return out;
-    }
     case "webdav": {
       if (!isStr("url")) out.url = "URL is required";
       else if (!/^https?:\/\//i.test((c.url as string).trim())) {
@@ -537,31 +396,11 @@ export function validateShareConfigFields(
       if (!isStr("oauth_credential_id"))
         out.oauth_credential_id = "Sign in with Microsoft to connect a OneDrive account";
       return out;
-    case "sharepoint":
-      if (!isStr("oauth_credential_id"))
-        out.oauth_credential_id = "Sign in with Microsoft to connect a SharePoint account";
-      if (!isStr("site_id")) out.site_id = "Site ID is required";
-      return out;
     case "dropbox": {
       if (!isStr("oauth_credential_id"))
         out.oauth_credential_id = "Sign in with Dropbox to connect an account";
       const p = (c.path as string | undefined)?.trim();
       if (p && p !== "/" && !p.startsWith("/")) out.path = "Path must start with /";
-      return out;
-    }
-    case "box": {
-      const mode = (c.auth_mode as string | undefined) ?? "oauth";
-      if (mode === "jwt") {
-        for (const k of [
-          "client_id", "client_secret", "enterprise_id",
-          "public_key_id", "private_key",
-        ]) {
-          if (!isStr(k)) out[k] = `${k.replace(/_/g, " ")} is required`;
-        }
-        return out;
-      }
-      if (!isStr("oauth_credential_id"))
-        out.oauth_credential_id = "Sign in with Box to connect an account";
       return out;
     }
   }

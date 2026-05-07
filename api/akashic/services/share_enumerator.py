@@ -161,7 +161,7 @@ _DISPATCH = {
 
 def list_shares(host_type: str, connection_config: dict) -> ListSharesResult:
     """Dispatch to the per-type lister. Caller must guard against
-    `local` and `ssh` at the endpoint level (returns config error here
+    `local` at the endpoint level (returns config error here
     if it slips through)."""
     fn = _DISPATCH.get(host_type)
     if fn is None:

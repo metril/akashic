@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from akashic.schemas.source import _scrub_config
 
 
-SUPPORTED_TYPES = {"ssh", "smb", "nfs", "s3"}
+SUPPORTED_TYPES = {"smb", "nfs", "s3"}
 
 # Values the client may send to mean "don't replace this field". The
 # api scrubs to "***"; an older client might still send "********".

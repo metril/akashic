@@ -52,19 +52,7 @@ def _build_delete_argv(source, entry_path: str) -> tuple[list[str], str, str]:
         "--path", entry_path,
         "--password-stdin",
     ]
-    if source.type == "ssh":
-        kh = (cfg.get("known_hosts_path") or "").strip()
-        if not kh:
-            raise ValueError("ssh source missing known_hosts_path; refusing to delete")
-        argv += [
-            "--host", cfg.get("host", ""),
-            "--port", str(int(cfg.get("port") or 22)),
-            "--user", cfg.get("username", ""),
-            "--known-hosts", kh,
-        ]
-        if cfg.get("key_path"):
-            argv += ["--key", cfg["key_path"]]
-    elif source.type == "smb":
+    if source.type == "smb":
         argv += [
             "--host", cfg.get("host", ""),
             "--port", str(int(cfg.get("port") or 445)),

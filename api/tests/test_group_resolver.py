@@ -54,24 +54,6 @@ async def test_posix_unknown_uid_raises_not_found(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ssh_empty_config_unsupported(monkeypatch):
-    """SSH source with no connection_config should surface UnsupportedResolution
-    (missing host). Phase 14b SSH-specific behavior is covered in
-    test_group_resolver_ssh.py."""
-    from akashic.services.group_resolver import UnsupportedResolution, resolve_groups
-
-    class _FakeSource:
-        type = "ssh"
-        connection_config = {}
-    class _FakeBinding:
-        identity_type = "posix_uid"
-        identifier = "1000"
-
-    with pytest.raises(UnsupportedResolution):
-        await resolve_groups(_FakeSource(), _FakeBinding())
-
-
-@pytest.mark.asyncio
 async def test_smb_empty_config_unsupported(monkeypatch):
     """SMB source with empty connection_config should surface
     UnsupportedResolution (missing host). Phase 14c SAMR-specific behavior

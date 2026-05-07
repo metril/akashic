@@ -64,7 +64,7 @@ async def test_create_profile_scrubs_secrets_on_response(client: AsyncClient):
         "/api/credential-profiles",
         json={
             "name": "ssh-prod",
-            "type": "ssh",
+            "type": "smb",
             "credentials": {"username": "deploy", "password": "shhh"},
             "description": "production ssh",
         },
@@ -72,7 +72,7 @@ async def test_create_profile_scrubs_secrets_on_response(client: AsyncClient):
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["name"] == "ssh-prod"
-    assert body["type"] == "ssh"
+    assert body["type"] == "smb"
     # Secret-scrubbed response — username passes through, password masked.
     assert body["credentials"]["username"] == "deploy"
     assert body["credentials"]["password"] == "***"
@@ -92,12 +92,12 @@ async def test_create_unsupported_type_returns_400(client: AsyncClient):
 async def test_duplicate_name_returns_409(client: AsyncClient):
     r = await client.post(
         "/api/credential-profiles",
-        json={"name": "dup", "type": "ssh", "credentials": {"username": "u"}},
+        json={"name": "dup", "type": "smb", "credentials": {"username": "u"}},
     )
     assert r.status_code == 201
     r2 = await client.post(
         "/api/credential-profiles",
-        json={"name": "dup", "type": "ssh", "credentials": {"username": "v"}},
+        json={"name": "dup", "type": "smb", "credentials": {"username": "v"}},
     )
     assert r2.status_code == 409
 
@@ -106,17 +106,17 @@ async def test_duplicate_name_returns_409(client: AsyncClient):
 async def test_list_filters_by_type(client: AsyncClient):
     await client.post(
         "/api/credential-profiles",
-        json={"name": "ssh-1", "type": "ssh", "credentials": {}},
+        json={"name": "smb-1", "type": "smb", "credentials": {}},
     )
     await client.post(
         "/api/credential-profiles",
-        json={"name": "smb-1", "type": "smb", "credentials": {}},
+        json={"name": "nfs-1", "type": "nfs", "credentials": {}},
     )
-    r = await client.get("/api/credential-profiles?type=ssh")
+    r = await client.get("/api/credential-profiles?type=smb")
     assert r.status_code == 200
     body = r.json()
-    assert all(p["type"] == "ssh" for p in body)
-    assert any(p["name"] == "ssh-1" for p in body)
+    assert all(p["type"] == "smb" for p in body)
+    assert any(p["name"] == "smb-1" for p in body)
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_sentinel_update_preserves_stored_secret(
         "/api/credential-profiles",
         json={
             "name": "rotate-me",
-            "type": "ssh",
+            "type": "smb",
             "credentials": {"username": "u", "password": "real-secret"},
         },
     )
@@ -155,17 +155,16 @@ async def test_assign_mismatched_profile_to_host_returns_400(
 ):
     rp = await client.post(
         "/api/credential-profiles",
-        json={"name": "smb-only", "type": "smb", "credentials": {"username": "u"}},
+        json={"name": "nfs-only", "type": "nfs", "credentials": {"username": "u"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(
         "/api/hosts",
         json={
-            "name": "ssh-host",
-            "type": "ssh",
+            "name": "smb-host",
+            "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
             "credential_profile_id": profile_id,
         },
@@ -178,14 +177,14 @@ async def test_assign_mismatched_profile_to_host_returns_400(
 async def test_delete_while_referenced_returns_409(client: AsyncClient):
     rp = await client.post(
         "/api/credential-profiles",
-        json={"name": "ssh-attached", "type": "ssh", "credentials": {"username": "u"}},
+        json={"name": "ssh-attached", "type": "smb", "credentials": {"username": "u"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(
         "/api/hosts",
         json={
             "name": "ssh-host-2",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
                 "known_hosts_path": "/etc/ssh/known_hosts",

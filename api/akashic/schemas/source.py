@@ -191,13 +191,6 @@ def _summary_for(source) -> str:
         if host and exp:
             return f"{host}:{exp}"
         return host or exp or name
-    if t == "ssh":
-        user, host = g("username"), g("host")
-        port_raw = cfg.get("port")
-        port = f":{port_raw}" if isinstance(port_raw, int) and port_raw != 22 else ""
-        if user and host:
-            return f"{user}@{host}{port}"
-        return host or name
     if t == "smb":
         host, share = g("host"), g("share")
         if host and share:
@@ -231,16 +224,6 @@ def _summary_for(source) -> str:
                     break
             return url.rstrip("/") or name
         return name
-    if t == "azureblob":
-        account, ctr = g("account_name"), g("container")
-        if account and ctr:
-            return f"{account}/{ctr}"
-        return account or ctr or name
-    if t == "gcs":
-        bucket, prefix = g("bucket"), g("prefix")
-        if bucket and prefix:
-            return f"gs://{bucket}/{prefix.strip('/')}"
-        return f"gs://{bucket}" if bucket else name
     if t == "webdav":
         url = g("url")
         if url:
@@ -260,27 +243,9 @@ def _summary_for(source) -> str:
     if t == "onedrive":
         item = g("item_id")
         return f"OneDrive item {item}" if item else "OneDrive"
-    if t == "sharepoint":
-        # The full Graph site_id is a colon-triple — too long for a
-        # card subtitle. Show only the trailing fragment (the site
-        # bit) which is the part most operators recognise.
-        site = g("site_id")
-        if site:
-            short = site.split(",")[-1] if "," in site else site
-            return f"SharePoint {short}"
-        return "SharePoint"
     if t == "dropbox":
         # Dropbox has no convenient identifier for the subtitle; show
         # the scoped path or fall back to the type name.
         path = g("path")
         return f"Dropbox {path}" if path else "Dropbox"
-    if t == "box":
-        folder = g("folder_id")
-        # v0.19.0 — JWT app-auth sources tag the subtitle so it's
-        # visible at a glance on the Sources card list. The auth mode
-        # itself isn't a secret; the credentials are.
-        mode_tag = " (JWT)" if g("auth_mode") == "jwt" else ""
-        if folder:
-            return f"Box folder {folder}{mode_tag}"
-        return f"Box{mode_tag}"
     return name

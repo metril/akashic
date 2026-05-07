@@ -33,14 +33,12 @@ import (
 // field for the UI.
 func runTestConnection(args []string) {
 	fs := flag.NewFlagSet("test-connection", flag.ExitOnError)
-	srcType := fs.String("type", "", "Source type (ssh, smb, s3, nfs)")
-	host := fs.String("host", "", "Host (ssh, smb)")
-	port := fs.Int("port", 0, "Port (ssh, smb; default 22 / 445)")
-	user := fs.String("user", "", "Username (ssh, smb) or access key ID (s3)")
+	srcType := fs.String("type", "", "Source type (smb, s3, nfs)")
+	host := fs.String("host", "", "Host (smb)")
+	port := fs.Int("port", 0, "Port (smb; default 445)")
+	user := fs.String("user", "", "Username (smb) or access key ID (s3)")
 	password := fs.String("password", "", "Password (insecure — prefer --password-stdin)")
-	passwordStdin := fs.Bool("password-stdin", false, "Read creds from stdin: {\"password\":\"…\",\"key_passphrase\":\"…\"}")
-	keyPath := fs.String("key", "", "SSH key path")
-	knownHosts := fs.String("known-hosts", "", "SSH known_hosts path (required for ssh)")
+	passwordStdin := fs.Bool("password-stdin", false, "Read creds from stdin: {\"password\":\"…\"}")
 	share := fs.String("share", "", "SMB share")
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
@@ -49,15 +47,6 @@ func runTestConnection(args []string) {
 	// endpoint is set, else virtual-hosted). "true" / "false" override
 	// — Wasabi/B2 want "false" even with their endpoint set.
 	pathStyle := fs.String("path-style", "", "S3 addressing style: auto | true | false (default auto)")
-	// v0.9.0 — Azure Blob Storage flags. account-key / sas-token come
-	// over stdin; the CLI itself only takes the non-secret config.
-	accountName := fs.String("account-name", "", "Azure storage account name")
-	azContainer := fs.String("container", "", "Azure container (or GCS bucket prefix)")
-	authMode := fs.String("auth-mode", "", "auth mode: per source type (azure: account_key|sas_token|azure_ad; gcs: service_account_json|application_default)")
-	endpointSuffix := fs.String("endpoint-suffix", "", "Azure endpoint suffix (default core.windows.net)")
-	// v0.10.0 — GCS prefix flag. bucket reuses --bucket; service
-	// account JSON arrives over stdin via --password-stdin.
-	gcsPrefix := fs.String("gcs-prefix", "", "GCS object key prefix (optional)")
 	exportPath := fs.String("export-path", "", "NFS export path to validate")
 	authUID := fs.Int("auth-uid", 0, "NFS AUTH_SYS uid (default 0; servers with root_squash may require a non-root uid)")
 	authGID := fs.Int("auth-gid", 0, "NFS AUTH_SYS gid (default 0)")
@@ -72,12 +61,10 @@ func runTestConnection(args []string) {
 	_ = fs.Parse(args)
 
 	pw := *password
-	keyPassphrase := ""
 	krb5Password := ""
 	if *passwordStdin {
 		creds := readCredsFromStdin()
 		pw = creds.Password
-		keyPassphrase = creds.KeyPassphrase
 		krb5Password = creds.Krb5Password
 	}
 
@@ -85,12 +72,6 @@ func runTestConnection(args []string) {
 	var step, msg string
 
 	switch *srcType {
-	case "ssh":
-		p := *port
-		if p == 0 {
-			p = 22
-		}
-		ok, step, msg = testSSH(*host, p, *user, pw, *keyPath, keyPassphrase, *knownHosts)
 	case "smb":
 		p := *port
 		if p == 0 {
@@ -99,17 +80,6 @@ func runTestConnection(args []string) {
 		ok, step, msg = testSMB(*host, p, *user, pw, *share)
 	case "s3":
 		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw, *pathStyle)
-	case "azureblob":
-		// stdin password is reused as the auth secret — its actual
-		// meaning depends on auth-mode (account_key | sas_token).
-		// azure_ad mode ignores the password (DefaultAzureCredential
-		// reads env / IMDS / az login at probe time).
-		ok, step, msg = testAzureBlob(*accountName, *azContainer, *authMode, *endpointSuffix, pw)
-	case "gcs":
-		// stdin password carries the service account JSON key
-		// content. application_default mode ignores it (the SDK
-		// pulls ADC chain at probe time).
-		ok, step, msg = testGCS(*bucket, *gcsPrefix, *authMode, pw)
 	case "nfs":
 		p := *port
 		if p == 0 {
@@ -151,43 +121,6 @@ func runTestConnection(args []string) {
 
 // classifySSHError maps an SSHConnector.Connect() error to (step, reason).
 // The connector wraps each failure with a known prefix; we match on those.
-func classifySSHError(err error) (step, msg string) {
-	s := err.Error()
-	switch {
-	case strings.HasPrefix(s, "ssh dial"):
-		return "connect", strings.TrimPrefix(s, "ssh dial ")
-	case strings.HasPrefix(s, "load known_hosts"):
-		return "config", s
-	case strings.HasPrefix(s, "read ssh key"), strings.HasPrefix(s, "parse ssh key"):
-		return "config", s
-	case strings.HasPrefix(s, "sftp client"):
-		return "list", strings.TrimPrefix(s, "sftp client: ")
-	default:
-		// SSH auth failures land here (gossh.Dial returns "ssh: handshake
-		// failed: …" or "unable to authenticate" wrapped under "ssh dial").
-		// They're already covered by the dial branch above. Anything left is
-		// likely auth-related.
-		return "auth", s
-	}
-}
-
-func testSSH(host string, port int, user, password, keyPath, keyPassphrase, knownHosts string) (ok bool, step, msg string) {
-	if host == "" || user == "" {
-		return false, "config", "host and user required"
-	}
-	if knownHosts == "" {
-		return false, "config", "known_hosts required (strict by default)"
-	}
-
-	c := connector.NewSSHConnector(host, port, user, password, keyPath, keyPassphrase, knownHosts)
-	if err := c.Connect(context.Background()); err != nil {
-		s, m := classifySSHError(err)
-		return false, s, m
-	}
-	defer c.Close()
-	return true, "", ""
-}
-
 func classifySMBError(err error) (step, msg string) {
 	s := err.Error()
 	switch {
@@ -271,103 +204,9 @@ func testS3(endpoint, bucket, region, accessKey, secretKey, pathStyleFlag string
 	return true, "", ""
 }
 
-// testAzureBlob is the CLI shim around connector.AzureBlobConnector's
-// Connect — same probe the agent's reachability poll uses. Auth-step
-// classification mirrors runAzureBlob in internal/probe/probe.go;
-// kept duplicated rather than imported because the CLI binary
-// shouldn't link the probe package's awsconfig deps.
-func testAzureBlob(accountName, container, authMode, endpointSuffix, secret string) (ok bool, step, msg string) {
-	if accountName == "" || container == "" {
-		return false, "config", "account_name and container required"
-	}
-	mode := strings.ToLower(strings.TrimSpace(authMode))
-	if mode == "" {
-		// Match connector's implicit default — use the credential
-		// the user actually supplied to pick the mode.
-		if secret != "" {
-			mode = "account_key"
-		} else {
-			mode = "azure_ad"
-		}
-	}
-	var accountKey, sasToken string
-	switch mode {
-	case "account_key":
-		accountKey = secret
-	case "sas_token":
-		sasToken = secret
-	}
-	c := connector.NewAzureBlobConnector(accountName, container, mode, accountKey, sasToken, endpointSuffix)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := c.Connect(ctx); err != nil {
-		s := err.Error()
-		switch {
-		case strings.Contains(s, "AuthenticationFailed"),
-			strings.Contains(s, "AuthorizationFailure"),
-			strings.Contains(s, "InvalidAuthenticationInfo"),
-			strings.Contains(s, "account_key required"),
-			strings.Contains(s, "sas_token required"),
-			strings.Contains(s, "default azure credential"):
-			return false, "auth", s
-		case strings.Contains(s, "ContainerNotFound"),
-			strings.Contains(s, "container "):
-			return false, "list", s
-		default:
-			return false, "connect", s
-		}
-	}
-	return true, "", ""
-}
-
-// testGCS is the CLI shim around connector.GCSConnector's Connect.
-// Same auth-step taxonomy as runGCS in internal/probe/probe.go;
-// duplicated rather than imported because the CLI binary shouldn't
-// link the probe package's awsconfig deps.
-func testGCS(bucket, prefix, authMode, secret string) (ok bool, step, msg string) {
-	if bucket == "" {
-		return false, "config", "bucket required"
-	}
-	mode := strings.ToLower(strings.TrimSpace(authMode))
-	if mode == "" {
-		if secret != "" {
-			mode = "service_account_json"
-		} else {
-			mode = "application_default"
-		}
-	}
-	jsonContent := ""
-	if mode == "service_account_json" {
-		jsonContent = secret
-	}
-	c := connector.NewGCSConnector(bucket, prefix, mode, jsonContent)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	defer c.Close()
-	if err := c.Connect(ctx); err != nil {
-		s := err.Error()
-		lower := strings.ToLower(s)
-		switch {
-		case strings.Contains(s, "service_account_json required"),
-			strings.Contains(s, "unsupported auth_mode"),
-			strings.Contains(lower, "permission denied"),
-			strings.Contains(lower, "unauthorized"),
-			strings.Contains(lower, "invalid_grant"),
-			strings.Contains(lower, "credentials"),
-			strings.Contains(lower, "could not find default"):
-			return false, "auth", s
-		case strings.Contains(lower, "bucket "),
-			strings.Contains(lower, "notfound"):
-			return false, "list", s
-		default:
-			return false, "connect", s
-		}
-	}
-	return true, "", ""
-}
-
-// nfsTestArgs is the input shape to runTestNFS. Bundling the krb5
-// fields keeps the call site readable now that AUTH_SYS and krb5* are
+// nfsTestArgs bundles every flag testNFS needs into one struct. The
+// extra one-line indirection over passing a half-dozen positional
+// args keeps the call site readable now that AUTH_SYS and krb5* are
 // both supported.
 type nfsTestArgs struct {
 	Host           string
@@ -387,15 +226,6 @@ type nfsTestArgs struct {
 	Krb5ConfigPath       string
 }
 
-// runTestNFS dispatches to the nfsprobe cascade and writes its own
-// success/failure to stdout/stderr, then exits. Done out-of-band from
-// the (ok, step, msg) shape because the success JSON carries an
-// additional `tier` field that the API surfaces to the UI.
-//
-// timeout is per-RPC; clamped to [1, 60] seconds to bound how long a
-// hung server can block the source-creation form. The outer context
-// gets ~3× the per-RPC timeout because the cascade may make multiple
-// RPC round-trips.
 func runTestNFS(a nfsTestArgs) {
 	timeoutSeconds := a.TimeoutSeconds
 	if timeoutSeconds <= 0 {

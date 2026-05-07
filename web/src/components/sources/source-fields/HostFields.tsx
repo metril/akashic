@@ -7,11 +7,10 @@ import {
   type S3Config,
   type S3Preset,
   type SmbConfig,
-  type SshConfig,
 } from "../sourceTypes";
 
-export type HostType = "ssh" | "smb" | "nfs" | "s3";
-export type HostConfig = Partial<SshConfig | SmbConfig | NfsConfig | S3Config>;
+export type HostType = "smb" | "nfs" | "s3";
+export type HostConfig = Partial<SmbConfig | NfsConfig | S3Config>;
 
 interface Props {
   type: HostType;
@@ -32,14 +31,12 @@ interface Props {
  * strips share-shaped keys (`share`, `export_path`, `bucket`,
  * `mount_options`, …) — those live on the Source row instead.
  *
- * Single dispatch component (vs. four separate files) because each
+ * Single dispatch component (vs. three separate files) because each
  * branch is tight enough to keep in one place, and the coupling
- * between e.g. NfsHostFields and SshHostFields is purely visual.
+ * between e.g. NfsHostFields and SmbHostFields is purely visual.
  */
 export function HostFields({ type, value, onChange, omitCredentials }: Props): ReactNode {
   switch (type) {
-    case "ssh":
-      return <SshHostFields value={value as Partial<SshConfig>} onChange={onChange} omitCredentials={omitCredentials} />;
     case "smb":
       return <SmbHostFields value={value as Partial<SmbConfig>} onChange={onChange} omitCredentials={omitCredentials} />;
     case "nfs":
@@ -47,89 +44,6 @@ export function HostFields({ type, value, onChange, omitCredentials }: Props): R
     case "s3":
       return <S3HostFields value={value as Partial<S3Config>} onChange={onChange} omitCredentials={omitCredentials} />;
   }
-}
-
-function SshHostFields({
-  value,
-  onChange,
-  omitCredentials,
-}: {
-  value: Partial<SshConfig>;
-  onChange: (next: Partial<SshConfig>) => void;
-  omitCredentials?: boolean;
-}) {
-  const auth = value.auth ?? "password";
-  return (
-    <div className="space-y-3">
-      <Input
-        label="Host"
-        value={value.host ?? ""}
-        onChange={(e) => onChange({ ...value, host: e.target.value })}
-        placeholder="ssh.example.com"
-        required
-      />
-      <Input
-        label="Port"
-        type="number"
-        value={value.port ?? 22}
-        onChange={(e) => onChange({ ...value, port: parseInt(e.target.value, 10) || 22 })}
-      />
-      {!omitCredentials && (
-        <>
-          <Input
-            label="Username"
-            value={value.username ?? ""}
-            onChange={(e) => onChange({ ...value, username: e.target.value })}
-            required
-          />
-          <Select
-            label="Authentication"
-            value={auth}
-            onChange={(e) =>
-              onChange({ ...value, auth: e.target.value as "password" | "key" })
-            }
-            options={[
-              { value: "password", label: "Password" },
-              { value: "key", label: "Private key" },
-            ]}
-          />
-          {auth === "password" ? (
-            <MaskedInput
-              label="Password"
-              value={value.password === "***" ? "" : (value.password ?? "")}
-              onChange={(e) => onChange({ ...value, password: e.target.value })}
-              placeholder={value.password === "***" ? "(unchanged — type to replace)" : ""}
-              hint={value.password === "***" ? "Existing value preserved. Type a new value to replace it." : undefined}
-              required={value.password !== "***"}
-            />
-          ) : (
-            <>
-              <Input
-                label="Private key path"
-                value={value.key_path ?? ""}
-                onChange={(e) => onChange({ ...value, key_path: e.target.value })}
-                placeholder="/etc/akashic/keys/id_rsa"
-                required
-              />
-              <MaskedInput
-                label="Key passphrase (optional)"
-                value={value.key_passphrase === "***" ? "" : (value.key_passphrase ?? "")}
-                onChange={(e) => onChange({ ...value, key_passphrase: e.target.value })}
-                placeholder={value.key_passphrase === "***" ? "(unchanged)" : ""}
-              />
-            </>
-          )}
-        </>
-      )}
-      <Input
-        label="Known hosts path"
-        value={value.known_hosts_path ?? ""}
-        onChange={(e) => onChange({ ...value, known_hosts_path: e.target.value })}
-        placeholder="/etc/ssh/known_hosts"
-        required
-      />
-    </div>
-  );
 }
 
 function SmbHostFields({
@@ -423,20 +337,6 @@ export function validateHostConfig(
     typeof c[k] === "string" && (c[k] as string).trim() !== "";
 
   switch (type) {
-    case "ssh": {
-      if (!isStr("host")) return "Host is required";
-      if (!isStr("known_hosts_path")) return "Known hosts path is required";
-      if (!omitCredentials) {
-        if (!isStr("username")) return "Username is required";
-        const auth = c["auth"];
-        if (auth === "password") {
-          if (!isStr("password")) return "Password is required";
-        } else if (auth === "key") {
-          if (!isStr("key_path")) return "Key path is required";
-        }
-      }
-      return null;
-    }
     case "smb":
       if (!isStr("host")) return "Host is required";
       if (!omitCredentials) {

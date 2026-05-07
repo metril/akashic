@@ -487,7 +487,7 @@ def _source_matches(source: Source, identity: ExtractedIdentity) -> bool:
         return identity.identifier.upper().startswith(domain.upper())
 
     if identity.identity_type == "posix_uid":
-        return src_type in ("local", "ssh", "nfs")
+        return src_type in ("local", "nfs")
 
     if identity.identity_type == "nfsv4_principal":
         return src_type == "nfs"

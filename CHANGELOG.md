@@ -5,6 +5,76 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.23.0 — 2026-05-07
+
+**Scope cut: home-user storages only.** The connector list narrows
+from 15 source types to 10 by removing `ssh`, `box`, `sharepoint`,
+`azureblob`, and `gcs`. The four enterprise object-store / sharing-
+platform types pull a lot of code (Azure SDK, GCS SDK, Box JWT
+helper, Microsoft SharePoint extras) that no home deployment needs;
+SSH had grown a substantial sidecar (paramiko-based group resolution,
+content-fetch and duplicate-delete branches, scanner CLI dispatch).
+
+After this lands, akashic supports: **local, smb, nfs, s3,
+paperless-ngx, immich, webdav, gdrive, onedrive, dropbox**.
+
+- **Connectors removed.** `scanner/internal/connector/{box,sharepoint,
+  azureblob,gcs,ssh}.go` (and their `_test.go` companions) deleted,
+  along with their five dispatch sites in
+  `scanner/cmd/akashic-scanner/{fetch.go,main.go,test_connection.go}`,
+  `scanner/internal/agent/{agent.go,unit_runner.go}`, and
+  `scanner/internal/probe/probe.go`. `go mod tidy` drops the Azure
+  SDK, GCS storage SDK, `golang.org/x/crypto/ssh`, `github.com/pkg/sftp`,
+  and the Google API toolchain — about 30 indirect deps gone.
+- **Box JWT app-auth gone.** `api/akashic/services/box_jwt.py` and
+  `api/tests/test_box_jwt.py` deleted; the
+  `mint_access_token_for_source` dispatch in `services/source_oauth.py`
+  collapses back to the OAuth-only path. The `box` entry leaves the
+  OAuth provider registry; `microsoft` stays (still used by OneDrive).
+- **Scanner CLI cleaned up.** `test-connection` no longer accepts
+  `--key`, `--known-hosts`, `--account-name`, `--container`,
+  `--auth-mode`, `--endpoint-suffix`, or `--gcs-prefix` flags.
+- **POSIX group resolution loses its SSH path.** The paramiko-based
+  remote-`id -Gn` resolver in `services/group_resolver.py` (and its
+  ~50 lines of scaffolding around `_paramiko_client`,
+  `_ssh_load_known_hosts`, `_resolve_posix_ssh`) is gone. The
+  `paramiko` Python dep is removed from `pyproject.toml`.
+- **OIDC auto-provisioning narrowed.** `auth/oidc_provisioning.py`
+  drops `ssh` from the posix_uid match set — only `local` and `nfs`
+  qualify now.
+- **Host & source schemas pruned.** `routers/hosts.py` removes ssh
+  from `_HOST_TYPES` / `_DEFAULT_PORTS`; `routers/sources.py` removes
+  the four enterprise-cloud entries from `HOSTLESS_SOURCE_TYPES`;
+  `schemas/credential_profile.py` narrows `SUPPORTED_TYPES` to the
+  three remaining host-attached types.
+- **Web form trimmed.** Five Fields components removed. `HostType`
+  narrows to `smb | nfs | s3`; the `SshHostFields` helper inside
+  `HostFields.tsx` is gone. `SOURCE_TYPES` / `SOURCE_TYPE_LABELS` /
+  `HOSTLESS_SOURCE_TYPES` shrink in lockstep across `sourceTypes.ts`,
+  `ShareFields.tsx`, `SourceFieldSet.tsx`, `AddSourceForm.tsx`, and
+  `AddHostForm.tsx`.
+
+**Breaking change — existing data.** This release does **not** ship a
+data migration. `Source.type` is a plain `String` column (not a
+Postgres enum), so existing rows with `type IN ('ssh','box',
+'sharepoint','azureblob','gcs')` won't break the schema, but every
+API path that hits them will return 400 and any scanner lease will
+fail. Operators with such rows should clean them up by hand:
+
+```sql
+DELETE FROM source_oauth_credentials WHERE source_id IN
+    (SELECT id FROM sources WHERE type IN ('ssh','box','sharepoint','azureblob','gcs'));
+DELETE FROM sources WHERE type IN ('ssh','box','sharepoint','azureblob','gcs');
+DELETE FROM hosts   WHERE type = 'ssh';
+DELETE FROM oauth_app_configs WHERE provider = 'box';
+```
+
+Upstream infrastructure that survives: `cloud_drive` ACL discriminator
+(still used by gdrive / onedrive / dropbox), `entries.native_id`
+column (migration 0030), the OAuth foundation (table, callback,
+refresh worker), and the `microsoft` OAuth provider entry (shared
+with OneDrive).
+
 ## v0.22.0 — 2026-05-06
 
 **Scanner perf — parallel permission fetches.** Final follow-up to the

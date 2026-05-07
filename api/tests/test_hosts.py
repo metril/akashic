@@ -245,7 +245,7 @@ async def test_update_host_preserves_secret_via_sentinel(client: AsyncClient):
         "/api/hosts",
         json={
             "name": "ssh-box",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h",
                 "username": "u",
@@ -313,7 +313,7 @@ async def test_delete_host_without_attached_sources_succeeds(
         "/api/hosts",
         json={
             "name": "lonely",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
                 "known_hosts_path": "/etc/ssh/known_hosts",
@@ -340,7 +340,7 @@ async def test_create_host_unsupported_type_returns_400(client: AsyncClient):
 async def test_create_host_duplicate_name_returns_409(client: AsyncClient):
     body = {
         "name": "dup",
-        "type": "ssh",
+        "type": "smb",
         "connection_config": {
             "host": "h", "username": "u",
             "known_hosts_path": "/etc/ssh/known_hosts",
@@ -437,7 +437,7 @@ async def test_create_source_host_type_mismatch_returns_400(
         "/api/sources",
         json={
             "name": "wrong-type",
-            "type": "ssh",  # mismatched
+            "type": "nfs",  # mismatched (host is smb)
             "host_id": host_id,
             "connection_config": {},
         },
@@ -499,7 +499,7 @@ async def test_scanner_reachability_summary_with_no_sources(
         host = Host(
             id=uuid.uuid4(),
             name="empty-host",
-            type="ssh",
+            type="smb",
             connection_config={
                 "host": "h", "username": "u",
                 "known_hosts_path": "/etc/ssh/known_hosts",
@@ -595,7 +595,7 @@ async def test_create_host_audit_event_recorded(
         "/api/hosts",
         json={
             "name": "audit-host",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
                 "known_hosts_path": "/etc/ssh/known_hosts",

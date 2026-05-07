@@ -76,7 +76,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   // the first compatible host (or NEW_HOST if there are none).
   useEffect(() => {
     setShareConfig({});
-    setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+    setHostConfig({} as HostConfig);
     setTestResult(null);
     setFormError(null);
     if (HOSTLESS_SOURCE_TYPES.has(type)) {
@@ -113,7 +113,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const fieldValidation = useFieldValidation(liveFieldErrors);
   const hostError =
     isCreatingHost && !isHostless
-      ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint" | "dropbox" | "box">, hostConfig)
+      ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "webdav" | "gdrive" | "onedrive" | "dropbox">, hostConfig)
       : null;
   const validationError = shareError ?? hostError;
   const canSubmit =
@@ -186,7 +186,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
       });
       setName("");
       setShareConfig({});
-      setHostConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+      setHostConfig({} as HostConfig);
       setPreferredPool("");
       setMaxParallelScanners(1);
       setIsRemovable(false);

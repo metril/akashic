@@ -192,8 +192,6 @@ func sourceRoot(src leasedSource) string {
 	case "nfs":
 		return stringFromConfig(cfg, "export_path",
 			stringFromConfig(cfg, "path", ""))
-	case "ssh":
-		return stringFromConfig(cfg, "root_path", "/")
 	case "smb":
 		// go-smb2 paths are relative to the share root, so "" is the
 		// right starting point.
@@ -213,7 +211,7 @@ func joinSubpath(srcType, root, sub string) string {
 		return root
 	}
 	switch srcType {
-	case "smb", "s3", "ssh":
+	case "smb", "s3":
 		// Forward-slash semantics across the wire.
 		if root == "" {
 			return sub

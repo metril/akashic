@@ -49,16 +49,16 @@ def _admin_client(setup_db, user: User) -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-async def _seed_ssh_source(setup_db) -> uuid.UUID:
+async def _seed_smb_source(setup_db) -> uuid.UUID:
     async with setup_db() as db:
         src = Source(
             id=uuid.uuid4(),
             name="rack-3",
-            type="ssh",
+            type="smb",
             connection_config={
                 "host": "rack3.example.net",
                 "username": "akashic",
-                "port": 22,
+                "share": "Public",
                 "password": "super-secret-do-not-leak",
             },
         )
@@ -69,7 +69,7 @@ async def _seed_ssh_source(setup_db) -> uuid.UUID:
 
 @pytest.mark.asyncio
 async def test_list_endpoint_omits_heavy_fields(setup_db, admin_user):
-    await _seed_ssh_source(setup_db)
+    await _seed_smb_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.get("/api/sources")
     assert r.status_code == 200
@@ -80,14 +80,14 @@ async def test_list_endpoint_omits_heavy_fields(setup_db, admin_user):
     assert "exclude_patterns" not in body
     # Lean fields present:
     assert body["name"] == "rack-3"
-    assert body["type"] == "ssh"
+    assert body["type"] == "smb"
     # Server-rendered summary derived from the (now-omitted) config:
-    assert body["summary"] == "akashic@rack3.example.net"
+    assert body["summary"] == "\\\\rack3.example.net\\Public"
 
 
 @pytest.mark.asyncio
 async def test_detail_endpoint_returns_full_config(setup_db, admin_user):
-    src_id = await _seed_ssh_source(setup_db)
+    src_id = await _seed_smb_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.get(f"/api/sources/{src_id}")
     assert r.status_code == 200

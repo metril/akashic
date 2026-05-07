@@ -92,7 +92,7 @@ async def test_resolve_groups_ssh_unsupported(client, db_session):
     from akashic.models import Source
 
     token = await _register_login(client)
-    src = Source(id=uuid.uuid4(), name="t", type="ssh", connection_config={})
+    src = Source(id=uuid.uuid4(), name="t", type="smb", connection_config={})
     db_session.add(src)
     await db_session.commit()
 

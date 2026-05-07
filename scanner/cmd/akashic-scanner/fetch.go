@@ -90,12 +90,6 @@ func buildConnector(
 		return connector.NewLocalConnector(), "", nil
 	case "nfs":
 		return connector.NewNFSConnector(), "", nil
-	case "ssh":
-		p := port
-		if p == 0 {
-			p = 22
-		}
-		return connector.NewSSHConnector(host, p, user, password, keyPath, keyPassphrase, knownHosts), "", nil
 	case "smb":
 		p := port
 		if p == 0 {
@@ -118,22 +112,6 @@ func buildConnector(
 		// CLI path; they're scan-time scoping flags that live in the
 		// scan-time connection_config.
 		return connector.NewImmichConnector(host, password, nil, false, true), "", nil
-	case "azureblob":
-		// v0.9.0 — CLI maps `host` → account_name, `bucket` →
-		// container, `password` → account_key. SAS / Azure AD modes
-		// aren't reachable via the CLI path; the agent path
-		// (connectorFromLeased) is where production scans land.
-		return connector.NewAzureBlobConnector(host, bucket, "account_key", password, "", ""), "", nil
-	case "gcs":
-		// v0.10.0 — CLI maps `bucket` → GCS bucket, `password` →
-		// service account JSON contents. Application-default mode
-		// isn't reachable via the CLI path (it'd need the same
-		// goroutine ADC chain the production agent walks).
-		mode := "service_account_json"
-		if password == "" {
-			mode = "application_default"
-		}
-		return connector.NewGCSConnector(bucket, "", mode, password), "", nil
 	case "webdav":
 		// v0.11.0 — CLI maps `host` → URL, `user`+`password` →
 		// basic auth creds. tls_verify is hard-coded true on the
@@ -155,25 +133,10 @@ func buildConnector(
 		return connector.NewOneDriveConnector(&connector.OneDriveConfig{
 			AccessToken: password,
 		}), "", nil
-	case "sharepoint":
-		// v0.16.0 — `password` carries the access token; site/drive
-		// ids would require widening the buildConnector signature
-		// and aren't in scope for the CLI path. Production scans go
-		// through the agent (connectorFromLeased) where site/drive
-		// ids are honoured.
-		return connector.NewSharePointConnector(&connector.SharePointConfig{
-			AccessToken: password,
-		}), "", nil
 	case "dropbox":
 		// v0.17.0 — `password` carries the access token; path scope
 		// only reachable via the agent path.
 		return connector.NewDropboxConnector(&connector.DropboxConfig{
-			AccessToken: password,
-		}), "", nil
-	case "box":
-		// v0.18.0 — `password` carries the access token; folder_id
-		// only reachable via the agent path.
-		return connector.NewBoxConnector(&connector.BoxConfig{
 			AccessToken: password,
 		}), "", nil
 	default:

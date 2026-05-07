@@ -10,7 +10,6 @@ import {
 import { ProfilePicker } from "../credentials/ProfilePicker";
 
 const HOST_TYPE_OPTIONS: { value: HostType; label: string }[] = [
-  { value: "ssh", label: "SSH / SFTP" },
   { value: "smb", label: "SMB / CIFS" },
   { value: "nfs", label: "NFS" },
   { value: "s3", label: "S3-compatible" },
@@ -30,7 +29,7 @@ export function AddHostForm({ onCreated }: Props) {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    setConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+    setConfig({} as HostConfig);
     setProfileId(null);
     setFormError(null);
   }, [type]);
@@ -53,7 +52,7 @@ export function AddHostForm({ onCreated }: Props) {
         credential_profile_id: profileId,
       });
       setName("");
-      setConfig(type === "ssh" ? ({ auth: "password" } as HostConfig) : ({} as HostConfig));
+      setConfig({} as HostConfig);
       setProfileId(null);
       onCreated?.();
     } catch (err) {

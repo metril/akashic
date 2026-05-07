@@ -371,12 +371,11 @@ def test_source_without_principal_domain_binds_smb_only():
     assert _source_matches(nfs, ident) is False
 
 
-def test_source_matches_posix_uid_to_local_ssh_nfs():
+def test_source_matches_posix_uid_to_local_nfs():
     ident = ExtractedIdentity(
         identity_type="posix_uid", identifier="-1", groups=["g"], confidence="name",
     )
     assert _source_matches(_src(type_="local"), ident) is True
-    assert _source_matches(_src(type_="ssh"), ident) is True
     assert _source_matches(_src(type_="nfs"), ident) is True
     assert _source_matches(_src(type_="smb"), ident) is False
     assert _source_matches(_src(type_="s3"), ident) is False

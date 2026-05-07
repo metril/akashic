@@ -372,34 +372,14 @@ async def get_credential_for_source(
 async def mint_access_token_for_source(
     db: AsyncSession, source_id: uuid.UUID
 ) -> tuple[str, datetime | None] | None:
-    """Return ``(fresh_access_token, expires_at)`` for any source
-    with an auth credential, OAuth or JWT-app-auth. Returns ``None``
-    when neither path applies — the caller treats the source as
-    auth-disabled and skips access-token injection.
+    """Return ``(fresh_access_token, expires_at)`` for an OAuth-attached
+    source. Returns ``None`` when no credential is wired up — the caller
+    treats the source as auth-disabled and skips access-token injection.
 
-    Dispatch order:
-
-      1. **Box JWT app-auth** (v0.19.0): when ``source.type == "box"``
-         and ``connection_config["auth_mode"] == "jwt"``, mint via
-         ``box_jwt.mint_access_token`` against the persisted
-         private_key + client credentials.
-      2. **OAuth** (v0.12.0+): look up the source's
-         ``SourceOAuthCredential`` row, refresh if expired.
-
-    Called at scan-lease time and from the scanner-facing refresh
-    endpoint. Auth failures propagate as ``OAuthExchangeFailed``.
+    Looks up the source's ``SourceOAuthCredential`` row and refreshes
+    if expired. Called at scan-lease time and from the scanner-facing
+    refresh endpoint. Auth failures propagate as ``OAuthExchangeFailed``.
     """
-    # Inspect the source row first — its type + connection_config
-    # tell us which auth path to use.
-    from akashic.models.source import Source as _Source
-    source = await db.get(_Source, source_id)
-    if source is None:
-        return None
-    cfg = source.connection_config or {}
-    if source.type == "box" and (cfg.get("auth_mode") or "") == "jwt":
-        from akashic.services import box_jwt
-        return await box_jwt.mint_access_token(cfg)
-
     cred = await get_credential_for_source(db, source_id)
     if cred is None:
         return None

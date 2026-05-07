@@ -39,7 +39,7 @@ from akashic.services.source_tester import TestResult
 router = APIRouter(prefix="/api/hosts", tags=["hosts"])
 
 
-_HOST_TYPES = {"ssh", "smb", "nfs", "s3"}
+_HOST_TYPES = {"smb", "nfs", "s3"}
 
 
 async def _source_count_for(db: AsyncSession, host_id: uuid.UUID) -> int:
@@ -258,20 +258,20 @@ class CheckHostReachabilityResponse(BaseModel):
     checked_at: datetime
 
 
-_DEFAULT_PORTS = {"ssh": 22, "smb": 445, "nfs": 2049}
+_DEFAULT_PORTS = {"smb": 445, "nfs": 2049}
 
 
 def _probe_host(host_type: str, cfg: dict) -> TestResult:
     """Lightweight host-level reachability probe.
 
     Doesn't speak any protocol — just opens a TCP connection to the
-    host:port (SSH/SMB/NFS) or pings the S3 endpoint. The point is
+    host:port (SMB/NFS) or pings the S3 endpoint. The point is
     to validate the host *exists and is reachable*; actual auth and
     share-level checks happen through the source-level test once the
     user attaches a share.
     """
     import socket
-    if host_type in {"ssh", "smb", "nfs"}:
+    if host_type in {"smb", "nfs"}:
         host = (cfg.get("host") or "").strip()
         if not host:
             return TestResult(ok=False, step="config", error="host required")

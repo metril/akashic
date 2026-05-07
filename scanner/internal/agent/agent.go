@@ -412,16 +412,6 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 		return connector.NewLocalConnector(), nil
 	case "nfs":
 		return connector.NewNFSConnector(), nil
-	case "ssh":
-		return connector.NewSSHConnector(
-			stringFromConfig(cfg, "host", ""),
-			intFromConfig(cfg, "port", 22),
-			stringFromConfig(cfg, "username", ""),
-			stringFromConfig(cfg, "password", ""),
-			stringFromConfig(cfg, "key_path", ""),
-			stringFromConfig(cfg, "key_passphrase", ""),
-			stringFromConfig(cfg, "known_hosts", ""),
-		), nil
 	case "smb":
 		return connector.NewSMBConnector(
 			stringFromConfig(cfg, "host", ""),
@@ -473,35 +463,6 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			boolFromConfig(cfg, "include_archived", false),
 			boolFromConfig(cfg, "tls_verify", true),
 		), nil
-	case "azureblob":
-		// v0.9.0 — Tier 2 PR 2. Hostless: account_name + container +
-		// auth fields all on the source. Three auth modes:
-		// account_key (Shared Key auth), sas_token (Shared Access
-		// Signature query string), azure_ad (DefaultAzureCredential
-		// — picks up workload identity / env / az login). The auth
-		// secret arrives in the connection_config field that
-		// matches the chosen mode.
-		return connector.NewAzureBlobConnector(
-			stringFromConfig(cfg, "account_name", ""),
-			stringFromConfig(cfg, "container", ""),
-			stringFromConfig(cfg, "auth_mode", ""),
-			stringFromConfig(cfg, "account_key", ""),
-			stringFromConfig(cfg, "sas_token", ""),
-			stringFromConfig(cfg, "endpoint_suffix", ""),
-		), nil
-	case "gcs":
-		// v0.10.0 — Tier 2 PR 3. Hostless: bucket + (optional prefix)
-		// + auth fields all on the source. Two auth modes:
-		// service_account_json (paste JSON key contents),
-		// application_default (workload identity / env / gcloud).
-		// HMAC users go through the S3 connector pointed at
-		// storage.googleapis.com instead.
-		return connector.NewGCSConnector(
-			stringFromConfig(cfg, "bucket", ""),
-			stringFromConfig(cfg, "prefix", ""),
-			stringFromConfig(cfg, "auth_mode", ""),
-			stringFromConfig(cfg, "service_account_json", ""),
-		), nil
 	case "webdav":
 		// v0.11.0 — Tier 4 PR 1. Hostless. URL + basic auth creds
 		// on the source. Covers Nextcloud, ownCloud, Synology File
@@ -529,18 +490,6 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 			AccessToken: stringFromConfig(cfg, "access_token", ""),
 			ItemID:      stringFromConfig(cfg, "item_id", ""),
 		}), nil
-	case "sharepoint":
-		// v0.16.0 — Tier 1 PR-C part 3. Same OAuth + Graph
-		// machinery as OneDrive, just rooted at a SharePoint site
-		// instead of /me/drive. ``site_id`` is required; empty
-		// drive_id falls through to the site's default document
-		// library; empty item_id starts from the drive root.
-		return connector.NewSharePointConnector(&connector.SharePointConfig{
-			AccessToken: stringFromConfig(cfg, "access_token", ""),
-			SiteID:      stringFromConfig(cfg, "site_id", ""),
-			DriveID:     stringFromConfig(cfg, "drive_id", ""),
-			ItemID:      stringFromConfig(cfg, "item_id", ""),
-		}), nil
 	case "dropbox":
 		// v0.17.0 — Tier 4 PR 2. OAuth via the Dropbox provider in
 		// the OAuth registry. Path-based addressing (no native_id
@@ -548,14 +497,6 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 		return connector.NewDropboxConnector(&connector.DropboxConfig{
 			AccessToken: stringFromConfig(cfg, "access_token", ""),
 			Path:        stringFromConfig(cfg, "path", ""),
-		}), nil
-	case "box":
-		// v0.18.0 — Tier 4 PR 3. OAuth via the Box provider in the
-		// OAuth registry. Opaque-id addressing like Drive; FolderID
-		// empty maps to the literal "0" (Box's All Files root).
-		return connector.NewBoxConnector(&connector.BoxConfig{
-			AccessToken: stringFromConfig(cfg, "access_token", ""),
-			FolderID:    stringFromConfig(cfg, "folder_id", ""),
 		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", src.Type)

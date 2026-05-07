@@ -152,26 +152,7 @@ def _build_fetch_argv(source, entry_path: str) -> tuple[list[str], str, str]:
         "--path", entry_path,
         "--password-stdin",
     ]
-    if source.type == "ssh":
-        # Mirror source_tester's strict-host-key invariant: refuse to fetch
-        # if known_hosts_path is missing on the source. The source-create
-        # form requires it, so this only fails for sources created out of
-        # band (direct DB insert, half-finished migration, etc.).
-        kh = (cfg.get("known_hosts_path") or "").strip()
-        if not kh:
-            raise ContentFetchFailed(
-                "config",
-                "ssh source missing known_hosts_path; refusing to fetch",
-            )
-        argv += [
-            "--host", cfg.get("host", ""),
-            "--port", str(int(cfg.get("port") or 22)),
-            "--user", cfg.get("username", ""),
-            "--known-hosts", kh,
-        ]
-        if cfg.get("key_path"):
-            argv += ["--key", cfg["key_path"]]
-    elif source.type == "smb":
+    if source.type == "smb":
         argv += [
             "--host", cfg.get("host", ""),
             "--port", str(int(cfg.get("port") or 445)),

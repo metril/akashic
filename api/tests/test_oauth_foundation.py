@@ -107,7 +107,7 @@ def test_state_jwt_rejects_garbage():
 
 def test_known_providers_includes_tier1_and_tier4():
     names = set(known_providers())
-    assert {"google", "microsoft", "dropbox", "box"} <= names
+    assert {"google", "microsoft", "dropbox"} <= names
 
 
 def test_get_provider_unknown_raises():

@@ -8,7 +8,7 @@ from akashic.schemas.source import _scrub_config
 
 class HostCreate(BaseModel):
     name: str
-    type: str  # "ssh" | "smb" | "nfs" | "s3" — local has no host
+    type: str  # "smb" | "nfs" | "s3" — local has no host
     connection_config: dict
     credential_profile_id: uuid.UUID | None = None
 

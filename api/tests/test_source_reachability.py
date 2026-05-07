@@ -45,7 +45,6 @@ from akashic.services.source_tester import TestResult as _TestResult
         ("local", {}, False),
         # Network sources opt in via UI; default to false even though
         # they could be intermittent.
-        ("ssh", {"host": "h", "username": "u"}, False),
         ("smb", {"host": "h", "share": "s"}, False),
         ("nfs", {"host": "h", "export_path": "/e"}, False),
         ("s3", {"bucket": "b", "region": "us-east-1"}, False),
@@ -394,7 +393,7 @@ async def test_check_reachability_uses_persisted_credentials(
         "/api/sources",
         json={
             "name": "ssh-creds",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h",
                 "username": "u",
@@ -408,7 +407,7 @@ async def test_check_reachability_uses_persisted_credentials(
     r2 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
     assert r2.status_code == 200
     assert r2.json()["result"]["ok"] is True
-    assert captured["type"] == "ssh"
+    assert captured["type"] == "smb"
     # Persisted creds — including the password — flow into the probe
     # untouched. The /test endpoint never sees them.
     assert captured["cfg"]["password"] == "secret-001"

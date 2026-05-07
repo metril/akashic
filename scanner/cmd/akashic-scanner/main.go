@@ -117,12 +117,6 @@ func main() {
 		conn = connector.NewLocalConnector()
 	case "nfs":
 		conn = connector.NewNFSConnector()
-	case "ssh":
-		p := *port
-		if p == 0 {
-			p = 22
-		}
-		conn = connector.NewSSHConnector(*host, p, *username, *password, *keyPath, *keyPassphrase, *knownHosts)
 	case "smb":
 		p := *port
 		if p == 0 {

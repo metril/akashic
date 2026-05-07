@@ -1,7 +1,7 @@
 export const SOURCE_TYPES = [
-  "local", "ssh", "smb", "nfs", "s3",
-  "paperless", "immich", "azureblob", "gcs", "webdav",
-  "gdrive", "onedrive", "sharepoint", "dropbox", "box",
+  "local", "smb", "nfs", "s3",
+  "paperless", "immich", "webdav",
+  "gdrive", "onedrive", "dropbox",
 ] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
@@ -12,32 +12,23 @@ export const HOSTLESS_SOURCE_TYPES: ReadonlySet<SourceType> = new Set([
   "local",
   "paperless",
   "immich",
-  "azureblob",
-  "gcs",
   "webdav",
   "gdrive",
   "onedrive",
-  "sharepoint",
   "dropbox",
-  "box",
 ]);
 
 export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
   local: "Local filesystem",
-  ssh: "SSH / SFTP",
   smb: "SMB / CIFS",
   nfs: "NFS",
   s3: "S3-compatible",
   paperless: "Paperless-ngx",
   immich: "Immich",
-  azureblob: "Azure Blob Storage",
-  gcs: "Google Cloud Storage",
   webdav: "WebDAV (Nextcloud / ownCloud / Synology / mod_dav)",
   gdrive: "Google Drive",
   onedrive: "OneDrive (Microsoft 365)",
-  sharepoint: "SharePoint document library",
   dropbox: "Dropbox",
-  box: "Box",
 };
 
 export type LocalConfig = {
@@ -76,17 +67,6 @@ export type NfsConfig = {
   krb5_password?: string;
   // Alternate krb5.conf path; default /etc/krb5.conf with DNS fallback.
   krb5_config_path?: string;
-};
-
-export type SshConfig = {
-  host: string;
-  port?: number;
-  username: string;
-  auth: "password" | "key";
-  password?: string;
-  key_path?: string;
-  key_passphrase?: string;
-  known_hosts_path: string;
 };
 
 export type SmbConfig = {
@@ -188,40 +168,6 @@ export type ImmichConfig = {
   tls_verify?: boolean;
 };
 
-// v0.9.0 — Azure Blob Storage (Tier 2 PR 2). Hostless: account name
-// + container + auth fields on the source. Three auth modes:
-//   - account_key: Shared Key. Account access key over stdin.
-//   - sas_token: Shared Access Signature query string.
-//   - azure_ad: DefaultAzureCredential — pod identity / env / az login.
-// endpoint_suffix defaults to "core.windows.net"; sovereign clouds
-// (US gov / China) can override with "core.usgovcloudapi.net" etc.
-export type AzureBlobAuthMode = "account_key" | "sas_token" | "azure_ad";
-
-export type AzureBlobConfig = {
-  account_name: string;
-  container: string;
-  auth_mode: AzureBlobAuthMode;
-  account_key?: string;
-  sas_token?: string;
-  endpoint_suffix?: string;
-};
-
-// v0.10.0 — Google Cloud Storage (Tier 2 PR 3). Hostless: bucket +
-// auth fields on the source. Two auth modes:
-//   - service_account_json: paste service-account JSON key contents.
-//   - application_default: ADC chain (workload identity / env / gcloud).
-// HMAC users go through the S3 source type with endpoint
-// `https://storage.googleapis.com` instead — the existing S3
-// connector handles the XML API correctly.
-export type GCSAuthMode = "service_account_json" | "application_default";
-
-export type GCSConfig = {
-  bucket: string;
-  prefix?: string;
-  auth_mode: GCSAuthMode;
-  service_account_json?: string;
-};
-
 // v0.11.0 — WebDAV (Tier 4 PR 1). Hostless: URL + basic auth on the
 // source. The URL points at the share root: for Nextcloud,
 // https://nextcloud.example.com/remote.php/dav/files/<user>/; for
@@ -259,19 +205,6 @@ export type OneDriveConfig = {
   item_id?: string;
 };
 
-// v0.16.0 — SharePoint document library. OAuth-shaped via Microsoft
-// Graph (shares the OneDrive client). ``site_id`` is the colon-
-// triple Graph uses to address a site; required.
-// ``drive_id`` is optional — empty falls through to the site's
-// default document library. ``item_id`` is the optional starting
-// folder.
-export type SharePointConfig = {
-  oauth_credential_id?: string;
-  site_id?: string;
-  drive_id?: string;
-  item_id?: string;
-};
-
 // v0.17.0 — Dropbox. OAuth-shaped (Tier 4 PR 2). Path-based
 // addressing: ``path`` is optional (empty == scan from the root of
 // the user's Dropbox); non-empty must start with ``/``.
@@ -280,50 +213,17 @@ export type DropboxConfig = {
   path?: string;
 };
 
-// v0.18.0 — Box. OAuth-shaped (Tier 4 PR 3). Opaque-id addressing
-// like Drive — ``folder_id`` is optional (empty maps to the literal
-// "0", Box's All Files root).
-//
-// v0.19.0 added JWT app-auth as a second variant. When ``auth_mode
-// == "jwt"`` the form collects an RSA private key + Box client
-// credentials directly rather than going through the Sign-in popup;
-// the API mints a JWT assertion at scan/lease time and exchanges it
-// for an access token. Default (``auth_mode`` unset or "oauth") keeps
-// the v0.18.0 OAuth flow.
-export type BoxAuthMode = "oauth" | "jwt";
-
-export type BoxConfig = {
-  auth_mode?: BoxAuthMode;
-  // OAuth path (v0.18.0).
-  oauth_credential_id?: string;
-  // JWT app-auth path (v0.19.0). All required when auth_mode="jwt".
-  client_id?: string;
-  client_secret?: string;
-  enterprise_id?: string;
-  public_key_id?: string;
-  private_key?: string;
-  // Optional — only when the PEM is encrypted.
-  private_key_passphrase?: string;
-  // Common.
-  folder_id?: string;
-};
-
 export type AnyConfig =
   | LocalConfig
   | NfsConfig
-  | SshConfig
   | SmbConfig
   | S3Config
   | PaperlessConfig
   | ImmichConfig
-  | AzureBlobConfig
-  | GCSConfig
   | WebDAVConfig
   | GDriveConfig
   | OneDriveConfig
-  | SharePointConfig
-  | DropboxConfig
-  | BoxConfig;
+  | DropboxConfig;
 
 export interface FieldsProps<C> {
   value: Partial<C>;
@@ -381,17 +281,6 @@ export function validateSourceConfig(
       }
       return null;
     }
-    case "ssh": {
-      if (!isStr("host")) return "Host is required";
-      if (!isStr("username")) return "Username is required";
-      if (!isStr("known_hosts_path")) return "Known hosts path is required";
-      const auth = c["auth"];
-      if (auth === "password" && !isStr("password"))
-        return "Password is required";
-      if (auth === "key" && !isStr("key_path"))
-        return "Key path is required";
-      return null;
-    }
     case "smb":
       if (!isStr("host")) return "Host is required";
       if (!isStr("username")) return "Username is required";
@@ -426,30 +315,6 @@ export function validateSourceConfig(
       if (!isStr("api_key")) return "API key is required";
       return null;
     }
-    case "azureblob": {
-      if (!isStr("account_name")) return "Account name is required";
-      if (!isStr("container")) return "Container is required";
-      const mode = (c["auth_mode"] as AzureBlobAuthMode | undefined) ?? "account_key";
-      if (mode === "account_key" && !isStr("account_key")) {
-        return "Account key is required";
-      }
-      if (mode === "sas_token" && !isStr("sas_token")) {
-        return "SAS token is required";
-      }
-      // azure_ad has no inline secret — DefaultAzureCredential pulls
-      // env / pod identity / az login at scan time.
-      return null;
-    }
-    case "gcs": {
-      if (!isStr("bucket")) return "Bucket is required";
-      const mode = (c["auth_mode"] as GCSAuthMode | undefined) ?? "service_account_json";
-      if (mode === "service_account_json" && !isStr("service_account_json")) {
-        return "Service account JSON is required";
-      }
-      // application_default has no inline secret — ADC chain pulls
-      // workload identity / env / gcloud at scan time.
-      return null;
-    }
     case "webdav": {
       if (!isStr("url")) return "URL is required";
       const url = (c["url"] as string).trim();
@@ -475,13 +340,6 @@ export function validateSourceConfig(
       }
       return null;
     }
-    case "sharepoint": {
-      if (!isStr("oauth_credential_id")) {
-        return "Sign in with Microsoft to connect a SharePoint account";
-      }
-      if (!isStr("site_id")) return "Site ID is required";
-      return null;
-    }
     case "dropbox": {
       if (!isStr("oauth_credential_id")) {
         return "Sign in with Dropbox to connect an account";
@@ -490,24 +348,6 @@ export function validateSourceConfig(
       const p = (c["path"] as string | undefined)?.trim();
       if (p && p !== "/" && !p.startsWith("/")) {
         return "Path must start with /";
-      }
-      return null;
-    }
-    case "box": {
-      const mode = (c["auth_mode"] as string | undefined) ?? "oauth";
-      if (mode === "jwt") {
-        // JWT app-auth requires the full Box-app config inline.
-        for (const k of [
-          "client_id", "client_secret", "enterprise_id",
-          "public_key_id", "private_key",
-        ]) {
-          if (!isStr(k)) return `${k.replace(/_/g, " ")} is required`;
-        }
-        return null;
-      }
-      // OAuth (default).
-      if (!isStr("oauth_credential_id")) {
-        return "Sign in with Box to connect an account";
       }
       return null;
     }

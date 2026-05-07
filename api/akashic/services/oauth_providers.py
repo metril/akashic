@@ -14,9 +14,6 @@ authorization-code + refresh-token flow. Each entry knows:
                           the auth URL (Google: ``access_type=offline``
                           + ``prompt=consent`` for refresh tokens;
                           Microsoft: ``response_mode=query``)
-
-Box is OAuth + JWT app-auth; the JWT variant doesn't go through this
-flow at all and stays out of the registry.
 """
 from __future__ import annotations
 
@@ -63,7 +60,7 @@ _PROVIDERS: dict[str, OAuthProvider] = {
     ),
     "microsoft": OAuthProvider(
         name="microsoft",
-        label="Microsoft (OneDrive / SharePoint)",
+        label="Microsoft (OneDrive)",
         # /common/ accepts both consumer and work/school accounts. Per-
         # tenant deployments can override by setting redirect_uri to a
         # tenant-specific app registration.
@@ -103,18 +100,6 @@ _PROVIDERS: dict[str, OAuthProvider] = {
             "token_access_type": "offline",
         },
         email_field="email",
-        name_field="name",
-    ),
-    "box": OAuthProvider(
-        name="box",
-        label="Box",
-        auth_url="https://account.box.com/api/oauth2/authorize",
-        token_url="https://api.box.com/oauth2/token",
-        # Box scopes are coarse — root_readonly covers read access to
-        # files and folders the OAuth user can see.
-        scopes=["root_readonly"],
-        userinfo_url="https://api.box.com/2.0/users/me",
-        email_field="login",
         name_field="name",
     ),
 }

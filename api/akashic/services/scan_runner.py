@@ -73,19 +73,6 @@ def _build_argv(binary: str, source: Source, scan: Scan) -> tuple[list[str], dic
     t = source.type
     if t == "local":
         argv += ["-root", str(cfg.get("path", ""))]
-    elif t == "ssh":
-        argv += [
-            "-host", str(cfg.get("host", "")),
-            "-port", str(cfg.get("port") or 22),
-            "-user", str(cfg.get("username", "")),
-            "-pass", str(cfg.get("password") or ""),
-            "-known-hosts", str(cfg.get("known_hosts_path") or ""),
-        ]
-        if cfg.get("key_path"):
-            argv += ["-key", str(cfg["key_path"])]
-        if cfg.get("key_passphrase"):
-            argv += ["-key-passphrase", str(cfg["key_passphrase"])]
-        argv += ["-root", str(cfg.get("root_path") or "/")]
     elif t == "smb":
         argv += [
             "-host", str(cfg.get("host", "")),

@@ -1,7 +1,7 @@
 """Pre-flight connection tests for the source-creation form.
 
 Local sources are checked directly (the API container has filesystem access
-to whatever is mounted in). SSH/SMB/S3/NFS sources dispatch to the bundled
+to whatever is mounted in). SMB/S3/NFS sources dispatch to the bundled
 `akashic-scanner test-connection` subcommand, which speaks each protocol
 natively and exits with a structured `step:reason` stderr line on failure.
 
@@ -136,33 +136,6 @@ def test_local(cfg: dict) -> TestResult:
     if not os.access(path, os.R_OK):
         return TestResult(ok=False, step="list", error=f"not readable: {path}")
     return TestResult(ok=True)
-
-
-def test_ssh(cfg: dict) -> TestResult:
-    host = (cfg.get("host") or "").strip()
-    user = (cfg.get("username") or "").strip()
-    if not host or not user:
-        return TestResult(ok=False, step="config", error="host and username required")
-    if not (cfg.get("known_hosts_path") or "").strip():
-        return TestResult(ok=False, step="config", error="known_hosts_path required")
-
-    argv = [
-        "test-connection", "--type=ssh",
-        "--host", host,
-        "--port", str(int(cfg.get("port") or 22)),
-        "--user", user,
-        "--known-hosts", cfg["known_hosts_path"],
-        "--password-stdin",
-    ]
-    if cfg.get("key_path"):
-        argv += ["--key", cfg["key_path"]]
-    # key_passphrase is a credential — pipe via stdin alongside password so it
-    # doesn't end up in /proc/<pid>/cmdline.
-    return _test_via_scanner(
-        argv,
-        password=cfg.get("password") or "",
-        key_passphrase=cfg.get("key_passphrase") or "",
-    )
 
 
 def test_smb(cfg: dict) -> TestResult:
@@ -395,50 +368,6 @@ def test_paperless(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
-def test_azureblob(cfg: dict) -> TestResult:
-    """v0.9.0 — Tier 2 PR 2 probe (Azure Blob Storage).
-
-    Subprocesses the scanner CLI's `test-connection --type=azureblob`
-    so the same auth chain (Shared Key / SAS / DefaultAzureCredential)
-    that a production scan uses is exercised on the Test button. The
-    secret (account_key or sas_token) is piped over stdin via the
-    existing `--password-stdin` plumbing so it never appears in
-    `/proc/<pid>/cmdline`.
-    """
-    account = (cfg.get("account_name") or "").strip()
-    container = (cfg.get("container") or "").strip()
-    if not account or not container:
-        return TestResult(
-            ok=False, step="config", error="account_name and container required",
-        )
-    auth_mode = (cfg.get("auth_mode") or "").strip().lower()
-    if auth_mode not in ("", "account_key", "sas_token", "azure_ad"):
-        return TestResult(
-            ok=False, step="config",
-            error=f"invalid auth_mode {auth_mode!r}",
-        )
-    # Pick the credential matching the chosen auth mode. Empty
-    # auth_mode falls back the same way the connector does: account_key
-    # if account_key is set, sas_token if sas_token is set, else
-    # azure_ad (no inline secret needed).
-    secret = ""
-    if auth_mode == "account_key" or (auth_mode == "" and (cfg.get("account_key") or "").strip()):
-        secret = cfg.get("account_key") or ""
-    elif auth_mode == "sas_token" or (auth_mode == "" and (cfg.get("sas_token") or "").strip()):
-        secret = cfg.get("sas_token") or ""
-    argv = [
-        "test-connection", "--type=azureblob",
-        "--account-name", account,
-        "--container", container,
-        "--password-stdin",
-    ]
-    if auth_mode:
-        argv += ["--auth-mode", auth_mode]
-    if cfg.get("endpoint_suffix"):
-        argv += ["--endpoint-suffix", cfg["endpoint_suffix"]]
-    return _test_via_scanner(argv, password=secret)
-
-
 def test_webdav(cfg: dict) -> TestResult:
     """v0.11.0 — Tier 4 PR 1 probe (WebDAV).
 
@@ -502,42 +431,6 @@ def test_webdav(cfg: dict) -> TestResult:
     return TestResult(ok=True)
 
 
-def test_gcs(cfg: dict) -> TestResult:
-    """v0.10.0 — Tier 2 PR 3 probe (Google Cloud Storage).
-
-    Subprocesses the scanner CLI's `test-connection --type=gcs`. The
-    service account JSON key (when service_account_json mode is
-    chosen) goes over stdin via `--password-stdin` so the multi-KB
-    JSON payload doesn't bloat /proc/<pid>/cmdline. application_default
-    mode skips the secret entirely; the scanner picks up workload
-    identity at probe time.
-    """
-    bucket = (cfg.get("bucket") or "").strip()
-    if not bucket:
-        return TestResult(ok=False, step="config", error="bucket required")
-    auth_mode = (cfg.get("auth_mode") or "").strip().lower()
-    if auth_mode not in ("", "service_account_json", "application_default"):
-        return TestResult(
-            ok=False, step="config",
-            error=f"invalid auth_mode {auth_mode!r}",
-        )
-    secret = ""
-    if auth_mode == "service_account_json" or (
-        auth_mode == "" and (cfg.get("service_account_json") or "").strip()
-    ):
-        secret = cfg.get("service_account_json") or ""
-    argv = [
-        "test-connection", "--type=gcs",
-        "--bucket", bucket,
-        "--password-stdin",
-    ]
-    if auth_mode:
-        argv += ["--auth-mode", auth_mode]
-    if cfg.get("prefix"):
-        argv += ["--gcs-prefix", cfg["prefix"]]
-    return _test_via_scanner(argv, password=secret)
-
-
 def test_immich(cfg: dict) -> TestResult:
     """v0.8.0 — Tier 3 self-hosted library probe (photos / videos).
 
@@ -576,43 +469,6 @@ def test_immich(cfg: dict) -> TestResult:
         return TestResult(
             ok=False, step="list",
             error=f"GET /api/server-info/ping returned {resp.status_code}: {body}",
-        )
-    return TestResult(ok=True)
-
-
-def test_box(cfg: dict) -> TestResult:
-    """v0.18.0 — Tier 4 PR 3 probe (Box).
-
-    OAuth-shaped via the Box provider in the OAuth registry. Same
-    router-injected access_token flow as the other OAuth-shaped
-    types. Verifies the access token works against
-    ``/2.0/users/me``.
-    """
-    access_token = (cfg.get("access_token") or "").strip()
-    if not access_token:
-        return TestResult(
-            ok=False, step="auth",
-            error="no OAuth credential connected — sign in with Box "
-                  "from the source create or detail page",
-        )
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                "https://api.box.com/2.0/users/me",
-                params={"fields": "login,name"},
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-    except httpx.RequestError as exc:
-        return TestResult(ok=False, step="connect", error=str(exc))
-    if resp.status_code in (401, 403):
-        return TestResult(
-            ok=False, step="auth",
-            error=f"Box rejected the access token ({resp.status_code})",
-        )
-    if resp.status_code != 200:
-        return TestResult(
-            ok=False, step="list",
-            error=f"users/me returned {resp.status_code}: {resp.text[:200]}",
         )
     return TestResult(ok=True)
 
@@ -659,54 +515,6 @@ def test_dropbox(cfg: dict) -> TestResult:
             ok=False, step="list",
             error=f"get_current_account returned {resp.status_code}: "
                   f"{resp.text[:200]}",
-        )
-    return TestResult(ok=True)
-
-
-def test_sharepoint(cfg: dict) -> TestResult:
-    """v0.16.0 — Tier 1 PR-C probe (SharePoint document library).
-
-    OAuth-shaped via Microsoft Graph. Same router-injected access_token
-    flow as test_onedrive. Verifies the site is reachable by hitting
-    ``/sites/{site_id}`` (not ``/drive``) so a missing-drive error
-    doesn't mask a missing-site one.
-    """
-    access_token = (cfg.get("access_token") or "").strip()
-    site_id = (cfg.get("site_id") or "").strip()
-    if not access_token:
-        return TestResult(
-            ok=False, step="auth",
-            error="no OAuth credential connected — sign in with Microsoft "
-                  "from the source create or detail page",
-        )
-    if not site_id:
-        return TestResult(
-            ok=False, step="config",
-            error="site_id is required for SharePoint sources",
-        )
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
-                f"https://graph.microsoft.com/v1.0/sites/{site_id}",
-                params={"$select": "id,displayName,name,webUrl"},
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-    except httpx.RequestError as exc:
-        return TestResult(ok=False, step="connect", error=str(exc))
-    if resp.status_code in (401, 403):
-        return TestResult(
-            ok=False, step="auth",
-            error=f"Microsoft Graph rejected the access token ({resp.status_code})",
-        )
-    if resp.status_code == 404:
-        return TestResult(
-            ok=False, step="config",
-            error=f"site not found ({resp.status_code}) — check site_id",
-        )
-    if resp.status_code != 200:
-        return TestResult(
-            ok=False, step="list",
-            error=f"sites/{{id}} returned {resp.status_code}: {resp.text[:200]}",
         )
     return TestResult(ok=True)
 
@@ -798,20 +606,15 @@ def test_gdrive(cfg: dict) -> TestResult:
 
 _DISPATCH = {
     "local":     test_local,
-    "ssh":       test_ssh,
     "smb":       test_smb,
     "s3":        test_s3,
     "nfs":       test_nfs,
     "paperless": test_paperless,
     "immich":    test_immich,
-    "azureblob": test_azureblob,
-    "gcs":       test_gcs,
     "webdav":    test_webdav,
     "gdrive":    test_gdrive,
     "onedrive":  test_onedrive,
-    "sharepoint": test_sharepoint,
     "dropbox":   test_dropbox,
-    "box":       test_box,
 }
 
 

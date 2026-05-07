@@ -76,7 +76,7 @@ async def test_update_source_emits_diff_event(client: AsyncClient, setup_db):
         "/api/sources",
         json={
             "name": "src1",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "old-host",
                 "username": "u",
@@ -238,7 +238,7 @@ async def test_create_rejects_sentinel_for_secret_field(client: AsyncClient):
         "/api/sources",
         json={
             "name": "broken",
-            "type": "ssh",
+            "type": "smb",
             "connection_config": {
                 "host": "h",
                 "username": "u",
