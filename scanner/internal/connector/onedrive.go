@@ -189,11 +189,15 @@ func (c *OneDriveConnector) Walk(
 		if len(keepers) > 0 {
 			sem := make(chan struct{}, onedrivePermWorkers)
 			var wg sync.WaitGroup
+			cancelled := false
 			for i, k := range keepers {
 				select {
 				case <-ctx.Done():
-					return stats, ctx.Err()
+					cancelled = true
 				default:
+				}
+				if cancelled {
+					break
 				}
 				wg.Add(1)
 				sem <- struct{}{}
@@ -204,7 +208,12 @@ func (c *OneDriveConnector) Walk(
 					results[i] = permResult{perms: p, err: err}
 				}(i, k.item.ID)
 			}
+			// Drain in-flight goroutines before returning so the
+			// caller can't race with a still-writing background fetch.
 			wg.Wait()
+			if cancelled {
+				return stats, ctx.Err()
+			}
 		}
 
 		// Phase 3: emit in order. ACL on success; bump
@@ -300,11 +309,15 @@ func (c *OneDriveConnector) WalkShallow(
 	if len(fileKeepers) > 0 {
 		sem := make(chan struct{}, onedrivePermWorkers)
 		var wg sync.WaitGroup
+		cancelled := false
 		for i, k := range fileKeepers {
 			select {
 			case <-ctx.Done():
-				return subdirs, ctx.Err()
+				cancelled = true
 			default:
+			}
+			if cancelled {
+				break
 			}
 			wg.Add(1)
 			sem <- struct{}{}
@@ -316,6 +329,9 @@ func (c *OneDriveConnector) WalkShallow(
 			}(i, k.item.ID)
 		}
 		wg.Wait()
+		if cancelled {
+			return subdirs, ctx.Err()
+		}
 	}
 
 	for i, k := range fileKeepers {
