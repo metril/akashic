@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user
@@ -316,20 +317,26 @@ async def ingest_batch(
         for entry in existing_result.scalars():
             existing_by_path[entry.path] = entry
 
+    async def _apply_existing(existing: Entry, incoming) -> None:
+        """Update path for a row already present at this (source_id, path).
+        Used both for pre-loaded existing rows and for the race-loser
+        path where another concurrent batch inserted between our
+        pre-load and our flush."""
+        if entry_state_changed(existing, incoming):
+            db.add(_snapshot_version(existing, batch.scan_id))
+            _apply_entry_fields(existing, incoming)
+            if existing.kind == "file":
+                scan.files_changed += 1
+                changed_file_ids.append(str(existing.id))
+        existing.last_seen_at = now
+        existing.is_deleted = False
+        existing.deleted_at = None
+
     for incoming in batch.entries:
         existing = existing_by_path.get(incoming.path)
 
         if existing:
-            if entry_state_changed(existing, incoming):
-                # Snapshot the old state before overwriting
-                db.add(_snapshot_version(existing, batch.scan_id))
-                _apply_entry_fields(existing, incoming)
-                if existing.kind == "file":
-                    scan.files_changed += 1
-                    changed_file_ids.append(str(existing.id))
-            existing.last_seen_at = now
-            existing.is_deleted = False
-            existing.deleted_at = None
+            await _apply_existing(existing, incoming)
         else:
             buckets = compute_viewable_buckets(
                 incoming.acl, incoming.mode, incoming.uid, incoming.gid
@@ -367,24 +374,51 @@ async def ingest_batch(
                 first_seen_at=now,
                 last_seen_at=now,
             )
-            db.add(new_entry)
-            await db.flush()
-            # Seed a v0 row so version history starts on first observation.
-            db.add(_snapshot_version(new_entry, batch.scan_id))
 
-            # Phase C — a new entry under a tagged ancestor inherits the
-            # ancestor's tags. Cheap on the common case (no tagged
-            # ancestors); one indexed SELECT either way.
-            await propagate_to_new_entry(
-                db,
-                entry_id=new_entry.id,
-                source_id=batch.source_id,
-                path=new_entry.path,
-            )
+            # Race window: two concurrent batches can both pre-load
+            # existing_by_path, both find no row, and both reach the
+            # INSERT. Without the savepoint the loser's flush raises
+            # uq_entries_source_path → IntegrityError that aborts the
+            # whole batch. With a savepoint we can swallow the conflict,
+            # re-fetch the winner's row, and apply the incoming data on
+            # top — converting the race from "batch failure" to "extra
+            # SELECT + treat as update" (review C3).
+            inserted_new = False
+            try:
+                async with db.begin_nested():
+                    db.add(new_entry)
+                    await db.flush()
+                inserted_new = True
+            except IntegrityError:
+                # Another batch beat us to (source_id, path). Re-fetch
+                # the winner and apply our values as if we had found it
+                # in pre-load.
+                race_winner = (await db.execute(
+                    select(Entry).where(
+                        Entry.source_id == batch.source_id,
+                        Entry.path == incoming.path,
+                    )
+                )).scalar_one()
+                existing_by_path[incoming.path] = race_winner
+                await _apply_existing(race_winner, incoming)
 
-            if incoming.kind == "file":
-                new_file_ids.append(str(new_entry.id))
-                scan.files_new += 1
+            if inserted_new:
+                # Seed a v0 row so version history starts on first observation.
+                db.add(_snapshot_version(new_entry, batch.scan_id))
+
+                # Phase C — a new entry under a tagged ancestor inherits the
+                # ancestor's tags. Cheap on the common case (no tagged
+                # ancestors); one indexed SELECT either way.
+                await propagate_to_new_entry(
+                    db,
+                    entry_id=new_entry.id,
+                    source_id=batch.source_id,
+                    path=new_entry.path,
+                )
+
+                if incoming.kind == "file":
+                    new_file_ids.append(str(new_entry.id))
+                    scan.files_new += 1
 
         if incoming.kind == "file":
             files_processed += 1
