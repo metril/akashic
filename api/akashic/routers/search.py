@@ -60,6 +60,7 @@ async def _enrich_hits_with_dups(
     db: AsyncSession,
     hits: list,
     allowed_source_ids: set | None,
+    scope_source_id: uuid.UUID | None = None,
 ) -> None:
     """Populate ``content_hash`` + ``dup_count`` on every hit.
 
@@ -67,10 +68,21 @@ async def _enrich_hits_with_dups(
     partial composite from migration 0021):
 
     1. Look up content_hash for each returned entry id.
-    2. Count occurrences per hash within the user's permitted source set.
+    2. Count occurrences per hash within the user's currently-visible
+       source set.
 
     dup_count is then ``count - 1`` (subtract the row itself). Hits with
     no content_hash (directories, unfinished scans) skip both fields.
+
+    Source-scope precedence (review I12):
+    - ``scope_source_id`` (the caller's ``source_id`` query param) wins
+      if set — without this, filtering search to one source still
+      yielded a "+N copies" badge counting dups outside that source,
+      which the user can't see in the result list. Now the badge
+      consistently reports dups within the same source filter the
+      results are bounded by.
+    - Otherwise fall back to ``allowed_source_ids`` (non-admin user's
+      permitted set) — admin with no source filter sees a global count.
     """
     if not hits:
         return
@@ -91,7 +103,9 @@ async def _enrich_hits_with_dups(
         Entry.kind == "file",
         Entry.source_id.is_not(None),
     ]
-    if allowed_source_ids is not None:
+    if scope_source_id is not None:
+        conditions.append(Entry.source_id == scope_source_id)
+    elif allowed_source_ids is not None:
         conditions.append(Entry.source_id.in_(allowed_source_ids))
     count_rows = (
         await db.execute(
@@ -270,7 +284,7 @@ async def search(
 
         # v0.20.0 — attach content_hash + dup_count so the row UI can
         # surface a "+N copies" badge linking into /duplicates.
-        await _enrich_hits_with_dups(db, hits, allowed_source_ids)
+        await _enrich_hits_with_dups(db, hits, allowed_source_ids, scope_source_id=source_id)
 
         if override is not None:
             await record_event(
@@ -407,7 +421,7 @@ async def search(
         # Meili path. SQL fallback already has the entries in scope; we
         # could short-cut by reading e.content_hash directly, but using
         # the helper keeps both paths producing identical hit shapes.
-        await _enrich_hits_with_dups(db, hits, allowed_source_ids)
+        await _enrich_hits_with_dups(db, hits, allowed_source_ids, scope_source_id=source_id)
 
         if override is not None:
             await record_event(
