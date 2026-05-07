@@ -463,23 +463,43 @@ async def ingest_batch(
                     Entry.last_seen_at < scan.started_at,
                 )
             )
-            for stale in stale_result.scalars().all():
+            stale_rows = stale_result.scalars().all()
+            for stale in stale_rows:
                 stale.is_deleted = True
                 stale.deleted_at = now
                 if stale.kind == "file":
                     scan.files_deleted += 1
 
-                if stale.kind == "file" and stale.content_hash:
-                    new_location = await db.execute(
-                        select(Entry).where(
-                            Entry.content_hash == stale.content_hash,
-                            Entry.kind == "file",
-                            Entry.is_deleted == False,  # noqa: E712
-                            Entry.last_seen_at >= scan.started_at,
-                            Entry.id != stale.id,
-                        ).limit(1)
-                    )
-                    moved_to = new_location.scalar_one_or_none()
+            # Move detection (review I13): pre-fix this ran one
+            # SELECT per stale file with a content_hash, an N+1 that
+            # dominated end-of-scan latency on sources with thousands
+            # of mass-deleted files. Single bulk query per batch
+            # instead — pull every still-alive entry whose hash
+            # matches any stale hash, build a hash → first-match map,
+            # then emit EntryEvents from the in-memory map.
+            stale_files_with_hash = [
+                s for s in stale_rows if s.kind == "file" and s.content_hash
+            ]
+            if stale_files_with_hash:
+                stale_hashes = {s.content_hash for s in stale_files_with_hash}
+                stale_ids = {s.id for s in stale_files_with_hash}
+                # Order by id for deterministic picking when more than one
+                # candidate exists for a given hash — without it the test
+                # suite could see flapping move targets.
+                candidates = (await db.execute(
+                    select(Entry).where(
+                        Entry.content_hash.in_(stale_hashes),
+                        Entry.kind == "file",
+                        Entry.is_deleted == False,  # noqa: E712
+                        Entry.last_seen_at >= scan.started_at,
+                        Entry.id.notin_(stale_ids),
+                    ).order_by(Entry.id)
+                )).scalars().all()
+                first_by_hash: dict[str, Entry] = {}
+                for c in candidates:
+                    first_by_hash.setdefault(c.content_hash, c)
+                for stale in stale_files_with_hash:
+                    moved_to = first_by_hash.get(stale.content_hash)
                     if moved_to:
                         db.add(EntryEvent(
                             event_type="moved",
