@@ -253,7 +253,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
                   New host will be saved alongside this source.
                 </p>
                 <HostFields
-                  type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint" | "dropbox" | "box">}
+                  type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "webdav" | "gdrive" | "onedrive" | "dropbox">}
                   value={hostConfig}
                   onChange={setHostConfig}
                 />
@@ -293,7 +293,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
               profile &gt; host inline &gt; host profile.
             </p>
             <ProfilePicker
-              type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "azureblob" | "gcs" | "webdav" | "gdrive" | "onedrive" | "sharepoint" | "dropbox" | "box">}
+              type={type as Exclude<SourceType, "local" | "paperless" | "immich" | "webdav" | "gdrive" | "onedrive" | "dropbox">}
               value={credentialProfileId}
               onChange={setCredentialProfileId}
             />

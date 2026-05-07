@@ -59,15 +59,12 @@ func main() {
 
 	sourceID := flag.String("source-id", "", "Source ID to scan")
 	scanID := flag.String("scan-id", "", "Scan ID for this run")
-	sourceType := flag.String("type", "local", "Source type: local, ssh, smb, nfs, s3")
+	sourceType := flag.String("type", "local", "Source type: local, smb, nfs, s3")
 	root := flag.String("root", "", "Root path to scan")
-	host := flag.String("host", "", "Remote host (for ssh, smb, s3)")
+	host := flag.String("host", "", "Remote host (for smb, s3)")
 	port := flag.Int("port", 0, "Remote port")
 	username := flag.String("user", "", "Username")
 	password := flag.String("pass", "", "Password")
-	keyPath := flag.String("key", "", "SSH key path")
-	keyPassphrase := flag.String("key-passphrase", "", "SSH key passphrase (for passphrase-protected private keys)")
-	knownHosts := flag.String("known-hosts", "", "Path to SSH known_hosts file for host key verification")
 	share := flag.String("share", "", "SMB share name")
 	bucket := flag.String("bucket", "", "S3 bucket name")
 	region := flag.String("region", "us-east-1", "S3 region")
@@ -86,9 +83,6 @@ func main() {
 	_ = port
 	_ = username
 	_ = password
-	_ = keyPath
-	_ = keyPassphrase
-	_ = knownHosts
 	_ = share
 	_ = bucket
 	_ = region

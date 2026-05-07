@@ -62,14 +62,6 @@ export function formatSourceSummary(source: Source): string {
       if (host && exp) return `${host}:${exp}`;
       return host || exp || source.name;
     }
-    case "ssh": {
-      const user = get("username");
-      const host = get("host");
-      const portRaw = cfg.port;
-      const port = typeof portRaw === "number" && portRaw !== 22 ? `:${portRaw}` : "";
-      if (user && host) return `${user}@${host}${port}`;
-      return host || source.name;
-    }
     case "smb": {
       const host = get("host");
       const share = get("share");

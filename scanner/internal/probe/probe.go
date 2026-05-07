@@ -235,12 +235,10 @@ func runWebDAV(ctx context.Context, c map[string]any) Result {
 	return Result{OK: true}
 }
 
-// runGCS validates a GCS source by issuing the connector's Connect.
-// Connect builds the storage client (validating the JSON key or
-// triggering the ADC chain) and then calls Bucket.Attrs to confirm
-// the bucket is readable. SDK errors map to the standard taxonomy:
-// permission / 401 / 403 → "auth"; bucket-doesnt-exist → "list";
-// transport / DNS / TLS → "connect".
+// runImmich validates an Immich source by issuing the connector's
+// Connect — which calls /api/server-info/ping with the api_key.
+// 401/403 → "auth"; transport / DNS / TLS → "connect"; missing
+// fields → "config".
 func runImmich(ctx context.Context, c map[string]any) Result {
 	rawURL := strings.TrimSpace(str(c, "url"))
 	apiKey := str(c, "api_key")
@@ -367,10 +365,11 @@ func runOneDrive(ctx context.Context, c map[string]any) Result {
 	return Result{OK: true}
 }
 
-// runSharePoint validates a SharePoint document library source via
-// Graph's ``/sites/{site-id}`` endpoint. Site missing → "config";
-// 401 → "auth"; other errors → "connect" so the user gets the same
-// step-classified feedback as the other Graph-backed sources.
+// runDropbox validates a Dropbox source by calling
+// /2/users/get_current_account with the router-injected access
+// token. Missing token → "config"; 401 → "auth"; other errors →
+// "connect", same step-classification as the other OAuth-shaped
+// providers.
 func runDropbox(ctx context.Context, c map[string]any) Result {
 	access := str(c, "access_token")
 	if access == "" {
@@ -395,7 +394,3 @@ func runDropbox(ctx context.Context, c map[string]any) Result {
 	return Result{OK: true}
 }
 
-// runBox validates a Box source by calling /2.0/users/me with the
-// access token. Same router-injected access_token flow as the other
-// OAuth-shaped types. Failure shapes mapped: missing token →
-// "config"; 401 → "auth"; otherwise → "connect".

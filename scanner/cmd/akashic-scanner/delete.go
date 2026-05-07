@@ -17,19 +17,17 @@ import (
 // operation). The api side parses these to surface a useful error per
 // failed copy in the bulk-delete response.
 //
-// Credentials come from stdin JSON ({"password":"…","key_passphrase":"…"})
-// when --password-stdin is set — same shape `fetch` uses, so callers
-// can reuse their secret-marshalling helper.
+// Credentials come from stdin JSON ({"password":"…"}) when
+// --password-stdin is set — same shape `fetch` uses, so callers can
+// reuse their secret-marshalling helper.
 func runDelete(args []string) {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
-	srcType := fs.String("type", "", "Source type (local, ssh, smb, nfs, s3)")
-	host := fs.String("host", "", "Host (ssh, smb)")
+	srcType := fs.String("type", "", "Source type (local, smb, nfs, s3, paperless, immich, webdav, gdrive, onedrive, dropbox)")
+	host := fs.String("host", "", "Host (smb)")
 	port := fs.Int("port", 0, "Port")
-	user := fs.String("user", "", "Username (ssh, smb) or access key ID (s3)")
+	user := fs.String("user", "", "Username (smb) or access key ID (s3)")
 	password := fs.String("password", "", "Password (insecure — prefer --password-stdin)")
 	passwordStdin := fs.Bool("password-stdin", false, "Read creds from stdin")
-	keyPath := fs.String("key", "", "SSH key path")
-	knownHosts := fs.String("known-hosts", "", "SSH known_hosts path")
 	share := fs.String("share", "", "SMB share")
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
@@ -43,14 +41,12 @@ func runDelete(args []string) {
 	}
 
 	pw := *password
-	keyPassphrase := ""
 	if *passwordStdin {
 		creds := readCredsFromStdin()
 		pw = creds.Password
-		keyPassphrase = creds.KeyPassphrase
 	}
 
-	conn, step, err := buildConnector(*srcType, *host, *port, *user, pw, *keyPath, keyPassphrase, *knownHosts, *share, *bucket, *region, *endpoint)
+	conn, step, err := buildConnector(*srcType, *host, *port, *user, pw, *share, *bucket, *region, *endpoint)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s:%v\n", step, err)
 		os.Exit(1)

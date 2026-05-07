@@ -92,9 +92,7 @@ def test_smb_unclassified_stderr(monkeypatch):
 
 def test_no_scanner_binary(monkeypatch):
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: None)
-    res = _test_connection("ssh", {
-        "host": "h", "username": "u", "known_hosts_path": "/k",
-    })
+    res = _test_connection("smb", {"host": "h", "username": "u", "share": "s"})
     assert res.ok is False
     assert res.step == "config"
 

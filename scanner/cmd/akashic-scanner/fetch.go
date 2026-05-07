@@ -16,18 +16,16 @@ import (
 // Output: stdout is the raw file bytes (no JSON wrapping). Errors go to
 // stderr as `step:reason` (open|connect|auth|list|config) and exit 1.
 //
-// Credentials come from stdin JSON ({"password":"…","key_passphrase":"…"})
+// Credentials come from stdin JSON ({"password":"…"})
 // when --password-stdin is set.
 func runFetch(args []string) {
 	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
-	srcType := fs.String("type", "", "Source type (local, ssh, smb, nfs, s3)")
-	host := fs.String("host", "", "Host (ssh, smb)")
+	srcType := fs.String("type", "", "Source type (local, smb, nfs, s3, paperless, immich, webdav, gdrive, onedrive, dropbox)")
+	host := fs.String("host", "", "Host (smb)")
 	port := fs.Int("port", 0, "Port")
-	user := fs.String("user", "", "Username (ssh, smb) or access key ID (s3)")
+	user := fs.String("user", "", "Username (smb) or access key ID (s3)")
 	password := fs.String("password", "", "Password (insecure — prefer --password-stdin)")
 	passwordStdin := fs.Bool("password-stdin", false, "Read creds from stdin")
-	keyPath := fs.String("key", "", "SSH key path")
-	knownHosts := fs.String("known-hosts", "", "SSH known_hosts path")
 	share := fs.String("share", "", "SMB share")
 	bucket := fs.String("bucket", "", "S3 bucket")
 	region := fs.String("region", "us-east-1", "S3 region")
@@ -41,14 +39,12 @@ func runFetch(args []string) {
 	}
 
 	pw := *password
-	keyPassphrase := ""
 	if *passwordStdin {
 		creds := readCredsFromStdin()
 		pw = creds.Password
-		keyPassphrase = creds.KeyPassphrase
 	}
 
-	conn, step, err := buildConnector(*srcType, *host, *port, *user, pw, *keyPath, keyPassphrase, *knownHosts, *share, *bucket, *region, *endpoint)
+	conn, step, err := buildConnector(*srcType, *host, *port, *user, pw, *share, *bucket, *region, *endpoint)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s:%v\n", step, err)
 		os.Exit(1)
@@ -82,7 +78,7 @@ func runFetch(args []string) {
 // caller's job (so the caller can map connect errors to the "connect" step).
 func buildConnector(
 	srcType, host string, port int,
-	user, password, keyPath, keyPassphrase, knownHosts string,
+	user, password string,
 	share, bucket, region, endpoint string,
 ) (connector.Connector, string, error) {
 	switch srcType {

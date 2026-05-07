@@ -701,7 +701,7 @@ function EditRows({
       )}
       {type !== "local" && (
         <ProfilePicker
-          type={type as "ssh" | "smb" | "nfs" | "s3"}
+          type={type as "smb" | "nfs" | "s3"}
           value={credentialProfileId}
           onChange={onCredentialProfileIdChange}
           label="Credentials"

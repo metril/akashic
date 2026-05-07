@@ -110,7 +110,7 @@ func Run(ctx context.Context, cfg Config) error {
 // work-unit-coordinated path. Connector type isn't checked here —
 // the runner type-asserts ShallowWalker on the built connector and
 // falls back to legacy if a future connector hasn't implemented it.
-// All shipped connectors (local, nfs, ssh, smb, s3) implement it.
+// All shipped connectors (local, nfs, smb, s3) implement it.
 func shouldUseUnits(leased *leasedScan) bool {
 	return leased.Source.MaxParallelScanners > 1
 }

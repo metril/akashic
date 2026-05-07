@@ -216,9 +216,9 @@ async def fetch_userinfo(
     provider: OAuthProvider, access_token: str
 ) -> dict[str, Any]:
     async with httpx.AsyncClient() as client:
-        # Box and Dropbox userinfo endpoints accept Bearer auth even
-        # though Dropbox docs prefer POST; GETs work for "get_current_account"
-        # too. Microsoft Graph requires GET.
+        # Dropbox accepts Bearer + GET on /2/users/get_current_account
+        # even though its docs prefer POST. Microsoft Graph and Google
+        # both require GET.
         resp = await client.get(
             provider.userinfo_url,
             headers={

@@ -15,7 +15,7 @@
 //   - Every other unit performs a full recursive walk of the source
 //     root + unit.path subtree using the existing scanner.Run path.
 //
-// All shipped connectors (local, nfs, ssh, smb, s3) implement the
+// All shipped connectors (local, nfs, smb, s3) implement the
 // optional ShallowWalker interface. A future connector that doesn't
 // implement it falls back to the legacy single-walker path with a
 // one-line warning.
@@ -78,8 +78,8 @@ func runUnitCoordinated(
 
 	// Connect once for the whole unit-loop lifetime. Without this each
 	// per-unit scanner.Run() would dial+auth+disconnect afresh — fine
-	// for local/nfs (no-op), expensive for ssh/smb (auth handshake)
-	// and s3 (signed-request handshake amortised across the pool).
+	// for local/nfs (no-op), expensive for smb (auth handshake) and
+	// s3 (signed-request handshake amortised across the pool).
 	if err := conn.Connect(scanCtx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -182,8 +182,7 @@ func ensureUnitsEnumerated(
 
 // sourceRoot returns the per-type "root path" for a leased source.
 // SMB sources don't have an explicit root in connection_config (the
-// share itself is the root); same for SSH (we walk from "/"). S3
-// uses the bucket prefix.
+// share itself is the root). S3 uses the bucket prefix.
 func sourceRoot(src leasedSource) string {
 	cfg := src.ConnectionConfig
 	switch src.Type {
@@ -271,7 +270,7 @@ func runUnitWalk(
 // scanner.Run scaffolding because there's no nested walk to reuse.
 //
 // Uses the connector's WalkShallow so this works uniformly for local,
-// nfs, ssh, smb, and s3 sources.
+// nfs, smb, and s3 sources.
 func runRootFilesUnit(
 	ctx context.Context, apiClient *client.Client,
 	shallow connector.ShallowWalker,

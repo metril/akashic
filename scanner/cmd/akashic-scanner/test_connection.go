@@ -119,7 +119,7 @@ func runTestConnection(args []string) {
 	os.Exit(1)
 }
 
-// classifySSHError maps an SSHConnector.Connect() error to (step, reason).
+// classifySMBError maps an SMBConnector.Connect() error to (step, reason).
 // The connector wraps each failure with a known prefix; we match on those.
 func classifySMBError(err error) (step, msg string) {
 	s := err.Error()
