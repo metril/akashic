@@ -1,7 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { useAuth } from "../hooks/useAuth";
 import { cn } from "./ui/cn";
 import { Icon, type IconName } from "./ui";
 import { BrandMark } from "./BrandMark";
@@ -79,11 +78,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     }
   }, [collapsed]);
 
-  const me = useQuery<{ role: string }>({
-    queryKey: ["me"],
-    queryFn: () => api.get<{ role: string }>("/users/me"),
-  });
-  const isAdmin = me.data?.role === "admin";
+  // Share the /users/me cache with useAuth (queryKey ["users","me"]) —
+  // using a separate key here would fragment the cache and let the
+  // sidebar's "Admin" group flicker out of sync with role-gated UI
+  // elsewhere when the role query refreshes.
+  const { isAdmin } = useAuth();
   const visibleSections = sections.filter((s) => !s.adminOnly || isAdmin);
 
   // Inner panel — same content used both for the static md+ sidebar and

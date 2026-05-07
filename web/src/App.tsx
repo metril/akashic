@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { isAuthenticated } from "./api/client";
+import { useAuth } from "./hooks/useAuth";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import Login from "./pages/Login";
@@ -32,6 +33,28 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
   }
+  return <>{children}</>;
+}
+
+/**
+ * Defense-in-depth gate for `/admin/*` routes. The API enforces admin
+ * via Depends(require_admin) on every endpoint these pages talk to, so
+ * a non-admin who navigates here would just see 403s in the data
+ * panels. But rendering the page at all leaks UI affordances and
+ * filter chrome that hint at the existence of admin features. Block
+ * the route outright and bounce to /dashboard. Sidebar already hides
+ * the link for non-admins; this catches direct-URL / bookmark
+ * traversal.
+ *
+ * Loading state: while the /api/users/me query is in flight we render
+ * nothing rather than the page-loading spinner, since flashing the
+ * admin page for a frame on a slow /me response would defeat the gate.
+ */
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated: authed, user, isAdmin } = useAuth();
+  if (!authed) return <Navigate to="/login" replace />;
+  if (user === null) return null;
+  if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -196,17 +219,21 @@ export default function App() {
         <Route
           path="admin/audit"
           element={
-            <Suspense fallback={<PageLoader />}>
-              <AdminAudit />
-            </Suspense>
+            <AdminRoute>
+              <Suspense fallback={<PageLoader />}>
+                <AdminAudit />
+              </Suspense>
+            </AdminRoute>
           }
         />
         <Route
           path="admin/access"
           element={
-            <Suspense fallback={<PageLoader />}>
-              <AdminAccess />
-            </Suspense>
+            <AdminRoute>
+              <Suspense fallback={<PageLoader />}>
+                <AdminAccess />
+              </Suspense>
+            </AdminRoute>
           }
         />
       </Route>

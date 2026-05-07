@@ -189,7 +189,11 @@ func (c *SMBConnector) WalkShallow(
 	}
 	infos, err := c.smbShare.ReadDir(root)
 	if err != nil {
-		return nil, nil
+		// Propagate so the unit runner sees a real failure. Returning
+		// (nil, nil) here used to silently mask permission/connectivity
+		// failures at the share root and ship a zero-subdirectory plan,
+		// dropping every subtree from the scan with no surfaced error.
+		return nil, fmt.Errorf("smb: readdir %q: %w", root, err)
 	}
 	var subdirs []string
 	for _, info := range infos {

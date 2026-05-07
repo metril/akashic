@@ -1,5 +1,11 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
+
+# The Settings validator rejects the shipped default secret_key in
+# prod; tests run with whatever default is around, so opt in to the
+# dev-bypass before any code path imports config.
+os.environ.setdefault("AKASHIC_DEV_ALLOW_DEFAULT_KEY", "1")
 
 import pytest
 import pytest_asyncio
@@ -10,8 +16,6 @@ from sqlalchemy.pool import NullPool
 from akashic.database import Base, get_db
 from akashic.main import create_app
 from akashic.models import *  # noqa: F401,F403
-
-import os
 
 TEST_DB_URL = os.environ.get(
     "TEST_DB_URL",

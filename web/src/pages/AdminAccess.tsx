@@ -74,7 +74,9 @@ export default function AdminAccess() {
   const fileQ = useQuery<FileResult>({
     queryKey: ["access", "file", fileId, right],
     queryFn: () =>
-      api.get<FileResult>(`/access?file=${fileId}&right=${right}`),
+      api.get<FileResult>(
+        `/access?file=${encodeURIComponent(fileId!)}&right=${right}`,
+      ),
     enabled: mode === "file" && Boolean(fileId),
   });
 

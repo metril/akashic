@@ -1,4 +1,14 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+
+# Default values that ship in source — used here as a deny-list so a
+# deployment that forgot to set the corresponding env var fails fast
+# at startup instead of running with a known key. The access-token
+# JWT and the OAuth-credential Fernet derivation both depend on
+# secret_key; using the shipped default would let anyone forge tokens
+# or trial-decrypt every persisted refresh token.
+_DEFAULT_SECRET_KEY = "changeme-secret-key"
 
 
 class Settings(BaseSettings):
@@ -6,7 +16,26 @@ class Settings(BaseSettings):
     meili_url: str = "http://localhost:7700"
     meili_key: str = "changeme-meili-key"
     redis_url: str = "redis://localhost:6379/0"
-    secret_key: str = "changeme-secret-key"
+    secret_key: str = _DEFAULT_SECRET_KEY
+
+    @field_validator("secret_key")
+    @classmethod
+    def _reject_default_secret_key(cls, v: str) -> str:
+        # Allow the placeholder during tests and local dev where the env
+        # var is intentionally unset; gate by AKASHIC_DEV_ALLOW_DEFAULT_KEY=1
+        # so production startup blows up cleanly instead.
+        import os
+        if v == _DEFAULT_SECRET_KEY and not os.environ.get(
+            "AKASHIC_DEV_ALLOW_DEFAULT_KEY"
+        ):
+            raise ValueError(
+                "SECRET_KEY is set to the shipped default. "
+                "Set the SECRET_KEY env var to a long random value, or "
+                "set AKASHIC_DEV_ALLOW_DEFAULT_KEY=1 for local-dev only.",
+            )
+        if not v.strip():
+            raise ValueError("SECRET_KEY must be non-empty")
+        return v
     access_token_expire_minutes: int = 60
     # Phase 8 — refresh tokens. Default 30 days matches typical SSO
     # session lifetimes; deployments wanting shorter sessions tighten

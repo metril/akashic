@@ -58,9 +58,14 @@ async def apply_tag(
     )
 
     # 2) If E is a directory, materialise inheritance.
+    # The LIKE pattern is built by Postgres from the ancestor's stored
+    # path; without ESCAPE handling, a path that happens to contain `%`
+    # or `_` (legal on every OS) would match unrelated subtrees. The
+    # `replace()` chain escapes both wildcards plus the escape char itself
+    # under the explicit ESCAPE '\' clause.
     res = await db.execute(
         text(
-            """
+            r"""
             INSERT INTO entry_tags
                 (id, entry_id, tag, inherited_from_entry_id, created_by_user_id)
             SELECT
@@ -73,7 +78,9 @@ async def apply_tag(
               AND c.is_deleted = false
               AND (
                     c.path = anc.path
-                 OR c.path LIKE anc.path || '/%'
+                 OR c.path LIKE
+                     replace(replace(replace(anc.path, '\', '\\'), '%', '\%'), '_', '\_')
+                     || '/%' ESCAPE '\'
               )
             ON CONFLICT (entry_id, tag, inherited_from_entry_id) DO NOTHING
             RETURNING entry_id
@@ -134,7 +141,7 @@ async def propagate_to_new_entry(
     """
     await db.execute(
         text(
-            """
+            r"""
             INSERT INTO entry_tags
                 (id, entry_id, tag, inherited_from_entry_id, created_by_user_id)
             SELECT
@@ -144,7 +151,9 @@ async def propagate_to_new_entry(
             WHERE et.inherited_from_entry_id IS NULL
               AND anc.kind = 'directory'
               AND anc.source_id = :source_id
-              AND :path LIKE anc.path || '/%'
+              AND :path LIKE
+                  replace(replace(replace(anc.path, '\', '\\'), '%', '\%'), '_', '\_')
+                  || '/%' ESCAPE '\'
             ON CONFLICT (entry_id, tag, inherited_from_entry_id) DO NOTHING
             """
         ),

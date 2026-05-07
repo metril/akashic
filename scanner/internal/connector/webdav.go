@@ -197,7 +197,7 @@ func (c *WebDAVConnector) ReadFile(ctx context.Context, p string) (io.ReadCloser
 	if c.httpClient == nil {
 		return nil, fmt.Errorf("webdav: not connected")
 	}
-	target := c.baseURL + strings.TrimPrefix(p, "/")
+	target := c.baseURL + encodeWebDAVPath(strings.TrimPrefix(p, "/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func (c *WebDAVConnector) Delete(ctx context.Context, p string) error {
 	if c.httpClient == nil {
 		return fmt.Errorf("webdav: not connected")
 	}
-	target := c.baseURL + strings.TrimPrefix(p, "/")
+	target := c.baseURL + encodeWebDAVPath(strings.TrimPrefix(p, "/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, target, nil)
 	if err != nil {
 		return err
@@ -415,6 +415,23 @@ func buildWebDAVEntry(e webdavEntry) *models.EntryRecord {
 		entry.CreatedAt = &t
 	}
 	return entry
+}
+
+// encodeWebDAVPath percent-escapes a relative WebDAV path segment-by-
+// segment so characters that PROPFIND happily decoded (`#`, `?`,
+// spaces, etc.) survive the round-trip back into a GET / DELETE URL.
+// Forward slashes between segments are preserved verbatim — `url.PathEscape`
+// would mangle them. Empty paths pass through unchanged so callers
+// targeting the share root keep working.
+func encodeWebDAVPath(rel string) string {
+	if rel == "" {
+		return ""
+	}
+	parts := strings.Split(rel, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
 }
 
 func webdavTransport(tlsVerify bool) http.RoundTripper {

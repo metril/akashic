@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -255,12 +255,17 @@ function ProfileEditModal({
   const [credentials, setCredentials] = useState<CredentialValue>({});
   const [hydrated, setHydrated] = useState(false);
 
-  if (detail.data && !hydrated) {
-    setName(detail.data.name);
-    setDescription(detail.data.description ?? "");
-    setCredentials(detail.data.credentials);
-    setHydrated(true);
-  }
+  // Hydrate the form once `detail.data` arrives. Doing this in useEffect
+  // (rather than the classic render-time setState pattern) keeps strict-
+  // mode dev free of inconsistent intermediate renders.
+  useEffect(() => {
+    if (detail.data && !hydrated) {
+      setName(detail.data.name);
+      setDescription(detail.data.description ?? "");
+      setCredentials(detail.data.credentials);
+      setHydrated(true);
+    }
+  }, [detail.data, hydrated]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

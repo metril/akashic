@@ -304,12 +304,15 @@ export interface NfsV4ACL {
 
 export interface NtPrincipal {
   sid: string;
-  name: string;
+  // Null when the scanner couldn't translate the SID at scan time
+  // (lookup failure, well-known SID without a friendly name, etc.).
+  // Renderers fall back to either the resolver-map or a truncated SID.
+  name: string | null;
 }
 
 export interface NtACE {
   sid: string;
-  name: string;
+  name: string | null;
   ace_type: "allow" | "deny" | "audit";
   flags: string[];
   mask: string[];

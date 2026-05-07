@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Integer, and_, cast, func, or_, select, tuple_
+from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user
@@ -176,45 +176,73 @@ async def browse(
         cursor_sort_val = c["s"]
         cursor_id = uuid.UUID(c["id"])
 
-    # Stable ordering with seekable cursor. Tuple form (a, b, c) > (...)
-    # is keyed against the ORDER BY exactly. Including `id` last gives
-    # us a unique tiebreaker so duplicate sort values don't skip rows.
-    # Cast bool to int so the cursor encodes a number (not "true"/"false")
-    # and tuple_() comparison stays well-defined across drivers.
+    # Stable ordering with seekable cursor. Three-tier comparison:
+    # (kind_is_file, sort_col, Entry.id), matching the ORDER BY exactly.
+    # Including `id` last gives a unique tiebreaker so duplicate sort
+    # values don't skip rows. Cast bool to int so the cursor encodes a
+    # number (not "true"/"false") and stays well-defined across drivers.
+    #
+    # NULL handling: size_bytes / fs_modified_at can be NULL on directories
+    # and on entries the scanner hasn't fully populated yet. Postgres
+    # default for ASC is NULLS LAST and for DESC is NULLS FIRST; pin to
+    # NULLS LAST in both directions so NULLs always trail real values
+    # (matches what the UI wants — "biggest" or "newest" listings should
+    # never lead with rows whose sort key is unknown). The cursor
+    # predicate then needs explicit IS NULL / IS NOT NULL branches
+    # because `sort_col < val`, `sort_col > val`, and `sort_col == val`
+    # all evaluate to NULL when either side is NULL, dropping those
+    # rows from every page after the first NULL is encountered.
     kind_is_file = cast(Entry.kind != "directory", Integer)
-    order_cols = [
-        kind_is_file.asc(),
-        sort_col.asc() if order == "asc" else sort_col.desc(),
-        Entry.id.asc(),
-    ]
+    sort_clause = (
+        sort_col.asc().nulls_last() if order == "asc" else sort_col.desc().nulls_last()
+    )
+    order_cols = [kind_is_file.asc(), sort_clause, Entry.id.asc()]
     stmt = select(Entry).where(and_(*base_filter)).order_by(*order_cols)
 
     if cursor_id is not None:
-        # Tuple comparison for seekable pagination. The order matches
-        # the ORDER BY exactly: dir-first-then-file (kind_is_file ASC),
-        # then sort_col in the requested direction, then id ASC. For
-        # DESC sort_col, the cursor predicate is OR'd carefully because
-        # tuple_().__gt__ doesn't compose mixed directions cleanly.
-        if order == "asc":
-            stmt = stmt.where(
-                tuple_(kind_is_file, sort_col, Entry.id)
-                > tuple_(cursor_kind_is_file, cursor_sort_val, cursor_id)
+        # Three "tiers" we walk through in order: kind_is_file (dirs
+        # first, then files), then sort_col (with NULLs LAST), then id.
+        # The cursor lands at one specific (kind, sort, id) coordinate
+        # and we want every row strictly after it.
+        kind_advance = kind_is_file > cursor_kind_is_file
+        if cursor_sort_val is None:
+            # Cursor sat in the NULL tail. Same kind: only id-tiebreak
+            # rows (no real-value rows can come after a NULL under
+            # NULLS LAST).
+            sort_or_id = and_(
+                kind_is_file == cursor_kind_is_file,
+                sort_col.is_(None),
+                Entry.id > cursor_id,
             )
+            stmt = stmt.where(or_(kind_advance, sort_or_id))
         else:
-            stmt = stmt.where(
-                or_(
-                    kind_is_file > cursor_kind_is_file,
-                    and_(
-                        kind_is_file == cursor_kind_is_file,
-                        sort_col < cursor_sort_val,
-                    ),
-                    and_(
-                        kind_is_file == cursor_kind_is_file,
-                        sort_col == cursor_sort_val,
-                        Entry.id > cursor_id,
-                    ),
-                )
+            same_sort_val = and_(
+                kind_is_file == cursor_kind_is_file,
+                sort_col == cursor_sort_val,
+                Entry.id > cursor_id,
             )
+            if order == "asc":
+                next_sort = and_(
+                    kind_is_file == cursor_kind_is_file,
+                    sort_col > cursor_sort_val,
+                )
+                # NULLs come after every real value, so they're also
+                # "after" the cursor's real-valued sort key.
+                null_tail = and_(
+                    kind_is_file == cursor_kind_is_file,
+                    sort_col.is_(None),
+                )
+            else:
+                next_sort = and_(
+                    kind_is_file == cursor_kind_is_file,
+                    sort_col < cursor_sort_val,
+                )
+                # Same logic for DESC + NULLS LAST.
+                null_tail = and_(
+                    kind_is_file == cursor_kind_is_file,
+                    sort_col.is_(None),
+                )
+            stmt = stmt.where(or_(kind_advance, next_sort, same_sort_val, null_tail))
 
     # Over-fetch by 1 so we can detect "more pages exist."
     stmt = stmt.limit(limit + 1)

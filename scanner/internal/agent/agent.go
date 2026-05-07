@@ -98,8 +98,17 @@ func Run(ctx context.Context, cfg Config) error {
 			continue
 		}
 		if err := runLeasedScan(ctx, cfg, priv, leased); err != nil {
-			log.Printf("scan %s failed: %v", leased.ScanID, err)
-			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
+			// User-cancelled scans surface via the errCancelled sentinel
+			// (the API returns 409 on the heartbeat when the user clicks
+			// Stop). Report `cancelled` rather than `failed` so the UI
+			// distinguishes "I asked for this" from "the scan crashed."
+			if errors.Is(err, errCancelled) {
+				log.Printf("scan %s cancelled by api", leased.ScanID)
+				_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "cancelled", "")
+			} else {
+				log.Printf("scan %s failed: %v", leased.ScanID, err)
+				_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
+			}
 		} else {
 			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
 		}

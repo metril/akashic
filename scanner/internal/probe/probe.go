@@ -84,9 +84,18 @@ func intish(c map[string]any, key string) int {
 }
 
 func runLocal(_ context.Context, c map[string]any) Result {
-	root := str(c, "root_path")
+	// The local source's connection_config key is `path` (matching what
+	// `connectorFromLeased` and `sourceRoot` read). Older code paths
+	// also looked at `root_path`, so check both — the lease payload
+	// shape has shifted over releases and we don't want a perfectly
+	// reachable local source to fail the reachability poll because
+	// the key name disagrees with the rest of the codebase.
+	root := str(c, "path")
 	if root == "" {
-		return Result{OK: false, Step: "config", Error: "root_path required"}
+		root = str(c, "root_path")
+	}
+	if root == "" {
+		return Result{OK: false, Step: "config", Error: "path required"}
 	}
 	info, err := os.Stat(root)
 	if err != nil {
@@ -95,7 +104,7 @@ func runLocal(_ context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	if !info.IsDir() {
-		return Result{OK: false, Step: "config", Error: "root_path is not a directory"}
+		return Result{OK: false, Step: "config", Error: "path is not a directory"}
 	}
 	return Result{OK: true}
 }

@@ -45,7 +45,7 @@ function UnresolvedSid({ sid, resolved }: { sid: string; resolved?: ResolvedPrin
 // already in the ACL JSON; fall back to the on-demand resolver map;
 // return null if neither has anything (caller draws UnresolvedSid).
 function displayName(
-  baseName: string | undefined,
+  baseName: string | null | undefined,
   sid: string,
   map: PrincipalMap,
 ): string | null {
