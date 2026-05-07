@@ -48,6 +48,32 @@ async def test_search_as_invalid_json_rejected(client):
 
 
 @pytest.mark.asyncio
+async def test_search_as_rejected_for_non_admin(client):
+    """search_as is admin-only — non-admin callers get 403 even with
+    a valid override payload. Bootstrap user (alice) is admin; bob is
+    created by alice with the default role='user'."""
+    alice_token = await _register_login(client, username="alice")
+    await client.post(
+        "/api/users/create",
+        json={"username": "bob", "password": "testpass123"},
+        headers={"Authorization": f"Bearer {alice_token}"},
+    )
+    bob_login = await client.post(
+        "/api/users/login",
+        json={"username": "bob", "password": "testpass123"},
+    )
+    bob_token = bob_login.json()["access_token"]
+
+    override = json.dumps({"type": "posix_uid", "identifier": "1234", "groups": []})
+    r = await client.get(
+        f"/api/search?q=&search_as={override}",
+        headers={"Authorization": f"Bearer {bob_token}"},
+    )
+    assert r.status_code == 403
+    assert "admin" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_search_as_uses_override_tokens_not_user_bindings(client, db_session):
     from akashic.models import Source
     from akashic.models.audit_event import AuditEvent

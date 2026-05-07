@@ -167,6 +167,11 @@ async def search(
         raise HTTPException(status_code=400, detail=str(exc))
 
     override = _parse_search_as(search_as)
+    if override is not None and user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="search_as is admin-only",
+        )
 
     allowed_source_ids = await get_permitted_source_ids(user, db)
     if allowed_source_ids is not None:
