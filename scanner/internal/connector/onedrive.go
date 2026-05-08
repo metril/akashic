@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -486,18 +487,28 @@ type driveItemSharingLink struct {
 func (c *OneDriveConnector) fetchPermissions(
 	ctx context.Context, itemID string,
 ) ([]driveItemPermission, error) {
-	body, err := c.do(ctx, "GET",
-		"https://graph.microsoft.com/v1.0/me/drive/items/"+url.PathEscape(itemID)+"/permissions",
-		nil)
-	if err != nil {
-		return nil, err
+	// Graph paginates /permissions when an item has more grants than
+	// the default page (200). Pre-fix this read only the first page
+	// and silently dropped any permissions beyond it (review S-I3),
+	// so items shared with many individual users had truncated ACLs.
+	endpoint := "https://graph.microsoft.com/v1.0/me/drive/items/" +
+		url.PathEscape(itemID) + "/permissions"
+	var all []driveItemPermission
+	for endpoint != "" {
+		body, err := c.do(ctx, "GET", endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page driveItemPermissionPage
+		if derr := json.NewDecoder(body).Decode(&page); derr != nil {
+			body.Close()
+			return nil, derr
+		}
+		body.Close()
+		all = append(all, page.Value...)
+		endpoint = page.NextLink
 	}
-	defer body.Close()
-	var page driveItemPermissionPage
-	if err := json.NewDecoder(body).Decode(&page); err != nil {
-		return nil, err
-	}
-	return page.Value, nil
+	return all, nil
 }
 
 func (c *OneDriveConnector) resolveItemIDByPath(
@@ -528,13 +539,30 @@ func (c *OneDriveConnector) resolveItemIDByPath(
 }
 
 // do issues an authenticated request with one 401-driven refresh+retry.
-func (c *OneDriveConnector) do(ctx context.Context, method, url string, body io.Reader) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+//
+// body is taken as []byte (not io.Reader) so the retry path can
+// re-construct a fresh bytes.Reader. An io.Reader would be drained
+// by the first attempt and the retry would silently send an empty
+// body — review S-I1.
+func (c *OneDriveConnector) do(ctx context.Context, method, url string, body []byte) (io.ReadCloser, error) {
+	makeReq := func(token string) (*http.Request, error) {
+		var r io.Reader
+		if body != nil {
+			r = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, url, r)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	}
+
+	tok, _ := c.currentToken.Load().(string)
+	req, err := makeReq(tok)
 	if err != nil {
 		return nil, err
 	}
-	tok, _ := c.currentToken.Load().(string)
-	req.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -547,11 +575,10 @@ func (c *OneDriveConnector) do(ctx context.Context, method, url string, body io.
 			return nil, fmt.Errorf("onedrive: 401 and refresh failed: %w", refreshErr)
 		}
 		c.currentToken.Store(fresh)
-		req2, err := http.NewRequestWithContext(ctx, method, url, body)
+		req2, err := makeReq(fresh)
 		if err != nil {
 			return nil, err
 		}
-		req2.Header.Set("Authorization", "Bearer "+fresh)
 		resp, err = c.httpClient.Do(req2)
 		if err != nil {
 			return nil, err

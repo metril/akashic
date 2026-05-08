@@ -205,6 +205,24 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
 	_ = conn.Close()
+	// Stat the local mount path the actual scan will read from
+	// (review S-I5). Without this we can report OK on TCP reachability
+	// while the export isn't mounted at the scanner's expected
+	// path, then the real scan would crash at os.Stat. Optional —
+	// only fails if a mount path was supplied AND it doesn't exist.
+	mountPath := str(c, "export_path")
+	if mountPath == "" {
+		mountPath = str(c, "path")
+	}
+	if mountPath != "" {
+		if _, statErr := os.Stat(mountPath); statErr != nil {
+			return Result{
+				OK:    false,
+				Step:  "list",
+				Error: fmt.Sprintf("mount path %q not accessible: %v", mountPath, statErr),
+			}
+		}
+	}
 	return Result{OK: true}
 }
 

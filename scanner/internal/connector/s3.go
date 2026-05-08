@@ -166,7 +166,10 @@ func (c *S3Connector) WalkShallow(
 				entry.ModifiedAt = &t
 			}
 			if obj.ETag != nil {
-				entry.ContentHash = strings.Trim(aws.ToString(obj.ETag), "\"")
+				// "etag:" prefix (review S-I2) so multi-part ETag
+				// composites (`hex-N`) and other connectors' raw
+				// hex MD5s don't collide in the API's dedup space.
+				entry.ContentHash = "etag:" + strings.Trim(aws.ToString(obj.ETag), "\"")
 			}
 			if computeHash {
 				if hash, err := c.hashObject(ctx, key); err == nil {
@@ -250,7 +253,10 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			}
 
 			if obj.ETag != nil {
-				entry.ContentHash = strings.Trim(aws.ToString(obj.ETag), "\"")
+				// "etag:" prefix (review S-I2) so multi-part ETag
+				// composites (`hex-N`) and other connectors' raw
+				// hex MD5s don't collide in the API's dedup space.
+				entry.ContentHash = "etag:" + strings.Trim(aws.ToString(obj.ETag), "\"")
 			}
 
 			if computeHash && entry.Kind == "file" {

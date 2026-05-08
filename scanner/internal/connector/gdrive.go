@@ -563,9 +563,15 @@ func buildGDriveEntry(f driveFile, displayPath, displayName string) *models.Entr
 	}
 	if f.Size != "" {
 		// Drive sends size as a string; Google-format docs omit it.
+		// Only set SizeBytes when Sscanf parsed a positive value
+		// (review S-I4) — a parse failure leaves n=0 and a literal
+		// "0" string is meaningless for Drive (Google-format docs
+		// just omit Size when they can't report it). Treat both as
+		// "unknown" to keep the dashboard's size buckets honest.
 		var n int64
-		_, _ = fmt.Sscanf(f.Size, "%d", &n)
-		rec.SizeBytes = &n
+		if _, err := fmt.Sscanf(f.Size, "%d", &n); err == nil && n > 0 {
+			rec.SizeBytes = &n
+		}
 	}
 	if f.Md5Checksum != "" {
 		rec.ContentHash = "md5:" + f.Md5Checksum
