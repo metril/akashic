@@ -79,7 +79,9 @@ function ScheduleRow({ source }: RowProps) {
           size="sm"
           variant="secondary"
           onClick={handleSave}
-          disabled={!dirty}
+          // Disable while in-flight too (review notable) so a second
+          // click before the response arrives doesn't double-submit.
+          disabled={!dirty || updateSource.isPending}
           loading={
             updateSource.isPending && updateSource.variables?.id === source.id
           }

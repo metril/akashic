@@ -27,7 +27,10 @@ _discovery_cache: dict | None = None
 _discovery_fetched_at: float = 0
 _jwks_cache: dict | None = None
 _jwks_fetched_at: float = 0
-_CACHE_TTL_SECONDS = 86400  # 24 hours
+# 30 minutes (was 24h, review notable). Shorter TTL means an IdP key
+# rotation propagates within minutes, not the next day. JWKS endpoints
+# are cheap to fetch; no operational reason to keep the cache long-lived.
+_CACHE_TTL_SECONDS = 1800
 
 
 async def _get_discovery() -> dict:

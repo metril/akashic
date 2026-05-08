@@ -97,6 +97,11 @@ async def browse(
     cursor: str | None = Query(default=None),
     limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
     q: str | None = Query(default=None, description="case-insensitive substring filter on entry name"),
+    # The first-page footer COUNT(*) can be expensive in 10M+-row
+    # folders, especially with `q` engaged (no covering index). Make
+    # it opt-in (review notable) — clients that need the badge pass
+    # ?include_total=true; everyone else gets the page faster.
+    include_total: bool = Query(default=False),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -300,11 +305,12 @@ async def browse(
             base_filter_no_perm=[c for c in base_filter if c is not perm_filter],
         )
 
-    # Total: only paid on the first page (cursor is None) so the
-    # footer can show "X of Y matched". Subsequent pages skip it
-    # since the count doesn't change as the user scrolls.
+    # Total: only paid on the first page (cursor is None) AND when
+    # the caller opted in via include_total=true — the COUNT can be a
+    # full scan on 10M-row folders with no perf-friendly index when
+    # `q` is set.
     total: int | None = None
-    if cursor is None:
+    if cursor is None and include_total:
         total = (
             await db.execute(
                 select(func.count(Entry.id)).where(and_(*base_filter))

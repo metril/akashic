@@ -299,6 +299,13 @@ func runRootFilesUnit(
 	}
 	scanBatch := models.ScanBatch{
 		SourceID: sourceID, ScanID: scanID,
+		// IsFinal=false intentionally — on the unit-coordinated path
+		// the api auto-finalizes the scan when the LAST work unit
+		// (including the synthetic root-files unit) reaches /complete.
+		// Setting IsFinal=true here would race the api's per-unit
+		// finalization and double-trigger the post-scan rollup +
+		// snapshot + webhook tasks. (Review notable — confirmed: api
+		// path is canonical, not the batch flag.)
 		Entries: batch, IsFinal: false,
 	}
 	return apiClient.SendBatch(ctx, scanBatch)

@@ -24,7 +24,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -320,6 +320,7 @@ async def heartbeat_unit(
 async def complete_unit(
     scan_id: uuid.UUID,
     unit_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
 ):
@@ -327,6 +328,12 @@ async def complete_unit(
     transition the scan itself to 'completed' atomically and fire the
     same side-effects as the legacy /api/scans/{id}/complete handler
     (source.status = online, last_scan_at, is_reachable, broadcast).
+
+    On scan finalization (review notable) also enqueue the same
+    post-scan background tasks the ingest-batch IsFinal=true path
+    enqueues: subtree rollup, snapshot write, scan webhooks. Pre-fix
+    these only ran on the legacy ingest path; unit-coordinated scans
+    finalized correctly but skipped the post-scan rollup.
     """
     scan, source = await _load_scan_and_source(db, scan_id)
     unit = (await db.execute(
@@ -350,6 +357,24 @@ async def complete_unit(
     await db.commit()
     if new_status is not None and source is not None:
         await _broadcast_terminal(scan, source, scanner, new_status)
+        # Mirror the ingest-batch IsFinal=true post-scan tasks.
+        from akashic.config import settings as _settings
+        from akashic.routers.ingest import (
+            _dispatch_scan_webhooks,
+            _rollup_subtree_aggregates,
+            _write_scan_snapshot,
+        )
+        background_tasks.add_task(
+            _rollup_subtree_aggregates, str(source.id), _settings.database_url,
+        )
+        background_tasks.add_task(
+            _write_scan_snapshot, str(scan.id), str(source.id),
+            _settings.database_url,
+        )
+        background_tasks.add_task(
+            _dispatch_scan_webhooks, str(scan.id), str(source.id),
+            new_status, _settings.database_url,
+        )
 
 
 @router.post(
@@ -418,6 +443,11 @@ async def split_units(
             detail=f"scan is in terminal state {scan.status!r}; cannot split",
         )
 
+    # Per-path SAVEPOINT (review notable). Pre-fix a unique-violation
+    # rolled back the entire transaction (and everything flushed
+    # earlier this loop), then required a re-fetch + repeat. Now: one
+    # savepoint per path, conflict only rolls back THIS path, the
+    # already-flushed siblings stay valid.
     created = 0
     skipped = 0
     for path in body.child_paths:
@@ -427,22 +457,12 @@ async def split_units(
             parent_unit_id=body.parent_unit_id,
             status="pending",
         )
-        db.add(unit)
         try:
-            await db.flush()
+            async with db.begin_nested():
+                db.add(unit)
+                await db.flush()
             created += 1
         except IntegrityError:
-            await db.rollback()
-            # The unique constraint on (scan_id, path) collided —
-            # someone (or this same scanner on retry) already split
-            # this path off. Idempotent: count and continue.
             skipped += 1
-            # Re-fetch the scan so the next iteration's flush works
-            # against a clean session.
-            scan = (await db.execute(
-                select(Scan).where(Scan.id == scan_id)
-            )).scalar_one_or_none()
-            if scan is None:
-                raise HTTPException(status_code=404, detail="scan vanished")
     await db.commit()
     return SplitResponse(created=created, skipped=skipped)

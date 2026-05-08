@@ -54,6 +54,10 @@ _LONG_POLL_SECONDS = 25
 _RATE_LIMIT_REQUESTS = 5
 _RATE_LIMIT_WINDOW_S = 60.0
 _rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+# Bound the bucket dict so a flood from many distinct IPs (or IPv6
+# /64 churn) can't grow it unboundedly — review notable. Stale
+# entries get evicted on every check.
+_RATE_BUCKETS_MAX = 10_000
 
 
 def _generate_pairing_code() -> str:
@@ -69,6 +73,13 @@ async def _check_rate_limit(request: Request) -> None:
     client = request.client
     ip = client.host if client else "unknown"
     now = time.monotonic()
+    # Cap the dict size by evicting the oldest empty buckets when we
+    # exceed the threshold. Stops a slow memory leak under a sustained
+    # flood from many distinct IPs.
+    if len(_rate_buckets) > _RATE_BUCKETS_MAX:
+        empties = [k for k, v in list(_rate_buckets.items())[:1000] if not v]
+        for k in empties:
+            del _rate_buckets[k]
     bucket = _rate_buckets[ip]
     while bucket and bucket[0] < now - _RATE_LIMIT_WINDOW_S:
         bucket.popleft()

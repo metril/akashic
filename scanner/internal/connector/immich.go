@@ -293,7 +293,10 @@ func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *mo
 		entry.CreatedAt = &t
 	}
 	if asset.Checksum != "" {
-		entry.ContentHash = asset.Checksum
+		// Immich stores SHA1 of the file. Prefix to match the
+		// namespace convention used elsewhere (sha1:, md5:, sha256:,
+		// etag:, dropbox:, quickxor:) — review notable.
+		entry.ContentHash = "sha1:" + strings.ToLower(asset.Checksum)
 	}
 
 	dm := map[string]interface{}{

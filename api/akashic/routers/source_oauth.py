@@ -50,7 +50,7 @@ from datetime import timezone
 from html import escape as html_escape
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -313,8 +313,32 @@ def _callback_page(
     return HTMLResponse(html)
 
 
+_CALLBACK_RATE_LIMIT_REQUESTS = 10
+_CALLBACK_RATE_LIMIT_WINDOW_S = 60.0
+_callback_rate_buckets: dict[str, list[float]] = {}
+
+
+def _callback_rate_limit(request) -> bool:
+    """Per-IP rate limiter for the callback endpoint (review notable).
+    Returns True if the request should be allowed. 10 req/min is well
+    above any legitimate bot of OAuth callbacks but throttles a
+    code-replay flood."""
+    client = request.client if hasattr(request, "client") else None
+    ip = client.host if client else "unknown"
+    import time as _t
+    now = _t.monotonic()
+    bucket = _callback_rate_buckets.setdefault(ip, [])
+    while bucket and bucket[0] < now - _CALLBACK_RATE_LIMIT_WINDOW_S:
+        bucket.pop(0)
+    if len(bucket) >= _CALLBACK_RATE_LIMIT_REQUESTS:
+        return False
+    bucket.append(now)
+    return True
+
+
 @router.get("/callback")
 async def callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -322,6 +346,13 @@ async def callback(
     akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
+    if not _callback_rate_limit(request):
+        return _callback_page(
+            ok=False,
+            title="Too many requests",
+            detail="Wait a few seconds and try again.",
+            payload='{"akashic_oauth": true, "ok": false, "error": "rate_limited"}',
+        )
     # Provider returned an error before we even saw a code.
     if error:
         msg = error_description or error

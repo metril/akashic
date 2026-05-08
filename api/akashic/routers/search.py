@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
-from sqlalchemy import func, select, and_
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
@@ -412,6 +412,13 @@ async def search(
         if col is not None:
             query_stmt = query_stmt.order_by(col.desc() if order == "desc" else col.asc())
         query_stmt = query_stmt.offset(offset).limit(limit)
+        # 2-second statement timeout for regex mode (review notable).
+        # Postgres' POSIX regex engine has no built-in protection
+        # against catastrophic backtracking (`(a+)+$` on a long input
+        # is exponential). Cap the per-statement runtime so a bad
+        # pattern returns 5xx rather than tying up a connection.
+        if mode == "regex":
+            await db.execute(text("SET LOCAL statement_timeout = '2s'"))
         result = await db.execute(query_stmt)
         entries = result.scalars().all()
 

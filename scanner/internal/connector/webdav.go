@@ -260,7 +260,12 @@ type webdavEntry struct {
 // up as errors with their step inferable from the message; the
 // caller's runWebDAV / Connect classifies them.
 func (c *WebDAVConnector) propfind(ctx context.Context, relPath string, depth int) ([]webdavEntry, error) {
-	target := c.baseURL + strings.TrimPrefix(relPath, "/")
+	// Re-encode each path segment (review notable). PROPFIND
+	// responses' <D:href> values are URL-decoded by parseResponse,
+	// so the relPath we get on subsequent BFS levels has literal
+	// spaces / special chars. Sending those raw breaks strict
+	// servers. encodeWebDAVPath preserves "/" between segments.
+	target := c.baseURL + encodeWebDAVPath(strings.TrimPrefix(relPath, "/"))
 	body := strings.NewReader(propfindBody)
 	req, err := http.NewRequestWithContext(ctx, "PROPFIND", target, body)
 	if err != nil {

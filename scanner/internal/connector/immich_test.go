@@ -59,8 +59,8 @@ func TestImmichBuildEntry(t *testing.T) {
 	if entry.Extension != "jpg" {
 		t.Errorf("Extension = %q, want jpg", entry.Extension)
 	}
-	if entry.ContentHash != "sha256" {
-		t.Errorf("ContentHash = %q, want sha256", entry.ContentHash)
+	if entry.ContentHash != "sha1:sha256" {
+		t.Errorf("ContentHash = %q, want sha1:sha256 (immich connector now namespaces the checksum)", entry.ContentHash)
 	}
 	dm := entry.DomainMetadata
 	if dm["immich_id"] != "abc12345-uuid-here" {

@@ -399,8 +399,11 @@ function JoinTokensList() {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  // Distinct visual for each token state (review notable). Pre-fix
+  // both branches returned "neutral" so active/used/expired tokens
+  // looked identical in the list.
   const variant: Parameters<typeof Badge>[0]["variant"] =
-    status === "active" ? "neutral" : "neutral";
+    status === "active" ? "online" : status === "used" ? "info" : "neutral";
   return <Badge variant={variant}>{status}</Badge>;
 }
 

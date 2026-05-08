@@ -56,7 +56,7 @@ def _client() -> Redis:
     the asyncio Redis client is connection-pooled internally."""
     global _redis
     if _redis is None:
-        _redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        _redis = Redis.from_url(settings.redis_url, decode_responses=True, retry_on_timeout=True, health_check_interval=30)
     return _redis
 
 
