@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Badge, Button, EmptyState, Spinner, Page } from "../components/ui";
@@ -265,6 +265,17 @@ function AddBindingForm({
   const [type, setType] = useState<PrincipalType>("posix_uid");
   const [identifier, setIdentifier] = useState("");
   const [groupsRaw, setGroupsRaw] = useState("");
+
+  // Sync sourceId once `available` populates asynchronously
+  // (review W-I9). Pre-fix the initial useState captured an empty
+  // available[] when sources were still loading and sourceId stayed
+  // "" forever, silently submitting an empty source_id that the
+  // server rejects.
+  useEffect(() => {
+    if (!sourceId && available[0]?.id) {
+      setSourceId(available[0].id);
+    }
+  }, [sourceId, available]);
 
   if (available.length === 0) return null;
 

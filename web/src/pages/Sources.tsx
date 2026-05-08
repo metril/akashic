@@ -617,11 +617,19 @@ export default function Sources() {
         confirmLabel={`Scan ${visibleSourceIds.length}`}
         loading={bulkTrigger.isPending}
         onConfirm={async () => {
-          await bulkTrigger.mutateAsync({
-            ids: visibleSourceIds,
-            scanType: "incremental",
-          });
-          setConfirmingScanAll(false);
+          try {
+            await bulkTrigger.mutateAsync({
+              ids: visibleSourceIds,
+              scanType: "incremental",
+            });
+          } catch (e) {
+            // Surface the failure (review W-I1). Pre-fix the
+            // unhandled rejection left the dialog stuck in its
+            // loading state.
+            toast.error(e instanceof Error ? e.message : "Scan all failed");
+          } finally {
+            setConfirmingScanAll(false);
+          }
         }}
         onCancel={() => !bulkTrigger.isPending && setConfirmingScanAll(false)}
       />

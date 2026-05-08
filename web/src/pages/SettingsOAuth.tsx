@@ -290,8 +290,21 @@ function ProviderEditor({
   );
 
   async function handleSave() {
-    if (!clientId.trim() || !clientSecret.trim() || !redirectUri.trim()) {
-      toast.error("Client ID, client secret, and redirect URI are required.");
+    // Allow editing an existing provider without re-entering the
+    // secret (review W-I8). Pre-fix the unconditional secret check
+    // blocked any field update because the secret field is left
+    // blank with a "unchanged — type to replace" placeholder.
+    const needsSecret = !existing?.has_secret;
+    if (
+      !clientId.trim() ||
+      !redirectUri.trim() ||
+      (needsSecret && !clientSecret.trim())
+    ) {
+      toast.error(
+        needsSecret
+          ? "Client ID, client secret, and redirect URI are required."
+          : "Client ID and redirect URI are required.",
+      );
       return;
     }
     try {
@@ -299,7 +312,9 @@ function ProviderEditor({
         provider,
         body: {
           client_id: clientId.trim(),
-          client_secret: clientSecret,
+          // Omit the secret when blank on an existing config so the
+          // server keeps the current encrypted value (review W-I8).
+          client_secret: clientSecret.trim() || null,
           redirect_uri: redirectUri.trim(),
         },
       });

@@ -59,12 +59,18 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
     replaceLines: ScanLogLine[] | null; // set by snapshot — replaces buffer
   }>({ progress: null, snapshot: null, appendLines: [], replaceLines: null });
   const flushScheduledRef = useRef(false);
+  // Mounted-flag (review W-I2): a rAF callback scheduled in
+  // ws.onmessage can fire after unmount, calling setState on an
+  // unmounted component. Cleanup of the outer useEffect flips this
+  // to false and the rAF callback bails before touching state.
+  const mountedRef = useRef(true);
 
   const scheduleFlush = useCallback(() => {
     if (flushScheduledRef.current) return;
     flushScheduledRef.current = true;
     requestAnimationFrame(() => {
       flushScheduledRef.current = false;
+      if (!mountedRef.current) return;
       const pending = pendingRef.current;
       pendingRef.current = {
         progress: null,
@@ -233,6 +239,7 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
     }
     connect();
     return () => {
+      mountedRef.current = false;
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;

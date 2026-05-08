@@ -148,12 +148,25 @@ async def upsert_provider(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown provider: {provider!r}",
         )
-    encrypted = encrypt_secret(body.client_secret)
     existing = (
         await db.execute(
             select(OAuthAppConfig).where(OAuthAppConfig.provider == provider)
         )
     ).scalar_one_or_none()
+    # On first create the secret is required; on update the caller
+    # may omit it to mean "keep the existing encrypted value" (review
+    # W-I8). This lets admins update client_id / redirect_uri without
+    # having to re-enter the (write-only) secret.
+    if existing is None and not body.client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="client_secret is required when creating a new provider config",
+        )
+    encrypted = (
+        encrypt_secret(body.client_secret)
+        if body.client_secret
+        else None
+    )
     if existing is None:
         cfg = OAuthAppConfig(
             provider=provider,
@@ -165,7 +178,8 @@ async def upsert_provider(
         db.add(cfg)
     else:
         existing.client_id = body.client_id
-        existing.client_secret_encrypted = encrypted
+        if encrypted is not None:
+            existing.client_secret_encrypted = encrypted
         existing.redirect_uri = body.redirect_uri
         existing.configured_by_user_id = user.id
         cfg = existing

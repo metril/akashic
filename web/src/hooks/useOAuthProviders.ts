@@ -26,7 +26,9 @@ export interface OAuthProviderSummary {
 
 export interface OAuthProviderUpsert {
   client_id: string;
-  client_secret: string;
+  // Optional on update — null/empty means "keep the existing
+  // encrypted secret" (review W-I8). Required on first create.
+  client_secret: string | null;
   redirect_uri: string;
 }
 

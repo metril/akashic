@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge, Button, Card, CardHeader, Input } from "../ui";
+import { ModalShell } from "../ui/ModalShell";
 import { useScannerClaimTokens } from "../../hooks/useScannerClaimTokens";
 import { useScannersStreamEvents } from "../../hooks/useScannersStreamEvents";
 import { useSources } from "../../hooks/useSources";
@@ -84,15 +85,10 @@ export function JoinTokenWizard({ onClose }: Props) {
     }
   });
 
+  // Migrated to ModalShell (review W-I4) for ESC + focus trap.
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-2xl"
-      >
+    <ModalShell open onClose={onClose} maxWidth="xl">
+      <div>
         <div className="px-5 py-3 border-b border-line flex items-center justify-between">
           <h2 className="text-base font-semibold text-fg">
             Generate join token
@@ -253,7 +249,7 @@ export function JoinTokenWizard({ onClose }: Props) {
           />
         )}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 

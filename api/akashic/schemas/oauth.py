@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 
 class OAuthAppConfigUpsert(BaseModel):
     client_id: str = Field(..., min_length=1)
-    client_secret: str = Field(..., min_length=1)
+    # Optional on update — empty string / None means "keep the
+    # existing encrypted secret." Required on first create; the
+    # router enforces that (review W-I8).
+    client_secret: str | None = None
     redirect_uri: str = Field(..., min_length=1)
 
 

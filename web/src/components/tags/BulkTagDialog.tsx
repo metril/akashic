@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../api/client";
 import { Button, Input } from "../ui";
+import { ModalShell } from "../ui/ModalShell";
 
 interface BulkTagDialogProps {
   open: boolean;
@@ -57,17 +58,12 @@ export function BulkTagDialog({
     if (items.length > 0) applyMut.mutate(items);
   }
 
-  if (!open) return null;
-
+  // Migrated to ModalShell (review W-I4) so this dialog inherits the
+  // shared ESC handling + focus trap + previously-focused-element
+  // restoration on close.
   return (
-    <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-lg shadow-xl border border-line w-full max-w-md p-5"
-      >
+    <ModalShell open={open} onClose={onClose} maxWidth="md">
+      <div className="p-5">
         <h2 className="text-base font-semibold text-fg mb-2">
           Tag {entryIds.length} selected
         </h2>
@@ -103,6 +99,6 @@ export function BulkTagDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

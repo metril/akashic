@@ -558,7 +558,7 @@ const SearchResultRow = memo(function SearchResultRow({
               </span>
             ) : (
               <FilterableCell
-                predicate={{ kind: "source", value: file.source_id! }}
+                predicate={{ kind: "source", value: file.source_id ?? "" }}
               >
                 {sourceLabel}
               </FilterableCell>
