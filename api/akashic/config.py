@@ -58,6 +58,19 @@ class Settings(BaseSettings):
 
     audit_retention_days: int = 0  # 0 = forever
 
+    # Cookie hardening. Default True so production deployments behind
+    # TLS get the Secure flag without extra config. Local dev that
+    # serves http:// (no TLS) must explicitly set COOKIE_SECURE=false
+    # to actually receive the cookies, since browsers drop Secure
+    # cookies on plain HTTP. (Review A-I1, A-N3.)
+    cookie_secure: bool = True
+
+    # CORS — explicit allow-list for cross-origin browser fetches.
+    # Empty default means same-origin only (no CORSMiddleware mounted).
+    # Set CORS_ALLOW_ORIGINS=["https://akashic.example.com"] (JSON list
+    # in env) to enable. (Review A-I4.)
+    cors_allow_origins: list[str] = []
+
     # Slow-query observability (v0.4.x). Any SQL statement whose
     # execution exceeds the matching threshold gets logged at WARN.
     # `slow_query_ms` is the global default; `slow_query_ms_overrides`

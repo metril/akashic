@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_ingest_token
+from tests.conftest import seed_scan
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -292,9 +293,10 @@ async def test_native_id_persists_through_ingest(
     await db_session.commit()
 
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
     payload = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_id),
         "is_final": True,
         "entries": [
             {

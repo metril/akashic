@@ -16,12 +16,14 @@ Phase 3 deletes the spawn path.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -402,11 +404,57 @@ class ClaimTokenSummary(BaseModel):
     used_by_scanner_id: uuid.UUID | None
 
 
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.\-]{0,253}[a-zA-Z0-9])?$")
+
+# Per-IP rate limit on POST /api/scanners/claim (review A-I5). Five
+# attempts per minute is generous for a real scanner (it'd never need
+# to retry that fast) but throttles brute-force / token-spray traffic.
+# Mirrors scanner_discovery's rate limiter shape — kept local rather
+# than shared to avoid a circular import.
+_CLAIM_RATE_LIMIT_REQUESTS = 5
+_CLAIM_RATE_LIMIT_WINDOW_S = 60.0
+_claim_rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _check_claim_rate_limit(request: Request) -> None:
+    client = request.client
+    ip = client.host if client else "unknown"
+    now = time.monotonic()
+    bucket = _claim_rate_buckets[ip]
+    while bucket and bucket[0] < now - _CLAIM_RATE_LIMIT_WINDOW_S:
+        bucket.popleft()
+    if len(bucket) >= _CLAIM_RATE_LIMIT_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="too many claim attempts; try again shortly",
+        )
+    bucket.append(now)
+
+
 class ClaimRequest(BaseModel):
     token: str = Field(min_length=8, max_length=128)
     public_key_pem: str = Field(min_length=1)
     hostname: str | None = Field(default=None, max_length=255)
     agent_version: str | None = Field(default=None, max_length=32)
+
+    @field_validator("hostname")
+    @classmethod
+    def _validate_hostname(cls, v: str | None) -> str | None:
+        # RFC1123-ish hostname check (review A-I5). Pre-fix the field
+        # was accepted as any string up to 255 chars, including special
+        # characters that could be a stored-injection risk in any
+        # downstream renderer that doesn't escape (audit_event payload,
+        # admin UI, terminal logs).
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not _HOSTNAME_RE.match(v):
+            raise ValueError(
+                "hostname must be RFC1123-compatible (alphanumeric, dots, hyphens)"
+            )
+        return v
 
 
 class ClaimResponse(BaseModel):
@@ -573,6 +621,7 @@ async def claim_with_token(
     creates the Scanner row with the token's pre-set scope and marks
     the token row used. The private key never reaches the server.
     """
+    _check_claim_rate_limit(request)
     from akashic.services.scanner_claim import ClaimError, lookup_for_claim
     from akashic.services.scanner_keys import fingerprint_of_pem
     from akashic.services.audit import record_event

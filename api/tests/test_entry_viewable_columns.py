@@ -23,6 +23,7 @@ from akashic.models.user import User
 from akashic.services.access_query import viewable_clause
 from akashic.services.acl_denorm import denormalize_acl
 from akashic.services.ingest import compute_viewable_buckets
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -34,10 +35,11 @@ async def test_ingest_populates_viewable_columns_for_new_entry(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     payload = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_id),
         "entries": [{
             "path": "/tmp/foo", "name": "foo", "kind": "file",
             "mode": 0o644, "uid": 1000, "gid": 100,
@@ -92,10 +94,12 @@ async def test_ingest_updates_viewable_columns_on_acl_change(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id_1 = await seed_scan(db_session, source.id)
+    scan_id_2 = await seed_scan(db_session, source.id)
 
     base_payload = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_id_1),
         "is_final": False,
         "entries": [{
             "path": "/tmp/x", "name": "x", "kind": "file",
@@ -117,7 +121,7 @@ async def test_ingest_updates_viewable_columns_on_acl_change(
 
     # Re-ingest with mode 0o644 (others get read).
     new_payload = dict(base_payload)
-    new_payload["scan_id"] = str(uuid.uuid4())
+    new_payload["scan_id"] = str(scan_id_2)
     new_payload["entries"] = [{
         "path": "/tmp/x", "name": "x", "kind": "file",
         "mode": 0o644, "uid": 1000, "gid": 100,

@@ -3,7 +3,10 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from akashic.config import settings
 
 from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth
 from akashic.services import metrics as metrics_svc
@@ -109,6 +112,21 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Akashic", version="0.1.0", lifespan=lifespan)
+
+    # CORS allow-list (review A-I4). Empty list (the default) means
+    # CORSMiddleware isn't mounted at all — same-origin only, which
+    # matches the typical deploy where the SPA + API share a host.
+    # Set CORS_ALLOW_ORIGINS=["https://akashic.example.com"] (JSON
+    # list in env) to enable cross-origin browser fetches with
+    # credentials.
+    if settings.cors_allow_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_allow_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
 
     # Slow-request observability + Prometheus instrumentation.
     # Order matters: install before the routers so it wraps every

@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -275,28 +275,25 @@ async def ingest_batch(
 
     result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))
     scan = result.scalar_one_or_none()
-    if scan:
-        if scan.source_id != batch.source_id:
-            raise HTTPException(
-                status_code=400, detail="scan_id does not belong to this source"
-            )
-        if scan.started_at is None:
-            scan.started_at = scan_start
-        if scan.status == "pending":
-            scan.status = "running"
-    else:
-        scan = Scan(
-            id=batch.scan_id,
-            source_id=batch.source_id,
-            scan_type="incremental",
-            status="running",
-            started_at=scan_start,
-            files_found=0,
-            files_new=0,
-            files_changed=0,
-            files_deleted=0,
+    if scan is None:
+        # Reject unknown scan_id (review A-I6). Pre-fix the endpoint
+        # auto-created a Scan row with the client-supplied UUID — a
+        # compromised scanner could inject arbitrary scan rows with
+        # chosen UUIDs, potentially colliding with future legitimate
+        # scans and corrupting their statistics. All scans must be
+        # pre-created via /api/scans/trigger or the lease path.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="scan_id not found — scans must be created via /api/scans before ingest",
         )
-        db.add(scan)
+    if scan.source_id != batch.source_id:
+        raise HTTPException(
+            status_code=400, detail="scan_id does not belong to this source"
+        )
+    if scan.started_at is None:
+        scan.started_at = scan_start
+    if scan.status == "pending":
+        scan.status = "running"
 
     files_processed = 0
     new_file_ids: list[str] = []

@@ -136,7 +136,23 @@ async def create_source(
     if oauth_credential_id is not None:
         from akashic.models.oauth_credential import SourceOAuthCredential
         cred = await db.get(SourceOAuthCredential, oauth_credential_id)
-        if cred is not None and cred.source_id is None:
+        # Ownership check (review A-I2): only attach credentials that
+        # are still unattached. Pre-fix any admin could supply any
+        # other admin's unattached credential UUID and hijack it.
+        # We can't compare to "the user who created the credential"
+        # because that field isn't stored; instead, refuse to attach
+        # a credential that's already bound to a different source.
+        if cred is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="oauth_credential_id not found",
+            )
+        if cred.source_id is not None and cred.source_id != source.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="oauth_credential is already attached to another source",
+            )
+        if cred.source_id is None:
             cred.source_id = source.id
             await db.commit()
     # Push to /ws/scans subscribers so the Sources page sees the

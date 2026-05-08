@@ -9,6 +9,7 @@ from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.auth.jwt import create_ingest_token
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -18,10 +19,11 @@ async def test_wrapped_posix_acl_round_trips(client: AsyncClient, db_session: As
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     payload = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_id),
         "entries": [{
             "path": "/tmp/foo", "name": "foo", "kind": "file",
             "acl": {

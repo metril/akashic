@@ -634,7 +634,24 @@ async def sync_fs_bindings_from_claims(
 
     person = await _ensure_person(db, user)
 
-    sources = (await db.execute(select(Source))).scalars().all()
+    # Pre-filter the sources query by the source.type values that
+    # could possibly match any of these identities (review A-I3).
+    # Pre-fix this loaded the entire sources table on every login,
+    # which was a stampede vector during SSO token-refresh storms.
+    identity_types = {i.identity_type for i in identities}
+    candidate_types: set[str] = set()
+    for it in identity_types:
+        if it == "sid":
+            candidate_types.add("smb")
+        elif it == "posix_uid":
+            candidate_types.update({"local", "nfs"})
+        elif it == "nfsv4_principal":
+            candidate_types.add("nfs")
+    if not candidate_types:
+        return
+    sources = (
+        await db.execute(select(Source).where(Source.type.in_(candidate_types)))
+    ).scalars().all()
 
     for identity in identities:
         matched = [s for s in sources if _source_matches(s, identity)]

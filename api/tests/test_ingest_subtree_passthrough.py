@@ -19,6 +19,7 @@ from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -30,10 +31,11 @@ async def test_ingest_passes_through_subtree_totals(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     payload = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_id),
         "is_final": False,
         "entries": [{
             "path": "/Reports", "name": "Reports", "kind": "directory",
@@ -68,12 +70,13 @@ async def test_ingest_subtree_zero_is_preserved(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
         "/api/ingest/batch",
         json={
             "source_id": str(source.id),
-            "scan_id": str(uuid.uuid4()),
+            "scan_id": str(scan_id),
             "is_final": False,
             "entries": [{
                 "path": "/empty", "name": "empty", "kind": "directory",
@@ -107,12 +110,13 @@ async def test_ingest_omits_subtree_when_not_supplied(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
         "/api/ingest/batch",
         json={
             "source_id": str(source.id),
-            "scan_id": str(uuid.uuid4()),
+            "scan_id": str(scan_id),
             "is_final": False,
             "entries": [{
                 "path": "/legacy", "name": "legacy", "kind": "directory",

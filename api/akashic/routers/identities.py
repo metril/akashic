@@ -196,7 +196,17 @@ async def update_binding(
         binding.identifier = body.identifier
     if body.groups is not None:
         binding.groups = body.groups
+    # groups_source is the trust-provenance label ("claim", "ldap",
+    # "name", "manual"). Only admins may patch it (review A-I8) —
+    # otherwise a regular user can promote their manually-entered
+    # binding to "claim" and any UI that gates on confidence (e.g.
+    # SettingsIdentities' IdP-issued badge) is misled.
     if body.groups_source is not None:
+        if user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="groups_source can only be modified by an admin",
+            )
         binding.groups_source = body.groups_source
     await db.commit()
     await db.refresh(binding)

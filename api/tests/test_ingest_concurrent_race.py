@@ -17,6 +17,7 @@ from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -30,13 +31,16 @@ async def test_concurrent_ingest_with_overlapping_paths(client, db_session):
     await db_session.commit()
     token = create_ingest_token(str(user.id))
 
+    scan_a = await seed_scan(db_session, source.id)
+    scan_b = await seed_scan(db_session, source.id)
+
     # Two batches, overlapping at /shared. Without the savepoint,
     # whichever loses the unique-constraint race fails its entire
     # batch (and its non-overlapping rows would be lost too).
     overlap_path = "/shared"
     batch_a = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_a),
         "is_final": False,
         "entries": [
             {"path": "/only-a", "name": "only-a", "kind": "file", "size_bytes": 11},
@@ -45,7 +49,7 @@ async def test_concurrent_ingest_with_overlapping_paths(client, db_session):
     }
     batch_b = {
         "source_id": str(source.id),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(scan_b),
         "is_final": False,
         "entries": [
             {"path": "/only-b", "name": "only-b", "kind": "file", "size_bytes": 22},

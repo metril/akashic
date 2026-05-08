@@ -15,6 +15,7 @@ from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry, EntryEvent
 from akashic.models.source import Source
 from akashic.models.user import User
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -42,6 +43,7 @@ async def test_stale_sweep_uses_one_bulk_query(client, db_session):
     await db_session.commit()
 
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     bind = db_session.get_bind()
     sync_engine = bind.sync_engine if hasattr(bind, "sync_engine") else bind
@@ -77,7 +79,7 @@ async def test_stale_sweep_uses_one_bulk_query(client, db_session):
         # is_final=True so the stale-sweep + move-detection runs.
         payload = {
             "source_id": str(source.id),
-            "scan_id": str(uuid.uuid4()),
+            "scan_id": str(scan_id),
             "is_final": True,
             "entries": [
                 {

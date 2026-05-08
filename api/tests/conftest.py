@@ -50,3 +50,20 @@ async def client(setup_db):
 async def db_session(setup_db):
     async with setup_db() as session:
         yield session
+
+
+async def seed_scan(db_session, source_id, *, status: str = "pending"):
+    """Pre-create a Scan row and return its UUID. Ingest tests need
+    this since /api/ingest/batch refuses unknown scan_ids
+    (review A-I6) — every batch must reference a Scan row that the
+    api created via /api/scans/trigger or the lease path."""
+    import uuid as _uuid
+
+    from akashic.models.scan import Scan
+
+    sid = _uuid.uuid4()
+    db_session.add(
+        Scan(id=sid, source_id=source_id, scan_type="incremental", status=status)
+    )
+    await db_session.commit()
+    return sid

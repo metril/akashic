@@ -32,13 +32,16 @@ REFRESH_COOKIE = "akashic_refresh"
 def _set_refresh_cookie(response: Response, plain_token: str) -> None:
     """HttpOnly + SameSite=Lax cookie. Path=/api/auth so it's only
     sent to refresh / logout — minimizes accidental exposure on
-    other endpoints."""
+    other endpoints. The Secure flag is gated on settings.cookie_secure
+    (default True) so production deployments behind TLS get the flag
+    out of the box; local-dev http:// setups must set
+    COOKIE_SECURE=false explicitly (review A-N3)."""
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=plain_token,
         httponly=True,
         samesite="lax",
-        secure=False,  # Deployments behind TLS should set Secure via reverse-proxy.
+        secure=settings.cookie_secure,
         path="/api/auth",
         max_age=settings.refresh_token_expire_days * 24 * 3600,
     )
@@ -143,6 +146,10 @@ async def oidc_login() -> Response:
         max_age=600,
         httponly=True,
         samesite="lax",
+        # Secure on a TLS deployment (review A-I1) so passive sniffing
+        # on a misconfigured-HTTP segment can't lift the state cookie
+        # and replay the OIDC callback.
+        secure=settings.cookie_secure,
     )
     return response
 
@@ -239,6 +246,18 @@ async def ldap_login(
         ) from exc
 
     plain_refresh, _ = await refresh_service.mint(user.id, db)
+    # LDAP login audit event (review A-I7) — without this, LDAP-
+    # authenticated sessions are invisible to the audit trail and
+    # admins can't see brute-force patterns or successful logins.
+    # Mirrors the oidc_login_success event above.
+    await record_event(
+        db=db, user=user,
+        event_type="ldap_login_success",
+        payload={
+            "username": data.username,
+            "dn": ldap_info.get("dn") if isinstance(ldap_info, dict) else None,
+        },
+    )
     await db.commit()
     token = create_access_token({"sub": str(user.id)})
     _set_refresh_cookie(response, plain_refresh)

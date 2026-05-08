@@ -22,6 +22,7 @@ from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from tests.conftest import seed_scan
 
 
 @pytest.mark.asyncio
@@ -81,11 +82,12 @@ async def test_ingest_dedup_uses_one_select_for_whole_batch(
         elif "entries.path =" in where_clause or " path =" in where_clause:
             single_count[0] += 1
 
+    scan_id = await seed_scan(db_session, source.id)
     event.listen(sync_engine, "before_cursor_execute", _on_exec)
     try:
         payload = {
             "source_id": str(source.id),
-            "scan_id": str(uuid.uuid4()),
+            "scan_id": str(scan_id),
             "is_final": False,
             "entries": [
                 {"path": "/a", "name": "a", "kind": "file", "size_bytes": 11},
@@ -140,12 +142,13 @@ async def test_ingest_empty_batch_does_no_dedup_select(
     db_session.add_all([user, source])
     await db_session.commit()
     token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
         "/api/ingest/batch",
         json={
             "source_id": str(source.id),
-            "scan_id": str(uuid.uuid4()),
+            "scan_id": str(scan_id),
             "is_final": False,
             "entries": [],
         },

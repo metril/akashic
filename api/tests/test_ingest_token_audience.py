@@ -55,7 +55,9 @@ async def test_ingest_token_cannot_call_admin_endpoint(client, db_session):
 
 @pytest.mark.asyncio
 async def test_access_token_cannot_call_ingest(client, db_session):
-    """Symmetric: a regular user token can't reach /api/ingest/batch."""
+    """Symmetric: a regular user token can't reach /api/ingest/batch.
+    The access-token-rejected path 401s before scan_id resolution
+    runs, so a fresh UUID is fine here."""
     user = User(
         id=uuid.uuid4(), username="useraccess", email="u@e",
         password_hash="x", role="admin",
@@ -66,7 +68,7 @@ async def test_access_token_cannot_call_ingest(client, db_session):
     access_tok = create_access_token({"sub": str(user.id)})
     payload = {
         "source_id": str(uuid.uuid4()),
-        "scan_id": str(uuid.uuid4()),
+        "scan_id": str(uuid.uuid4()),  # OK — 401 fires before scan lookup
         "is_final": False,
         "entries": [],
     }
