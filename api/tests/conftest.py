@@ -29,6 +29,24 @@ async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # Clear in-process rate-limit buckets between tests so the
+    # scanner-claim and scanner-discover rate limiters don't drift
+    # over the test session and 429 unrelated tests.
+    try:
+        from akashic.routers.scanners import _claim_rate_buckets
+        _claim_rate_buckets.clear()
+    except Exception:
+        pass
+    try:
+        from akashic.routers.scanner_discovery import _rate_buckets
+        _rate_buckets.clear()
+    except Exception:
+        pass
+    try:
+        from akashic.routers.source_oauth import _callback_rate_buckets
+        _callback_rate_buckets.clear()
+    except Exception:
+        pass
     yield session_maker
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
