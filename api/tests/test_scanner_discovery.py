@@ -30,11 +30,12 @@ from akashic.services.server_settings import (
 
 @pytest_asyncio.fixture(autouse=True)
 def _reset_state():
+    from akashic.services.rate_limit import reset_all as reset_rate_limits
     invalidate_all()
-    sd_module._rate_buckets.clear()
+    reset_rate_limits()
     yield
     invalidate_all()
-    sd_module._rate_buckets.clear()
+    reset_rate_limits()
 
 
 @pytest_asyncio.fixture

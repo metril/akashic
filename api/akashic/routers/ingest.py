@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_ingest_user
@@ -348,16 +348,31 @@ async def ingest_batch(
             if existing.kind == "file":
                 new_file_ids.append(str(existing.id))
 
+    # Phase 1 — apply updates to pre-loaded existing rows in incoming
+    # order, and stage Entry candidates for the new-row bulk INSERT.
+    # Pre-fix this loop wrapped each new-row INSERT in db.begin_nested()
+    # (SAVEPOINT + flush + RELEASE per row). On a 1k-new-entry batch
+    # that was 3000 round-trips for the savepoint dance alone. Now:
+    # one bulk INSERT … ON CONFLICT DO NOTHING with RETURNING that
+    # tells us which rows actually got the row vs. lost the race
+    # (review C3 — proper fix).
+    new_candidates: list[Entry] = []
+    new_candidates_by_path: dict[str, Entry] = {}
+    incoming_by_path: dict[str, object] = {}
     for incoming in batch.entries:
         existing = existing_by_path.get(incoming.path)
-
         if existing:
             await _apply_existing(existing, incoming)
         else:
             buckets = compute_viewable_buckets(
                 incoming.acl, incoming.mode, incoming.uid, incoming.gid
             )
+            # uuid.uuid4() explicit (the model has uuid.uuid4 as the
+            # default but we need the id available before flush so we
+            # can build the v0 EntryVersion + tag-propagation work
+            # off the in-memory object).
             new_entry = Entry(
+                id=uuid.uuid4(),
                 source_id=batch.source_id,
                 kind=incoming.kind,
                 parent_path=_parent_path(incoming.path),
@@ -390,54 +405,87 @@ async def ingest_batch(
                 first_seen_at=now,
                 last_seen_at=now,
             )
-
-            # Race window: two concurrent batches can both pre-load
-            # existing_by_path, both find no row, and both reach the
-            # INSERT. Without the savepoint the loser's flush raises
-            # uq_entries_source_path → IntegrityError that aborts the
-            # whole batch. With a savepoint we can swallow the conflict,
-            # re-fetch the winner's row, and apply the incoming data on
-            # top — converting the race from "batch failure" to "extra
-            # SELECT + treat as update" (review C3).
-            inserted_new = False
-            try:
-                async with db.begin_nested():
-                    db.add(new_entry)
-                    await db.flush()
-                inserted_new = True
-            except IntegrityError:
-                # Another batch beat us to (source_id, path). Re-fetch
-                # the winner and apply our values as if we had found it
-                # in pre-load.
-                race_winner = (await db.execute(
-                    select(Entry).where(
-                        Entry.source_id == batch.source_id,
-                        Entry.path == incoming.path,
-                    )
-                )).scalar_one()
-                existing_by_path[incoming.path] = race_winner
-                await _apply_existing(race_winner, incoming)
-
-            if inserted_new:
-                # Seed a v0 row so version history starts on first observation.
-                db.add(_snapshot_version(new_entry, batch.scan_id))
-
-                # Phase C — a new entry under a tagged ancestor inherits the
-                # ancestor's tags. Cheap on the common case (no tagged
-                # ancestors); one indexed SELECT either way.
-                await propagate_to_new_entry(
-                    db,
-                    entry_id=new_entry.id,
-                    source_id=batch.source_id,
-                    path=new_entry.path,
-                )
-
-                if incoming.kind == "file":
-                    new_file_ids.append(str(new_entry.id))
-                    scan.files_new += 1
+            new_candidates.append(new_entry)
+            new_candidates_by_path[incoming.path] = new_entry
+            incoming_by_path[incoming.path] = incoming
 
         if incoming.kind == "file":
             files_processed += 1
+
+    # Phase 2 — bulk INSERT new-entry candidates with ON CONFLICT
+    # DO NOTHING. RETURNING tells us which paths actually inserted
+    # (race winners). Anything missing from the returned set is a
+    # race loser whose row was inserted by a concurrent batch
+    # between our pre-load and now.
+    inserted_paths: set[str] = set()
+    if new_candidates:
+        # Materialise every column from each Entry into a row dict.
+        # pg_insert with raw values doesn't apply Python-side
+        # defaults, so columns with `default=False` etc. need an
+        # explicit value — easiest to just pull every mapped column
+        # off the Entry object (None entries become SQL NULLs, which
+        # is what we want for nullable columns).
+        col_names = [c.name for c in Entry.__table__.columns]
+        rows = [
+            {name: getattr(e, name) for name in col_names}
+            for e in new_candidates
+        ]
+        # is_deleted has Python-side default=False; with raw INSERT
+        # we have to set it ourselves on every row.
+        for r in rows:
+            if r.get("is_deleted") is None:
+                r["is_deleted"] = False
+        stmt = (
+            pg_insert(Entry)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=["source_id", "path"])
+            .returning(Entry.id, Entry.path)
+        )
+        result = await db.execute(stmt)
+        inserted_paths = {r.path for r in result}
+        # The new_candidates Entry objects are transient (we never
+        # db.add()'d them — pg_insert is raw-SQL). Subsequent
+        # snapshot v0 + tag propagation work off the in-memory
+        # objects' .id; the FK constraint is satisfied because the
+        # row exists in the transaction-visible snapshot.
+
+    # Phase 3 — for each successfully-inserted candidate, run the
+    # per-entry side effects (v0 snapshot, ancestor-tag propagation,
+    # new_file_ids enqueue, scan.files_new bump).
+    for path in inserted_paths:
+        new_entry = new_candidates_by_path[path]
+        # Seed a v0 row so version history starts on first observation.
+        db.add(_snapshot_version(new_entry, batch.scan_id))
+        # Phase C — a new entry under a tagged ancestor inherits the
+        # ancestor's tags. Cheap on the common case (no tagged
+        # ancestors); one indexed SELECT either way.
+        await propagate_to_new_entry(
+            db,
+            entry_id=new_entry.id,
+            source_id=batch.source_id,
+            path=new_entry.path,
+        )
+        if new_entry.kind == "file":
+            new_file_ids.append(str(new_entry.id))
+            scan.files_new += 1
+
+    # Phase 4 — race losers: paths we tried to INSERT but ON CONFLICT
+    # skipped because another batch got there first. Bulk-fetch the
+    # winners and apply our incoming values as updates.
+    loser_paths = [
+        p for p in new_candidates_by_path
+        if p not in inserted_paths
+    ]
+    if loser_paths:
+        loser_result = await db.execute(
+            select(Entry).where(
+                Entry.source_id == batch.source_id,
+                Entry.path.in_(loser_paths),
+            )
+        )
+        for race_winner in loser_result.scalars():
+            existing_by_path[race_winner.path] = race_winner
+            await _apply_existing(race_winner, incoming_by_path[race_winner.path])
 
     scan.files_found += files_processed
 

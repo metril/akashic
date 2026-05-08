@@ -79,12 +79,26 @@ async function silentRefresh(): Promise<string | null> {
           method: "POST",
           credentials: "include",
         });
-        if (!r.ok) return null;
+        if (!r.ok) {
+          // Refresh chain is dead (cookie expired, replayed, revoked).
+          // Clear the session-hint flag too — otherwise isAuthenticated()
+          // keeps returning true on cold load, bootstrap retries the
+          // refresh, gets 401, and the user enters a redirect loop. The
+          // hint must reflect "do we have a viable session," not just
+          // "did we ever have one."
+          clearToken();
+          return null;
+        }
         const body = (await r.json()) as { access_token?: string };
-        if (!body.access_token) return null;
+        if (!body.access_token) {
+          clearToken();
+          return null;
+        }
         setToken(body.access_token);
         return body.access_token;
       } catch {
+        // Network/parse error — leave the hint intact so the next attempt
+        // can try again. (A transient outage shouldn't log the user out.)
         return null;
       } finally {
         // Clear the cache once this attempt resolves — next 401 starts fresh.

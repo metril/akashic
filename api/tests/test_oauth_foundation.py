@@ -77,12 +77,16 @@ def test_decrypt_secret_rejects_garbage():
 
 
 def test_state_jwt_roundtrip():
+    from akashic.services.source_oauth import session_hash
+
     user_id = uuid.uuid4()
     src_id = uuid.uuid4()
+    sh = session_hash("fake-refresh-token-value")
     state = encode_state(
         provider="google",
         source_id=src_id,
         initiator_user_id=user_id,
+        session_hash_value=sh,
         mode="associate",
     )
     decoded = decode_state(state)
@@ -91,6 +95,7 @@ def test_state_jwt_roundtrip():
     assert decoded["initiator"] == str(user_id)
     assert decoded["mode"] == "associate"
     assert decoded["aud"] == "akashic-source-oauth-callback"
+    assert decoded["session_hash"] == sh
 
 
 def test_state_jwt_rejects_garbage():

@@ -98,10 +98,12 @@ async def browse(
     limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
     q: str | None = Query(default=None, description="case-insensitive substring filter on entry name"),
     # The first-page footer COUNT(*) can be expensive in 10M+-row
-    # folders, especially with `q` engaged (no covering index). Make
-    # it opt-in (review notable) — clients that need the badge pass
-    # ?include_total=true; everyone else gets the page faster.
-    include_total: bool = Query(default=False),
+    # folders, especially with `q` engaged (no covering index). The
+    # SPA needs the count for its "X entries" badge so the default
+    # is True (preserves the existing UX). Programmatic callers that
+    # don't care about the badge can opt out with ?include_total=false
+    # to skip the COUNT scan.
+    include_total: bool = Query(default=True),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),

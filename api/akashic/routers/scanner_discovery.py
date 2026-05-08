@@ -18,7 +18,6 @@ import logging
 import secrets
 import time
 import uuid
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -34,6 +33,7 @@ from akashic.models.user import User
 from akashic.protocol import PROTOCOL_VERSION
 from akashic.services import scan_pubsub
 from akashic.services.audit import record_event
+from akashic.services.rate_limit import make_limiter
 from akashic.services.scanner_keys import fingerprint_of_pem
 from akashic.services.server_settings import is_discovery_enabled
 
@@ -51,13 +51,11 @@ _LONG_POLL_SECONDS = 25
 # Per-IP rate limit on POST /discover. Five attempts per minute is
 # generous for a real scanner (it'd never need to retry that fast)
 # while making a flood-the-pending-queue attack tedious.
-_RATE_LIMIT_REQUESTS = 5
-_RATE_LIMIT_WINDOW_S = 60.0
-_rate_buckets: dict[str, deque[float]] = defaultdict(deque)
-# Bound the bucket dict so a flood from many distinct IPs (or IPv6
-# /64 churn) can't grow it unboundedly — review notable. Stale
-# entries get evicted on every check.
-_RATE_BUCKETS_MAX = 10_000
+_discover_limiter = make_limiter(
+    max_requests=5,
+    window_seconds=60.0,
+    message="too many discovery requests; try again shortly",
+)
 
 
 def _generate_pairing_code() -> str:
@@ -70,25 +68,7 @@ def _generate_pairing_code() -> str:
 
 
 async def _check_rate_limit(request: Request) -> None:
-    client = request.client
-    ip = client.host if client else "unknown"
-    now = time.monotonic()
-    # Cap the dict size by evicting the oldest empty buckets when we
-    # exceed the threshold. Stops a slow memory leak under a sustained
-    # flood from many distinct IPs.
-    if len(_rate_buckets) > _RATE_BUCKETS_MAX:
-        empties = [k for k, v in list(_rate_buckets.items())[:1000] if not v]
-        for k in empties:
-            del _rate_buckets[k]
-    bucket = _rate_buckets[ip]
-    while bucket and bucket[0] < now - _RATE_LIMIT_WINDOW_S:
-        bucket.popleft()
-    if len(bucket) >= _RATE_LIMIT_REQUESTS:
-        raise HTTPException(
-            status_code=429,
-            detail="too many discovery requests; try again shortly",
-        )
-    bucket.append(now)
+    _discover_limiter.check(request)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────

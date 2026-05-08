@@ -64,11 +64,28 @@ def _state_secret() -> str:
     return settings.secret_key
 
 
+def session_hash(plain_refresh: str) -> str:
+    """Stable hash of a refresh-cookie value, embedded in the OAuth
+    state JWT so we can bind a state token to the exact browser
+    session that initiated the flow (review A-C2 — proper). At
+    callback time we recompute the hash from the actual cookie and
+    refuse to proceed if it doesn't match the embedded value.
+
+    sha256 hex with an HMAC-style domain separator so this hash can't
+    collide with the refresh-tokens table's hashed values (different
+    salt key)."""
+    import hashlib
+    return hashlib.sha256(
+        b"akashic-oauth-state:" + plain_refresh.encode("utf-8")
+    ).hexdigest()
+
+
 def encode_state(
     *,
     provider: str,
     source_id: uuid.UUID | None,
     initiator_user_id: uuid.UUID,
+    session_hash_value: str | None,
     mode: str = "associate",
 ) -> str:
     now = int(time.time())
@@ -82,6 +99,11 @@ def encode_state(
         "source_id": str(source_id) if source_id else None,
         "initiator": str(initiator_user_id),
         "mode": mode,
+        # Bound to the initiating browser session — see session_hash().
+        # None when no refresh cookie was present at /oauth/start
+        # (admin-only endpoint requires auth, so this is unusual but
+        # not impossible during a stale-session-edge case).
+        "session_hash": session_hash_value,
     }
     return jose_jwt.encode(payload, _state_secret(), algorithm=_STATE_ALG)
 

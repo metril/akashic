@@ -30,21 +30,13 @@ async def setup_db():
         await conn.run_sync(Base.metadata.create_all)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     # Clear in-process rate-limit buckets between tests so the
-    # scanner-claim and scanner-discover rate limiters don't drift
-    # over the test session and 429 unrelated tests.
+    # claim / discover / oauth-callback limiters don't drift over the
+    # test session and 429 unrelated tests. The shared rate_limit
+    # service module tracks every Limiter instance so one call resets
+    # all of them.
     try:
-        from akashic.routers.scanners import _claim_rate_buckets
-        _claim_rate_buckets.clear()
-    except Exception:
-        pass
-    try:
-        from akashic.routers.scanner_discovery import _rate_buckets
-        _rate_buckets.clear()
-    except Exception:
-        pass
-    try:
-        from akashic.routers.source_oauth import _callback_rate_buckets
-        _callback_rate_buckets.clear()
+        from akashic.services.rate_limit import reset_all
+        reset_all()
     except Exception:
         pass
     yield session_maker

@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 import uuid
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
+
+from akashic.services.rate_limit import make_limiter
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -409,26 +409,15 @@ _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.\-]{0,253}[a-zA-Z0-9])?$")
 # Per-IP rate limit on POST /api/scanners/claim (review A-I5). Five
 # attempts per minute is generous for a real scanner (it'd never need
 # to retry that fast) but throttles brute-force / token-spray traffic.
-# Mirrors scanner_discovery's rate limiter shape — kept local rather
-# than shared to avoid a circular import.
-_CLAIM_RATE_LIMIT_REQUESTS = 5
-_CLAIM_RATE_LIMIT_WINDOW_S = 60.0
-_claim_rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+_claim_limiter = make_limiter(
+    max_requests=5,
+    window_seconds=60.0,
+    message="too many claim attempts; try again shortly",
+)
 
 
 def _check_claim_rate_limit(request: Request) -> None:
-    client = request.client
-    ip = client.host if client else "unknown"
-    now = time.monotonic()
-    bucket = _claim_rate_buckets[ip]
-    while bucket and bucket[0] < now - _CLAIM_RATE_LIMIT_WINDOW_S:
-        bucket.popleft()
-    if len(bucket) >= _CLAIM_RATE_LIMIT_REQUESTS:
-        raise HTTPException(
-            status_code=429,
-            detail="too many claim attempts; try again shortly",
-        )
-    bucket.append(now)
+    _claim_limiter.check(request)
 
 
 class ClaimRequest(BaseModel):
@@ -1377,7 +1366,3 @@ async def scanner_mint_oauth_access_token(
     return OAuthAccessTokenResponse(
         access_token=access_token, expires_at=expires_at
     )
-
-
-# Suppress unused-import warning when running with non-time-aware tools.
-_ = time

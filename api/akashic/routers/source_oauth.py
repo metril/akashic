@@ -73,6 +73,7 @@ from akashic.schemas.oauth import (
     OAuthStartResponse,
 )
 from akashic.services.oauth_providers import get_provider, known_providers
+from akashic.services.rate_limit import make_limiter
 from akashic.services.secret_encryption import encrypt_secret
 from akashic.services.source_oauth import (
     OAuthAppNotConfigured,
@@ -83,6 +84,7 @@ from akashic.services.source_oauth import (
     exchange_code,
     mint_access_token,
     require_app_config,
+    session_hash,
     store_credential_from_token_response,
 )
 
@@ -213,6 +215,7 @@ async def delete_provider(
 @router.post("/start", response_model=OAuthStartResponse)
 async def start_authorize(
     body: OAuthStartRequest,
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ) -> OAuthStartResponse:
@@ -236,10 +239,18 @@ async def start_authorize(
         ) from exc
 
     provider = get_provider(body.provider)
+    # Compute a session hash from the refresh cookie (review A-C2 —
+    # proper). The state JWT carries this hash; the callback recomputes
+    # from the actual cookie present on the callback request and
+    # rejects on mismatch. Binds the OAuth flow to the exact browser
+    # session that started it — an attacker who steals a state token
+    # can't drive the flow from a different browser.
+    sh = session_hash(akashic_refresh) if akashic_refresh else None
     state = encode_state(
         provider=provider.name,
         source_id=body.source_id,
         initiator_user_id=user.id,
+        session_hash_value=sh,
         mode=body.mode,
     )
     authorize_url = build_authorize_url(
@@ -313,27 +324,13 @@ def _callback_page(
     return HTMLResponse(html)
 
 
-_CALLBACK_RATE_LIMIT_REQUESTS = 10
-_CALLBACK_RATE_LIMIT_WINDOW_S = 60.0
-_callback_rate_buckets: dict[str, list[float]] = {}
-
-
-def _callback_rate_limit(request) -> bool:
-    """Per-IP rate limiter for the callback endpoint (review notable).
-    Returns True if the request should be allowed. 10 req/min is well
-    above any legitimate bot of OAuth callbacks but throttles a
-    code-replay flood."""
-    client = request.client if hasattr(request, "client") else None
-    ip = client.host if client else "unknown"
-    import time as _t
-    now = _t.monotonic()
-    bucket = _callback_rate_buckets.setdefault(ip, [])
-    while bucket and bucket[0] < now - _CALLBACK_RATE_LIMIT_WINDOW_S:
-        bucket.pop(0)
-    if len(bucket) >= _CALLBACK_RATE_LIMIT_REQUESTS:
-        return False
-    bucket.append(now)
-    return True
+# Per-IP rate limit on the callback (review notable). 10/min is well
+# above any legit OAuth flow but throttles code-replay floods.
+_callback_limiter = make_limiter(
+    max_requests=10,
+    window_seconds=60.0,
+    message="too many callback requests; wait a few seconds and try again",
+)
 
 
 @router.get("/callback")
@@ -346,13 +343,17 @@ async def callback(
     akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    if not _callback_rate_limit(request):
-        return _callback_page(
-            ok=False,
-            title="Too many requests",
-            detail="Wait a few seconds and try again.",
-            payload='{"akashic_oauth": true, "ok": false, "error": "rate_limited"}',
-        )
+    try:
+        _callback_limiter.check(request)
+    except HTTPException as exc:
+        if exc.status_code == 429:
+            return _callback_page(
+                ok=False,
+                title="Too many requests",
+                detail="Wait a few seconds and try again.",
+                payload='{"akashic_oauth": true, "ok": false, "error": "rate_limited"}',
+            )
+        raise
     # Provider returned an error before we even saw a code.
     if error:
         msg = error_description or error
@@ -400,23 +401,64 @@ async def callback(
             payload='{"akashic_oauth": true, "ok": false, "error": "not_configured"}',
         )
 
-    # Defense-in-depth: verify the current browser session matches the
-    # initiator recorded in the state token. The state JWT is signed
-    # and time-bounded, but binding it to the session blocks an
-    # attacker who somehow obtains a valid state token from completing
-    # the flow on a different machine. If no session cookie is present
-    # we still allow the callback (the user might have logged out
-    # mid-flow), but log a warning so the audit trail captures it
-    # (review A-C2).
+    # Bind the callback to the browser session that started the flow
+    # (review A-C2 — proper). The state JWT carries a hash of the
+    # initiator's refresh cookie; the callback recomputes from the
+    # actual cookie and rejects on mismatch / missing. No fail-open
+    # warning — a callback presented without a matching session is
+    # exactly the attack we're defending against.
     origin = _origin_from_redirect_uri(app.redirect_uri)
-    if initiator_raw and akashic_refresh:
+    expected_session_hash = state_payload.get("session_hash")
+    if expected_session_hash is not None:
+        if not akashic_refresh:
+            logger.warning(
+                "oauth_callback rejected: no session cookie present "
+                "(state initiator=%s, provider=%s)",
+                initiator_raw, provider_name,
+            )
+            return _callback_page(
+                ok=False,
+                title="Session expired",
+                detail=(
+                    "Sign in as the user who started this connection "
+                    "and try again."
+                ),
+                payload='{"akashic_oauth": true, "ok": false, "error": "session_required"}',
+                origin=origin,
+            )
+        from hmac import compare_digest
+        actual_session_hash = session_hash(akashic_refresh)
+        if not compare_digest(expected_session_hash, actual_session_hash):
+            logger.warning(
+                "oauth_callback rejected: session-hash mismatch "
+                "(state initiator=%s, provider=%s)",
+                initiator_raw, provider_name,
+            )
+            return _callback_page(
+                ok=False,
+                title="Session mismatch",
+                detail=(
+                    "This OAuth callback was started by a different user "
+                    "or browser session. Sign in as the original initiator "
+                    "and try again."
+                ),
+                payload='{"akashic_oauth": true, "ok": false, "error": "session_mismatch"}',
+                origin=origin,
+            )
+    # If session_hash is None in the state payload (shouldn't happen
+    # post-deploy because /oauth/start always computes one when a
+    # session cookie is present, and admin-only endpoints require
+    # auth) we still verify the actor via the refresh cookie as a
+    # secondary check.
+    elif initiator_raw and akashic_refresh:
         try:
             actor_user_id = await refresh_service.peek_user_id(akashic_refresh, db)
-        except Exception:  # noqa: BLE001 - refresh-service errors are non-fatal
+        except Exception:  # noqa: BLE001
             actor_user_id = None
         if actor_user_id is not None and str(actor_user_id) != str(initiator_raw):
             logger.warning(
-                "oauth_callback initiator mismatch: state=%s session=%s provider=%s",
+                "oauth_callback initiator mismatch (legacy state, no session_hash): "
+                "state=%s session=%s provider=%s",
                 initiator_raw, actor_user_id, provider_name,
             )
             return _callback_page(
@@ -429,11 +471,6 @@ async def callback(
                 payload='{"akashic_oauth": true, "ok": false, "error": "initiator_mismatch"}',
                 origin=origin,
             )
-    elif initiator_raw and not akashic_refresh:
-        logger.warning(
-            "oauth_callback no session cookie present (state initiator=%s, provider=%s)",
-            initiator_raw, provider_name,
-        )
 
     provider = get_provider(provider_name)
     from akashic.services.secret_encryption import decrypt_secret
