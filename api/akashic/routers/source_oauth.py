@@ -1,5 +1,17 @@
 """HTTP surface for the source-OAuth foundation.
 
+Security notes (review A-C2/A-C3):
+
+- The callback re-validates the actor against ``state.initiator`` by
+  reading the refresh-cookie (defense in depth — the state JWT is
+  itself signed and time-bounded, but tying it to the current browser
+  session blocks an attacker who somehow obtains a valid state token
+  from completing the flow on their own machine).
+- The callback HTML uses postMessage with the configured callback
+  origin, never the wildcard ``"*"``. A page that opens our callback
+  via ``window.open`` from a different origin can't read the response
+  payload.
+
 Endpoints:
 
   GET    /api/oauth/providers
@@ -32,20 +44,26 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import timezone
 from html import escape as html_escape
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.auth import refresh as refresh_service
 from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.oauth_app_config import OAuthAppConfig
 from akashic.models.oauth_credential import SourceOAuthCredential
 from akashic.models.user import User
+
+logger = logging.getLogger(__name__)
+REFRESH_COOKIE = "akashic_refresh"  # mirrors auth.py — kept local to avoid an import cycle
 from akashic.schemas.oauth import (
     OAuthAppConfigSummary,
     OAuthAppConfigUpsert,
@@ -242,7 +260,7 @@ _CALLBACK_TEMPLATE = """<!doctype html>
   <p style="color:#6b7280">You can close this window.</p>
   <script>
     try {{
-      window.opener && window.opener.postMessage({payload}, "*");
+      window.opener && window.opener.postMessage({payload}, {origin_js});
     }} catch (e) {{}}
     setTimeout(function() {{ window.close(); }}, 1500);
   </script>
@@ -251,12 +269,32 @@ _CALLBACK_TEMPLATE = """<!doctype html>
 """
 
 
-def _callback_page(*, ok: bool, title: str, detail: str, payload: str) -> HTMLResponse:
+def _origin_from_redirect_uri(redirect_uri: str | None) -> str:
+    """Extract the scheme://host[:port] origin from the configured
+    redirect_uri so postMessage targets the same origin that hosts our
+    web UI. Falls back to the literal "/" (same-origin only) if we
+    can't parse the URI — never the wildcard "*"."""
+    if not redirect_uri:
+        return "/"
+    try:
+        parsed = urlparse(redirect_uri)
+    except ValueError:
+        return "/"
+    if not parsed.scheme or not parsed.netloc:
+        return "/"
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _callback_page(
+    *, ok: bool, title: str, detail: str, payload: str, origin: str = "/",
+) -> HTMLResponse:
+    import json as _json
     html = _CALLBACK_TEMPLATE.format(
         cls="ok" if ok else "err",
         title=html_escape(title),
         detail=detail,  # detail is constructed below w/ html_escape on user input
         payload=payload,
+        origin_js=_json.dumps(origin),
     )
     return HTMLResponse(html)
 
@@ -267,6 +305,7 @@ async def callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     # Provider returned an error before we even saw a code.
@@ -303,6 +342,7 @@ async def callback(
     provider_name = state_payload.get("provider")
     source_id_raw = state_payload.get("source_id")
     mode = state_payload.get("mode") or "associate"
+    initiator_raw = state_payload.get("initiator")
     source_id = uuid.UUID(source_id_raw) if source_id_raw else None
 
     try:
@@ -313,6 +353,41 @@ async def callback(
             title="Provider not configured",
             detail=html_escape(str(exc)),
             payload='{"akashic_oauth": true, "ok": false, "error": "not_configured"}',
+        )
+
+    # Defense-in-depth: verify the current browser session matches the
+    # initiator recorded in the state token. The state JWT is signed
+    # and time-bounded, but binding it to the session blocks an
+    # attacker who somehow obtains a valid state token from completing
+    # the flow on a different machine. If no session cookie is present
+    # we still allow the callback (the user might have logged out
+    # mid-flow), but log a warning so the audit trail captures it
+    # (review A-C2).
+    origin = _origin_from_redirect_uri(app.redirect_uri)
+    if initiator_raw and akashic_refresh:
+        try:
+            actor_user_id = await refresh_service.peek_user_id(akashic_refresh, db)
+        except Exception:  # noqa: BLE001 - refresh-service errors are non-fatal
+            actor_user_id = None
+        if actor_user_id is not None and str(actor_user_id) != str(initiator_raw):
+            logger.warning(
+                "oauth_callback initiator mismatch: state=%s session=%s provider=%s",
+                initiator_raw, actor_user_id, provider_name,
+            )
+            return _callback_page(
+                ok=False,
+                title="Session mismatch",
+                detail=(
+                    "This OAuth callback was started by a different user. "
+                    "Sign in as the original initiator and try again."
+                ),
+                payload='{"akashic_oauth": true, "ok": false, "error": "initiator_mismatch"}',
+                origin=origin,
+            )
+    elif initiator_raw and not akashic_refresh:
+        logger.warning(
+            "oauth_callback no session cookie present (state initiator=%s, provider=%s)",
+            initiator_raw, provider_name,
         )
 
     provider = get_provider(provider_name)
@@ -339,6 +414,7 @@ async def callback(
             title="Exchange failed",
             detail=html_escape(exc.detail),
             payload='{"akashic_oauth": true, "ok": false, "error": "exchange_failed"}',
+            origin=origin,
         )
 
     if mode == "test":
@@ -357,7 +433,7 @@ async def callback(
             f'"provider": {repr_json(provider.name)}, '
             f'"account_email": {repr_json(cred.account_email or "")} }}'
         )
-        return _callback_page(ok=True, title=title, detail=detail, payload=payload)
+        return _callback_page(ok=True, title=title, detail=detail, payload=payload, origin=origin)
 
     title = "Connected"
     detail = (
@@ -370,7 +446,7 @@ async def callback(
         f'"provider": {repr_json(provider.name)}, '
         f'"account_email": {repr_json(cred.account_email or "")} }}'
     )
-    return _callback_page(ok=True, title=title, detail=detail, payload=payload)
+    return _callback_page(ok=True, title=title, detail=detail, payload=payload, origin=origin)
 
 
 def repr_json(s: str) -> str:

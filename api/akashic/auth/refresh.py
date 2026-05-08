@@ -69,6 +69,22 @@ async def mint(
     return plain, row
 
 
+async def peek_user_id(plain: str, db: AsyncSession) -> uuid.UUID | None:
+    """Read-only lookup: return the user_id associated with a refresh
+    token without rotating or revoking it. Used by paths that need to
+    know "who is the browser session" but shouldn't burn a rotation
+    (e.g. OAuth callback initiator verification). Returns None if the
+    token is unknown, revoked, or expired."""
+    row = (await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == _hash(plain))
+    )).scalar_one_or_none()
+    if row is None or row.revoked_at is not None:
+        return None
+    if row.expires_at <= datetime.now(timezone.utc):
+        return None
+    return row.user_id
+
+
 async def rotate(
     plain: str, db: AsyncSession,
 ) -> tuple[str, RefreshToken] | None:
