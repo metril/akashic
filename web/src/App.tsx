@@ -1,7 +1,7 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { isAuthenticated } from "./api/client";
+import { bootstrapAuth, isAuthenticated } from "./api/client";
 import { useAuth } from "./hooks/useAuth";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
@@ -31,7 +31,14 @@ const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated()) {
-    return <Navigate to="/login" replace />;
+    // Preserve the destination across the login bounce so the user
+    // lands back where they were after signing in.
+    const here = window.location.pathname + window.location.search;
+    const next =
+      here.startsWith("/") && !here.startsWith("//") && here !== "/login"
+        ? `?next=${encodeURIComponent(here)}`
+        : "";
+    return <Navigate to={`/login${next}`} replace />;
   }
   return <>{children}</>;
 }
@@ -67,6 +74,31 @@ function PageLoader() {
 }
 
 export default function App() {
+  // Cold-start auth bootstrap: if a session hint is present in
+  // localStorage but we have no in-memory access token (the access
+  // token lives in memory only — review W-C1), kick off one silent
+  // refresh before rendering the routes so authed routes don't bounce
+  // to /login mid-render. While the bootstrap is in flight we render
+  // a top-level spinner.
+  const [bootDone, setBootDone] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    bootstrapAuth().finally(() => {
+      if (!cancelled) setBootDone(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!bootDone) {
+    return (
+      <div className="flex items-center justify-center h-screen text-fg-subtle">
+        <Spinner />
+      </div>
+    );
+  }
+
   return (
     <>
       <Toaster

@@ -1,20 +1,58 @@
 const API_BASE = "/api";
-const TOKEN_KEY = "akashic_token";
+
+// Access JWT lives in memory only (review W-C1). A stored JWT in
+// localStorage is readable by any same-origin script — including any
+// future XSS, a misconfigured CSP, or a compromised npm package — and
+// can be replayed verbatim against the API. The HttpOnly refresh
+// cookie is still the source of truth for "is the user logged in";
+// the access token is short-lived and re-minted from that cookie via
+// silent refresh.
+//
+// SESSION_HINT_KEY persists ONLY a boolean flag ("1" or absent) so we
+// know whether to attempt silent refresh on cold start. The flag is
+// not a credential — losing it just means an extra round-trip. It
+// also lets isAuthenticated() return true on a fresh page load before
+// the silent-refresh has had a chance to populate _accessToken.
+const SESSION_HINT_KEY = "akashic_session_present";
+
+let _accessToken: string | null = null;
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return _accessToken;
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  _accessToken = token;
+  try {
+    localStorage.setItem(SESSION_HINT_KEY, "1");
+  } catch {
+    // Private browsing / quota — losing the hint just means an extra
+    // refresh round-trip on next cold load.
+  }
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  _accessToken = null;
+  try {
+    localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export function isAuthenticated(): boolean {
-  return getToken() !== null;
+  // Optimistic: in-memory token OR a session hint counts. The hint
+  // case will trigger a silent-refresh on the first authenticated
+  // request and either succeed (mints _accessToken) or 401 → clear.
+  return _accessToken !== null || hasSessionHint();
 }
 
 interface RequestOptions {
@@ -59,6 +97,28 @@ async function silentRefresh(): Promise<string | null> {
   return inflightRefresh;
 }
 
+/** Cold-start auth bootstrap: if the session hint is set but no
+ *  in-memory token exists, attempt one silent refresh so authed
+ *  routes can render with valid credentials before any user-facing
+ *  request fires. Returns true if the user is authenticated after
+ *  the attempt. */
+export async function bootstrapAuth(): Promise<boolean> {
+  if (_accessToken) return true;
+  if (!hasSessionHint()) return false;
+  const tok = await silentRefresh();
+  return tok !== null;
+}
+
+/** Build /login?next=<current-path>. Validates that `next` starts
+ *  with "/" so an attacker can't smuggle an absolute URL through. */
+function loginUrlWithNext(): string {
+  const here = window.location.pathname + window.location.search;
+  if (!here.startsWith("/") || here.startsWith("//") || here === "/login") {
+    return "/login";
+  }
+  return `/login?next=${encodeURIComponent(here)}`;
+}
+
 async function request<T>(
   path: string,
   options: RequestOptions = {}
@@ -100,7 +160,9 @@ async function request<T>(
     }
     clearToken();
     if (window.location.pathname !== "/login") {
-      window.location.href = "/login";
+      // ?next= preserves the current destination so post-login lands
+      // back where the user was, not /dashboard (review W-C2).
+      window.location.href = loginUrlWithNext();
     }
     throw new Error("Unauthorized");
   }

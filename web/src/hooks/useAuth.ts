@@ -40,7 +40,17 @@ export function useAuth() {
       try {
         const response = await api.login(username, password);
         setToken(response.access_token);
-        navigate("/dashboard");
+        // Honor ?next= if present (set by PrivateRoute or the 401
+        // redirect path in api/client.ts). Validate it's a relative
+        // path to block open-redirect via an attacker-controlled
+        // ?next=//evil.example/page (review W-C2).
+        const params = new URLSearchParams(window.location.search);
+        const rawNext = params.get("next");
+        const safeNext =
+          rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+            ? rawNext
+            : "/dashboard";
+        navigate(safeNext, { replace: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Login failed");
       } finally {
