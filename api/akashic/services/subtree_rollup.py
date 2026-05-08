@@ -98,6 +98,11 @@ async def rollup_source(
         # so only NULL rows enter the update set. Children that were
         # scanner-populated still aggregate up correctly because the
         # LATERAL queries read their actual values regardless.
+        # Inline path into the `me` subquery (review D-I7) so the
+        # LATERAL joins compare against a column in the same scope
+        # rather than re-fetching with a correlated `(SELECT path
+        # FROM entries WHERE id = me.id)` per row. Saves one
+        # nested-loop key lookup per directory at every depth level.
         update_sql = text(
             f"""
             UPDATE entries AS e
@@ -108,7 +113,7 @@ async def rollup_source(
                 subtree_dir_count = COALESCE(child_dirs.n, 0)
                                     + COALESCE(child_dirs.dirs, 0)
             FROM (
-                SELECT id FROM entries inner_e
+                SELECT id, path FROM entries inner_e
                 WHERE inner_e.source_id = :source_id
                   AND inner_e.kind = 'directory'
                   AND inner_e.is_deleted = false
@@ -119,7 +124,7 @@ async def rollup_source(
                 SELECT SUM(size_bytes) AS bytes, COUNT(*) AS n
                 FROM entries c
                 WHERE c.source_id = :source_id
-                  AND c.parent_path = (SELECT path FROM entries WHERE id = me.id)
+                  AND c.parent_path = me.path
                   AND c.kind = 'file'
                   AND c.is_deleted = false
             ) AS child_files ON TRUE
@@ -131,7 +136,7 @@ async def rollup_source(
                     COUNT(*) AS n
                 FROM entries c
                 WHERE c.source_id = :source_id
-                  AND c.parent_path = (SELECT path FROM entries WHERE id = me.id)
+                  AND c.parent_path = me.path
                   AND c.kind = 'directory'
                   AND c.is_deleted = false
             ) AS child_dirs ON TRUE

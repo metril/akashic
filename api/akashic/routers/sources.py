@@ -835,6 +835,12 @@ async def patch_source_allowed_scanners(
             detail=f"unknown scanner_ids: {', '.join(str(u) for u in sorted(unknown))}",
         )
 
+    # Pre-compute the "all sources except this one" list once
+    # (review D-I5). Pre-fix this re-ran inside the loop for every
+    # scanner currently set to NULL (allow-all), N extra SELECTs for
+    # N unrestricted scanners.
+    other_source_ids_cache: list[uuid.UUID] | None = None
+
     updated = 0
     for s in scanners:
         current = list(s.allowed_source_ids or [])
@@ -845,14 +851,11 @@ async def patch_source_allowed_scanners(
             # Scanner currently allows ALL sources. If this one isn't
             # requested, materialise an explicit list excluding it.
             if not in_requested:
-                # Build "everything except source_id" — practical
-                # equivalent: allow every source currently in the db
-                # except this one. Cheaper alternative: only restrict
-                # against sources we know exist.
-                all_source_ids = list((await db.execute(
-                    select(Source.id).where(Source.id != source_id)
-                )).scalars().all())
-                s.allowed_source_ids = all_source_ids
+                if other_source_ids_cache is None:
+                    other_source_ids_cache = list((await db.execute(
+                        select(Source.id).where(Source.id != source_id)
+                    )).scalars().all())
+                s.allowed_source_ids = list(other_source_ids_cache)
                 updated += 1
             # else: already implicitly allowed; nothing to do.
             continue

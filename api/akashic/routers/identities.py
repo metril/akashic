@@ -50,11 +50,25 @@ async def list_identities(
     persons = (await db.execute(
         select(FsPerson).where(FsPerson.user_id == user.id).order_by(FsPerson.created_at)
     )).scalars().all()
-    out = []
-    for p in persons:
-        bindings = await _list_bindings(p.id, db)
-        out.append(_person_with_bindings(p, bindings))
-    return out
+    if not persons:
+        return []
+    # Single bulk fetch of all bindings, then group in memory
+    # (review D-I1). Pre-fix this loop ran one SELECT per persona —
+    # 10–50 sequential round-trips on a typical SettingsIdentities
+    # mount.
+    person_ids = [p.id for p in persons]
+    binding_rows = (await db.execute(
+        select(FsBinding)
+        .where(FsBinding.fs_person_id.in_(person_ids))
+        .order_by(FsBinding.fs_person_id, FsBinding.created_at)
+    )).scalars().all()
+    bindings_by_person: dict[uuid.UUID, list[FsBinding]] = {}
+    for b in binding_rows:
+        bindings_by_person.setdefault(b.fs_person_id, []).append(b)
+    return [
+        _person_with_bindings(p, bindings_by_person.get(p.id, []))
+        for p in persons
+    ]
 
 
 @router.post("", response_model=FsPersonOut, status_code=status.HTTP_201_CREATED)

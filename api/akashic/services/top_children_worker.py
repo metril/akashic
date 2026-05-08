@@ -125,29 +125,43 @@ async def _drain_all() -> None:
     if not source_ids:
         return
 
-    engine = create_async_engine(settings.database_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with session() as db:
-            for sid in source_ids:
-                try:
-                    n = await _drain_one_source(sid, db)
-                    if n:
-                        logger.debug(
-                            "top_children_worker: source=%s updated %d dirs",
-                            sid, n,
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "top_children_worker drain failed source=%s: %s",
-                        sid, exc,
+    # Reuse the worker-lifetime engine + sessionmaker (review D-I3).
+    # Pre-fix this created and disposed a fresh engine on every tick
+    # (every 1 s under load), churning the DB connection pool.
+    session = _worker_session_maker()
+    async with session() as db:
+        for sid in source_ids:
+            try:
+                n = await _drain_one_source(sid, db)
+                if n:
+                    logger.debug(
+                        "top_children_worker: source=%s updated %d dirs",
+                        sid, n,
                     )
-    finally:
-        await engine.dispose()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "top_children_worker drain failed source=%s: %s",
+                    sid, exc,
+                )
 
 
 _worker_task: asyncio.Task[None] | None = None
 _shutdown = asyncio.Event()
+
+# Worker-scoped engine + sessionmaker (review D-I3). Initialised on
+# first start_worker(); reused across ticks; disposed in stop_worker.
+_worker_engine = None
+_worker_sm = None
+
+
+def _worker_session_maker():
+    global _worker_engine, _worker_sm
+    if _worker_sm is None:
+        _worker_engine = create_async_engine(settings.database_url)
+        _worker_sm = async_sessionmaker(
+            _worker_engine, class_=AsyncSession, expire_on_commit=False,
+        )
+    return _worker_sm
 
 
 async def _worker_loop() -> None:
@@ -188,7 +202,7 @@ def start_worker() -> None:
 
 async def stop_worker() -> None:
     """Signal shutdown and await the worker. Called from app shutdown."""
-    global _worker_task
+    global _worker_task, _worker_engine, _worker_sm
     _shutdown.set()
     if _worker_task is not None:
         try:
@@ -197,3 +211,7 @@ async def stop_worker() -> None:
             logger.warning("top_children_worker stop timed out")
             _worker_task.cancel()
         _worker_task = None
+    if _worker_engine is not None:
+        await _worker_engine.dispose()
+        _worker_engine = None
+        _worker_sm = None

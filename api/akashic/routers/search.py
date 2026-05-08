@@ -330,11 +330,24 @@ async def search(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         # DB fallback — applies the same permission filter as the Meili
         # path via the `entries.viewable_by_*` columns (Phase 4). Before
         # those columns existed this branch was an escape hatch around the
         # filter; it isn't anymore.
+        #
+        # Log the original exception (review D-I4) so operators can see
+        # when Meili is broken. Pre-fix the silent fallback turned every
+        # search into a Postgres ILIKE on entries.name (full table scan
+        # at scale) without any visible signal in the logs. _ForceSqlFallback
+        # is the explicit "we know this can't be expressed in Meili"
+        # signal — only log when something else triggered the fallback.
+        if not isinstance(exc, _ForceSqlFallback):
+            import logging
+            logging.getLogger(__name__).warning(
+                "search: Meili path failed, falling back to SQL: %s",
+                exc, exc_info=True,
+            )
         from akashic.services.search import glob_to_sql_like
 
         conditions = [

@@ -54,16 +54,13 @@ async def _reindex_entries(entry_ids: list[str], db_url: str) -> None:
     """
     if not entry_ids:
         return
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
+    # Reuse the ingest router's process-cached engine pool
+    # (review D-I2). Pre-fix this created + disposed an engine per
+    # bulk-tag operation, churning DB connections.
+    from akashic.routers.ingest import _bg_session
     from akashic.services.search import build_entry_doc, index_files_batch
 
-    engine = create_async_engine(db_url)
-    session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    session = _bg_session(db_url)
     try:
         async with session() as db:
             res = await db.execute(
@@ -81,8 +78,6 @@ async def _reindex_entries(entry_ids: list[str], db_url: str) -> None:
                 await index_files_batch(docs)
     except Exception as exc:
         logger.warning("Tag re-index failed: %s", exc)
-    finally:
-        await engine.dispose()
 
 
 async def _build_doc_with_tags(entry: Entry, db: AsyncSession) -> dict:

@@ -472,19 +472,29 @@ async def ingest_batch(
             source.status = "online"
 
         if scan.started_at:
-            stale_result = await db.execute(
-                select(Entry).where(
+            # Bulk UPDATE … RETURNING (review D-I6). Pre-fix this
+            # loaded every stale row into the ORM, looped in Python
+            # to set is_deleted/deleted_at, and let dirty-tracking
+            # emit one UPDATE per row. On a 1M-stale rescan that was
+            # multi-GB Python memory + millions of SQLAlchemy attr
+            # writes. Now: one UPDATE that sets the columns, returns
+            # the slim columns we need for stats + move detection,
+            # and never materialises ORM objects.
+            from sqlalchemy import update as sql_update
+            stale_returning = (await db.execute(
+                sql_update(Entry)
+                .where(
                     Entry.source_id == batch.source_id,
                     Entry.is_deleted == False,  # noqa: E712
                     Entry.last_seen_at < scan.started_at,
                 )
-            )
-            stale_rows = stale_result.scalars().all()
-            for stale in stale_rows:
-                stale.is_deleted = True
-                stale.deleted_at = now
-                if stale.kind == "file":
-                    scan.files_deleted += 1
+                .values(is_deleted=True, deleted_at=now)
+                .returning(
+                    Entry.id, Entry.kind, Entry.content_hash,
+                    Entry.source_id, Entry.path,
+                )
+            )).all()
+            scan.files_deleted += sum(1 for r in stale_returning if r.kind == "file")
 
             # Move detection (review I13): pre-fix this ran one
             # SELECT per stale file with a content_hash, an N+1 that
@@ -494,11 +504,12 @@ async def ingest_batch(
             # matches any stale hash, build a hash → first-match map,
             # then emit EntryEvents from the in-memory map.
             stale_files_with_hash = [
-                s for s in stale_rows if s.kind == "file" and s.content_hash
+                r for r in stale_returning
+                if r.kind == "file" and r.content_hash
             ]
             if stale_files_with_hash:
-                stale_hashes = {s.content_hash for s in stale_files_with_hash}
-                stale_ids = {s.id for s in stale_files_with_hash}
+                stale_hashes = {r.content_hash for r in stale_files_with_hash}
+                stale_ids = {r.id for r in stale_files_with_hash}
                 # Order by id for deterministic picking when more than one
                 # candidate exists for a given hash — without it the test
                 # suite could see flapping move targets.
