@@ -5,6 +5,196 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.24.0 — 2026-05-08
+
+**Two-round full-codebase security + perf review, all findings shipped.**
+Spawned independent reviewers across scanner, API auth, API data, and
+web; addressed every Critical, Important, and Notable finding, plus a
+self-review of the resulting fixes for shortcuts that were swapped out
+for the proper approach in a follow-up.
+
+The largest single change is the **ingest hot path**: pre-fix the
+new-entry insert wrapped each row in `db.begin_nested()` (SAVEPOINT +
+flush + RELEASE per row, 3000 round-trips on a 1k-new-entry batch).
+Replaced with one bulk `INSERT … ON CONFLICT DO NOTHING RETURNING` plus
+a four-phase pipeline: stage candidates → bulk insert → side effects
+on the returned-success set → bulk re-fetch + treat-as-update for
+race losers. Regression test asserts zero SAVEPOINT statements emitted
+on the new-entry path. Stale-sweep got the same treatment via a single
+`UPDATE … RETURNING` that no longer materialises every soft-deleted
+row into the ORM (millions of rows on large rescans).
+
+### Breaking
+
+- **Ingest JWT scoped to its own audience (`akashic-ingest`).** The
+  scanner agent's 24h token (`api_jwt` in the lease response, plus
+  the `AKASHIC_API_KEY` env in `scan_runner.spawn_scan`) used to be a
+  full admin access token. A compromised scanner host could replay it
+  against any admin endpoint. Now the token carries `aud=akashic-ingest`
+  and only `/api/ingest/batch` accepts it; `decode_access_token` (the
+  user-endpoint path) rejects it as audience-mismatched. Out-of-tree
+  callers minting their own admin token to call ingest must switch to
+  `create_ingest_token` (or `decode_ingest_token` on the verifying
+  side). All in-tree callers + 9 ingest test files updated.
+
+### Security
+
+- **Webhook SSRF guard.** `POST /api/webhooks` accepted any URL and
+  POSTed from the API's network namespace (private IPs, cloud
+  metadata IMDS, `file://`). New `services/url_guard` rejects non-
+  http(s) schemes and any hostname that resolves to private,
+  loopback, link-local, multicast, or reserved space. Applied at
+  schema validation AND dispatch time (defense in depth — covers
+  pre-existing rows with cookie-rebound DNS).
+- **search_as is admin-only.** The override that swaps caller tokens
+  for arbitrary identity claims used to be available to any
+  authenticated user; now 403 unless `user.role == "admin"`.
+- **Scanner JWT replay protection.** Agent tokens now carry a `jti`
+  claim; the API SET-NXs `(scanner_id, jti)` into Redis with a TTL ≥
+  the token's remaining lifetime. A captured-on-the-wire token can no
+  longer be replayed within its 5-minute exp window. Fail-open on
+  Redis outage so a transient cache-tier failure doesn't lock out
+  every scanner.
+- **`aud` claim required on access tokens.** `decode_access_token`
+  passes `audience="akashic-api"` and `require_aud=True`, so a token
+  minted for another service that happens to share the HMAC secret
+  can no longer be presented here.
+- **OAuth callback bound to browser session.** State JWT now carries
+  a SHA-256 hash of the initiator's refresh cookie; callback recomputes
+  from the actual cookie and rejects on mismatch (timing-safe compare).
+  An attacker who somehow obtains a valid state token can't drive the
+  flow from a different browser. Callback's `postMessage` target
+  origin is now derived from `app.redirect_uri` instead of the wildcard
+  `"*"`.
+- **OAuth credential-id ownership check.** `POST /api/sources` rejects
+  attaching an `oauth_credential_id` already bound to a different
+  source (409). Closes the cross-admin credential-hijack vector.
+- **Scanner-claim hostname validation + rate limit.** Hostnames
+  validated against an RFC1123 regex; `/api/scanners/claim` is now
+  rate-limited 5/min/IP. Same shared rate-limiter used by
+  `/api/scanners/discover` and `/api/oauth/callback`.
+- **CORS allow-list config.** `CORS_ALLOW_ORIGINS` env var (JSON
+  list) — empty default means same-origin only. New `cookie_secure`
+  setting (default `True`) gates the Secure flag on the OIDC state
+  cookie + refresh cookie.
+- **LDAP login emits `ldap_login_success` audit event.** Pre-fix
+  LDAP-authenticated sessions were invisible to the audit trail.
+- **`groups_source` admin-only on PATCH.** A regular user could
+  promote their manually-entered binding to the trusted "claim"
+  provenance, misleading any UI that gates on confidence.
+- **Web access JWT moved out of localStorage.** Stored in a module-
+  level variable only; `localStorage` keeps a non-credential
+  `session_present` flag that triggers a silent refresh on cold load.
+  `silentRefresh` now `clearToken()`s on a 401 from `/auth/refresh`
+  so a stale cookie doesn't loop the app on bootstrap.
+- **Admin route guards on `/admin/audit` + `/admin/access`.**
+  `?next=` capture on 401 so post-login lands back at the original
+  destination (validated to start with `/`, no `//`).
+
+### Performance
+
+- **Ingest concurrent-insert race → bulk `INSERT … ON CONFLICT DO
+  NOTHING RETURNING`.** No per-row SAVEPOINTs. Regression test
+  asserts zero SAVEPOINT statements emitted on a 50-new-row batch.
+- **End-of-scan stale-sweep → bulk `UPDATE … RETURNING`.** No more
+  loading every soft-deleted row into the ORM. Move detection still
+  works against the slim returning rows.
+- **End-of-scan move detection → one bulk `content_hash IN (…)`
+  query** instead of one SELECT per stale file with a hash. N+1 →
+  1 round-trip per batch.
+- **OneDrive permission fan-out drains in-flight goroutines on
+  cancel.** Walk and WalkShallow no longer leak goroutines holding
+  the rate-limit semaphore when scanCtx is cancelled mid-loop.
+- **`GET /api/identities` collapsed N+1 binding lookups** into one
+  `SELECT WHERE fs_person_id IN (…)`.
+- **`PATCH /api/sources/{id}/allowed-scanners`** pre-computes the
+  exclusion list once instead of re-running the query inside the
+  scanner loop.
+- **`subtree_rollup` UPDATE** inlined `path` into the `me` subquery
+  so the LATERAL joins compare against a column in scope, not a
+  correlated `(SELECT path FROM entries WHERE id = me.id)` per row.
+- **Tag re-index + top_children worker reuse the ingest router's
+  process-cached engine pool** instead of building + disposing a
+  fresh `AsyncEngine` per task.
+- **Search SQL fallback now logs the original Meili exception**
+  before falling through. Pre-fix a misconfigured Meili turned every
+  search into a Postgres ILIKE full-table-scan with no operator
+  signal.
+- **Search regex mode `SET LOCAL statement_timeout='2s'`** caps
+  catastrophic-backtracking patterns server-side.
+- **Browse `?include_total=` opt-in** for clients that don't need
+  the footer count (default `true` so the SPA's existing badge is
+  preserved).
+- **OneDrive `do()` accepts `body []byte`** so the 401-retry path
+  can rebuild a fresh `bytes.Reader`. Pre-fix the `io.Reader` would
+  be drained by the first attempt.
+
+### Correctness
+
+- **Tombstone resurrection — re-appearing files are no longer
+  silently search-invisible.** Pre-fix the ingest pre-load picked up
+  `is_deleted=true` rows and routed them to `_apply_existing`, which
+  un-deleted them but skipped `propagate_to_new_entry` and didn't
+  enqueue them for Meili re-indexing. A deleted-then-recreated file
+  came back with stale tags and was missing from search until the
+  next full rescan.
+- **Bulk duplicate-delete — disk delete + DB delete now durable as
+  a pair.** Per-iteration `db.commit()` so a crash midway can't
+  leave files gone from disk but rows live in postgres.
+- **`rebalance_on_move` LIKE escape.** Same `replace(replace(replace(
+  …, '\', '\\'), '%', '\%'), '_', '\_') ESCAPE '\'` chain we apply
+  in `apply_tag` and `propagate_to_new_entry` — pre-fix a directory
+  whose path contained `%` or `_` would leave stale inherited tag
+  rows after a move.
+- **Ingest refuses unknown `scan_id` (404).** Pre-fix the endpoint
+  auto-created a `Scan` row with the client-supplied UUID — a
+  compromised scanner could inject arbitrary scan rows with chosen
+  UUIDs and corrupt future scan stats. All scans must be pre-created
+  via `/api/scans/trigger` or the lease path.
+- **Scanner unit terminal-status uses a fresh detached context.**
+  `failUnit` / `completeUnit` were called with the cancelled
+  `scanCtx` on shutdown and the unit stayed "leased" until the
+  60s lease TTL. Now: 5s context rooted in `context.Background()`
+  so the API hears the outcome regardless.
+- **SMB `Connect` honors its context via `DialContext`.** Pre-fix
+  `net.Dial` had no timeout — an unreachable host blocked the
+  goroutine for the OS TCP timeout (~3 min default).
+- **WebDAV `propfind` re-encodes path segments.** Subsequent BFS
+  levels carried URL-decoded paths from previous response bodies;
+  strict servers would reject the unencoded request.
+- **Connector content-hash prefixes.** Immich now stores `sha1:<hex>`
+  and S3 stores `etag:<hex>`, matching the namespace convention used
+  by other connectors so cross-source dedup doesn't collide.
+- **GDrive size parse zero-guard.** Only sets `SizeBytes` when
+  Sscanf returns no error AND `n > 0`; pre-fix any parse failure
+  surfaced as a 0-byte file in the dashboard's size buckets.
+- **OneDrive `/permissions` now paginates.** Items shared with >200
+  users had truncated ACLs.
+- **NFS probe stats the configured export path** after the TCP
+  reachability check so a probe-OK / scan-fails mismatch surfaces.
+
+### UX
+
+- **`/login?next=` capture on private-route redirect** so deep links
+  survive the auth bounce.
+- **`useScanStream` rAF callback bails on unmounted component.** No
+  more "can't perform state update on an unmounted component" warnings.
+- **`ModalShell` traps Tab/Shift-Tab focus + restores on close.**
+  `BulkTagDialog` and `JoinTokenWizard` migrated from hand-rolled
+  overlays to inherit ESC + focus trap.
+- **`AddBindingForm.sourceId` syncs when `sources[]` arrives async.**
+  Pre-fix the form submitted `source_id=""` silently if sources hadn't
+  finished loading.
+- **`SettingsOAuth` ProviderEditor allows updating `client_id` /
+  `redirect_uri` without re-entering the (write-only) secret.**
+  Backend schema accepts `client_secret: null` on update.
+- **`SettingsScanners` join-token status badge** uses `online` /
+  `info` / `neutral` instead of always `neutral`.
+- **`SettingsSchedules` Save** disabled while in flight to prevent
+  double-submit.
+- **`Sources` "Scan all" dialog** error-handles + closes on terminal
+  state.
+
 ## v0.23.0 — 2026-05-07
 
 **Scope cut: home-user storages only.** The connector list narrows
