@@ -263,6 +263,14 @@ async def delete_duplicate_copies(
                 )
 
             await db.delete(entry)
+            # Commit per iteration (review D-C2): the physical file is
+            # already gone from disk; if a later iteration crashes and
+            # rolls back the surrounding transaction, this entry's row
+            # would be revived in the DB pointing at a non-existent
+            # file, which can never be cleaned up except by a full
+            # rescan. Per-entry commit pairs the disk delete with the
+            # row delete so they stay consistent.
+            await db.commit()
             deleted.append(DeleteCopyOutcome(
                 entry_id=str(eid),
                 path=entry.path,
@@ -290,6 +298,11 @@ async def delete_duplicate_copies(
             except Exception:  # noqa: BLE001
                 logger.exception("audit failed for entry %s (failure case)", eid)
 
+            # Commit the failure audit_event per-iteration too, for
+            # the same reason as the success branch — a crash on a
+            # later iteration shouldn't lose the forensic record of
+            # what we already attempted.
+            await db.commit()
             failed.append(DeleteCopyOutcome(
                 entry_id=str(eid),
                 path=entry.path,
@@ -297,7 +310,5 @@ async def delete_duplicate_copies(
                 step=outcome.step,
                 message=outcome.message,
             ))
-
-    await db.commit()
 
     return DeleteCopiesResponse(deleted=deleted, failed=failed)

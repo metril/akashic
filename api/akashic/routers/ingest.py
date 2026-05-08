@@ -321,7 +321,16 @@ async def ingest_batch(
         """Update path for a row already present at this (source_id, path).
         Used both for pre-loaded existing rows and for the race-loser
         path where another concurrent batch inserted between our
-        pre-load and our flush."""
+        pre-load and our flush.
+
+        Resurrection (review D-C1): if `existing` is currently a
+        tombstone (is_deleted=True), un-deleting it is the right thing,
+        but we must also run the new-entry side-effects (tag inheritance
+        from ancestor directories + Meili re-index enqueue) — without
+        them the file silently re-appears with stale tags and the
+        search index never sees it.
+        """
+        was_tombstone = existing.is_deleted
         if entry_state_changed(existing, incoming):
             db.add(_snapshot_version(existing, batch.scan_id))
             _apply_entry_fields(existing, incoming)
@@ -331,6 +340,16 @@ async def ingest_batch(
         existing.last_seen_at = now
         existing.is_deleted = False
         existing.deleted_at = None
+
+        if was_tombstone:
+            await propagate_to_new_entry(
+                db,
+                entry_id=existing.id,
+                source_id=batch.source_id,
+                path=existing.path,
+            )
+            if existing.kind == "file":
+                new_file_ids.append(str(existing.id))
 
     for incoming in batch.entries:
         existing = existing_by_path.get(incoming.path)

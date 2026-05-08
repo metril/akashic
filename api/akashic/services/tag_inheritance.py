@@ -180,9 +180,17 @@ async def rebalance_on_move(
     # this entry's new path. Direct rows (`inherited_from_entry_id IS
     # NULL`) are untouched — moves don't strip a tag the user applied
     # directly.
+    #
+    # LIKE-pattern escape (review D-C3): the pattern side of LIKE is
+    # `path || '/%'` where `path` is a directory's path from a row in
+    # entries. If any directory's path contains '%' or '_', those
+    # characters act as wildcards in the LIKE comparison and would
+    # widen the IN-clause to include unrelated ancestors. Escape them
+    # explicitly with the same chain we use in apply_tag and
+    # propagate_to_new_entry.
     await db.execute(
         text(
-            """
+            r"""
             DELETE FROM entry_tags
             WHERE entry_id = :entry_id
               AND inherited_from_entry_id IS NOT NULL
@@ -190,7 +198,9 @@ async def rebalance_on_move(
                   SELECT id FROM entries
                   WHERE source_id = :new_source_id
                     AND kind = 'directory'
-                    AND :new_path LIKE path || '/%'
+                    AND :new_path LIKE
+                        replace(replace(replace(path, '\', '\\'), '%', '\%'), '_', '\_')
+                        || '/%' ESCAPE '\'
               )
             """
         ),
