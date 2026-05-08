@@ -11,7 +11,7 @@ import uuid
 import pytest
 from sqlalchemy import event, select
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry, EntryEvent
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -41,7 +41,7 @@ async def test_stale_sweep_uses_one_bulk_query(client, db_session):
     db_session.add_all(seeded)
     await db_session.commit()
 
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     bind = db_session.get_bind()
     sync_engine = bind.sync_engine if hasattr(bind, "sync_engine") else bind

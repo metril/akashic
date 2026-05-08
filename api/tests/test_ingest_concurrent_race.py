@@ -13,7 +13,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -28,7 +28,7 @@ async def test_concurrent_ingest_with_overlapping_paths(client, db_session):
     source = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
     db_session.add_all([user, source])
     await db_session.commit()
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     # Two batches, overlapping at /shared. Without the savepoint,
     # whichever loses the unique-constraint race fails its entire

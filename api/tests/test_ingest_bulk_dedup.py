@@ -18,7 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -45,7 +45,7 @@ async def test_ingest_dedup_uses_one_select_for_whole_batch(
             parent_path="/", size_bytes=10,
         ))
     await db_session.commit()
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     # The async test session is bound to an AsyncEngine — its
     # underlying sync_engine is what fires `before_cursor_execute`.
@@ -139,7 +139,7 @@ async def test_ingest_empty_batch_does_no_dedup_select(
     source = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
     db_session.add_all([user, source])
     await db_session.commit()
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     resp = await client.post(
         "/api/ingest/batch",

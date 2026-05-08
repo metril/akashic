@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.jwt import decode_access_token
+from akashic.auth.jwt import decode_access_token, decode_ingest_token
 from akashic.database import get_db
 from akashic.models.user import User, SourcePermission
 
@@ -17,6 +17,32 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     payload = decode_access_token(credentials.credentials)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+
+async def get_ingest_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Resolve the user from a token minted by create_ingest_token.
+
+    Distinct from get_current_user so an ingest-scoped token (handed
+    to the scanner agent) cannot be presented to admin endpoints, and
+    a regular user token cannot satisfy the ingest dependency.
+
+    The user identity is still loaded — ingest needs an authenticated
+    actor for ACL/audit purposes — but the audience boundary keeps
+    each token confined to its issued purpose (review A-C1)."""
+    payload = decode_ingest_token(credentials.credentials)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user_id = payload.get("sub")

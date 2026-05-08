@@ -26,7 +26,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import require_admin
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.scanner import Scanner
@@ -721,22 +721,23 @@ _LEASE_DURATION_SECONDS = 60
 
 
 async def _mint_ingest_jwt(db: AsyncSession) -> str | None:
-    """Pick any admin user and mint a 24h JWT scoped to their identity
-    so the agent can call /api/ingest/batch and the per-scan heartbeat
-    endpoint, both of which still gate on a user dep today.
+    """Pick any admin user and mint an ingest-audience JWT bound to
+    their identity so the agent can call /api/ingest/batch and the
+    per-scan heartbeat endpoint, both of which still need an
+    authenticated user for ACL/audit purposes.
 
-    Phase-1 expedient: the JWT is bound to "some admin," not to the
-    user who triggered the scan. Phase 3 of the multi-scanner work
-    refactors this to a service-account or scanner-JWT flow."""
+    Audience is "akashic-ingest" (not "akashic-api"), so even though
+    the user identity behind the token is admin, the token itself
+    will fail decode_access_token() against any non-ingest endpoint —
+    a compromised scanner host can't pivot from ingest to admin (review
+    A-C1)."""
     res = await db.execute(
         select(User).where(User.role == "admin").order_by(User.created_at).limit(1)
     )
     admin = res.scalar_one_or_none()
     if admin is None:
         return None
-    return create_access_token(
-        {"sub": str(admin.id)}, expires_delta=timedelta(hours=24),
-    )
+    return create_ingest_token(str(admin.id), expires_delta=timedelta(hours=24))
 
 
 @router.post("/api/scans/lease")

@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -33,7 +33,7 @@ async def test_ingest_populates_viewable_columns_for_new_entry(
     source = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
     db_session.add_all([user, source])
     await db_session.commit()
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     payload = {
         "source_id": str(source.id),
@@ -91,7 +91,7 @@ async def test_ingest_updates_viewable_columns_on_acl_change(
     source = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
     db_session.add_all([user, source])
     await db_session.commit()
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     base_payload = {
         "source_id": str(source.id),

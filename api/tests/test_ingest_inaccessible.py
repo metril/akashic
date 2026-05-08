@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 
 
 async def _seed(db_session, source_id):
@@ -41,7 +41,7 @@ async def test_inaccessible_counts_persisted_on_final_batch(
 ):
     sid = uuid.uuid4()
     user, scan = await _seed(db_session, sid)
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     payload = {
         "source_id": str(sid),
@@ -74,7 +74,7 @@ async def test_inaccessible_counts_accumulate_across_batches(
     Scan row ends up with the per-scan total."""
     sid = uuid.uuid4()
     user, scan = await _seed(db_session, sid)
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     for d, f in [(2, 5), (4, 1), (1, 3)]:
         payload = {
@@ -108,7 +108,7 @@ async def test_legacy_batch_without_counts_defaults_to_zero(
     skips when both are 0 so the Scan row stays at 0."""
     sid = uuid.uuid4()
     user, scan = await _seed(db_session, sid)
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
 
     payload = {
         "source_id": str(sid),

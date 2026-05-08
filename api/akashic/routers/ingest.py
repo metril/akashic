@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import check_source_access, get_ingest_user
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryEvent, EntryVersion
 from akashic.models.scan import Scan
@@ -264,7 +264,7 @@ async def ingest_batch(
     batch: ScanBatchIn,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_ingest_user),
 ):
     await check_source_access(batch.source_id, user, db, required_level="write")
 

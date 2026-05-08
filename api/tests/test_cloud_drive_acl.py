@@ -15,7 +15,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -291,7 +291,7 @@ async def test_native_id_persists_through_ingest(
     db_session.add_all([user, source])
     await db_session.commit()
 
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
     payload = {
         "source_id": str(source.id),
         "scan_id": str(uuid.uuid4()),

@@ -29,7 +29,7 @@ import shlex
 from datetime import timedelta
 from typing import Any
 
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -148,11 +148,10 @@ async def spawn_scan(source: Source, scan: Scan, user: User) -> None:
 
     # Long scans need a long-lived token. 24 h is well past any single
     # scan against a reasonable share; if a scan runs longer than that
-    # in practice, the right fix is a service account, not a longer JWT.
-    token = create_access_token(
-        {"sub": str(user.id)},
-        expires_delta=timedelta(hours=24),
-    )
+    # in practice, the right fix is a service account, not a longer
+    # JWT. Ingest-audience so the scanner host can't replay the token
+    # against admin endpoints (review A-C1).
+    token = create_ingest_token(str(user.id), expires_delta=timedelta(hours=24))
     env = {
         "AKASHIC_API_URL": "http://localhost:8000",
         "AKASHIC_API_KEY": token,

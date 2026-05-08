@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.auth.jwt import create_access_token
+from akashic.auth.jwt import create_ingest_token
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,7 @@ async def test_ingest_persists_source_security_metadata(
     db_session.add_all([user, source])
     await db_session.commit()
 
-    token = create_access_token({"sub": str(user.id)})
+    token = create_ingest_token(str(user.id))
     payload = {
         "source_id": str(source.id),
         "scan_id": str(uuid.uuid4()),
