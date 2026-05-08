@@ -43,9 +43,14 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 
 // MintJWT produces an EdDSA JWT for the given scanner identity. The
 // claims layout matches what api/akashic/services/scanner_auth expects:
-// iss=scanner, sub=scanner_id, kid header = scanner_id, 5-minute exp.
+// iss=scanner, sub=scanner_id, kid header = scanner_id, 5-minute exp,
+// jti = fresh random UUID v4 for replay protection.
 func MintJWT(priv ed25519.PrivateKey, scannerID string) (string, error) {
 	now := time.Now().Unix()
+	jti, err := newJTI()
+	if err != nil {
+		return "", fmt.Errorf("mint jti: %w", err)
+	}
 	header := map[string]string{
 		"alg": "EdDSA",
 		"typ": "JWT",
@@ -56,6 +61,7 @@ func MintJWT(priv ed25519.PrivateKey, scannerID string) (string, error) {
 		"sub": scannerID,
 		"iat": now,
 		"exp": now + 300, // 5 minutes
+		"jti": jti,
 	}
 	hb, err := json.Marshal(header)
 	if err != nil {
@@ -74,6 +80,32 @@ func MintJWT(priv ed25519.PrivateKey, scannerID string) (string, error) {
 
 func base64URL(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// newJTI returns a fresh RFC4122 v4-style hex string. We don't import
+// google/uuid for one call site; 16 bytes of crypto/rand encoded as
+// hex (with the version + variant bits set) is byte-equivalent for
+// the api's purposes — the api only treats it as an opaque key.
+func newJTI() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	const hex = "0123456789abcdef"
+	out := make([]byte, 36)
+	pos := 0
+	for i := 0; i < 16; i++ {
+		if i == 4 || i == 6 || i == 8 || i == 10 {
+			out[pos] = '-'
+			pos++
+		}
+		out[pos] = hex[b[i]>>4]
+		out[pos+1] = hex[b[i]&0x0f]
+		pos += 2
+	}
+	return string(out), nil
 }
 
 // GenerateKeypair makes a fresh Ed25519 pair locally on the scanner

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.database import get_db
 from akashic.models.scanner import Scanner
+from akashic.services.scanner_jti import claim_jti
 from akashic.services.scanner_keys import peek_kid, verify_jwt
 
 
@@ -90,6 +91,17 @@ async def verify_scanner_jwt(
     if isinstance(iat, int) and iat > now + _CLOCK_SKEW_SECONDS:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="token not yet valid",
+        )
+
+    # Replay protection (review I7): claim the jti against a Redis
+    # seen-set. Atomic SET NX so two near-simultaneous requests with
+    # the same jti can't both pass. Fail-open on Redis error — the
+    # signature + exp checks above are the primary guard.
+    jti = claims.get("jti")
+    if not await claim_jti(str(scanner_id), jti if isinstance(jti, str) else "", exp):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token replay detected",
         )
 
     return scanner
