@@ -54,9 +54,15 @@ func NewSMBConnector(host string, port int, username, password, share string) *S
 	}
 }
 
-func (c *SMBConnector) Connect(_ context.Context) error {
+func (c *SMBConnector) Connect(ctx context.Context) error {
 	addr := net.JoinHostPort(c.host, fmt.Sprintf("%d", c.port))
-	conn, err := net.Dial("tcp", addr)
+	// DialContext (review S-C2): plain net.Dial has no timeout, so an
+	// unreachable host (firewall drop, packet loss) blocks the goroutine
+	// for the OS TCP timeout (minutes) — heartbeats keep the lease
+	// alive throughout, so the scan stays stuck. The probe path passes
+	// a bounded context; obeying it bounds the dial properly.
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("smb dial %s: %w", addr, err)
 	}

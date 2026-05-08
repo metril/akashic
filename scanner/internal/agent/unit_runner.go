@@ -119,14 +119,23 @@ func runUnitCoordinated(
 		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, leased.Source.ExcludePatterns)
 		hbCancel()
 
+		// Terminal-status delivery uses a fresh, short-lived context
+		// rooted in Background so a cancelled scanCtx (Stop pressed,
+		// SIGTERM, heartbeat 409) doesn't prevent us from telling the
+		// api the unit is done. Without this the unit stays "leased"
+		// and only releases when the api-side lease TTL expires
+		// (review S-C1).
+		termCtx, termCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if walkErr != nil {
 			log.Printf("scan %s unit %s: walk failed: %v", leased.ScanID, unit.ID, walkErr)
-			_ = failUnit(scanCtx, httpc, cfg, priv, leased.ScanID, unit.ID, walkErr.Error())
+			_ = failUnit(termCtx, httpc, cfg, priv, leased.ScanID, unit.ID, walkErr.Error())
+			termCancel()
 			continue
 		}
-		if err := completeUnit(scanCtx, httpc, cfg, priv, leased.ScanID, unit.ID); err != nil {
+		if err := completeUnit(termCtx, httpc, cfg, priv, leased.ScanID, unit.ID); err != nil {
 			log.Printf("scan %s unit %s: complete failed: %v", leased.ScanID, unit.ID, err)
 		}
+		termCancel()
 	}
 }
 
