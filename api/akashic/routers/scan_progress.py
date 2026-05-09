@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import (
+    check_source_access,
+    get_current_user,
+    get_ingest_user,
+)
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
@@ -55,7 +59,12 @@ async def post_heartbeat(
     scan_id: uuid.UUID,
     body: HeartbeatIn,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    # Scanner agent presents the ingest-audience JWT minted at lease
+    # time (audience=akashic-ingest). v0.24.0 scoped /api/ingest/batch
+    # to that audience but the sibling scan-progress endpoints
+    # (heartbeat, log, stderr) were missed and silently 401'd every
+    # call from the scanner. v0.27.1 fix: accept ingest-audience JWTs.
+    user: User = Depends(get_ingest_user),
 ) -> None:
     scan = await _load_scan_with_write(scan_id, user, db)
 
@@ -186,7 +195,8 @@ async def post_log_batch(
     scan_id: uuid.UUID,
     body: LogBatchIn,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    # Ingest-audience JWT — see post_heartbeat for the rationale.
+    user: User = Depends(get_ingest_user),
 ) -> None:
     if not body.lines:
         return
@@ -216,7 +226,8 @@ async def post_stderr_batch(
     scan_id: uuid.UUID,
     body: StderrBatchIn,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    # Ingest-audience JWT — see post_heartbeat for the rationale.
+    user: User = Depends(get_ingest_user),
 ) -> None:
     if not body.chunks:
         return

@@ -5,6 +5,37 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.27.2 — 2026-05-09
+
+**Live Log finished the v0.24.0 audience-scoping job.** v0.24.0 fixed
+`POST /api/ingest/batch` to accept the ingest-audience JWT but the
+sibling scan-progress endpoints (`/heartbeat`, `/log`, `/stderr`)
+kept requiring `get_current_user` (audience=`akashic-api`). The
+scanner agent presents the same ingest JWT to all four — so
+heartbeats and log/stderr POSTs silently 401'd every call, no log
+entries ever reached the database, and the Live Log drawer was
+stuck on "Waiting for output…" forever.
+
+### Bug fixes
+
+- **Scan-progress POST endpoints accept the ingest-audience JWT.**
+  [api/akashic/routers/scan_progress.py](api/akashic/routers/scan_progress.py)
+  swaps `get_current_user` → `get_ingest_user` on `/heartbeat`,
+  `/log`, and `/stderr`. The GET `/log` endpoint stays on
+  `get_current_user` (the UI fetches log lines for backfill, not
+  the scanner). Affected versions: every release since v0.24.0.
+
+### Verification
+
+- End-to-end: a fresh full-scan on the Music source produced 203
+  log entries in `scan_log_entries` (vs. 0 on every prior scan
+  since v0.24.0) within the first 30 s. Live Log now streams.
+- Tests: full pytest 662 passing.
+  [test_ingest_token_audience.py](api/tests/test_ingest_token_audience.py)
+  gained two regression cases — one asserts access tokens are
+  rejected by all three scan-progress POSTs, the other asserts
+  ingest tokens are accepted on the happy path.
+
 ## v0.27.1 — 2026-05-09
 
 **Two latent bugs that together stopped scans from running.** User

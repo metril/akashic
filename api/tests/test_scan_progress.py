@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import get_current_user, get_ingest_user
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.scan import Scan
@@ -101,6 +101,11 @@ async def client(setup_db, admin_user: User, monkeypatch, request) -> AsyncClien
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_get_current_user
+    # v0.27.1 — heartbeat / log / stderr POSTs now require the
+    # ingest-audience JWT (the scanner agent's lease-time token).
+    # Reuse the admin override so existing tests don't have to mint a
+    # real ingest token on every call.
+    app.dependency_overrides[get_ingest_user] = _override_get_current_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 

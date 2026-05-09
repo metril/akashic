@@ -77,3 +77,76 @@ async def test_access_token_cannot_call_ingest(client, db_session):
         headers={"Authorization": f"Bearer {access_tok}"},
     )
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_access_token_cannot_call_scan_progress(client, db_session):
+    """v0.27.1 regression: scan-progress POSTs (heartbeat / log /
+    stderr) are sibling endpoints of /api/ingest/batch — they accept
+    the ingest-audience JWT minted at lease time and must reject
+    plain access tokens. Pre-fix all three required get_current_user,
+    so the scanner's ingest token 401'd silently and Live Log
+    showed "Waiting for output…" forever."""
+    user = User(
+        id=uuid.uuid4(), username="progressuser", email="p@e",
+        password_hash="x", role="admin",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    access_tok = create_access_token({"sub": str(user.id)})
+
+    scan_id = uuid.uuid4()
+    headers = {"Authorization": f"Bearer {access_tok}"}
+    # Each endpoint should 401 on the access-audience token before any
+    # body validation runs.
+    r = await client.post(
+        f"/api/scans/{scan_id}/heartbeat",
+        json={"files_found": 0}, headers=headers,
+    )
+    assert r.status_code == 401, f"heartbeat: {r.status_code} {r.text}"
+    r = await client.post(
+        f"/api/scans/{scan_id}/log",
+        json={"lines": []}, headers=headers,
+    )
+    assert r.status_code == 401, f"log: {r.status_code} {r.text}"
+    r = await client.post(
+        f"/api/scans/{scan_id}/stderr",
+        json={"chunks": []}, headers=headers,
+    )
+    assert r.status_code == 401, f"stderr: {r.status_code} {r.text}"
+
+
+@pytest.mark.asyncio
+async def test_ingest_token_can_call_scan_progress(client, db_session):
+    """The ingest token IS valid for scan-progress POSTs — that's the
+    happy path. With an empty body the endpoints short-circuit before
+    they need a real scan, but the auth dep must accept the token."""
+    user = User(
+        id=uuid.uuid4(), username="progressingest", email="pi@e",
+        password_hash="x", role="admin",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    ingest_tok = create_ingest_token(str(user.id))
+
+    scan_id = uuid.uuid4()
+    headers = {"Authorization": f"Bearer {ingest_tok}"}
+    # log + stderr return 204 on empty bodies (post_log_batch /
+    # post_stderr_batch return early). heartbeat will 404 because
+    # scan_id doesn't exist — that's the auth-passed signal we want.
+    r = await client.post(
+        f"/api/scans/{scan_id}/log",
+        json={"lines": []}, headers=headers,
+    )
+    assert r.status_code == 204, f"log: {r.status_code} {r.text}"
+    r = await client.post(
+        f"/api/scans/{scan_id}/stderr",
+        json={"chunks": []}, headers=headers,
+    )
+    assert r.status_code == 204, f"stderr: {r.status_code} {r.text}"
+    r = await client.post(
+        f"/api/scans/{scan_id}/heartbeat",
+        json={"files_found": 0}, headers=headers,
+    )
+    # 404 = auth passed, scan lookup failed — the signal we want.
+    assert r.status_code == 404, f"heartbeat: {r.status_code} {r.text}"
