@@ -5,6 +5,56 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.27.1 — 2026-05-09
+
+**Two latent bugs that together stopped scans from running.** User
+reported "the scanner is not picking up the scan jobs"; live diag
+showed 8 SMB scans queued, scanner online + enabled + unrestricted,
+yet every `POST /api/scans/lease` returned 401. Fixing the lease auth
+exposed a second bug: bulk ingest blew through postgres's hard
+32767-param cap on real-world batch sizes, 500-ing every batch and
+failing the scan end-to-end.
+
+### Bug fixes
+
+- **Scanner agent: mint a fresh JWT per call.**
+  [scanner/internal/agent/agent.go](scanner/internal/agent/agent.go)
+  cached one signed bearer header for ~4 minutes and reused it across
+  every API call. The API enforces one-time JTI replay protection
+  (`services/scanner_jti.py`, review I7 in v0.24.0), so reusing a
+  cached token caused every call after the first to 401 with "token
+  replay detected". The scanner appeared online (because the rare
+  first-of-cycle heartbeat succeeded and bumped `last_seen_at`) but
+  never claimed any work. Fix: drop the `jwtCache`, mint per call.
+  Ed25519 signatures are microsecond-cheap; the cache was a
+  premature optimisation that broke the security guard. Affected
+  versions: every release with the I7 JTI guard (v0.24.0 onward).
+- **Ingest: chunk the bulk `INSERT ... ON CONFLICT` under the 32767
+  param limit.** The new-entry path in
+  [api/akashic/routers/ingest.py](api/akashic/routers/ingest.py)
+  passed every row from a batch in a single `pg_insert(Entry).values(rows)`
+  call. Entry has 34 columns, so any batch over ~990 rows hit
+  `asyncpg.InterfaceError: the number of query arguments cannot
+  exceed 32767`. Real-world SMB scans send batches in the thousands,
+  so every batch 500'd and the scan failed. Fix: chunk rows so
+  `cols * chunk_rows ≤ 30 000` (~880 rows per chunk for Entry). Two
+  regression tests guard the path.
+
+### Verification
+
+- End-to-end: with both fixes deployed, two real SMB scans completed
+  cleanly in seconds — TV (7732 files) and Music (12967 files), zero
+  errors.
+- Tests: new
+  [test_ingest_param_limit.py](api/tests/test_ingest_param_limit.py)
+  asserts a 1500-row batch returns 200 and emits ≥2 chunked INSERTs.
+  Existing [test_ingest_no_savepoints.py](api/tests/test_ingest_no_savepoints.py)
+  still passes (50-row batches stay in one chunk).
+- Scanner Go test
+  [agent_test.go](scanner/internal/agent/agent_test.go) flipped from
+  asserting cache reuse to asserting distinct `jti` claims per
+  `authHeader` call.
+
 ## v0.27.0 — 2026-05-09
 
 **Settings redesign — kill the sidebar, match the rest of the app.**

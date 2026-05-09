@@ -131,21 +131,20 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	}
 }
 
-// TestAgentHandshake_RejectsOutOfRangeProtocol confirms the agent
-// surfaces the api's 426 as a fatal startup error rather than looping.
-// authHeader caches its result and only re-mints when the token is
-// near expiry. Pre-fix, every heartbeat call (every 30 s) re-signed
-// regardless of remaining TTL.
-func TestAuthHeader_CachesAcrossCalls(t *testing.T) {
+// TestAuthHeader_MintsFreshJWTPerCall is the regression for v0.27.1.
+// Pre-fix authHeader cached one signed JWT for ~4 minutes and reused
+// it across calls — but the API enforces one-time JTI replay
+// protection (services/scanner_jti.py), so every call after the first
+// returned 401 "token replay detected" and the agent claimed no work.
+// Fix: mint a fresh JWT per call (each gets a unique jti via
+// MintJWT). This test asserts two consecutive calls produce
+// different headers (different jti → different signature).
+func TestAuthHeader_MintsFreshJWTPerCall(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := Config{ScannerID: "scanner-x"}
-
-	// Reset the package-global cache so a prior test's token doesn't
-	// leak in.
-	agentTokenCache = jwtCache{}
 
 	first, err := authHeader(cfg, priv)
 	if err != nil {
@@ -158,22 +157,40 @@ func TestAuthHeader_CachesAcrossCalls(t *testing.T) {
 	if first == "" {
 		t.Fatal("empty header")
 	}
-	if first != second {
-		t.Fatalf("expected cached header reuse; got two distinct tokens")
+	if first == second {
+		t.Fatalf("expected fresh JWT per call (unique jti); got same header reused — cache regressed")
 	}
 
-	// Force expiry — the next call must run the mint path and refresh
-	// the cache's expiresAt. Note we can't compare the resulting
-	// header string because MintJWT is deterministic per second
-	// (same iat/exp claims → same signature within the same second).
-	stamp := time.Now().Add(-1 * time.Second)
-	agentTokenCache.expiresAt = stamp
-	if _, err := authHeader(cfg, priv); err != nil {
-		t.Fatal(err)
+	// Confirm the jti claims actually differ — that's the security
+	// property we depend on.
+	jti1 := jtiFromBearer(t, first)
+	jti2 := jtiFromBearer(t, second)
+	if jti1 == jti2 {
+		t.Fatalf("expected distinct jti claims, got %q both times", jti1)
 	}
-	if !agentTokenCache.expiresAt.After(stamp) {
-		t.Fatalf("expected expiresAt to advance after re-mint; stayed at %v", stamp)
+}
+
+// jtiFromBearer decodes the claims of a "Bearer xxx.yyy.zzz" header
+// and returns the jti. Test helper — bails the test on any decode
+// failure.
+func jtiFromBearer(t *testing.T, header string) string {
+	t.Helper()
+	tok := strings.TrimPrefix(header, "Bearer ")
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		t.Fatalf("malformed bearer: %q", header)
 	}
+	body, err := decodeBase64URL(parts[1])
+	if err != nil {
+		t.Fatalf("decode claims: %v", err)
+	}
+	var claims struct {
+		JTI string `json:"jti"`
+	}
+	if err := json.Unmarshal(body, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+	return claims.JTI
 }
 
 func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {

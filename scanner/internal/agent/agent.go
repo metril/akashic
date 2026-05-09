@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
@@ -173,46 +172,23 @@ type completeReq struct {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
-// jwtCache caches the most recently minted bearer header. The api
-// accepts JWTs for 5 minutes (see MintJWT); we re-mint when the
-// remaining lifetime drops below jwtRefreshAt — early enough that an
-// in-flight request never carries a token that expires mid-flight.
+// authHeader mints a fresh JWT per call. Each token carries a unique
+// `jti` (random 16-byte UUID, see MintJWT); the API enforces one-time
+// JTI replay protection in services/scanner_jti.py, so reusing a
+// cached token would 401-replay every call after the first.
 //
-// Pre-cache, every authHeader call (heartbeat every 30 s, plus lease /
-// complete) re-signed the token even though Ed25519 signatures are
-// cheap. Cleaner contract for downstream code, and saves a few
-// microseconds per call too.
-type jwtCache struct {
-	mu        sync.Mutex
-	header    string
-	expiresAt time.Time
-}
-
-const (
-	jwtTTL       = 5 * time.Minute // matches MintJWT's exp claim
-	jwtRefreshAt = 1 * time.Minute // remint when ≤1 minute remains
-)
-
-// agentTokenCache is process-global for an agent — there is exactly
-// one identity (cfg.ScannerID + priv) per agent process, so a single
-// cache is sufficient. A fleshier design would key by (scannerID,
-// pubkey-fingerprint), but that's overkill until SIGHUP'd key
-// rotation actually swaps the in-memory key.
-var agentTokenCache jwtCache
-
+// The pre-v0.27.1 implementation cached one signed header for ~4 min
+// to "save a few microseconds per call" — but Ed25519 signatures are
+// genuinely microsecond-cheap and the cache silently broke the
+// replay guard. Lease/heartbeat/reachability all serialise the same
+// jti, so only the first call per cache cycle succeeded; everything
+// after returned 401 and the agent claimed no work.
 func authHeader(cfg Config, priv ed25519.PrivateKey) (string, error) {
-	agentTokenCache.mu.Lock()
-	defer agentTokenCache.mu.Unlock()
-	if agentTokenCache.header != "" && time.Until(agentTokenCache.expiresAt) > jwtRefreshAt {
-		return agentTokenCache.header, nil
-	}
 	tok, err := MintJWT(priv, cfg.ScannerID)
 	if err != nil {
 		return "", err
 	}
-	agentTokenCache.header = "Bearer " + tok
-	agentTokenCache.expiresAt = time.Now().Add(jwtTTL)
-	return agentTokenCache.header, nil
+	return "Bearer " + tok, nil
 }
 
 func doJSON(

@@ -435,14 +435,25 @@ async def ingest_batch(
         for r in rows:
             if r.get("is_deleted") is None:
                 r["is_deleted"] = False
-        stmt = (
-            pg_insert(Entry)
-            .values(rows)
-            .on_conflict_do_nothing(index_elements=["source_id", "path"])
-            .returning(Entry.id, Entry.path)
-        )
-        result = await db.execute(stmt)
-        inserted_paths = {r.path for r in result}
+        # Chunk to stay under postgres's hard 32767-parameter limit
+        # per query (asyncpg surfaces this as
+        # `the number of query arguments cannot exceed 32767`).
+        # Entry has ~34 columns; cap chunk size so cols * rows leaves
+        # comfortable headroom even if we add a column or two later.
+        # v0.27.1 — pre-fix, batches over ~990 rows blew the cap and
+        # the entire scan failed with a 500.
+        max_params = 30_000
+        chunk_rows = max(1, max_params // len(col_names))
+        for start in range(0, len(rows), chunk_rows):
+            chunk = rows[start : start + chunk_rows]
+            stmt = (
+                pg_insert(Entry)
+                .values(chunk)
+                .on_conflict_do_nothing(index_elements=["source_id", "path"])
+                .returning(Entry.id, Entry.path)
+            )
+            result = await db.execute(stmt)
+            inserted_paths.update(r.path for r in result)
         # The new_candidates Entry objects are transient (we never
         # db.add()'d them — pg_insert is raw-SQL). Subsequent
         # snapshot v0 + tag propagation work off the in-memory
