@@ -28,6 +28,7 @@ from akashic.schemas.host import (
 from akashic.services import share_enumerator
 from akashic.services.audit import record_event
 from akashic.services.host_reachability import recompute_host_reachability
+from akashic.services.source_config import merge_host_and_source
 from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
@@ -323,8 +324,12 @@ async def test_host_connection(
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
+    # Layer host.credential_profile.credentials under host.connection_config
+    # so a profile-only host (no inline username/password) probes with the
+    # right creds. Pre-fix this passed only host.connection_config and the
+    # probe failed with "no credentials".
     result = await asyncio.to_thread(
-        _probe_host, host.type, dict(host.connection_config or {})
+        _probe_host, host.type, merge_host_and_source(host, None)
     )
     now = datetime.now(timezone.utc)
     # v0.5.6: persist reachability on the host. Direct probe writes
@@ -576,8 +581,10 @@ async def list_host_shares(
             ),
         )
     # Probe is a blocking subprocess — same pattern as check-reachability.
+    # Layer host.credential_profile.credentials under host.connection_config
+    # so a profile-only host enumerates with the right creds.
     result = await asyncio.to_thread(
-        share_enumerator.list_shares, host.type, dict(host.connection_config or {}),
+        share_enumerator.list_shares, host.type, merge_host_and_source(host, None),
     )
     await record_event(
         db=db, user=user, event_type="host_shares_listed",

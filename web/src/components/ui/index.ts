@@ -11,6 +11,7 @@ export { EmptyState } from "./EmptyState";
 export { Skeleton } from "./Skeleton";
 export { StatCard } from "./StatCard";
 export { Spinner } from "./Spinner";
+export { SectionState } from "./SectionState";
 export { ErrorBoundary } from "./ErrorBoundary";
 export { Drawer } from "./Drawer";
 export { Breadcrumb } from "./Breadcrumb";

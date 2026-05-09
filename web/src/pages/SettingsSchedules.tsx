@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Card,
-  Spinner,
-  EmptyState,
+  SectionState,
   Input,
   Button,
   Badge,
@@ -113,24 +112,19 @@ export default function SettingsSchedules() {
       description="Cron expressions that drive automatic scans for each source. Leave blank to disable scheduled scans — manual scans still work from the Sources page."
       width="default"
     >
-      {sourcesQ.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-fg-subtle">
-          <Spinner />
-        </div>
-      ) : sourcesQ.isError ? (
-        <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2">
-          {sourcesQ.error instanceof Error
-            ? sourcesQ.error.message
-            : "Failed to load sources"}
-        </div>
-      ) : sources.length === 0 ? (
-        <div className="border border-line rounded py-12">
-          <EmptyState
-            title="No sources yet"
-            description="Add a source first; schedules attach to existing sources."
-          />
-        </div>
-      ) : (
+      <p className="mb-3 text-xs text-fg-muted">
+        Cron format: <code>m h dom mon dow</code> — e.g.{" "}
+        <code>0 3 * * *</code> runs at 03:00 every day. Leave the input
+        blank to disable scheduled scans.
+      </p>
+
+      <SectionState
+        loading={sourcesQ.isLoading}
+        error={sourcesQ.isError ? sourcesQ.error : undefined}
+        empty={sources.length === 0}
+        emptyTitle="No sources yet"
+        emptyMessage="Add a source first; schedules attach to existing sources."
+      >
         <Card padding="none">
           <ul className="divide-y divide-line-subtle">
             {sources.map((s) => (
@@ -138,12 +132,7 @@ export default function SettingsSchedules() {
             ))}
           </ul>
         </Card>
-      )}
-
-      <p className="mt-4 text-xs text-fg-subtle">
-        Cron format: <code>m h dom mon dow</code> — e.g.{" "}
-        <code className="text-fg-muted">0 3 * * *</code> runs at 03:00 every day.
-      </p>
+      </SectionState>
     </Page>
   );
 }

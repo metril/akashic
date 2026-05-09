@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Badge, Button, EmptyState, Spinner, Page } from "../components/ui";
+import { Badge, Button, Card, Input, Page, SectionState, Select } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -86,25 +86,14 @@ export default function SettingsIdentities() {
     >
       <UnboundPanel rows={unboundQ.data ?? []} />
 
-      {personsQ.isLoading ? (
-        <div className="flex items-center justify-center py-12 text-fg-subtle">
-          <Spinner />
-        </div>
-      ) : personsQ.isError ? (
-        <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2 mb-4">
-          {personsQ.error instanceof Error
-            ? personsQ.error.message
-            : "Failed to load identities"}
-        </div>
-      ) : (personsQ.data ?? []).length === 0 ? (
-        <div className="border border-line rounded py-12 mb-4">
-          <EmptyState
-            title="No identities yet"
-            description="Add one below to filter search by what you can read."
-          />
-        </div>
-      ) : (
-        <ul className="space-y-4">
+      <SectionState
+        loading={personsQ.isLoading}
+        error={personsQ.isError ? personsQ.error : undefined}
+        empty={(personsQ.data ?? []).length === 0}
+        emptyTitle="No identities yet"
+        emptyMessage="Add one below to filter search by what you can read."
+      >
+        <ul className="space-y-4 mb-6">
           {(personsQ.data ?? []).map((p) => (
             <PersonCard
               key={p.id}
@@ -114,9 +103,12 @@ export default function SettingsIdentities() {
             />
           ))}
         </ul>
-      )}
+      </SectionState>
 
-      <AddPersonForm onSubmit={(body) => createPerson.mutate(body)} pending={createPerson.isPending} />
+      <Card padding="md" className="mt-4">
+        <h3 className="text-sm font-semibold text-fg mb-3">Add identity</h3>
+        <AddPersonForm onSubmit={(body) => createPerson.mutate(body)} pending={createPerson.isPending} />
+      </Card>
     </Page>
   );
 }
@@ -229,25 +221,34 @@ function AddPersonForm({
         onSubmit({ label: label.trim(), is_primary: isPrimary });
         setLabel(""); setIsPrimary(false);
       }}
-      className="mt-6 flex items-center gap-2 text-sm"
+      className="space-y-3"
     >
-      <input
-        type="text" value={label} onChange={(e) => setLabel(e.target.value)}
+      <Input
+        label="Identity label"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
         placeholder="My Work Account"
-        className="flex-1 border border-line rounded px-2 py-1"
+        hint="A short label you'll recognise — e.g. 'My Work Account' or 'Personal Drive'."
+        required
       />
-      <label className="text-xs text-fg-muted flex items-center gap-1">
-        <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
-        Primary
+      <label className="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isPrimary}
+          onChange={(e) => setIsPrimary(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-line text-accent-600 focus:ring-accent-400"
+        />
+        Mark as primary identity
       </label>
-      <Button
-        type="submit"
-        size="sm"
-        disabled={!label.trim()}
-        loading={pending}
-      >
-        Add identity
-      </Button>
+      <div className="flex justify-end">
+        <Button
+          type="submit"
+          disabled={!label.trim()}
+          loading={pending}
+        >
+          Add identity
+        </Button>
+      </div>
     </form>
   );
 }
@@ -292,38 +293,45 @@ function AddBindingForm({
         });
         setIdentifier(""); setGroupsRaw("");
       }}
-      className="mt-3 flex items-center gap-2 text-xs"
+      className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3"
     >
-      <select
-        value={sourceId} onChange={(e) => setSourceId(e.target.value)}
-        className="border border-line rounded px-2 py-1"
-      >
-        {available.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-      </select>
-      <select
-        value={type} onChange={(e) => setType(e.target.value as PrincipalType)}
-        className="border border-line rounded px-2 py-1"
-      >
-        {PRINCIPAL_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-      </select>
-      <input
-        type="text" value={identifier} onChange={(e) => setIdentifier(e.target.value)}
-        placeholder="identifier (e.g. 1000 or S-1-5-…)"
-        className="flex-1 font-mono border border-line rounded px-2 py-1"
+      <Select
+        label="Source"
+        value={sourceId}
+        onChange={(e) => setSourceId(e.target.value)}
+        options={available.map((s) => ({ value: s.id, label: s.name }))}
       />
-      <input
-        type="text" value={groupsRaw} onChange={(e) => setGroupsRaw(e.target.value)}
-        placeholder="groups (comma-sep)"
-        className="w-48 font-mono border border-line rounded px-2 py-1"
+      <Select
+        label="Principal type"
+        value={type}
+        onChange={(e) => setType(e.target.value as PrincipalType)}
+        options={PRINCIPAL_TYPES}
       />
-      <Button
-        type="submit"
-        size="sm"
-        disabled={!identifier.trim()}
-        loading={pending}
-      >
-        Add binding
-      </Button>
+      <Input
+        label="Identifier"
+        value={identifier}
+        onChange={(e) => setIdentifier(e.target.value)}
+        placeholder="1000 or S-1-5-21-..."
+        className="font-mono"
+        required
+      />
+      <Input
+        label="Groups (comma-separated)"
+        value={groupsRaw}
+        onChange={(e) => setGroupsRaw(e.target.value)}
+        placeholder="staff, engineering"
+        className="font-mono"
+      />
+      <div className="sm:col-span-2 flex justify-end">
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!identifier.trim()}
+          loading={pending}
+        >
+          Add binding
+        </Button>
+      </div>
     </form>
   );
 }

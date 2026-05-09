@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import {
@@ -7,8 +7,7 @@ import {
   Input,
   Button,
   ConfirmDialog,
-  EmptyState,
-  Spinner,
+  SectionState,
   Badge,
   Page,
 } from "../components/ui";
@@ -86,6 +85,16 @@ export default function SettingsTags() {
   const [color, setColor] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Tag | null>(null);
+  const [filter, setFilter] = useState("");
+
+  const filteredTags = useMemo(() => {
+    const all = tagsQ.data ?? [];
+    const q = filter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((t) => t.name.toLowerCase().includes(q));
+  }, [tagsQ.data, filter]);
+  const total = tagsQ.data?.length ?? 0;
+  const showCount = filter.trim() && total > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -118,59 +127,70 @@ export default function SettingsTags() {
       width="compact"
     >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="md:col-span-2">
-          {tagsQ.isLoading ? (
-            <div className="flex items-center justify-center py-12 text-fg-subtle">
-              <Spinner />
-            </div>
-          ) : tagsQ.isError ? (
-            <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2">
-              {tagsQ.error instanceof Error
-                ? tagsQ.error.message
-                : "Failed to load tags"}
-            </div>
-          ) : (tagsQ.data ?? []).length === 0 ? (
-            <div className="border border-line rounded py-12">
-              <EmptyState
-                title="No tags yet"
-                description="Create one on the right. Tags can be applied to entries from the Browse drawer."
-              />
-            </div>
-          ) : (
-            <Card padding="none">
-              <ul className="divide-y divide-line-subtle">
-                {(tagsQ.data ?? []).map((tag) => {
-                  const usage = usageByName.get(tag.name);
-                  return (
-                    <li
-                      key={tag.id}
-                      className="flex items-center justify-between px-4 py-2.5"
-                    >
-                      <div className="flex items-center gap-3">
-                        <TagPill tag={tag} />
-                        {usage && (
-                          <span className="text-xs text-fg-muted">
-                            {usage.direct_count} direct
-                            {usage.inherited_count > 0 && (
-                              <> · {usage.inherited_count} inherited</>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => setDeleteConfirm(tag)}
-                        loading={deleteTag.isPending && deleteTag.variables === tag.id}
-                      >
-                        Delete
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
+        <div className="md:col-span-2 space-y-3">
+          {total > 0 && (
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search tags by name…"
+              className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
+            />
           )}
+          {showCount && (
+            <p className="text-xs text-fg-muted">
+              {filteredTags.length} of {total} shown
+            </p>
+          )}
+          <SectionState
+            loading={tagsQ.isLoading}
+            error={tagsQ.isError ? tagsQ.error : undefined}
+            empty={total === 0}
+            emptyTitle="No tags yet"
+            emptyMessage="Create one on the right. Tags can be applied to entries from the Browse drawer."
+          >
+            {filteredTags.length === 0 ? (
+              <Card padding="md">
+                <p className="text-sm text-fg-muted text-center py-4">
+                  No tags match "{filter}".
+                </p>
+              </Card>
+            ) : (
+              <Card padding="none">
+                <ul className="divide-y divide-line-subtle">
+                  {filteredTags.map((tag) => {
+                    const usage = usageByName.get(tag.name);
+                    return (
+                      <li
+                        key={tag.id}
+                        className="flex items-center justify-between px-4 py-2.5"
+                      >
+                        <div className="flex items-center gap-3">
+                          <TagPill tag={tag} />
+                          {usage && (
+                            <span className="text-xs text-fg-muted">
+                              {usage.direct_count} direct
+                              {usage.inherited_count > 0 && (
+                                <> · {usage.inherited_count} inherited</>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setDeleteConfirm(tag)}
+                          loading={deleteTag.isPending && deleteTag.variables === tag.id}
+                        >
+                          Delete
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Card>
+            )}
+          </SectionState>
         </div>
 
         <Card padding="md">

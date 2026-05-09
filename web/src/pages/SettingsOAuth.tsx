@@ -6,9 +6,10 @@ import {
   Button,
   Card,
   ConfirmDialog,
+  Icon,
   ModalShell,
   Page,
-  Spinner,
+  SectionState,
 } from "../components/ui";
 import { AddProviderWizard } from "../components/oauth/AddProviderWizard";
 import { ProviderForm } from "../components/oauth/ProviderForm";
@@ -84,32 +85,27 @@ export default function SettingsOAuth() {
               .
             </p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => setAdding(true)}
-            disabled={providers.isLoading}
-          >
-            + Add provider
-          </Button>
+          {configured.length > 0 && (
+            <Button
+              size="sm"
+              onClick={() => setAdding(true)}
+              disabled={providers.isLoading}
+            >
+              + Add provider
+            </Button>
+          )}
         </div>
 
-        {providers.isLoading ? (
-          <div className="flex items-center justify-center py-8 text-fg-subtle">
-            <Spinner />
-          </div>
-        ) : providers.isError ? (
-          <p className="text-sm text-rose-600">
-            {providers.error instanceof Error
-              ? providers.error.message
-              : "Failed to load providers"}
-          </p>
-        ) : configured.length === 0 ? (
-          <p className="text-xs text-fg-muted py-4 text-center">
-            No OAuth providers configured yet. Click{" "}
-            <span className="font-medium">+ Add provider</span> to register
-            one.
-          </p>
-        ) : (
+        <SectionState
+          loading={providers.isLoading}
+          error={providers.isError ? providers.error : undefined}
+          empty={configured.length === 0}
+          emptyTitle="No OAuth providers configured"
+          emptyMessage="Add Google, Microsoft, or Dropbox to let Akashic ingest from cloud drives."
+          emptyAction={
+            <Button onClick={() => setAdding(true)}>+ Add provider</Button>
+          }
+        >
           <div className="space-y-2">
             {configured.map((p) => (
               <ProviderRow
@@ -120,7 +116,7 @@ export default function SettingsOAuth() {
               />
             ))}
           </div>
-        )}
+        </SectionState>
       </Card>
 
       <Card padding="md">
@@ -131,22 +127,13 @@ export default function SettingsOAuth() {
           rotation works end-to-end against the provider.
         </p>
 
-        {credentials.isLoading ? (
-          <div className="flex items-center justify-center py-8 text-fg-subtle">
-            <Spinner />
-          </div>
-        ) : credentials.isError ? (
-          <p className="text-sm text-rose-600">
-            {credentials.error instanceof Error
-              ? credentials.error.message
-              : "Failed to load credentials"}
-          </p>
-        ) : (credentials.data ?? []).length === 0 ? (
-          <p className="text-xs text-fg-muted py-4 text-center">
-            No connected accounts yet. Add a provider above, then use{" "}
-            <span className="font-medium">Test</span> on its row to verify.
-          </p>
-        ) : (
+        <SectionState
+          loading={credentials.isLoading}
+          error={credentials.isError ? credentials.error : undefined}
+          empty={(credentials.data ?? []).length === 0}
+          emptyTitle="No connected accounts yet"
+          emptyMessage="Add a provider above, then use Test on its row to verify the round-trip and connect an account."
+        >
           <ul className="divide-y divide-line">
             {(credentials.data ?? []).map((c) => (
               <CredentialRow
@@ -156,7 +143,7 @@ export default function SettingsOAuth() {
               />
             ))}
           </ul>
-        )}
+        </SectionState>
       </Card>
 
       {adding && (
@@ -256,35 +243,63 @@ function ProviderRow({
   }
 
   return (
-    <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
+    <div className="rounded-md border border-line px-3 py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-medium text-fg">
             {PROVIDER_LABELS[summary.provider]}
           </span>
           <Badge variant="online">Configured</Badge>
         </div>
-        <p className="text-[11px] text-fg-muted mt-0.5 truncate">
-          client_id: <code>{summary.client_id}</code> · redirect:{" "}
-          <code>{summary.redirect_uri}</code>
-        </p>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button size="sm" variant="ghost" onClick={onEdit}>
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleTest}
+            disabled={start.isPending}
+          >
+            {start.isPending ? "Opening…" : "Test"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onDelete}>
+            Forget
+          </Button>
+        </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button size="sm" variant="ghost" onClick={onEdit}>
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={handleTest}
-          disabled={start.isPending}
-        >
-          {start.isPending ? "Opening…" : "Test"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDelete}>
-          Forget
-        </Button>
-      </div>
+      <CopyableField label="client_id" value={summary.client_id} />
+      <CopyableField label="redirect" value={summary.redirect_uri} />
+    </div>
+  );
+}
+
+function CopyableField({ label, value }: { label: string; value: string }) {
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`Copied ${label}`);
+    } catch {
+      toast.error("Couldn't copy to clipboard");
+    }
+  }
+  return (
+    <div className="flex items-center gap-2 text-xs text-fg-muted">
+      <span className="w-20 shrink-0">{label}:</span>
+      <code className="flex-1 truncate font-mono text-fg" title={value}>
+        {value}
+      </code>
+      <button
+        type="button"
+        onClick={copy}
+        title={`Copy ${label}`}
+        className="shrink-0 rounded p-1 text-fg-subtle hover:bg-surface-muted hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+      >
+        <Icon
+          path="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m0 0h2a2 2 0 0 1 2 2v3"
+          className="h-3.5 w-3.5"
+        />
+      </button>
     </div>
   );
 }

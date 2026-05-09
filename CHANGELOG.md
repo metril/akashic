@@ -5,6 +5,77 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.26.0 — 2026-05-09
+
+**Host credential-profile bug fix + Settings UX overhaul.**
+
+A credential profile attached to a Host was silently ignored by the
+host-level probe and discover-shares endpoints — `/test-connection`
+and `/list-shares` passed only `host.connection_config` to the probe,
+never layering in `host.credential_profile.credentials`. So a host
+with no inline username/password but a profile attached failed with
+"no credentials" even though the data was right there. Both endpoints
+now route through the existing `merge_host_and_source` helper that
+the scan-lease path has been using since v0.5.9.
+
+The settings IA redesign (v0.25.0) shipped the right structure but
+felt unfinished — text-only sidebar, raw HTML inputs in one form,
+inconsistent loading/error states, no list search, dense Scanners
+page, squashed OAuth credentials. This release polishes all of that.
+
+### Bug fixes
+
+- **Host credential profile honoured by probe + share-discovery.**
+  POST `/api/hosts/{id}/test-connection` and POST
+  `/api/hosts/{id}/list-shares` now layer
+  `host.credential_profile.credentials` under `host.connection_config`
+  via `merge_host_and_source(host, None)`. Two regression tests
+  guard against re-introducing the regression. Affected
+  versions: every release since v0.5.9.
+
+### UX
+
+- **Settings sidebar gained icons.** Each leaf (Credentials, OAuth
+  providers, Scanners, Schedules, Identities, Tags) renders with an
+  icon that matches the main top-level rail's design language.
+  Three new icons added to the registry (`clock`, `user`, `tag`).
+- **`SectionState` helper standardises loading / error / empty
+  states.** Six settings pages each had their own if/else tree with
+  different paddings (py-8 vs py-12), different error styling
+  (rose-600 div vs Card vs alert), and different empty-state
+  patterns. `<SectionState loading? error? empty?
+  emptyTitle/emptyMessage/emptyAction>` collapses all three into one
+  consistent layout, applied across all six sub-pages.
+- **Per-list search.** Credentials (filters by name, type,
+  description), Scanners (filters by name, pool, hostname plus an
+  "Online only" toggle), and Tags (filters by name) all gained an
+  inline search input. Each shows a `"N of M shown"` count when a
+  filter is active so the user can tell their search didn't blank-
+  render the page.
+- **Scanners page restructured into four explicit Card sections.**
+  Active scanners (with search) → Pending claims (only renders when
+  discovery is on or there are pending requests) → Add a scanner
+  (join-token wizard, primary action) → Advanced (manual key, in a
+  collapsed `<details>`). Per-row action cluster moved from a
+  vertical 3-button stack to inline ghost buttons (Rotate / Enable /
+  Delete), with the key fingerprint moved to a tooltip on the
+  scanner name.
+- **OAuth provider row now two-line with copy buttons.** `client_id`
+  and `redirect_uri` each render on their own row in muted-but-
+  readable type, with a copy-to-clipboard icon button beside each.
+  The redirect URI is exactly what users paste into a provider
+  console; the previous single-line `<code>` row was hard to read
+  and impossible to copy precisely.
+- **Settings → Identities forms moved to the design system.**
+  `<input>` and `<select>` raw-HTML fields replaced with `<Input>`
+  and `<Select>` from the design system, matching every other
+  settings page. The Add-identity form gets its own card with a
+  proper heading.
+- **Empty states surface the primary action.** Credentials,
+  Scanners (Active), and OAuth (Provider apps) empty states now
+  render their primary `+ Add` button inside the empty-state card
+  itself, not just at the top of the section.
+
 ## v0.25.0 — 2026-05-09
 
 **Settings IA redesign + OAuth wizard.** The `/settings` tile grid had

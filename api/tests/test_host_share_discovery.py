@@ -21,10 +21,12 @@ from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.audit_event import AuditEvent
-from akashic.models.host import Host
+from akashic.models.host import Host  # noqa: F401  # imported for relationship registration
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.routers import hosts as hosts_router
 from akashic.services import share_enumerator
+from akashic.services.source_tester import TestResult as ProbeResult
 
 
 # ── Fixtures (mirrors test_hosts.py) ─────────────────────────────────────
@@ -63,6 +65,17 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:
         yield ac
+
+
+async def _create_credential_profile(
+    client: AsyncClient, *, name: str, type_: str, credentials: dict
+) -> str:
+    r = await client.post(
+        "/api/credential-profiles",
+        json={"name": name, "type": type_, "credentials": credentials},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
 
 
 async def _create_host(client: AsyncClient, *, type_: str = "smb") -> str:
@@ -154,6 +167,91 @@ async def test_list_shares_writes_audit_event(
     assert len(events) == 1
     assert events[0].user_id == admin_user.id
     assert events[0].payload["share_count"] == 1
+
+
+# ── credential profile is layered into the probe (v0.26.0 regression) ───
+
+
+@pytest.mark.asyncio
+async def test_list_shares_layers_host_credential_profile(
+    client: AsyncClient, monkeypatch
+):
+    """v0.26.0 regression: list-shares now layers
+    host.credential_profile.credentials under host.connection_config.
+    Pre-fix the profile was ignored and a profile-only host failed
+    with "no credentials"."""
+    profile_id = await _create_credential_profile(
+        client,
+        name="smb-deploy",
+        type_="smb",
+        credentials={"username": "scan_user", "password": "p@ssw0rd"},
+    )
+    body = {
+        "name": "fs",
+        "type": "smb",
+        "connection_config": {"host": "fs.example.com"},
+        "credential_profile_id": profile_id,
+    }
+    r = await client.post("/api/hosts", json=body)
+    assert r.status_code == 201, r.text
+    host_id = r.json()["id"]
+
+    captured: dict = {}
+
+    def _capture(host_type, cfg):
+        captured["host_type"] = host_type
+        captured["cfg"] = cfg
+        return share_enumerator.ListSharesResult(shares=["Public"])
+
+    monkeypatch.setattr(share_enumerator, "list_shares", _capture)
+
+    r = await client.post(f"/api/hosts/{host_id}/list-shares")
+    assert r.status_code == 200, r.text
+    assert captured["host_type"] == "smb"
+    # Inline host.connection_config still wins where it sets a key,
+    # but profile credentials fill in the gaps.
+    assert captured["cfg"]["host"] == "fs.example.com"
+    assert captured["cfg"]["username"] == "scan_user"
+    assert captured["cfg"]["password"] == "p@ssw0rd"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_layers_host_credential_profile(
+    client: AsyncClient, monkeypatch
+):
+    """Same regression for POST /api/hosts/{id}/test-connection.
+    The probe was previously called with only host.connection_config."""
+    profile_id = await _create_credential_profile(
+        client,
+        name="smb-deploy-2",
+        type_="smb",
+        credentials={"username": "scan_user", "password": "p@ssw0rd"},
+    )
+    body = {
+        "name": "fs2",
+        "type": "smb",
+        "connection_config": {"host": "fs2.example.com"},
+        "credential_profile_id": profile_id,
+    }
+    r = await client.post("/api/hosts", json=body)
+    assert r.status_code == 201, r.text
+    host_id = r.json()["id"]
+
+    captured: dict = {}
+
+    def _capture(host_type, cfg):
+        captured["host_type"] = host_type
+        captured["cfg"] = cfg
+        return ProbeResult(ok=True)
+
+    monkeypatch.setattr(hosts_router, "_probe_host", _capture)
+
+    r = await client.post(f"/api/hosts/{host_id}/test-connection")
+    assert r.status_code == 200, r.text
+    assert captured["host_type"] == "smb"
+    assert captured["cfg"]["host"] == "fs2.example.com"
+    assert captured["cfg"]["username"] == "scan_user"
+    assert captured["cfg"]["password"] == "p@ssw0rd"
 
 
 # ── /add-shares ──────────────────────────────────────────────────────────

@@ -1,15 +1,14 @@
 /**
- * Three sections, one route:
- *   1. Active scanners — registered agents, with scope summary cols
- *   2. Join tokens — admin mints one-time tokens scanners self-claim with
- *   3. Pending claims — discovery requests waiting for an admin decision
- *
- * The legacy "create scanner with manual key" flow lives under an
- * Advanced disclosure for break-glass use; the recommended path is
- * the join-token wizard (Section 2) since the private key never
- * leaves the scanner host.
+ * Four explicit sections, one route:
+ *   1. Active scanners — registered agents with scope, search, and
+ *      an online-only filter
+ *   2. Pending claims — discovery requests waiting for an admin
+ *      decision (only renders when discovery is enabled)
+ *   3. Add a scanner — primary path: join-token wizard + the list
+ *      of already-minted tokens
+ *   4. Advanced (legacy manual-key registration) — collapsed by default
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
@@ -17,13 +16,11 @@ import {
   Badge,
   Button,
   Card,
-  CardHeader,
   ConfirmDialog,
-  EmptyState,
   Input,
   ModalShell,
   Page,
-  Spinner,
+  SectionState,
 } from "../components/ui";
 import { AllowedSourcesModal } from "../components/scanners/AllowedSourcesModal";
 import { JoinTokenWizard } from "../components/scanners/JoinTokenWizard";
@@ -98,6 +95,27 @@ export default function SettingsScanners() {
   const [editSources, setEditSources] = useState<Scanner | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
 
+  const [filter, setFilter] = useState("");
+  const [onlineOnly, setOnlineOnly] = useState(false);
+
+  const filteredScanners = useMemo(() => {
+    let rows = scannersQ.data ?? [];
+    if (onlineOnly) rows = rows.filter((s) => s.online);
+    const q = filter.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.pool.toLowerCase().includes(q) ||
+          (s.hostname ?? "").toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [scannersQ.data, filter, onlineOnly]);
+  const totalScanners = scannersQ.data?.length ?? 0;
+  const showCount =
+    totalScanners > 0 && (filter.trim() !== "" || onlineOnly);
+
   async function handleRotate(scanner: Scanner) {
     const result = await rotateMut.mutateAsync(scanner.id);
     setIssued(result);
@@ -121,34 +139,65 @@ export default function SettingsScanners() {
       width="default"
     >
       <div className="space-y-6">
-        {/* ── Active scanners ─────────────────────────────────────── */}
-        <section>
-          <CardHeader title="Active scanners" />
-          <p className="text-xs text-fg-muted mb-2">
-            <em>Online</em> = the scanner agent has checked in within the last 90 seconds.{" "}
-            <em>Reachable</em> (per source) = a scanner has successfully probed the source's path.
-          </p>
-          {scannersQ.isLoading ? (
-            <div className="flex items-center justify-center py-12 text-fg-subtle">
-              <Spinner />
+        {/* ── 1. Active scanners ──────────────────────────────────── */}
+        <Card padding="md">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-fg">Active scanners</h3>
+              <p className="text-xs text-fg-muted mt-0.5">
+                <em>Online</em> = checked in within the last 90 seconds.
+              </p>
             </div>
-          ) : scannersQ.isError ? (
-            <div className="text-sm text-rose-600 bg-rose-50 rounded px-3 py-2">
-              {scannersQ.error instanceof Error
-                ? scannersQ.error.message
-                : "Failed to load scanners"}
-            </div>
-          ) : (scannersQ.data ?? []).length === 0 ? (
-            <Card padding="lg">
-              <EmptyState
-                title="No scanners registered yet"
-                description="Generate a join token below, then run akashic-scanner claim on a host that can reach your sources."
+            {totalScanners > 0 && (
+              <Button size="sm" onClick={() => setWizardOpen(true)}>
+                + Add scanner
+              </Button>
+            )}
+          </div>
+          {totalScanners > 0 && (
+            <div className="flex items-center gap-3 mb-3">
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search by name, pool, or hostname…"
+                className="flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
               />
-            </Card>
-          ) : (
-            <Card padding="none">
-              <ul className="divide-y divide-line-subtle">
-                {(scannersQ.data ?? []).map((s) => (
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer text-fg-muted whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={onlineOnly}
+                  onChange={(e) => setOnlineOnly(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-line text-accent-600 focus:ring-accent-400"
+                />
+                Online only
+              </label>
+            </div>
+          )}
+          {showCount && (
+            <p className="text-xs text-fg-muted mb-2">
+              {filteredScanners.length} of {totalScanners} shown
+            </p>
+          )}
+          <SectionState
+            loading={scannersQ.isLoading}
+            error={scannersQ.isError ? scannersQ.error : undefined}
+            empty={totalScanners === 0}
+            emptyTitle="No scanners registered yet"
+            emptyMessage="Generate a join token, then run akashic-scanner claim on a host that can reach your sources."
+            emptyAction={
+              <Button onClick={() => setWizardOpen(true)}>
+                + Add scanner
+              </Button>
+            }
+          >
+            {filteredScanners.length === 0 ? (
+              <p className="text-sm text-fg-muted text-center py-4">
+                No scanners match the current filter.
+              </p>
+            ) : (
+              <ul className="divide-y divide-line-subtle border border-line rounded-md">
+                {filteredScanners.map((s) => (
                   <ScannerRow
                     key={s.id}
                     scanner={s}
@@ -164,45 +213,45 @@ export default function SettingsScanners() {
                   />
                 ))}
               </ul>
-            </Card>
-          )}
-        </section>
+            )}
+          </SectionState>
+        </Card>
 
-        {/* ── Join tokens ─────────────────────────────────────────── */}
-        <section id="tokens">
-          <div className="flex items-center justify-between mb-2">
-            <CardHeader title="Join tokens" />
-            <Button onClick={() => setWizardOpen(true)}>+ Generate token</Button>
+        {/* ── 2. Pending claims ───────────────────────────────────── */}
+        <PendingClaimsSection />
+
+        {/* ── 3. Add a scanner (join tokens) ──────────────────────── */}
+        <Card padding="md">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-fg">Add a scanner</h3>
+              <p className="text-xs text-fg-muted mt-0.5">
+                Recommended path: generate a one-time token and paste it
+                into the scanner's run command. The scanner generates its
+                own keypair locally — the private key never leaves the host.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
+              + Generate token
+            </Button>
           </div>
-          <p className="text-xs text-fg-muted mb-3">
-            Recommended path. Generate a one-time token, paste it into
-            the scanner's run command — the scanner generates its own
-            keypair locally and self-registers. The private key never
-            leaves the scanner host.
-          </p>
           <JoinTokensList />
-        </section>
+        </Card>
 
-        {/* ── Pending claims ──────────────────────────────────────── */}
-        <section id="pending">
-          <PendingClaimsSection />
-        </section>
-
-        {/* ── Advanced (manual key) ───────────────────────────────── */}
-        <section>
-          <details className="border border-line rounded p-4">
+        {/* ── 4. Advanced (manual key registration) ───────────────── */}
+        <Card padding="md">
+          <details>
             <summary className="cursor-pointer text-sm font-medium text-fg">
-              Advanced — register with a server-generated key (legacy)
+              Advanced — register with a server-generated key
             </summary>
             <p className="text-xs text-fg-muted mt-2 mb-3">
-              The api generates the keypair and returns the private
-              key once. Useful for scripted automation that already
-              depends on this flow; for new scanners prefer a join
-              token (above).
+              The api generates the keypair and returns the private key
+              once. Useful for scripted automation that already depends
+              on this flow; for new scanners prefer a join token (above).
             </p>
             <ManualKeyForm onIssued={setIssued} />
           </details>
-        </section>
+        </Card>
       </div>
 
       {wizardOpen && <JoinTokenWizard onClose={() => setWizardOpen(false)} />}
@@ -261,76 +310,74 @@ function ScannerRow({
   const sourceScope = s.allowed_source_ids;
   const typeScope = s.allowed_scan_types;
   return (
-    <li className="px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              className={`size-2 rounded-full shrink-0 ${
-                s.online ? "bg-emerald-500" : "bg-fg-subtle"
-              }`}
-              aria-label={s.online ? "online" : "offline"}
-              title={
-                s.online
-                  ? "Online: scanner agent has checked in within the last 90 seconds"
-                  : "Offline: scanner agent hasn't checked in for 90+ seconds"
-              }
-            />
-            <span className="font-medium text-fg truncate">{s.name}</span>
-            <Badge variant="neutral">{s.pool}</Badge>
-            <button
-              type="button"
-              onClick={onEditSources}
-              title={
-                sourceScope == null
-                  ? "Allows all sources — click to restrict"
-                  : sourceScope
-                      .map((id) => sourceNames[id] || id)
-                      .join(", ")
-              }
-              className="ml-auto shrink-0 hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
-            >
-              <Badge variant="neutral">
-                sources: {sourceScope == null ? "all" : sourceScope.length}
-              </Badge>
-            </button>
-          </div>
-          <div className="mt-1 text-xs text-fg-muted truncate">
-            {s.hostname || "—"}
-            {s.version && ` · v${s.version}`}
-            {" · last seen "}
-            {formatRelative(s.last_seen_at)}
-            {!s.enabled && " · disabled"}
-            {typeScope && typeScope.length > 0 && (
-              <span title={typeScope.join(", ")}>
-                {" · types: "}
-                {typeScope.join("/")}
-              </span>
-            )}
-          </div>
-          <div
-            className="mt-1 text-[10px] text-fg-subtle font-mono truncate"
-            title={s.key_fingerprint}
+    <li className="px-4 py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span
+            className={`size-2 rounded-full shrink-0 ${
+              s.online ? "bg-emerald-500" : "bg-fg-subtle"
+            }`}
+            aria-label={s.online ? "online" : "offline"}
+            title={
+              s.online
+                ? "Online: scanner agent has checked in within the last 90 seconds"
+                : "Offline: scanner agent hasn't checked in for 90+ seconds"
+            }
+          />
+          <span
+            className="font-medium text-fg truncate"
+            title={`Fingerprint: ${s.key_fingerprint}`}
           >
-            {s.key_fingerprint.slice(0, 16)}…
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <Button size="sm" variant="secondary" onClick={onRotate}>
-            Rotate keys
-          </Button>
-          <Button size="sm" variant="secondary" onClick={onToggle}>
-            {s.enabled ? "Disable" : "Enable"}
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={onDelete}
-            loading={deleteLoading}
+            {s.name}
+          </span>
+          <Badge variant="neutral">{s.pool}</Badge>
+          <button
+            type="button"
+            onClick={onEditSources}
+            title={
+              sourceScope == null
+                ? "Allows all sources — click to restrict"
+                : sourceScope
+                    .map((id) => sourceNames[id] || id)
+                    .join(", ")
+            }
+            className="hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 rounded"
           >
-            Delete
-          </Button>
+            <Badge variant="neutral">
+              sources: {sourceScope == null ? "all" : sourceScope.length}
+            </Badge>
+          </button>
+          {!s.enabled && <Badge variant="neutral">disabled</Badge>}
         </div>
+        <div className="mt-1 text-xs text-fg-muted truncate">
+          {s.hostname || "—"}
+          {s.version && ` · v${s.version}`}
+          {" · last seen "}
+          {formatRelative(s.last_seen_at)}
+          {typeScope && typeScope.length > 0 && (
+            <span title={typeScope.join(", ")}>
+              {" · types: "}
+              {typeScope.join("/")}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Button size="sm" variant="ghost" onClick={onRotate} title="Rotate keys">
+          Rotate
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onToggle}>
+          {s.enabled ? "Disable" : "Enable"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onDelete}
+          loading={deleteLoading}
+          className="text-rose-700 hover:text-rose-800 dark:text-rose-300 dark:hover:text-rose-200"
+        >
+          Delete
+        </Button>
       </div>
     </li>
   );
@@ -338,32 +385,16 @@ function ScannerRow({
 
 function JoinTokensList() {
   const { list, revoke } = useScannerClaimTokens();
-  if (list.isLoading) {
-    return <Spinner />;
-  }
-  if (list.isError) {
-    return (
-      <div className="text-xs text-rose-600">
-        {list.error instanceof Error
-          ? list.error.message
-          : "Failed to load join tokens"}
-      </div>
-    );
-  }
   const rows = list.data ?? [];
-  if (rows.length === 0) {
-    return (
-      <Card padding="md">
-        <p className="text-xs text-fg-muted">
-          No join tokens yet. Click <strong>+ Generate token</strong> to
-          mint one.
-        </p>
-      </Card>
-    );
-  }
   return (
-    <Card padding="none">
-      <ul className="divide-y divide-line-subtle">
+    <SectionState
+      loading={list.isLoading}
+      error={list.isError ? list.error : undefined}
+      empty={rows.length === 0}
+      emptyTitle="No join tokens yet"
+      emptyMessage="Click + Generate token to mint one. Tokens are one-time and expire automatically."
+    >
+      <ul className="divide-y divide-line-subtle border border-line rounded-md">
         {rows.map((t) => (
           <li key={t.id} className="px-4 py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
@@ -394,7 +425,7 @@ function JoinTokensList() {
           </li>
         ))}
       </ul>
-    </Card>
+    </SectionState>
   );
 }
 
@@ -415,39 +446,40 @@ function PendingClaimsSection() {
 
   const pending = (list.data ?? []).filter((r) => r.status === "pending");
 
+  // When discovery is off and there are no pending claims, suppress the
+  // entire section — it would just be a "discovery is off" hint that
+  // duplicates the toggle in the Add a scanner card.
+  if (!discoveryEnabled && pending.length === 0) {
+    return null;
+  }
+
   return (
-    <>
+    <Card padding="md">
       <div className="flex items-center justify-between mb-2">
-        <CardHeader title="Pending claims" />
+        <div>
+          <h3 className="text-sm font-semibold text-fg">Pending claims</h3>
+          <p className="text-xs text-fg-muted mt-0.5">
+            Scanners that have self-registered and are waiting for an admin to approve them.
+          </p>
+        </div>
         <DiscoveryToggle />
       </div>
       {!discoveryEnabled ? (
-        <Card padding="md">
-          <p className="text-sm text-fg">
-            Discovery is off. Scanners need a join token to register.
-          </p>
-          <p className="text-xs text-fg-muted mt-2">
-            Turn it on to let scanners self-register and queue here for
-            your approval. Useful when you don't want to copy a token —
-            the scanner just shows a pairing code in its logs.
-          </p>
-        </Card>
+        <p className="text-xs text-fg-muted">
+          Discovery is off. Turn it on to let scanners self-register and queue here for approval.
+        </p>
       ) : pending.length === 0 ? (
-        <Card padding="md">
-          <p className="text-xs text-fg-muted">
-            No scanners are waiting for approval.
-          </p>
-        </Card>
+        <p className="text-xs text-fg-muted text-center py-2">
+          No scanners are waiting for approval.
+        </p>
       ) : (
-        <Card padding="none">
-          <ul className="divide-y divide-line-subtle">
-            {pending.map((r) => (
-              <PendingClaimRow key={r.id} request={r} />
-            ))}
-          </ul>
-        </Card>
+        <ul className="divide-y divide-line-subtle border border-line rounded-md">
+          {pending.map((r) => (
+            <PendingClaimRow key={r.id} request={r} />
+          ))}
+        </ul>
       )}
-    </>
+    </Card>
   );
 }
 

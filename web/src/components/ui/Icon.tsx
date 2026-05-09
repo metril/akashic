@@ -27,6 +27,11 @@ const iconPaths = {
   "file": "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6",
   "database": "M22 12H2M22 12a10 10 0 01-20 0M22 12a10 10 0 00-20 0",
   "box": "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
+
+  // Settings sub-page icons (v0.26.0)
+  "clock": "M12 8v4l3 2M12 22a10 10 0 100-20 10 10 0 000 20z",
+  "user": "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z",
+  "tag": "M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82zM7 7h.01",
 } as const;
 
 export type IconName = keyof typeof iconPaths;

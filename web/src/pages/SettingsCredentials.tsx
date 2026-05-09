@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -6,10 +6,10 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  EmptyState,
   Input,
   ModalShell,
   Page,
+  SectionState,
   Select,
   Spinner,
 } from "../components/ui";
@@ -38,7 +38,23 @@ export default function SettingsCredentials() {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CredentialProfileSummary | null>(null);
+  const [filter, setFilter] = useState("");
   const deleteMut = useDeleteCredentialProfile();
+
+  const filtered = useMemo(() => {
+    const all = list.data ?? [];
+    const q = filter.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.type.toLowerCase().includes(q) ||
+        (p.description ?? "").toLowerCase().includes(q),
+    );
+  }, [list.data, filter]);
+
+  const total = list.data?.length ?? 0;
+  const showCount = filter.trim() && total > 0;
 
   async function handleDelete(profile: CredentialProfileSummary) {
     try {
@@ -58,77 +74,86 @@ export default function SettingsCredentials() {
       description="Reusable credential bundles. Attach a profile to any number of hosts and shares — change the secret once, every reference picks it up."
       width="default"
     >
-      <div className="flex items-center justify-end mb-3">
-        <Button onClick={() => setCreating(true)}>+ New profile</Button>
-      </div>
-
-      {list.isLoading && (
-        <div className="flex items-center justify-center py-12 text-fg-subtle">
-          <Spinner />
+      {total > 0 && (
+        <div className="flex items-center gap-3 mb-3">
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search profiles by name, type, or description…"
+            className="flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
+          />
+          <Button size="sm" onClick={() => setCreating(true)}>
+            + New profile
+          </Button>
         </div>
       )}
 
-      {list.isError && (
-        <Card padding="md">
-          <p className="text-sm text-rose-600">
-            {list.error instanceof Error
-              ? list.error.message
-              : "Failed to load credential profiles"}
-          </p>
-        </Card>
+      {showCount && (
+        <p className="text-xs text-fg-muted mb-2">
+          {filtered.length} of {total} shown
+        </p>
       )}
 
-      {list.data && list.data.length === 0 && !list.isLoading && (
-        <Card padding="lg">
-          <EmptyState
-            title="No credential profiles yet"
-            description="Create one to share an SMB password, S3 access key, or NFS Kerberos principal across multiple hosts and shares."
-          />
-        </Card>
-      )}
-
-      {list.data && list.data.length > 0 && (
-        <Card padding="none">
-          <ul className="divide-y divide-line-subtle">
-            {list.data.map((p) => (
-              <li
-                key={p.id}
-                className="px-4 py-3 flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium text-fg truncate">
-                      {p.name}
-                    </span>
-                    <Badge variant="neutral">{p.type.toUpperCase()}</Badge>
+      <SectionState
+        loading={list.isLoading}
+        error={list.isError ? list.error : undefined}
+        empty={total === 0}
+        emptyTitle="No credential profiles yet"
+        emptyMessage="Create one to share an SMB password, S3 access key, or NFS Kerberos principal across multiple hosts and shares."
+        emptyAction={
+          <Button onClick={() => setCreating(true)}>+ New profile</Button>
+        }
+      >
+        {filtered.length === 0 ? (
+          <Card padding="md">
+            <p className="text-sm text-fg-muted text-center py-4">
+              No profiles match "{filter}".
+            </p>
+          </Card>
+        ) : (
+          <Card padding="none">
+            <ul className="divide-y divide-line-subtle">
+              {filtered.map((p) => (
+                <li
+                  key={p.id}
+                  className="px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-medium text-fg truncate">
+                        {p.name}
+                      </span>
+                      <Badge variant="neutral">{p.type.toUpperCase()}</Badge>
+                    </div>
+                    {p.description && (
+                      <p className="mt-1 text-xs text-fg-muted truncate">
+                        {p.description}
+                      </p>
+                    )}
                   </div>
-                  {p.description && (
-                    <p className="mt-1 text-xs text-fg-muted truncate">
-                      {p.description}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setEditingId(p.id)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => setConfirmDelete(p)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setEditingId(p.id)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => setConfirmDelete(p)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </SectionState>
 
       {creating && (
         <ProfileCreateModal onClose={() => setCreating(false)} />
