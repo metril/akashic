@@ -446,27 +446,25 @@ function PendingClaimsSection() {
 
   const pending = (list.data ?? []).filter((r) => r.status === "pending");
 
-  // When discovery is off and there are no pending claims, suppress the
-  // entire section — it would just be a "discovery is off" hint that
-  // duplicates the toggle in the Add a scanner card.
-  if (!discoveryEnabled && pending.length === 0) {
-    return null;
-  }
-
+  // Always render this card so the DiscoveryToggle is reachable —
+  // hiding it when discovery is off + no pending claims (as v0.26.0
+  // briefly did) leaves admins with no way to turn the feature on.
   return (
     <Card padding="md">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h3 className="text-sm font-semibold text-fg">Pending claims</h3>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-fg">Auto-discovery & pending claims</h3>
           <p className="text-xs text-fg-muted mt-0.5">
-            Scanners that have self-registered and are waiting for an admin to approve them.
+            With auto-discovery on, scanners can self-register without a
+            join token and queue here for an admin to approve.
           </p>
         </div>
         <DiscoveryToggle />
       </div>
       {!discoveryEnabled ? (
         <p className="text-xs text-fg-muted">
-          Discovery is off. Turn it on to let scanners self-register and queue here for approval.
+          Discovery is off. Turn it on (toggle on the right) to let scanners
+          self-register; until then they need a join token from the section below.
         </p>
       ) : pending.length === 0 ? (
         <p className="text-xs text-fg-muted text-center py-2">
