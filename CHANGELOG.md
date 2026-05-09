@@ -5,6 +5,49 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.25.0 — 2026-05-09
+
+**Settings IA redesign + OAuth wizard.** The `/settings` tile grid had
+grown to 6 leaves with no visual hierarchy and one round-trip per
+navigation; mature B2B tools (GitLab, Sentry, Linear) all use a
+two-column grouped sidebar for this. The OAuth page compounded the
+problem with three always-shown provider rows whose fields are
+identical at every layer.
+
+### UX
+
+- **Two-column Settings layout.** `/settings/*` now renders inside a
+  `SettingsLayout` route shell with a grouped left rail
+  (Connections / Operations / Identity & Access / Data Model) and the
+  active sub-page in the right pane. The flat tile grid on `/settings`
+  is gone; the index redirects to `/settings/identities` and existing
+  deep links keep working unchanged. The top-level "Settings" sidebar
+  link now stays highlighted on every `/settings/*` sub-route (was
+  only highlighted on the bare index). On `<md` viewports the rail
+  collapses behind a "Menu" button.
+- **Add-provider wizard for OAuth.** Pre-fix the page rendered three
+  always-visible rows (Google / Microsoft / Dropbox), each prompting
+  the user to "Configure" regardless of intent — even though the
+  fields are identical at the schema, API, and form level (verified
+  against the static registry in `services/oauth_providers.py`). New
+  flow: only configured providers appear in the list, and `+ Add
+  provider` opens a two-step modal — pick provider type, then fill
+  the shared client_id / client_secret / redirect_uri form. Picker
+  surfaces the provider's developer-console URL inline so admins know
+  where to register the OAuth app. Future provider types (Box, custom
+  OIDC) plug in by adding to the backend registry without touching
+  the page layout. Existing edit-existing path keeps its modal
+  unchanged but reuses the same `ProviderForm` component.
+
+### Internal
+
+- New `components/settings/SettingsLayout.tsx` and
+  `SettingsSidebar.tsx`; new `components/oauth/AddProviderWizard.tsx`
+  and `ProviderForm.tsx` (extracted from the inline editor in
+  `SettingsOAuth.tsx` so both the wizard and the edit modal share it).
+- Old `pages/Settings.tsx` (tile grid) deleted.
+- No backend changes — the OAuth backend was already provider-agnostic.
+
 ## v0.24.0 — 2026-05-08
 
 **Two-round full-codebase security + perf review, all findings shipped.**

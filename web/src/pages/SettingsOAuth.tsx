@@ -6,11 +6,12 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  Input,
   ModalShell,
   Page,
   Spinner,
 } from "../components/ui";
+import { AddProviderWizard } from "../components/oauth/AddProviderWizard";
+import { ProviderForm } from "../components/oauth/ProviderForm";
 import {
   PROVIDER_LABELS,
   useDeleteOAuthCredential,
@@ -19,7 +20,6 @@ import {
   useOAuthProviders,
   useRefreshOAuthCredential,
   useStartOAuth,
-  useUpsertOAuthProvider,
   type OAuthCredentialSummary,
   type OAuthProviderName,
   type OAuthProviderSummary,
@@ -27,28 +27,28 @@ import {
 import { openOAuthPopup } from "../lib/oauthPopup";
 
 /**
- * OAuth foundation settings — Tier 1 PR-A.
+ * OAuth foundation settings.
  *
  * Two stacked sections:
  *
- *  1. **Provider apps** — for each known provider (Google, Microsoft,
- *     Dropbox) the deployment owner pastes the client_id /
- *     client_secret / redirect_uri from their own OAuth app
- *     registration. The client_secret is encrypted at rest via the
- *     server-side Fernet helper.
+ *  1. **Provider apps** — only providers with a stored client_id /
+ *     client_secret render here. The "+ Add OAuth provider" button
+ *     opens a wizard that picks from the not-yet-configured providers
+ *     and reuses `ProviderForm` (the same form the edit-existing path
+ *     uses). Pre-v0.25 the page rendered all three providers as
+ *     always-visible rows; the wizard collapses that into one entry
+ *     point and gives a clean slot for future provider types.
  *
  *  2. **Connected accounts** — the OAuth grants the API has stored.
- *     PR-A surfaces "Test" and "Refresh" buttons here so we can
- *     verify the round-trip against a real provider before any
- *     scanner connector consumes them.
- *
- * The actual connector UIs (Drive, OneDrive, ...) land in PR-C.
+ *     "Test" / "Refresh" buttons verify the round-trip against the
+ *     live provider before any scanner connector consumes them.
  */
 export default function SettingsOAuth() {
   const providers = useOAuthProviders();
   const credentials = useOAuthCredentials();
 
   const [editing, setEditing] = useState<OAuthProviderName | null>(null);
+  const [adding, setAdding] = useState(false);
   const [confirmDeleteProvider, setConfirmDeleteProvider] =
     useState<OAuthProviderSummary | null>(null);
   const [confirmDeleteCred, setConfirmDeleteCred] =
@@ -57,6 +57,14 @@ export default function SettingsOAuth() {
   const deleteProvider = useDeleteOAuthProvider();
   const deleteCred = useDeleteOAuthCredential();
 
+  const configured = useMemo(
+    () =>
+      (providers.data ?? []).filter(
+        (p) => p.has_secret && p.client_id !== "",
+      ),
+    [providers.data],
+  );
+
   return (
     <Page
       title="OAuth providers"
@@ -64,16 +72,26 @@ export default function SettingsOAuth() {
       width="default"
     >
       <Card padding="md" className="mb-6">
-        <h3 className="text-sm font-semibold text-fg mb-1">Provider apps</h3>
-        <p className="text-xs text-fg-muted mb-3">
-          Register an OAuth app with each provider's developer console
-          (Google Cloud, Azure App Registrations, Dropbox app console).
-          Set the redirect URI to{" "}
-          <code className="text-[11px]">
-            {window.location.origin}/api/oauth/callback
-          </code>{" "}
-          and paste the resulting client_id / client_secret below.
-        </p>
+        <div className="flex items-start justify-between mb-3 gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-fg mb-1">Provider apps</h3>
+            <p className="text-xs text-fg-muted">
+              Register an OAuth app with each provider's developer console
+              and paste the client credentials. Set the redirect URI to{" "}
+              <code className="text-[11px]">
+                {window.location.origin}/api/oauth/callback
+              </code>
+              .
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setAdding(true)}
+            disabled={providers.isLoading}
+          >
+            + Add provider
+          </Button>
+        </div>
 
         {providers.isLoading ? (
           <div className="flex items-center justify-center py-8 text-fg-subtle">
@@ -85,9 +103,15 @@ export default function SettingsOAuth() {
               ? providers.error.message
               : "Failed to load providers"}
           </p>
+        ) : configured.length === 0 ? (
+          <p className="text-xs text-fg-muted py-4 text-center">
+            No OAuth providers configured yet. Click{" "}
+            <span className="font-medium">+ Add provider</span> to register
+            one.
+          </p>
         ) : (
           <div className="space-y-2">
-            {(providers.data ?? []).map((p) => (
+            {configured.map((p) => (
               <ProviderRow
                 key={p.provider}
                 summary={p}
@@ -119,8 +143,8 @@ export default function SettingsOAuth() {
           </p>
         ) : (credentials.data ?? []).length === 0 ? (
           <p className="text-xs text-fg-muted py-4 text-center">
-            No connected accounts yet. Configure a provider above, then use{" "}
-            <span className="font-medium">Test</span> to verify.
+            No connected accounts yet. Add a provider above, then use{" "}
+            <span className="font-medium">Test</span> on its row to verify.
           </p>
         ) : (
           <ul className="divide-y divide-line">
@@ -135,10 +159,17 @@ export default function SettingsOAuth() {
         )}
       </Card>
 
+      {adding && (
+        <AddProviderWizard
+          providers={providers.data ?? []}
+          onClose={() => setAdding(false)}
+        />
+      )}
+
       {editing !== null && (
         <ProviderEditor
           provider={editing}
-          existing={(providers.data ?? []).find((p) => p.provider === editing) ?? null}
+          existing={configured.find((p) => p.provider === editing) ?? null}
           onClose={() => setEditing(null)}
         />
       )}
@@ -204,7 +235,6 @@ function ProviderRow({
   onDelete: () => void;
 }) {
   const start = useStartOAuth();
-  const configured = summary.has_secret && summary.client_id !== "";
 
   async function handleTest() {
     try {
@@ -232,38 +262,28 @@ function ProviderRow({
           <span className="text-sm font-medium text-fg">
             {PROVIDER_LABELS[summary.provider]}
           </span>
-          {configured ? (
-            <Badge variant="online">Configured</Badge>
-          ) : (
-            <Badge variant="neutral">Not configured</Badge>
-          )}
+          <Badge variant="online">Configured</Badge>
         </div>
-        {configured && (
-          <p className="text-[11px] text-fg-muted mt-0.5 truncate">
-            client_id: <code>{summary.client_id}</code> · redirect:{" "}
-            <code>{summary.redirect_uri}</code>
-          </p>
-        )}
+        <p className="text-[11px] text-fg-muted mt-0.5 truncate">
+          client_id: <code>{summary.client_id}</code> · redirect:{" "}
+          <code>{summary.redirect_uri}</code>
+        </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <Button size="sm" variant="ghost" onClick={onEdit}>
-          {configured ? "Edit" : "Configure"}
+          Edit
         </Button>
-        {configured && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleTest}
-            disabled={start.isPending}
-          >
-            {start.isPending ? "Opening…" : "Test"}
-          </Button>
-        )}
-        {configured && (
-          <Button size="sm" variant="ghost" onClick={onDelete}>
-            Forget
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleTest}
+          disabled={start.isPending}
+        >
+          {start.isPending ? "Opening…" : "Test"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onDelete}>
+          Forget
+        </Button>
       </div>
     </div>
   );
@@ -278,53 +298,6 @@ function ProviderEditor({
   existing: OAuthProviderSummary | null;
   onClose: () => void;
 }) {
-  const upsert = useUpsertOAuthProvider();
-  const defaultRedirect = useMemo(
-    () => `${window.location.origin}/api/oauth/callback`,
-    [],
-  );
-  const [clientId, setClientId] = useState(existing?.client_id ?? "");
-  const [clientSecret, setClientSecret] = useState("");
-  const [redirectUri, setRedirectUri] = useState(
-    existing?.redirect_uri || defaultRedirect,
-  );
-
-  async function handleSave() {
-    // Allow editing an existing provider without re-entering the
-    // secret (review W-I8). Pre-fix the unconditional secret check
-    // blocked any field update because the secret field is left
-    // blank with a "unchanged — type to replace" placeholder.
-    const needsSecret = !existing?.has_secret;
-    if (
-      !clientId.trim() ||
-      !redirectUri.trim() ||
-      (needsSecret && !clientSecret.trim())
-    ) {
-      toast.error(
-        needsSecret
-          ? "Client ID, client secret, and redirect URI are required."
-          : "Client ID and redirect URI are required.",
-      );
-      return;
-    }
-    try {
-      await upsert.mutateAsync({
-        provider,
-        body: {
-          client_id: clientId.trim(),
-          // Omit the secret when blank on an existing config so the
-          // server keeps the current encrypted value (review W-I8).
-          client_secret: clientSecret.trim() || null,
-          redirect_uri: redirectUri.trim(),
-        },
-      });
-      toast.success(`${PROVIDER_LABELS[provider]} saved.`);
-      onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't save provider");
-    }
-  }
-
   return (
     <ModalShell
       open
@@ -344,39 +317,12 @@ function ProviderEditor({
           The secret is encrypted at rest with a key derived from{" "}
           <code>AKASHIC_SECRET_KEY</code>.
         </p>
-        <Input
-          label="Client ID"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          required
+        <ProviderForm
+          provider={provider}
+          existing={existing}
+          onSaved={onClose}
+          onCancel={onClose}
         />
-        <Input
-          label={existing?.has_secret ? "Client secret (replace)" : "Client secret"}
-          type="password"
-          value={clientSecret}
-          onChange={(e) => setClientSecret(e.target.value)}
-          placeholder={existing?.has_secret ? "(unchanged — type to replace)" : ""}
-          autoComplete="new-password"
-          required={!existing?.has_secret}
-        />
-        <Input
-          label="Redirect URI"
-          value={redirectUri}
-          onChange={(e) => setRedirectUri(e.target.value)}
-          required
-        />
-        <p className="text-[11px] text-fg-muted">
-          Must match the redirect URI registered in your provider's OAuth app
-          exactly. Akashic's callback is served at <code>/api/oauth/callback</code>.
-        </p>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={upsert.isPending}>
-            {upsert.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
       </div>
     </ModalShell>
   );

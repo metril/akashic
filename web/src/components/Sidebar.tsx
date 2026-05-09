@@ -38,7 +38,7 @@ const sections: NavSection[] = [
     items: [
       { to: "/sources",  label: "Sources",  iconName: "sources" },
       { to: "/hosts",    label: "Hosts",    iconName: "database" },
-      { to: "/settings", label: "Settings", iconName: "settings", end: true },
+      { to: "/settings", label: "Settings", iconName: "settings" },
     ],
   },
   {
