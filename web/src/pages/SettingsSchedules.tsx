@@ -5,7 +5,6 @@ import {
   Input,
   Button,
   Badge,
-  Page,
 } from "../components/ui";
 import { useSources, useUpdateSource } from "../hooks/useSources";
 import type { Source } from "../types";
@@ -107,11 +106,18 @@ export default function SettingsSchedules() {
   const sources = sourcesQ.data ?? [];
 
   return (
-    <Page
-      title="Schedules"
-      description="Cron expressions that drive automatic scans for each source. Leave blank to disable scheduled scans — manual scans still work from the Sources page."
-      width="default"
-    >
+    <section aria-labelledby="settings-schedules-heading">
+      <header className="mb-5">
+        <h2 id="settings-schedules-heading" className="sr-only">
+          Schedules
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Cron expressions that drive automatic scans for each source. Leave
+          blank to disable scheduled scans — manual scans still work from the
+          Sources page.
+        </p>
+      </header>
+
       <p className="mb-3 text-xs text-fg-muted">
         Cron format: <code>m h dom mon dow</code> — e.g.{" "}
         <code>0 3 * * *</code> runs at 03:00 every day. Leave the input
@@ -133,6 +139,6 @@ export default function SettingsSchedules() {
           </ul>
         </Card>
       </SectionState>
-    </Page>
+    </section>
   );
 }

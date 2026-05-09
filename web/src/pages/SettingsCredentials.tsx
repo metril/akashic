@@ -8,7 +8,6 @@ import {
   ConfirmDialog,
   Input,
   ModalShell,
-  Page,
   SectionState,
   Select,
   Spinner,
@@ -69,11 +68,17 @@ export default function SettingsCredentials() {
   }
 
   return (
-    <Page
-      title="Credential profiles"
-      description="Reusable credential bundles. Attach a profile to any number of hosts and shares — change the secret once, every reference picks it up."
-      width="default"
-    >
+    <section aria-labelledby="settings-credentials-heading">
+      <header className="mb-5">
+        <h2 id="settings-credentials-heading" className="sr-only">
+          Credential profiles
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Reusable credential bundles. Attach a profile to any number of hosts
+          and shares — change the secret once, every reference picks it up.
+        </p>
+      </header>
+
       {total > 0 && (
         <div className="flex items-center gap-3 mb-3">
           <input
@@ -180,7 +185,7 @@ export default function SettingsCredentials() {
           !deleteMut.isPending && setConfirmDelete(null)
         }
       />
-    </Page>
+    </section>
   );
 }
 

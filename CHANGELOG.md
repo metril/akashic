@@ -5,6 +5,56 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.27.0 — 2026-05-09
+
+**Settings redesign — kill the sidebar, match the rest of the app.**
+v0.25.0 introduced a left sub-sidebar inside `/settings/*`; v0.26.0
+polished it. The user kept saying it "feels out of place" — and they
+were right. Settings was the only place in akashic with nested
+sidebar navigation; every other page (Dashboard, Browse, Search,
+Sources, Hosts, Analytics, Admin) renders as a single full-width
+pane under the global sidebar. This release reverts the IA mistake
+and adopts the convention every modern B2B SaaS uses for sectioned
+settings (GitHub, Linear, Stripe, Vercel): top-tab navigation inside
+a single `<Page>` wrapper.
+
+### UX
+
+- **Top-tab navigation replaces the nested sidebar.** A single
+  `<Page title="Settings">` with an underline-style tab strip below
+  (Credentials / OAuth / Scanners / Schedules / Identities / Tags),
+  each tab carrying the same icon set introduced in v0.26.0 (shield,
+  box, database, clock, user, tag). Active tab gets an accent
+  underline; inactive tabs are muted and lift on hover. The strip
+  scrolls horizontally on narrow viewports.
+- **Each settings sub-page lost its `<Page>` wrapper.** The page
+  chrome now lives in the parent `Settings` component once, instead
+  of repeating per sub-page. Sub-page descriptions moved inline as
+  small muted paragraphs; `<h2 className="sr-only">` keeps screen
+  readers correct.
+- **`/settings` index now redirects to `/settings/credentials`** (the
+  most common connection setting) instead of `/settings/identities`.
+- All six existing `/settings/{credentials,oauth,scanners,schedules,
+  identities,tags}` URLs are preserved verbatim — bookmarks and deep
+  links keep working.
+
+### Removed
+
+- `web/src/components/settings/SettingsLayout.tsx` (the nested-rail
+  shell from v0.25.0).
+- `web/src/components/settings/SettingsSidebar.tsx` (the grouped
+  nav with Connections / Operations / Identity & Access / Data
+  Model). The grouping disappears with the sidebar — the flat tab
+  strip is enough at six leaves.
+
+### Internal
+
+- New `web/src/pages/Settings.tsx` owns the parent chrome + tab
+  strip; renders the active sub-route via `<Outlet />`.
+- The OAuth add-provider wizard (v0.25.0) and the host
+  credential-profile fix (v0.26.0) are untouched. No backend
+  changes in this release.
+
 ## v0.26.0 — 2026-05-09
 
 **Host credential-profile bug fix + Settings UX overhaul.**

@@ -19,7 +19,6 @@ import {
   ConfirmDialog,
   Input,
   ModalShell,
-  Page,
   SectionState,
 } from "../components/ui";
 import { AllowedSourcesModal } from "../components/scanners/AllowedSourcesModal";
@@ -133,11 +132,17 @@ export default function SettingsScanners() {
   }
 
   return (
-    <Page
-      title="Scanners"
-      description="Registered agents and the tokens / pending claims that bring new ones online."
-      width="default"
-    >
+    <section aria-labelledby="settings-scanners-heading">
+      <header className="mb-5">
+        <h2 id="settings-scanners-heading" className="sr-only">
+          Scanners
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Registered agents and the tokens / pending claims that bring new
+          ones online.
+        </p>
+      </header>
+
       <div className="space-y-6">
         {/* ── 1. Active scanners ──────────────────────────────────── */}
         <Card padding="md">
@@ -286,7 +291,7 @@ export default function SettingsScanners() {
         scannerName={editSources?.name ?? ""}
         onClose={() => setEditSources(null)}
       />
-    </Page>
+    </section>
   );
 }
 

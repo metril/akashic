@@ -19,7 +19,7 @@ const Hosts              = lazy(() => import("./pages/Hosts"));
 const Duplicates         = lazy(() => import("./pages/Duplicates"));
 const Analytics          = lazy(() => import("./pages/Analytics"));
 const StorageExplorer    = lazy(() => import("./pages/StorageExplorer"));
-const SettingsLayout     = lazy(() => import("./components/settings/SettingsLayout"));
+const Settings           = lazy(() => import("./pages/Settings"));
 const SettingsIdentities = lazy(() => import("./pages/SettingsIdentities"));
 const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
 const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
@@ -194,11 +194,11 @@ export default function App() {
           path="settings"
           element={
             <Suspense fallback={<PageLoader />}>
-              <SettingsLayout />
+              <Settings />
             </Suspense>
           }
         >
-          <Route index element={<Navigate to="identities" replace />} />
+          <Route index element={<Navigate to="credentials" replace />} />
           <Route
             path="identities"
             element={

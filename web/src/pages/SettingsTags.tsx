@@ -9,7 +9,6 @@ import {
   ConfirmDialog,
   SectionState,
   Badge,
-  Page,
 } from "../components/ui";
 
 interface Tag {
@@ -121,11 +120,16 @@ export default function SettingsTags() {
   }
 
   return (
-    <Page
-      title="Tags"
-      description="Custom labels you can apply to entries for filter and search."
-      width="compact"
-    >
+    <section aria-labelledby="settings-tags-heading">
+      <header className="mb-5">
+        <h2 id="settings-tags-heading" className="sr-only">
+          Tags
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Custom labels you can apply to entries for filter and search.
+        </p>
+      </header>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="md:col-span-2 space-y-3">
           {total > 0 && (
@@ -253,6 +257,6 @@ export default function SettingsTags() {
         onConfirm={() => deleteConfirm && performDelete(deleteConfirm)}
         onCancel={() => !deleteTag.isPending && setDeleteConfirm(null)}
       />
-    </Page>
+    </section>
   );
 }

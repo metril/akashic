@@ -8,7 +8,6 @@ import {
   ConfirmDialog,
   Icon,
   ModalShell,
-  Page,
   SectionState,
 } from "../components/ui";
 import { AddProviderWizard } from "../components/oauth/AddProviderWizard";
@@ -67,11 +66,18 @@ export default function SettingsOAuth() {
   );
 
   return (
-    <Page
-      title="OAuth providers"
-      description="Connect Akashic to providers that use OAuth (Google Drive, OneDrive, Dropbox). Each deployment registers its own OAuth app with the provider and pastes the client credentials here."
-      width="default"
-    >
+    <section aria-labelledby="settings-oauth-heading">
+      <header className="mb-5">
+        <h2 id="settings-oauth-heading" className="sr-only">
+          OAuth providers
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Connect Akashic to providers that use OAuth (Google Drive, OneDrive,
+          Dropbox). Each deployment registers its own OAuth app with the
+          provider and pastes the client credentials here.
+        </p>
+      </header>
+
       <Card padding="md" className="mb-6">
         <div className="flex items-start justify-between mb-3 gap-3">
           <div className="min-w-0">
@@ -208,7 +214,7 @@ export default function SettingsOAuth() {
         }}
         onCancel={() => setConfirmDeleteCred(null)}
       />
-    </Page>
+    </section>
   );
 }
 

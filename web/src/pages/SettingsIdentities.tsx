@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Badge, Button, Card, Input, Page, SectionState, Select } from "../components/ui";
+import { Badge, Button, Card, Input, SectionState, Select } from "../components/ui";
 import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
 import type { PrincipalType } from "../lib/effectivePermsTypes";
 
@@ -79,11 +79,17 @@ export default function SettingsIdentities() {
   });
 
   return (
-    <Page
-      title="Identities"
-      description="Tell Akashic who you are on each source. Search results filter by what these identities can read."
-      width="compact"
-    >
+    <section aria-labelledby="settings-identities-heading">
+      <header className="mb-5">
+        <h2 id="settings-identities-heading" className="sr-only">
+          Identities
+        </h2>
+        <p className="text-sm text-fg-muted">
+          Tell Akashic who you are on each source. Search results filter by
+          what these identities can read.
+        </p>
+      </header>
+
       <UnboundPanel rows={unboundQ.data ?? []} />
 
       <SectionState
@@ -109,7 +115,7 @@ export default function SettingsIdentities() {
         <h3 className="text-sm font-semibold text-fg mb-3">Add identity</h3>
         <AddPersonForm onSubmit={(body) => createPerson.mutate(body)} pending={createPerson.isPending} />
       </Card>
-    </Page>
+    </section>
   );
 }
 
