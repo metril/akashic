@@ -15,14 +15,14 @@ import { api } from "../api/client";
 export interface CredentialProfileSummary {
   id: string;
   name: string;
-  type: "ssh" | "smb" | "nfs" | "s3";
+  type: "smb" | "nfs" | "s3";
   description: string | null;
 }
 
 export interface CredentialProfile {
   id: string;
   name: string;
-  type: "ssh" | "smb" | "nfs" | "s3";
+  type: "smb" | "nfs" | "s3";
   /** Secret values arrive as "***" — see schemas/source.py _scrub_config. */
   credentials: Record<string, unknown>;
   description: string | null;
@@ -32,7 +32,7 @@ export interface CredentialProfile {
 
 export interface CredentialProfileCreate {
   name: string;
-  type: "ssh" | "smb" | "nfs" | "s3";
+  type: "smb" | "nfs" | "s3";
   credentials: Record<string, unknown>;
   description?: string | null;
 }

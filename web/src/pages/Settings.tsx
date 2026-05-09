@@ -42,7 +42,7 @@ const tiles: Tile[] = [
     to: "/settings/oauth",
     label: "OAuth providers",
     description:
-      "Per-provider OAuth client apps for Google Drive, OneDrive, Dropbox, Box. Paste your client_id / client_secret and verify the round-trip without committing to a source yet.",
+      "Per-provider OAuth client apps for Google Drive, OneDrive, Dropbox. Paste your client_id / client_secret and verify the round-trip without committing to a source yet.",
   },
 ];
 

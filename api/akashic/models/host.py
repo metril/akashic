@@ -11,7 +11,7 @@ from akashic.database import Base
 class Host(Base):
     """A reusable connection target.
 
-    A single host (NAS, SMB server, SSH box, S3 account) often exposes
+    A single host (NAS, SMB server, S3 account) often exposes
     several shares. Hosts own the host-shaped fields (hostname, port,
     credentials, key material) so a credential rotation only touches one
     row, and a new share is just a new ``Source`` row pointing at the
@@ -27,7 +27,6 @@ class Host(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     # Host-only connection fields per type:
-    #   ssh: host, port, username, password, key_path, key_passphrase, known_hosts_path
     #   smb: host, port, username, password, domain
     #   nfs: host, port, auth_method, krb5_*, auth_uid, auth_gid, auth_aux_gids
     #   s3:  endpoint, region, access_key_id, secret_access_key

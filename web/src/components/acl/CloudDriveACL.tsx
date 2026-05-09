@@ -14,7 +14,7 @@ const ROLE_VARIANT: Record<CloudDriveRole, "allow" | "neutral" | "muted"> = {
 };
 
 /**
- * Cloud-drive ACL — Drive / OneDrive / SharePoint / Box / Dropbox.
+ * Cloud-drive ACL — Drive / OneDrive / Dropbox.
  *
  * Renders the per-principal grant list. Compared to NT/POSIX, the
  * key differences are:

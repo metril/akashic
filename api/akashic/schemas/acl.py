@@ -82,13 +82,13 @@ class S3ACL(BaseModel):
     grants: list[S3Grant] = Field(default_factory=list)
 
 
-# ---- Cloud drive (Google Drive / OneDrive / SharePoint / Box / Dropbox) ----
+# ---- Cloud drive (Google Drive / OneDrive / Dropbox) ----
 
 class CloudDrivePrincipal(BaseModel):
     """One principal in a cloud-drive grant. ``id`` is whatever the provider
     uses to identify that principal (Drive permissionId, Microsoft Graph
-    id, Box user id, Dropbox account_id) — the connector keeps the raw
-    value so we can call back into the provider when needed.
+    id, Dropbox account_id) — the connector keeps the raw value so we
+    can call back into the provider when needed.
 
     ``email`` and ``name`` are present when the provider returns them with
     the grant, so the UI doesn't need a per-grant lookup. Anonymous
@@ -138,9 +138,8 @@ class CloudDriveACL(BaseModel):
     type: Literal["cloud_drive"]
     grants: list[CloudDriveGrant] = Field(default_factory=list)
     # When set, sharing is constrained to this domain (Drive's
-    # domainAdminPolicy / SharePoint's external-sharing config); the UI
-    # surfaces this as a banner so admins know the deployment-level
-    # boundary applied at scan time.
+    # domainAdminPolicy); the UI surfaces this as a banner so admins
+    # know the deployment-level boundary applied at scan time.
     domain_restricted_to: str | None = None
 
 

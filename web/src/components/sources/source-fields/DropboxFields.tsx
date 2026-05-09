@@ -3,7 +3,7 @@
  *
  * Tier 4 PR 2. OAuth-shaped via the existing ``dropbox`` provider in
  * the OAuth registry. Same Sign-in popup pattern as the Drive /
- * OneDrive / SharePoint forms; the only Dropbox-specific bit is the
+ * OneDrive forms; the only Dropbox-specific bit is the
  * optional path-scope input (Dropbox uses paths as canonical
  * identifiers rather than opaque ids).
  *

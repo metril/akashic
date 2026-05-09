@@ -1,6 +1,6 @@
-import { Input, Select } from "../ui";
+import { Input } from "../ui";
 
-export type CredentialType = "ssh" | "smb" | "nfs" | "s3";
+export type CredentialType = "smb" | "nfs" | "s3";
 
 export type CredentialValue = Record<string, unknown>;
 
@@ -23,8 +23,6 @@ interface Props {
  */
 export function CredentialFields({ type, value, onChange }: Props) {
   switch (type) {
-    case "ssh":
-      return <SshCredentials value={value} onChange={onChange} />;
     case "smb":
       return <SmbCredentials value={value} onChange={onChange} />;
     case "nfs":
@@ -37,56 +35,6 @@ export function CredentialFields({ type, value, onChange }: Props) {
 function val(value: CredentialValue, key: string): string {
   const v = value[key];
   return typeof v === "string" ? v : "";
-}
-
-function SshCredentials({ value, onChange }: { value: CredentialValue; onChange: (n: CredentialValue) => void }) {
-  const auth = (value.auth as "password" | "key" | undefined) ?? "password";
-  const password = val(value, "password");
-  const keyPassphrase = val(value, "key_passphrase");
-  return (
-    <div className="space-y-3">
-      <Input
-        label="Username"
-        value={val(value, "username")}
-        onChange={(e) => onChange({ ...value, username: e.target.value })}
-      />
-      <Select
-        label="Authentication"
-        value={auth}
-        onChange={(e) => onChange({ ...value, auth: e.target.value })}
-        options={[
-          { value: "password", label: "Password" },
-          { value: "key", label: "Private key" },
-        ]}
-      />
-      {auth === "password" ? (
-        <Input
-          label="Password"
-          type="password"
-          value={password === "***" ? "" : password}
-          onChange={(e) => onChange({ ...value, password: e.target.value })}
-          placeholder={password === "***" ? "(unchanged — type to replace)" : ""}
-          hint={password === "***" ? "Existing value preserved. Type a new value to replace it." : undefined}
-        />
-      ) : (
-        <>
-          <Input
-            label="Private key path"
-            value={val(value, "key_path")}
-            onChange={(e) => onChange({ ...value, key_path: e.target.value })}
-            placeholder="/etc/akashic/keys/id_rsa"
-          />
-          <Input
-            label="Key passphrase (optional)"
-            type="password"
-            value={keyPassphrase === "***" ? "" : keyPassphrase}
-            onChange={(e) => onChange({ ...value, key_passphrase: e.target.value })}
-            placeholder={keyPassphrase === "***" ? "(unchanged)" : ""}
-          />
-        </>
-      )}
-    </div>
-  );
 }
 
 function SmbCredentials({ value, onChange }: { value: CredentialValue; onChange: (n: CredentialValue) => void }) {

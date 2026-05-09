@@ -371,7 +371,7 @@ def _build_nested_tree(
 
     # Synthesise the root when no row materialises at root_path. Happens
     # when the connector emits top-level entries with `parent_path =
-    # root_path` but no literal `path = root_path` row (SMB/SSH/S3 all
+    # root_path` but no literal `path = root_path` row (SMB/S3 both
     # do this for their share root). The CTE's secondary anchor pulls
     # those first-level entries in; we need a parent node for them to
     # attach to.
@@ -463,10 +463,10 @@ async def _fetch_tree_rows(
             perm_params["perm_tokens"] = perm_tokens
 
     # Anchor strategy: prefer a literal `path = :root_path` row when one
-    # exists. When it doesn't (the SMB / SSH / S3 connectors emit
-    # top-level entries with `parent_path = '/'` and no synthesised
-    # root), fall through to anchoring on `parent_path = :root_path` so
-    # the de-facto first-level entries seed the recursion. The
+    # exists. When it doesn't (the SMB / S3 connectors emit top-level
+    # entries with `parent_path = '/'` and no synthesised root), fall
+    # through to anchoring on `parent_path = :root_path` so the
+    # de-facto first-level entries seed the recursion. The
     # synthesised root node is added in `_build_nested_tree`.
     # v0.4.11 — top-K-per-directory pruning via LATERAL. The previous
     # version pulled every child whose effective_size >= min_bytes and

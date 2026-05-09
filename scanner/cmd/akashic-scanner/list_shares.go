@@ -24,11 +24,10 @@ import (
 // per-type flags, optional --password-stdin JSON creds, JSON stdout
 // `{"shares": [...]}`, `step:reason` stderr on failure.
 //
-// SSH and local are intentionally not supported — there's no
-// "shares" concept on either, and emulating one (e.g. listing the
-// remote SSH "/" or the local "/") would mislead the user. The api
-// rejects those at the endpoint level so this subcommand only sees
-// types it can handle.
+// local is intentionally not supported — there's no "shares" concept
+// on a local mount, and emulating one (e.g. listing "/") would
+// mislead the user. The api rejects local at the endpoint level so
+// this subcommand only sees types it can handle.
 func runListShares(args []string) {
 	fs := flag.NewFlagSet("list-shares", flag.ExitOnError)
 	srcType := fs.String("type", "", "Source type (smb, nfs, s3)")

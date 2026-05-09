@@ -21,8 +21,8 @@ import { DiscoverSharesPanel } from "./DiscoverSharesPanel";
 import { HostAllowedScannersPanel } from "./HostAllowedScannersPanel";
 
 // Host types whose protocol exposes a "shares" enumeration. Local
-// has no host; SSH has no shares. The Discover button is hidden for
-// either.
+// has no host concept. The Discover button is hidden for any
+// non-discoverable host type.
 const DISCOVERABLE: ReadonlySet<string> = new Set(["smb", "nfs", "s3"]);
 
 interface Props {
@@ -215,7 +215,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                   />
                 </div>
                 <ProfilePicker
-                  type={host.type as "ssh" | "smb" | "nfs" | "s3"}
+                  type={host.type as "smb" | "nfs" | "s3"}
                   value={draftProfileId}
                   onChange={setDraftProfileId}
                   hint={

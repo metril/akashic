@@ -559,8 +559,8 @@ async def list_host_shares(
     user: User = Depends(require_admin),
 ):
     """Enumerate shares/exports/buckets visible to this host's
-    credentials. Local and SSH hosts have no "shares" concept and
-    return 400 — use the regular Add Source form for them.
+    credentials. Local hosts have no "shares" concept and return
+    400 — use the regular Add Source form for them.
     """
     host = (await db.execute(
         select(Host).where(Host.id == host_id)

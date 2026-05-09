@@ -10,6 +10,12 @@
 Uses a scratch database (same pattern as test_alembic_baseline.py)
 because the conftest auto-creates schema via Base.metadata.create_all
 and bypasses alembic entirely.
+
+ssh was removed as a source type in v0.23.0; this fixture still
+exercises the SSH-handling branch of `_HOST_KEYS_BY_TYPE` because
+pre-v0.23 databases being migrated forward (v0.22.x → v0.24.0+)
+still need their SSH source rows to split host-keys correctly. The
+migration code preserves that branch deliberately; the test pins it.
 """
 from __future__ import annotations
 

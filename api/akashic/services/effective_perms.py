@@ -68,10 +68,10 @@ _S3_CAVEAT_IAM = (
 )
 
 # Cloud-drive role → right-set mapping. Drive's roles are the union; the
-# subset that overlaps OneDrive/SharePoint (reader/writer/owner) maps the
-# same way. file_organizer is Drive-specific; commenter and reader are
-# read-only. We don't model the per-feature granularity (download disabled,
-# etc.) — those become caveats if/when they matter.
+# subset that overlaps OneDrive (reader/writer/owner) maps the same way.
+# file_organizer is Drive-specific; commenter and reader are read-only.
+# We don't model the per-feature granularity (download disabled, etc.) —
+# those become caveats if/when they matter.
 _CLOUD_DRIVE_PERMS: dict[RightName, set[str]] = {
     "read":         {"owner", "writer", "commenter", "reader", "file_organizer"},
     "write":        {"owner", "writer", "file_organizer"},
@@ -368,7 +368,7 @@ def _eval_s3(
     return _effective(rights, "s3", principal, groups, caveats)
 
 
-# ── Cloud drive (Google Drive / OneDrive / SharePoint / Box / Dropbox) ────
+# ── Cloud drive (Google Drive / OneDrive / Dropbox) ────
 
 
 def _cloud_drive_grant_matches(

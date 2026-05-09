@@ -32,6 +32,12 @@ depends_on: Union[str, Sequence[str], None] = None
 # Host-shaped keys per source type. Anything in this set moves from
 # `sources.connection_config` to the new `hosts.connection_config`.
 # Anything outside it stays on the source row.
+#
+# `ssh` was removed as a source type in v0.23.0; this branch only
+# fires for sources in pre-v0.23 databases being migrated forward
+# (a v0.22.x → v0.24.0+ upgrade still needs to split SSH host-keys
+# correctly so the resulting `hosts` row is well-formed even though
+# no live code path will ever scan that host afterward).
 _HOST_KEYS_BY_TYPE: dict[str, frozenset[str]] = {
     "ssh": frozenset({
         "host", "port", "username", "password",

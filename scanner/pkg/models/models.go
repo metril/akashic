@@ -29,7 +29,7 @@ type ACL struct {
 	S3Owner  *S3Owner  `json:"-"`
 	S3Grants []S3Grant `json:"-"`
 
-	// Cloud-drive-specific (Drive/OneDrive/SharePoint/Box/Dropbox).
+	// Cloud-drive-specific (Drive/OneDrive/Dropbox).
 	CloudDriveGrants     []CloudDriveGrant `json:"-"`
 	CloudDriveDomain     string            `json:"-"`
 }
@@ -163,9 +163,9 @@ type EntryRecord struct {
 	Name        string `json:"name"`
 	Kind        string `json:"kind"` // "file" | "directory"
 	// v0.13.0 — provider-specific opaque identifier for cloud-drive
-	// connectors (Drive/OneDrive/SharePoint/Box/Dropbox). Empty on
-	// filesystem-shape connectors. Used by the API for permission /
-	// metadata lookups that have to round-trip to the provider.
+	// connectors (Drive/OneDrive/Dropbox). Empty on filesystem-shape
+	// connectors. Used by the API for permission / metadata lookups
+	// that have to round-trip to the provider.
 	NativeID    string `json:"native_id,omitempty"`
 	Extension   string `json:"extension,omitempty"`
 	SizeBytes   *int64 `json:"size_bytes,omitempty"`

@@ -344,7 +344,7 @@ export interface S3ACL {
   grants: S3Grant[];
 }
 
-// ---- Cloud-drive ACL (Drive / OneDrive / SharePoint / Box / Dropbox) ----
+// ---- Cloud-drive ACL (Drive / OneDrive / Dropbox) ----
 
 export type CloudDrivePrincipalType = "user" | "group" | "anyone" | "domain";
 

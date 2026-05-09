@@ -103,7 +103,7 @@ func runOneReachabilityProbe(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 	claim reachabilityClaim,
 ) {
-	// Each probe gets its own bounded context — a slow SSH / S3 probe
+	// Each probe gets its own bounded context — a slow SMB / S3 probe
 	// can't stall the whole loop. The api lease is 30 s; this matches.
 	probeCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()

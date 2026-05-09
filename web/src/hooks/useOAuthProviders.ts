@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
 
-export type OAuthProviderName = "google" | "microsoft" | "dropbox" | "box";
+export type OAuthProviderName = "google" | "microsoft" | "dropbox";
 
 export interface OAuthProviderSummary {
   provider: OAuthProviderName;
@@ -59,9 +59,8 @@ export interface OAuthRefreshResponse {
 
 export const PROVIDER_LABELS: Record<OAuthProviderName, string> = {
   google: "Google (Drive)",
-  microsoft: "Microsoft (OneDrive / SharePoint)",
+  microsoft: "Microsoft (OneDrive)",
   dropbox: "Dropbox",
-  box: "Box",
 };
 
 export function useOAuthProviders() {

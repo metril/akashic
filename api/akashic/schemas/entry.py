@@ -53,8 +53,8 @@ class EntryIn(BaseModel):
     # fields. Filesystem connectors leave this None.
     domain_metadata: dict | None = None
 
-    # v0.13.0 — opaque cloud-drive identifier (Drive/OneDrive/SharePoint/
-    # Box/Dropbox). Filesystem connectors leave this None.
+    # v0.13.0 — opaque cloud-drive identifier (Drive/OneDrive/Dropbox).
+    # Filesystem connectors leave this None.
     native_id: str | None = None
 
 

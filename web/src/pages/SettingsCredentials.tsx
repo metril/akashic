@@ -28,7 +28,6 @@ import {
 } from "../hooks/useCredentialProfiles";
 
 const TYPE_OPTIONS: { value: CredentialType; label: string }[] = [
-  { value: "ssh", label: "SSH" },
   { value: "smb", label: "SMB" },
   { value: "nfs", label: "NFS" },
   { value: "s3", label: "S3" },
@@ -83,7 +82,7 @@ export default function SettingsCredentials() {
         <Card padding="lg">
           <EmptyState
             title="No credential profiles yet"
-            description="Create one to share an SSH key, SMB password, or S3 access key across multiple hosts and shares."
+            description="Create one to share an SMB password, S3 access key, or NFS Kerberos principal across multiple hosts and shares."
           />
         </Card>
       )}
@@ -163,7 +162,7 @@ export default function SettingsCredentials() {
 function ProfileCreateModal({ onClose }: { onClose: () => void }) {
   const create = useCreateCredentialProfile();
   const [name, setName] = useState("");
-  const [type, setType] = useState<CredentialType>("ssh");
+  const [type, setType] = useState<CredentialType>("smb");
   const [description, setDescription] = useState("");
   const [credentials, setCredentials] = useState<CredentialValue>({});
 
@@ -198,9 +197,9 @@ function ProfileCreateModal({ onClose }: { onClose: () => void }) {
           label="Profile name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="ssh-prod"
+          placeholder="smb-fileserver"
           required
-          hint="A short label — e.g. 'ssh-prod' or 'smb-fileserver'."
+          hint="A short label — e.g. 'smb-fileserver' or 's3-prod'."
         />
         <Select
           label="Type"
@@ -221,7 +220,7 @@ function ProfileCreateModal({ onClose }: { onClose: () => void }) {
           label="Description (optional)"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Production SSH key — rotate quarterly"
+          placeholder="Production SMB account — rotate quarterly"
         />
         <div className="flex justify-end gap-2 pt-2">
           <Button

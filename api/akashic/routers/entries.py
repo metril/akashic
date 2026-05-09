@@ -99,9 +99,9 @@ async def get_entry(
     if entry.source_id is not None:
         await check_source_access(entry.source_id, user, db)
     # Same filter Browse applies — and 404 (not 403) when the user
-    # can't see the entry. SharePoint-correct: not-found denies the
-    # existence-inference attack ("if I get 403 here, the entry
-    # exists; if I get 404, it doesn't").
+    # can't see the entry. Defends against the existence-inference
+    # attack ("if I get 403 here, the entry exists; if I get 404, it
+    # doesn't").
     if not await user_can_view(entry, user, db):
         raise HTTPException(status_code=404, detail="Entry not found")
 

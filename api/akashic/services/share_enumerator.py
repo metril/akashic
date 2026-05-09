@@ -29,9 +29,9 @@ _KNOWN_STEPS = ("connect", "auth", "mount", "list", "config")
 logger = logging.getLogger(__name__)
 
 
-# Host types `list-shares` knows how to enumerate. SSH and `local`
-# return 400 from the API endpoint — there's no shares concept for
-# either. Kept distinct from source-tester's broader set.
+# Host types `list-shares` knows how to enumerate. `local` returns
+# 400 from the API endpoint — there's no shares concept for it.
+# Kept distinct from source-tester's broader set.
 SUPPORTED_TYPES: frozenset[str] = frozenset({"smb", "nfs", "s3"})
 
 

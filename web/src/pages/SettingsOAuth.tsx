@@ -32,7 +32,7 @@ import { openOAuthPopup } from "../lib/oauthPopup";
  * Two stacked sections:
  *
  *  1. **Provider apps** — for each known provider (Google, Microsoft,
- *     Dropbox, Box) the deployment owner pastes the client_id /
+ *     Dropbox) the deployment owner pastes the client_id /
  *     client_secret / redirect_uri from their own OAuth app
  *     registration. The client_secret is encrypted at rest via the
  *     server-side Fernet helper.
@@ -60,15 +60,15 @@ export default function SettingsOAuth() {
   return (
     <Page
       title="OAuth providers"
-      description="Connect Akashic to providers that use OAuth (Google Drive, OneDrive, Dropbox, Box). Each deployment registers its own OAuth app with the provider and pastes the client credentials here."
+      description="Connect Akashic to providers that use OAuth (Google Drive, OneDrive, Dropbox). Each deployment registers its own OAuth app with the provider and pastes the client credentials here."
       width="default"
     >
       <Card padding="md" className="mb-6">
         <h3 className="text-sm font-semibold text-fg mb-1">Provider apps</h3>
         <p className="text-xs text-fg-muted mb-3">
           Register an OAuth app with each provider's developer console
-          (Google Cloud, Azure App Registrations, Dropbox app console, Box
-          developer console). Set the redirect URI to{" "}
+          (Google Cloud, Azure App Registrations, Dropbox app console).
+          Set the redirect URI to{" "}
           <code className="text-[11px]">
             {window.location.origin}/api/oauth/callback
           </code>{" "}

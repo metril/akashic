@@ -63,15 +63,15 @@ async def test_create_profile_scrubs_secrets_on_response(client: AsyncClient):
     r = await client.post(
         "/api/credential-profiles",
         json={
-            "name": "ssh-prod",
+            "name": "smb-prod",
             "type": "smb",
             "credentials": {"username": "deploy", "password": "shhh"},
-            "description": "production ssh",
+            "description": "production SMB",
         },
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["name"] == "ssh-prod"
+    assert body["name"] == "smb-prod"
     assert body["type"] == "smb"
     # Secret-scrubbed response — username passes through, password masked.
     assert body["credentials"]["username"] == "deploy"
@@ -177,17 +177,16 @@ async def test_assign_mismatched_profile_to_host_returns_400(
 async def test_delete_while_referenced_returns_409(client: AsyncClient):
     rp = await client.post(
         "/api/credential-profiles",
-        json={"name": "ssh-attached", "type": "smb", "credentials": {"username": "u"}},
+        json={"name": "smb-attached", "type": "smb", "credentials": {"username": "u"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(
         "/api/hosts",
         json={
-            "name": "ssh-host-2",
+            "name": "smb-host-2",
             "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
             "credential_profile_id": profile_id,
         },

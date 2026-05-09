@@ -146,7 +146,7 @@ def _from_claim_strategy(
             confidence="claim",
         ))
 
-    # POSIX uid claim — useful for SSH/NFS sources where users are
+    # POSIX uid claim — useful for NFS / local sources where users are
     # identified by uid rather than SID. groups in this branch are POSIX
     # group names (the IdP rarely emits gid numbers; matching on names
     # against owner_name/group_name in the indexed entries is the
@@ -465,7 +465,7 @@ def _source_matches(source: Source, identity: ExtractedIdentity) -> bool:
     identifies the AD domain, e.g. `S-1-5-21-1234567890-987654321`.
     Identities whose SID starts with that prefix bind; others don't.
 
-    For `posix_uid` identities we bind to local/ssh/nfs sources by
+    For `posix_uid` identities we bind to local/nfs sources by
     default — the `identifier='-1'` group-only synthetic binding from
     name_match has nothing else to discriminate on, and over-binding
     is acceptable because the actual permission filter still requires

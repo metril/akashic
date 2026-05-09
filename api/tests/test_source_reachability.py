@@ -392,13 +392,12 @@ async def test_check_reachability_uses_persisted_credentials(
     r = await client.post(
         "/api/sources",
         json={
-            "name": "ssh-creds",
+            "name": "smb-creds",
             "type": "smb",
             "connection_config": {
                 "host": "h",
                 "username": "u",
                 "password": "secret-001",
-                "known_hosts_path": "/k",
             },
         },
     )

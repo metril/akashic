@@ -7,8 +7,8 @@ resolver in `services/source_config.resolve_connection_config`
 applies them under the inline values, so a profile is a default and
 inline keys override it.
 
-Type discriminator (`ssh`/`smb`/`s3`/`nfs`) keeps the picker UI from
-offering an SMB profile for an SSH host — validated server-side on
+Type discriminator (`smb`/`nfs`/`s3`) keeps the picker UI from
+offering an SMB profile for an NFS host — validated server-side on
 write, not enforced at the schema level since types are open-ended.
 """
 import uuid

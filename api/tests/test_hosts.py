@@ -244,13 +244,12 @@ async def test_update_host_preserves_secret_via_sentinel(client: AsyncClient):
     h = await client.post(
         "/api/hosts",
         json={
-            "name": "ssh-box",
+            "name": "smb-fileserver",
             "type": "smb",
             "connection_config": {
                 "host": "h",
                 "username": "u",
                 "password": "real-secret",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
         },
     )
@@ -264,7 +263,6 @@ async def test_update_host_preserves_secret_via_sentinel(client: AsyncClient):
                 "host": "h-renamed",
                 "username": "u",
                 "password": "***",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
         },
     )
@@ -316,7 +314,6 @@ async def test_delete_host_without_attached_sources_succeeds(
             "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
         },
     )
@@ -343,7 +340,6 @@ async def test_create_host_duplicate_name_returns_409(client: AsyncClient):
         "type": "smb",
         "connection_config": {
             "host": "h", "username": "u",
-            "known_hosts_path": "/etc/ssh/known_hosts",
         },
     }
     r1 = await client.post("/api/hosts", json=body)
@@ -502,7 +498,6 @@ async def test_scanner_reachability_summary_with_no_sources(
             type="smb",
             connection_config={
                 "host": "h", "username": "u",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
         )
         scanner = Scanner(
@@ -598,7 +593,6 @@ async def test_create_host_audit_event_recorded(
             "type": "smb",
             "connection_config": {
                 "host": "h", "username": "u",
-                "known_hosts_path": "/etc/ssh/known_hosts",
             },
         },
     )

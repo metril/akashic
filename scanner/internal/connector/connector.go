@@ -15,7 +15,7 @@ type Connector interface {
 	// (permission denied, ENOENT mid-scan, metadata read failures) so
 	// the api can surface "N inaccessible items skipped" instead of
 	// pretending the scan was clean. Connectors that don't use the
-	// local walker (s3, ssh, smb's own walker) return zero stats.
+	// local walker (s3, smb's own walker) return zero stats.
 	Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error)
 	ReadFile(ctx context.Context, path string) (io.ReadCloser, error)
 	// Delete removes a single regular file at `path`. Implementations

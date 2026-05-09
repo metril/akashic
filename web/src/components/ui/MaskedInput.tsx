@@ -11,10 +11,10 @@ import { cn } from "./cn";
  * browser autofill semantics. The eye toggle reveals plaintext.
  *
  * Use for single-line passwords, API keys, client secrets, SAS
- * tokens, etc. NOT for multi-line credentials (RSA private keys,
- * GCS service-account JSON) — those keep their plain ``<textarea>``
- * since hide/show on a multi-line block is awkward and the existing
- * "***" masked-sentinel pattern handles the unchanged-on-blank case.
+ * tokens, etc. NOT for multi-line credentials — those keep their
+ * plain ``<textarea>`` since hide/show on a multi-line block is
+ * awkward and the existing "***" masked-sentinel pattern handles
+ * the unchanged-on-blank case.
  */
 interface MaskedInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {

@@ -20,8 +20,7 @@ import (
 )
 
 // v0.22.0 — concurrent /permissions fetches per directory's children
-// page. Microsoft Graph allows ~10 req/sec/user/app and Box (where the
-// same pattern applies in box.go) tolerates 1000/min, so 8 workers
+// page. Microsoft Graph allows ~10 req/sec/user/app, so 8 workers
 // stays well clear at typical 100-200ms latency. Tunable in the future
 // via a config field if needed; not exposed yet because the win is
 // already 5-8x and there's no in-the-wild rate-limit complaint to

@@ -24,6 +24,6 @@ def infer_is_removable(source_type: str, connection_config: dict | None) -> bool
     if source_type == "local":
         path = (cfg.get("path") or "").strip()
         return any(path.startswith(prefix) for prefix in _REMOVABLE_LOCAL_PREFIXES)
-    # Network sources (ssh/smb/nfs/s3) default to fixed — the user
+    # Network sources (smb/nfs/s3) default to fixed — the user
     # opts in via the form for genuinely-intermittent remotes.
     return False

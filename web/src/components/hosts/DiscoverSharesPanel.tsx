@@ -39,7 +39,7 @@ interface ShareRow {
  *      transaction (per-row, so a duplicate name skips that one and
  *      proceeds). Toast reports created/skipped counts.
  *
- * Hidden by HostDetail for ssh/local hosts (those don't have shares).
+ * Hidden by HostDetail for local hosts (no shares concept).
  */
 export function DiscoverSharesPanel({ host, onAdded }: Props) {
   const listShares = useListShares();

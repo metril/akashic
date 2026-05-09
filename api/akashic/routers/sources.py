@@ -32,11 +32,10 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 # Source types that don't attach to a Host row. `local` predates the
 # Host abstraction; `paperless` (v0.7.0) and `immich` (v0.8.0) are
 # self-hosted libraries where the URL + API token / key live on the
-# source's connection_config directly. `azureblob` (v0.9.0), `gcs`
-# (v0.10.0), and `webdav` (v0.11.0) follow the same hostless
-# pattern — bucket / container / URL + auth fields all on the
-# source. All create+update paths key off this set when validating
-# host_id semantics.
+# source's connection_config directly. `webdav` (v0.11.0) follows
+# the same hostless pattern — URL + auth fields all on the source.
+# All create+update paths key off this set when validating host_id
+# semantics.
 HOSTLESS_SOURCE_TYPES = {
     "local", "paperless", "immich", "webdav",
     "gdrive", "onedrive", "dropbox",

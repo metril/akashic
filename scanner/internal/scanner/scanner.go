@@ -64,10 +64,10 @@ func New(apiClient *client.Client, conn connector.Connector, opts Options) *Scan
 
 func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// Emit BEFORE Connect so the user sees life immediately, even when
-	// Connect() blocks for several seconds (SMB share auth, NFS mount,
-	// SSH handshake). The previous flow was silent until the walk
-	// actually began, which on a slow share looked indistinguishable
-	// from "the scanner isn't running at all".
+	// Connect() blocks for several seconds (SMB share auth, NFS mount).
+	// The previous flow was silent until the walk actually began, which
+	// on a slow share looked indistinguishable from "the scanner isn't
+	// running at all".
 	s.info("connecting to source at %s", s.opts.Root)
 	if err := s.connector.Connect(ctx); err != nil {
 		// Surface the failure through the structured log sink BEFORE
