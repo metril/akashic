@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   useHostScannerSummary,
+  useTestHostShares,
   useUpdateHostAllowedScanners,
   type HostScannerSummaryRow,
 } from "../../hooks/useHosts";
@@ -56,6 +57,7 @@ function deriveSummaryState(r: HostScannerSummaryRow): {
 export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props) {
   const summaryQ = useHostScannerSummary(hostId);
   const update = useUpdateHostAllowedScanners();
+  const testShares = useTestHostShares();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [original, setOriginal] = useState<Set<string>>(new Set());
@@ -87,6 +89,25 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
       else next.add(id);
       return next;
     });
+  }
+
+  async function handleTestReachability() {
+    try {
+      const res = await testShares.mutateAsync({ hostId });
+      const sources = new Map<string, boolean>();
+      for (const row of res.results) {
+        const prev = sources.get(row.source_id);
+        sources.set(row.source_id, prev === true || row.ok === true);
+      }
+      const reachable = Array.from(sources.values()).filter(Boolean).length;
+      toast.success(
+        `${reachable} of ${sources.size} share${sources.size === 1 ? "" : "s"} reachable from at least one scanner.`,
+      );
+    } catch (e) {
+      toast.error(
+        `Couldn't test reachability: ${e instanceof Error ? e.message : "unknown error"}.`,
+      );
+    }
   }
 
   async function handleApply() {
@@ -140,13 +161,23 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-fg-muted">
-        <em>Online</em> means the scanner agent is checking in.
-        The colored dot shows how many of this host's attached sources the scanner has reached.
+        Reachability is what each scanner reports — credentialed access,
+        not just network ping. Click <em>Test reachability</em> to ask
+        every online scanner to authenticate and list each share.
       </p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
           {selected.size} of {rows.length} scanner{rows.length === 1 ? "" : "s"} selected
         </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleTestReachability}
+          loading={testShares.isPending}
+          title="Probe every attached share against every online scanner."
+        >
+          Test reachability
+        </Button>
       </div>
 
       <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">

@@ -1,30 +1,26 @@
-"""Dispatch a reachability probe to where it actually runs.
+"""Dispatch a credentialed reachability probe to a scanner agent.
 
-Two paths share this module:
+The API never dials shares directly. Reachability — does this scanner
+have credentials and can it list this share — is a scanner-side fact;
+the API just orchestrates by publishing probe requests to per-scanner
+Redis channels, which the agents consume via long-poll.
 
-  * ``dispatch_inline`` — the API itself dials the source via
-    ``test_connection``. Used for non-local sources (SMB / NFS / S3 /
-    SharePoint / WebDAV / OAuth-shaped clouds — everything that's
-    network-addressable from the API container). Synchronous, returns
-    the result directly.
+OAuth-shaped sources (gdrive, onedrive, dropbox) get a freshly minted
+access token injected into the published `connection_config` so the
+agent doesn't need to call back to /api/scanners/oauth/access-token
+just to start a probe.
 
-  * ``dispatch_remote`` — the probe lives in the agent's filesystem
-    namespace (``type=local`` sources, where only the agent has the
-    bind-mount). The API publishes a request to the scanner's per-id
-    Redis channel; the scanner consumes via the long-poll endpoint and
-    POSTs the result back, which the API forwards onto a per-request
-    response channel. The dispatcher subscribes to that channel and
-    returns whatever results land within ``timeout_s``.
+The host /api/hosts/{id}/online-check endpoint is the only "API can
+do this" path — and it's a TCP probe, not reachability.
 
-Why long-poll instead of websockets to the agent: the agent already
-talks HTTP-only (JWT-authed POSTs); adding a sustained connection
-type means new transport, new auth shape, and fleet-side rollout
-risk. A long-poll loop reuses the existing handshake and keeps the
-agent stateless.
+Why long-poll over websockets: the agent already talks HTTP-only
+(JWT-authed POSTs); adding a sustained connection type would mean new
+transport, new auth shape, and fleet-side rollout risk. Long-poll
+reuses the existing handshake and keeps the agent stateless.
 
-The pubsub channels are namespaced separately from the scan-progress
-channels in ``scan_pubsub`` so the probe traffic doesn't have to be
-filtered out by scan WS subscribers.
+Pubsub channels are namespaced separately from the scan-progress
+channels in `scan_pubsub` so probe traffic doesn't have to be filtered
+out by scan WS subscribers.
 """
 from __future__ import annotations
 
@@ -35,16 +31,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from akashic.models.source import Source
-from akashic.services import reachability_results
 from akashic.services.scan_pubsub import _client as _redis_client
 from akashic.services.source_config import merge_host_and_source
-# Re-exported here so tests can monkeypatch `probe_dispatch.test_connection`
-# to stub the inline probe without faking the source_tester module-level
-# function (which other code paths still call).
-from akashic.services.source_tester import test_connection
 
 logger = logging.getLogger(__name__)
 
@@ -64,88 +52,19 @@ def _result_channel(request_id: uuid.UUID | str) -> str:
     return f"probe:{request_id}:result"
 
 
-# ── Inline dispatch (non-local) ───────────────────────────────────────────
-
-
-async def dispatch_inline(
-    *,
-    db: AsyncSession,
-    source: Source,
-    scanner_id: Optional[uuid.UUID] = None,
-    triggered_by: Optional[uuid.UUID] = None,
-) -> dict[str, Any]:
-    """Probe a non-local source from the API process and persist a
-    `reachability_results` row.
-
-    `scanner_id` is informational here — the API does the actual dialing
-    so the row is recorded against ``scanner_id=None`` (an inline probe
-    has no agent attribution). The caller may still pass a scanner id
-    when running this on behalf of the per-row "Test" button so the
-    eligibility panel sees the result attributed to the row the user
-    clicked. We honour that and record it against the requested
-    scanner_id; the test_connection result reflects the API's view of
-    reachability, which is what matters for non-local sources where
-    every agent dials the same network anyway.
-    """
-    from akashic.services.source_oauth import (
-        OAuthExchangeFailed,
-        mint_access_token_for_source,
-    )
-
-    started = datetime.now(timezone.utc)
-    merged = merge_host_and_source(source.host, source)
-
-    # OAuth-shaped sources need a fresh access token before the probe;
-    # match what the legacy /check-reachability did so cloud-drive tests
-    # stay supported.
-    try:
-        oauth_pair = await mint_access_token_for_source(db, source.id)
-    except OAuthExchangeFailed as exc:
-        result_dict = {
-            "ok": False,
-            "step": "auth",
-            "error": f"oauth refresh failed: {exc.detail[:200]}",
-        }
-    else:
-        if oauth_pair is not None:
-            merged["access_token"] = oauth_pair[0]
-        result = await asyncio.to_thread(test_connection, source.type, merged)
-        result_dict = {
-            "ok": result.ok,
-            "step": result.step,
-            "error": result.error,
-        }
-
-    await reachability_results.record_result(
-        db=db,
-        source_id=source.id,
-        scanner_id=scanner_id,
-        ok=result_dict["ok"],
-        step=result_dict.get("step"),
-        error=result_dict.get("error"),
-        started_at=started,
-        triggered_by=triggered_by,
-    )
-    return {
-        "scanner_id": str(scanner_id) if scanner_id else None,
-        "ok": result_dict["ok"],
-        "step": result_dict.get("step"),
-        "error": result_dict.get("error"),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-# ── Remote dispatch (local sources, agent-side probe) ─────────────────────
+# ── Remote dispatch (the only credentialed-probe path) ───────────────────
 
 
 async def dispatch_remote(
     *,
-    source: Source,
+    db,
+    source,
     scanner_ids: list[uuid.UUID],
     timeout_s: float = 5.0,
+    triggered_by: Optional[uuid.UUID] = None,
 ) -> dict[uuid.UUID, dict[str, Any]]:
-    """Publish a probe request to each scanner channel and collect any
-    results that arrive within ``timeout_s``.
+    """Publish a probe request per scanner and collect any results that
+    arrive within ``timeout_s``.
 
     Returns a dict keyed by scanner_id with the report payload for each
     scanner that responded in time. Slow scanners drop off the dict —
@@ -153,9 +72,53 @@ async def dispatch_remote(
     ``reachability_results.record_result`` and pushes it to source-
     event subscribers, so the frontend will see them whenever they
     land.
+
+    For OAuth-shaped sources, mints a fresh access token and injects it
+    into the published connection_config. Failure to refresh the OAuth
+    grant is reported as a synthetic per-scanner result with
+    `step="auth"` so the user gets a clear "sign in again" signal
+    without needing the agent round-trip.
     """
+    from akashic.services.source_oauth import (
+        OAuthExchangeFailed,
+        mint_access_token_for_source,
+    )
+
     request_id = uuid.uuid4()
     merged = merge_host_and_source(source.host, source)
+
+    oauth_failure: Optional[str] = None
+    try:
+        oauth_pair = await mint_access_token_for_source(db, source.id)
+    except OAuthExchangeFailed as exc:
+        oauth_failure = f"oauth refresh failed: {exc.detail[:200]}"
+    else:
+        if oauth_pair is not None:
+            merged["access_token"] = oauth_pair[0]
+
+    if oauth_failure is not None:
+        # Short-circuit: fabricate a per-scanner failure for each
+        # requested scanner, persist it, and return without touching
+        # the agent. The OAuth grant problem is the source's, not
+        # the scanner's network.
+        from akashic.services import reachability_results
+        now = datetime.now(timezone.utc)
+        out: dict[uuid.UUID, dict[str, Any]] = {}
+        for sid in scanner_ids:
+            await reachability_results.record_result(
+                db=db, source_id=source.id, scanner_id=sid,
+                ok=False, step="auth", error=oauth_failure,
+                started_at=now, triggered_by=triggered_by,
+            )
+            out[sid] = {
+                "scanner_id": str(sid),
+                "ok": False,
+                "step": "auth",
+                "error": oauth_failure,
+                "completed_at": now.isoformat(),
+            }
+        return out
+
     payload = {
         "request_id": str(request_id),
         "source_id": str(source.id),

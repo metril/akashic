@@ -35,14 +35,26 @@ export const ReachabilityBadge = memo(function ReachabilityBadge({
   let state: ReachabilityState = "unchecked";
   let label = "Not yet checked";
   let detail: string | null = null;
-  let tooltip = "No reachability data yet — click Test Scanners on the source.";
+  let tooltip = "No reachability data yet — click Test on Allowed Scanners.";
+
+  function attribution(): string {
+    // last_scanner_id null with ok=true → row was implicit from a scan
+    // completion. Otherwise the row is attributed to the named scanner.
+    if (summary?.last_scanner_id && summary.last_scanner_name) {
+      return `Verified by scanner ${summary.last_scanner_name}`;
+    }
+    if (summary?.last_scanner_id) {
+      return `Verified by a scanner`;
+    }
+    return `Verified by scan completion`;
+  }
 
   if (summary?.ok === true) {
     state = "reachable";
     label = "Reachable";
     detail = summary.last_at ? `verified ${formatRelative(summary.last_at)}` : null;
     tooltip = summary.last_at
-      ? `Last verified: ${new Date(summary.last_at).toLocaleString()}`
+      ? `${attribution()} · ${new Date(summary.last_at).toLocaleString()}`
       : tooltip;
   } else if (summary?.ok === false) {
     state = "unreachable";
@@ -51,9 +63,12 @@ export const ReachabilityBadge = memo(function ReachabilityBadge({
       ? `${summary.last_step}: ${summary.last_error ?? "unknown"}`
       : (summary.last_error ?? "no detail");
     detail = reason;
+    const who = summary.last_scanner_name
+      ? `scanner ${summary.last_scanner_name}`
+      : "latest probe";
     tooltip = summary.last_at
-      ? `Last failed: ${new Date(summary.last_at).toLocaleString()} — ${reason}`
-      : `Latest probe failed — ${reason}`;
+      ? `${who} failed at ${new Date(summary.last_at).toLocaleString()} — ${reason}`
+      : `${who} failed — ${reason}`;
   }
 
   return (

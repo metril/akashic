@@ -243,12 +243,17 @@ async def delete_host(
     )
 
 
-class CheckHostReachabilityResponse(BaseModel):
-    """Result of POST /api/hosts/{id}/test-connection.
+class OnlineCheckResponse(BaseModel):
+    """Result of POST /api/hosts/{id}/online-check.
 
-    Runs the same probe as the source-tester, against the host's
-    connection_config alone. Useful for verifying credentials right
-    after creating or rotating them, without needing a share row.
+    Pure TCP probe from the API process — opens a socket to the
+    server's port (SMB→445, NFS→2049) or HEADs the S3 endpoint. No
+    credentials, no share listing. Answers "is the server up on the
+    network from where the API sits?" — fast triage when reachability
+    fails (so the user can tell DNS/firewall apart from credentials).
+
+    Reachability proper is what the scanners report — see
+    `POST /api/sources/{id}/test-scanners`.
     """
 
     result: TestResult
@@ -259,13 +264,12 @@ _DEFAULT_PORTS = {"smb": 445, "nfs": 2049}
 
 
 def _probe_host(host_type: str, cfg: dict) -> TestResult:
-    """Lightweight host-level reachability probe.
+    """TCP-only "is it online?" probe.
 
-    Doesn't speak any protocol — just opens a TCP connection to the
-    host:port (SMB/NFS) or pings the S3 endpoint. The point is
-    to validate the host *exists and is reachable*; actual auth and
-    share-level checks happen through the source-level test once the
-    user attaches a share.
+    Opens a socket to host:port (SMB/NFS) or HEADs the S3 endpoint.
+    No protocol, no auth, no listing — just "does the server respond?"
+    Credentialed reachability lives on the scanners (see
+    services/probe_dispatch.py) and is exercised via /test-scanners.
     """
     import socket
     if host_type in {"smb", "nfs"}:
@@ -308,32 +312,32 @@ def _probe_host(host_type: str, cfg: dict) -> TestResult:
 
 
 @router.post(
-    "/{host_id}/test-connection",
-    response_model=CheckHostReachabilityResponse,
+    "/{host_id}/online-check",
+    response_model=OnlineCheckResponse,
 )
-async def test_host_connection(
+async def host_online_check(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
+    """TCP "is it online?" probe. v0.28.1 renamed from /test-connection
+    to make the API's role explicit: the API can only check whether the
+    server responds on the network. Credentialed reachability is a
+    scanner-side fact and lives on /api/sources/{id}/test-scanners.
+    """
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
-    # Layer host.credential_profile.credentials under host.connection_config
-    # so a profile-only host (no inline username/password) probes with the
-    # right creds. Pre-fix this passed only host.connection_config and the
-    # probe failed with "no credentials".
+    # The TCP probe doesn't actually need credentials, but we layer them
+    # in for symmetry with the rest of the host-config path and so the
+    # audit log captures the same merged shape used elsewhere.
     result = await asyncio.to_thread(
         _probe_host, host.type, merge_host_and_source(host, None)
     )
     now = datetime.now(timezone.utc)
-    # v0.28.0: host /test-connection is a synchronous on-demand probe.
-    # No persistence — the cached host.is_reachable / timestamp columns
-    # were dropped along with the continuous-poll subsystem. The result
-    # ship to the caller and the audit event is the durable record.
     await record_event(
-        db=db, user=user, event_type="host_connection_tested",
+        db=db, user=user, event_type="host_online_check",
         request=request,
         payload={
             "host_id": str(host.id),
@@ -342,7 +346,103 @@ async def test_host_connection(
             "error": result.error,
         },
     )
-    return CheckHostReachabilityResponse(result=result, checked_at=now)
+    return OnlineCheckResponse(result=result, checked_at=now)
+
+
+# ── Bulk reachability test across attached shares (v0.28.1) ──────────────
+
+
+class TestSharesRequest(BaseModel):
+    """Optional per-source filter; default = every attached share."""
+
+    source_ids: list[uuid.UUID] | None = None
+
+
+class TestSharesResultRow(BaseModel):
+    """One (source, scanner) probe outcome."""
+
+    source_id: uuid.UUID
+    source_name: str
+    scanner_id: uuid.UUID
+    ok: bool | None
+    step: str | None
+    error: str | None
+    pending: bool = False
+    completed_at: datetime | None = None
+
+
+class TestSharesResponse(BaseModel):
+    results: list[TestSharesResultRow]
+
+
+@router.post(
+    "/{host_id}/test-shares",
+    response_model=TestSharesResponse,
+)
+async def test_host_shares(
+    host_id: uuid.UUID,
+    body: TestSharesRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Bulk reachability fan-out: for every attached share, dispatch
+    a credentialed probe to every scanner that's online and permitted
+    to claim it. Returns flat per-(source, scanner) result rows.
+
+    Reachability is what the scanners report — the API just orchestrates
+    the fan-out. Slow scanners come back as `pending=true` and their
+    results land later via the source-reachability WS channel.
+    """
+    host = (await db.execute(
+        select(Host).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    requested_ids = (body.source_ids if body else None) or None
+    src_q = select(Source).where(Source.host_id == host_id)
+    if requested_ids:
+        src_q = src_q.where(Source.id.in_(requested_ids))
+    sources = list((await db.execute(src_q)).scalars().all())
+    if not sources:
+        return TestSharesResponse(results=[])
+
+    from akashic.models.scanner import Scanner
+    all_scanners = list((await db.execute(select(Scanner))).scalars().all())
+    from akashic.routers.sources import _eligible_scanners_for
+    from akashic.services import probe_dispatch
+
+    rows: list[TestSharesResultRow] = []
+    for src in sources:
+        eligible = _eligible_scanners_for(src, all_scanners)
+        if not eligible:
+            continue
+        delivered = await probe_dispatch.dispatch_remote(
+            db=db, source=src,
+            scanner_ids=[s.id for s in eligible],
+            timeout_s=5.0,
+            triggered_by=user.id,
+        )
+        for s in eligible:
+            report = delivered.get(s.id)
+            if report is None:
+                rows.append(TestSharesResultRow(
+                    source_id=src.id, source_name=src.name,
+                    scanner_id=s.id,
+                    ok=None, step=None, error=None, pending=True,
+                ))
+            else:
+                rows.append(TestSharesResultRow(
+                    source_id=src.id, source_name=src.name,
+                    scanner_id=s.id,
+                    ok=report.get("ok"),
+                    step=report.get("step"),
+                    error=report.get("error"),
+                    pending=False,
+                    completed_at=report.get("completed_at"),
+                ))
+    await db.commit()
+    return TestSharesResponse(results=rows)
 
 
 # ── Eligibility-management UI (v0.5.7) ─────────────────────────────────────

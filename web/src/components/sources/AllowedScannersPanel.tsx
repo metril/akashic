@@ -186,8 +186,9 @@ export function AllowedScannersPanel({ sourceId }: Props) {
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-fg-muted">
-        <em>Online</em> means the scanner agent is checking in.
-        Reachability is on-demand — click Test to probe.
+        Each scanner probes the source from its own network position
+        with its own credentials — results are per-scanner.
+        <em> Online</em> means the scanner agent is checking in.
       </p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
@@ -198,7 +199,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
           variant="ghost"
           onClick={handleTestAll}
           loading={test.isPending}
-          title="Run a reachability probe against every scanner."
+          title="Ask every scanner to authenticate and list this source. Up to ~5 s per scanner."
         >
           Test all
         </Button>

@@ -5,7 +5,8 @@ import { useBulkTriggerScans } from "../../hooks/useScanActions";
 import {
   useDeleteHost,
   useHostDetail,
-  useTestHostConnection,
+  useHostOnlineCheck,
+  useTestHostShares,
   useUpdateHost,
 } from "../../hooks/useHosts";
 import { useSources } from "../../hooks/useSources";
@@ -41,7 +42,8 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   const sourcesQuery = useSources();
   const updateHost = useUpdateHost();
   const deleteHost = useDeleteHost();
-  const testHost = useTestHostConnection();
+  const onlineCheck = useHostOnlineCheck();
+  const testShares = useTestHostShares();
 
   const host = hostQuery.data;
   const attachedSources = useMemo(
@@ -127,17 +129,42 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
     }
   }
 
-  async function handleTest() {
+  async function handleOnlineCheck() {
     if (!host) return;
-    const p = testHost.mutateAsync(host.id);
+    const p = onlineCheck.mutateAsync(host.id);
     toast.promise(p, {
-      loading: "Testing connection…",
+      loading: `Pinging ${host.name}…`,
       success: (r) =>
         r.result.ok
-          ? `${host.name}: reachable.`
-          : `${host.name} unreachable at ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}.`,
+          ? `${host.name}: server online.`
+          : `${host.name}: server offline (${r.result.error ?? "unreachable"}).`,
       error: (e: unknown) =>
-        `Couldn't test ${host.name}: ${e instanceof Error ? e.message : "unknown error"}.`,
+        `Couldn't probe ${host.name}: ${e instanceof Error ? e.message : "unknown error"}.`,
+    });
+    try {
+      await p;
+    } catch {
+      // toast surfaced
+    }
+  }
+
+  async function handleTestReachability() {
+    if (!host) return;
+    const p = testShares.mutateAsync({ hostId: host.id });
+    toast.promise(p, {
+      loading: `Testing reachability for ${host.name}…`,
+      success: (r) => {
+        const sources = new Map<string, boolean>();
+        for (const row of r.results) {
+          const prev = sources.get(row.source_id);
+          // A share is "reachable" if at least one scanner reported ok.
+          sources.set(row.source_id, prev === true || row.ok === true);
+        }
+        const reachable = Array.from(sources.values()).filter(Boolean).length;
+        return `${reachable} of ${sources.size} share${sources.size === 1 ? "" : "s"} reachable from at least one scanner.`;
+      },
+      error: (e: unknown) =>
+        `Couldn't test reachability: ${e instanceof Error ? e.message : "unknown error"}.`,
     });
     try {
       await p;
@@ -246,11 +273,23 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={handleTest}
-                    loading={testHost.isPending}
+                    onClick={handleOnlineCheck}
+                    loading={onlineCheck.isPending}
+                    title="TCP probe — no credentials."
                   >
-                    Test connection
+                    Online?
                   </Button>
+                  {attachedSources.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleTestReachability}
+                      loading={testShares.isPending}
+                      title="Ask every online scanner to authenticate and list each attached share."
+                    >
+                      Test reachability
+                    </Button>
+                  )}
                   {isAdmin && DISCOVERABLE.has(host.type) && (
                     <Button
                       size="sm"

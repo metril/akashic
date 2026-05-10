@@ -158,23 +158,15 @@ async def test_create_source_explicit_is_removable_overrides_inference(
 
 
 @pytest.mark.asyncio
-async def test_test_scanners_inline_for_non_local_source_writes_results(
-    client: AsyncClient, setup_db, monkeypatch,
+async def test_test_scanners_routes_all_types_through_long_poll(
+    client: AsyncClient, setup_db,
 ):
-    """Non-local sources are probed inline by the API. Each requested
-    scanner gets one reachability_results row attributed to it."""
-    # Stub out the actual network probe so the test doesn't need a
-    # real SMB server.
-    captured: list[dict] = []
-
-    def fake_test(source_type: str, cfg: dict) -> _TestResult:
-        captured.append({"type": source_type, "cfg": cfg})
-        return _TestResult(ok=True)
-
-    import akashic.services.probe_dispatch as probe_dispatch
-    monkeypatch.setattr(probe_dispatch, "test_connection", fake_test, raising=False)
-
-    # Create a source + two scanners.
+    """v0.28.1: every source type — local OR remote — routes through
+    the scanner long-poll. The API never spawns test_connection
+    inline. Without a live scanner consuming the long-poll, the
+    dispatch times out and rows come back as pending=True.
+    """
+    # Non-local source — pre-v0.28.1 the API would have dialed inline.
     src_r = await client.post(
         "/api/sources",
         json={
@@ -186,7 +178,6 @@ async def test_test_scanners_inline_for_non_local_source_writes_results(
         },
     )
     sid = src_r.json()["id"]
-
     scn_a = (await client.post(
         "/api/scanners", json={"name": "sc-a", "pool": "default"},
     )).json()
@@ -194,16 +185,35 @@ async def test_test_scanners_inline_for_non_local_source_writes_results(
         "/api/scanners", json={"name": "sc-b", "pool": "default"},
     )).json()
 
-    r = await client.post(
-        f"/api/sources/{sid}/test-scanners",
-        json={"scanner_ids": [scn_a["id"], scn_b["id"]]},
-    )
+    # Speed up the dispatcher timeout so the test doesn't burn 5 s × 2
+    # scanners. The API is only the orchestrator — without a scanner
+    # consuming the long-poll, every request comes back pending.
+    import akashic.services.probe_dispatch as probe_dispatch
+    real_dispatch_remote = probe_dispatch.dispatch_remote
+
+    async def fast_dispatch(*, db, source, scanner_ids, timeout_s=5.0, triggered_by=None):
+        return await real_dispatch_remote(
+            db=db, source=source, scanner_ids=scanner_ids,
+            timeout_s=0.25, triggered_by=triggered_by,
+        )
+
+    probe_dispatch.dispatch_remote = fast_dispatch
+    try:
+        r = await client.post(
+            f"/api/sources/{sid}/test-scanners",
+            json={"scanner_ids": [scn_a["id"], scn_b["id"]]},
+        )
+    finally:
+        probe_dispatch.dispatch_remote = real_dispatch_remote
+
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(body["results"]) == 2
     for row in body["results"]:
-        assert row["ok"] is True
-        assert row["pending"] is False
+        # No scanner was online to answer — both come back pending=True.
+        # Critical: the API didn't fall back to dialing inline.
+        assert row["pending"] is True
+        assert row["ok"] is None
 
     async with setup_db() as session:
         rows = (await session.execute(
@@ -211,56 +221,64 @@ async def test_test_scanners_inline_for_non_local_source_writes_results(
                 ReachabilityResult.source_id == uuid.UUID(sid),
             )
         )).scalars().all()
-    assert {r.scanner_id for r in rows} == {
-        uuid.UUID(scn_a["id"]), uuid.UUID(scn_b["id"]),
-    }
-    assert all(r.ok for r in rows)
-    # The probe was actually called twice (once per scanner).
-    assert len(captured) == 2
+    # No rows persisted — the agent never reported back, so no
+    # reachability_results landed. Pre-fix the inline path would have
+    # written one row per scanner attributed to the API's view.
+    assert rows == []
 
 
 @pytest.mark.asyncio
-async def test_test_scanners_local_source_returns_pending_when_no_agent(
-    client: AsyncClient, setup_db,
+async def test_test_scanners_persists_when_oauth_refresh_fails(
+    client: AsyncClient, setup_db, monkeypatch,
 ):
-    """Local sources need a scanner agent to probe — without one, the
-    dispatcher times out (5 s) and the row comes back pending=True."""
+    """OAuth-shaped sources can fail before reaching the scanner — the
+    grant is bad. dispatch_remote short-circuits with a synthetic
+    `step=auth` result per scanner without round-tripping. Verifies
+    the rows land and the user gets a clear error."""
     src_r = await client.post(
         "/api/sources",
         json={
-            "name": "local-src",
-            "type": "local",
-            "connection_config": {"path": "/tmp/nonexistent"},
+            "name": "gd-src",
+            "type": "gdrive",
+            "connection_config": {"folder_id": ""},
         },
     )
     sid = src_r.json()["id"]
     scn = (await client.post(
-        "/api/scanners", json={"name": "no-agent", "pool": "default"},
+        "/api/scanners", json={"name": "gd-sc", "pool": "default"},
     )).json()
 
-    # Patch the dispatcher's timeout to ~250 ms so the test isn't slow
-    # — without a live scanner the long-poll just won't deliver.
-    import akashic.services.probe_dispatch as probe_dispatch
-    real_dispatch_remote = probe_dispatch.dispatch_remote
+    from akashic.services import probe_dispatch
+    from akashic.services.source_oauth import OAuthExchangeFailed
 
-    async def fast_dispatch_remote(*, source, scanner_ids, timeout_s=5.0):
-        return await real_dispatch_remote(
-            source=source, scanner_ids=scanner_ids, timeout_s=0.25,
-        )
+    async def fake_mint(db, source_id):
+        raise OAuthExchangeFailed("gdrive", "refresh_token expired")
 
-    probe_dispatch.dispatch_remote = fast_dispatch_remote
-    try:
-        r = await client.post(
-            f"/api/sources/{sid}/test-scanners",
-            json={"scanner_ids": [scn["id"]]},
-        )
-    finally:
-        probe_dispatch.dispatch_remote = real_dispatch_remote
+    monkeypatch.setattr(
+        "akashic.services.source_oauth.mint_access_token_for_source",
+        fake_mint,
+    )
 
+    r = await client.post(
+        f"/api/sources/{sid}/test-scanners",
+        json={"scanner_ids": [scn["id"]]},
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(body["results"]) == 1
-    assert body["results"][0]["pending"] is True
+    assert body["results"][0]["ok"] is False
+    assert body["results"][0]["step"] == "auth"
+    assert "oauth refresh failed" in (body["results"][0]["error"] or "")
+
+    async with setup_db() as session:
+        rows = (await session.execute(
+            select(ReachabilityResult).where(
+                ReachabilityResult.source_id == uuid.UUID(sid),
+            )
+        )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].ok is False
+    assert rows[0].step == "auth"
 
 
 @pytest.mark.asyncio

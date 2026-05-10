@@ -119,6 +119,7 @@ export interface ReachabilitySummary {
   last_step: string | null;
   last_error: string | null;
   last_scanner_id: string | null;
+  last_scanner_name: string | null;
 }
 
 export function useReachabilitySummary(sourceId: string | null) {

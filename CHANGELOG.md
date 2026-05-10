@@ -5,6 +5,104 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.28.1 — 2026-05-09
+
+**Online vs reachability — split the concepts; route every credentialed
+probe through scanners.** The v0.28.0 redesign collapsed continuous
+polling and added on-demand triggers, but it kept a misnaming and a
+mechanism mismatch the user surfaced after live use:
+
+- The host `test-connection` endpoint was a TCP-only probe (open a
+  socket to host:port). That's an *"is it online?"* check, not
+  reachability — the API has no credentials.
+- Real reachability — does this scanner have credentials and can it
+  list this share — belongs to the scanners. v0.28.0 had the API
+  spawn `akashic-scanner test-connection` inline for non-local
+  sources and *attribute* the result to each requested scanner, which
+  was a UX lie (every scanner got the same row because the API did
+  the work).
+- `HostAllowedScannersPanel` showed aggregated reach counts but had
+  no button to refresh them — there was no API surface to fan out a
+  credentialed probe across attached shares × scanners.
+
+### Behaviour changes
+
+- **Online vs reachability vocabulary split.** API does *online checks*
+  (TCP, no creds, fast triage). Scanners do *reachability* (credentialed,
+  actual share listing). Two words, two surfaces, no overlap.
+- **Truly per-scanner credentialed probes.** Every probe — local OR
+  remote — routes through the scanner long-poll. The API never spawns
+  `akashic-scanner test-connection` again. Each scanner genuinely
+  dials the source from its own network position; per-scanner
+  attribution in `reachability_results` is now honest.
+- **Bulk Test reachability on Hosts.** New "Test reachability" button
+  on HostDetail and HostAllowedScannersPanel runs the full grid:
+  every attached share × every online scanner permitted to claim
+  it. One click, one round-trip per scanner.
+
+### API surface
+
+- **NEW** `POST /api/hosts/{id}/online-check` *(renamed from `/test-connection`)*
+  — TCP-only "is the server up?" probe from the API. No credentials,
+  no share listing, no `reachability_results` row. Audit event:
+  `host_online_check`.
+- **NEW** `POST /api/hosts/{id}/test-shares` — bulk fan-out: for each
+  attached share, dispatches a credentialed probe to every online
+  scanner permitted to claim it. Returns flat per-(source, scanner)
+  result rows.
+- `POST /api/sources/{id}/test-scanners` — same shape, simplified
+  internals: removes the `if src.type == "local"` branch and the
+  inline dispatch path. All source types route through
+  `probe_dispatch.dispatch_remote`.
+- `GET /api/sources/{id}/reachability-summary` — adds
+  `last_scanner_name` so badge tooltips can attribute the result
+  ("Verified by scanner ebaf7c3c8d36-SMRR") without a follow-up GET.
+
+### Backend internals
+
+- **Deletes** `services/probe_dispatch.dispatch_inline` and the
+  `from akashic.services.source_tester import test_connection`
+  re-export. The API never has credentials in hand for credentialed
+  probes.
+- **Updates** `dispatch_remote` to handle the OAuth-token refresh
+  that lived in `dispatch_inline`: before publishing to a scanner
+  channel, mints a fresh access token for OAuth-shaped sources and
+  injects it into `connection_config`. OAuth-grant failures
+  short-circuit with a synthetic `step="auth"` per-scanner result
+  so the user gets a clear "sign in again" signal without an agent
+  round-trip.
+- **`_eligible_scanners_for`** now filters to online scanners by
+  default (`last_seen_at > now() - 2 minutes`); explicit
+  `scanner_ids` overrides the filter so an offline scanner still
+  shows up as `pending=true` in the response.
+
+### Frontend
+
+- HostDetail: "Test connection" → **"Online?"** button (tooltip:
+  "TCP probe — no credentials"). Adds **"Test reachability"** for
+  the bulk fan-out.
+- HostAllowedScannersPanel: new **"Test reachability"** button +
+  header copy: "Reachability is what each scanner reports —
+  credentialed access, not just network ping."
+- AllowedScannersPanel + AllowedSourcesModal: header copy clarifies
+  "Each scanner probes the source from its own network position
+  with its own credentials."
+- ReachabilityBadge tooltip attributes the latest result: "Verified
+  by scanner X" (when `last_scanner_id` is set) or "Verified by
+  scan completion" (implicit per-scan bumps).
+
+### Schema
+
+- **No migration.** Schema unchanged; this release is API surface +
+  semantics + UX naming on top of v0.28.0's tables.
+
+### Verification
+
+- `pytest tests/`: 667 passed, 1 skipped.
+- `npx tsc --noEmit && npx vitest run`: clean (133 passed).
+- Scanner Go tests: green; no agent changes.
+- Live deployment: api + scanner restart healthy. `/api/hosts/{id}/online-check` returns 200 on a TCP-reachable host. `/api/hosts/{id}/test-shares` publishes M×N probes to scanner channels and returns per-(source, scanner) results.
+
 ## v0.28.0 — 2026-05-09
 
 **Reachability redesign — on-demand only, pubsub-distributed.** The

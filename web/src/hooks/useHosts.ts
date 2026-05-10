@@ -110,7 +110,12 @@ export function useAddShares() {
   });
 }
 
-export interface HostTestResult {
+/** v0.28.1 — pure TCP "is the server up?" probe from the API. No
+ * credentials, no share listing. Renamed from useTestHostConnection
+ * to make the API's role explicit. Real reachability lives on the
+ * scanners; see useTestSourceScanners / useTestHostShares.
+ */
+export interface HostOnlineCheckResult {
   result: {
     ok: boolean;
     step: string | null;
@@ -121,13 +126,64 @@ export interface HostTestResult {
   checked_at: string;
 }
 
-export function useTestHostConnection() {
+export function useHostOnlineCheck() {
   return useMutation({
     mutationFn: (hostId: string) =>
-      api.post<HostTestResult>(`/hosts/${hostId}/test-connection`, {}),
-    // v0.28.0 — endpoint no longer persists host-side reachability
-    // columns (they were dropped). Result is rendered by the caller
-    // directly; no cache to invalidate.
+      api.post<HostOnlineCheckResult>(`/hosts/${hostId}/online-check`, {}),
+  });
+}
+
+/** v0.28.1 — bulk reachability fan-out: every attached share × every
+ * online scanner permitted to claim it. Each (source, scanner) pair
+ * gets its own row in the response. Slow scanners come back as
+ * `pending=true` and their results land later via the source-
+ * reachability WS channel. */
+export interface TestSharesResultRow {
+  source_id: string;
+  source_name: string;
+  scanner_id: string;
+  ok: boolean | null;
+  step: string | null;
+  error: string | null;
+  pending: boolean;
+  completed_at: string | null;
+}
+
+export interface TestSharesResponse {
+  results: TestSharesResultRow[];
+}
+
+export function useTestHostShares() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      hostId,
+      sourceIds,
+    }: {
+      hostId: string;
+      sourceIds?: string[];
+    }) =>
+      api.post<TestSharesResponse>(
+        `/hosts/${hostId}/test-shares`,
+        { source_ids: sourceIds ?? null },
+      ),
+    onSuccess: (data, { hostId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["hosts", hostId, "scanner-summary"],
+      });
+      // Per-source reachability summaries change too — invalidate the
+      // matching cards' badges. Use the source_ids that came back in
+      // the response so we don't blow the whole sources cache away.
+      const touched = new Set(data.results.map((r) => r.source_id));
+      for (const sourceId of touched) {
+        queryClient.invalidateQueries({
+          queryKey: ["sources", sourceId, "reachability-summary"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["sources", sourceId, "scanner-reachability"],
+        });
+      }
+    },
   });
 }
 

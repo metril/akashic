@@ -153,9 +153,10 @@ export function AllowedSourcesModal({
         </h2>
         <p className="text-xs text-fg-muted mt-1">
           Each row shows this scanner's most recent reachability probe
-          against that source. Reachability is on-demand — click Test to
-          probe. Allowing a "failed" source still queues scans; expect
-          them to fail at connect time.
+          against that source — credentialed access from this scanner's
+          network position. Click Test to probe. Allowing a "failed"
+          source still queues scans; expect them to fail at connect
+          time.
         </p>
       </div>
 

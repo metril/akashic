@@ -389,39 +389,79 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     assert body["host"]["id"] == host_id
     assert body["host"]["name"] == "smb-host"
 
-    # v0.28.0: source-level /test-scanners replaces the legacy
-    # /check-reachability — verify the merged config (host creds
-    # under the source's share-only fields) flows through to the
-    # inline probe via probe_dispatch.dispatch_inline.
-    captured: list[dict] = []
+    # v0.28.1: source-level /test-scanners publishes the probe to the
+    # scanner's long-poll channel; the API never dials inline. Verify
+    # the merged config (host creds under the source's share-only
+    # fields) lands in the published payload by subscribing to the
+    # scanner's probe channel before triggering the test.
+    import asyncio
+    import json as _json
+    from akashic.services.probe_dispatch import _probe_channel
+    from akashic.services.scan_pubsub import _client as _redis_client
 
-    def fake_test(source_type: str, cfg: dict) -> _TestResult:
-        captured.append(cfg)
-        return _TestResult(ok=True)
-
-    import akashic.services.probe_dispatch as probe_dispatch
-    real_test_connection = probe_dispatch.test_connection
-    probe_dispatch.test_connection = fake_test  # type: ignore[assignment]
-    # Need a scanner registered so /test-scanners has someone to probe.
     scn = await client.post(
         "/api/scanners",
         json={"name": "merge-cfg-scanner", "pool": "default"},
     )
     assert scn.status_code == 201, scn.text
+    scanner_id = scn.json()["id"]
+
+    redis = _redis_client()
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(_probe_channel(scanner_id))
+
+    captured: list[dict] = []
+
+    async def collect_one():
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            data = message.get("data")
+            if isinstance(data, str):
+                captured.append(_json.loads(data))
+                return
+
+    collector = asyncio.create_task(collect_one())
     try:
-        check = await client.post(
-            f"/api/sources/{body['id']}/test-scanners",
-            json={"scanner_ids": [scn.json()["id"]]},
-        )
-        assert check.status_code == 200, check.text
+        # Speed up the dispatcher's wait so the test doesn't burn 5 s
+        # waiting for a scanner that will never report.
+        import akashic.services.probe_dispatch as probe_dispatch
+        real_dispatch = probe_dispatch.dispatch_remote
+
+        async def fast(*, db, source, scanner_ids, timeout_s=5.0, triggered_by=None):
+            return await real_dispatch(
+                db=db, source=source, scanner_ids=scanner_ids,
+                timeout_s=0.5, triggered_by=triggered_by,
+            )
+
+        probe_dispatch.dispatch_remote = fast
+        try:
+            check = await client.post(
+                f"/api/sources/{body['id']}/test-scanners",
+                json={"scanner_ids": [scanner_id]},
+            )
+            assert check.status_code == 200, check.text
+        finally:
+            probe_dispatch.dispatch_remote = real_dispatch
+
+        await asyncio.wait_for(collector, timeout=2.0)
     finally:
-        probe_dispatch.test_connection = real_test_connection
-    assert captured, "test_connection was never called"
-    cfg = captured[0]
-    assert cfg["share"] == "Docs"
-    assert cfg["host"] == "fs.example.com"
-    assert cfg["username"] == "scan"
-    assert cfg["password"] == "topsecret"
+        collector.cancel()
+        try:
+            await pubsub.unsubscribe(_probe_channel(scanner_id))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await pubsub.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+    assert captured, "no probe was published to the scanner channel"
+    cfg = captured[0].get("connection_config", {})
+    assert cfg.get("share") == "Docs"
+    assert cfg.get("host") == "fs.example.com"
+    assert cfg.get("username") == "scan"
+    assert cfg.get("password") == "topsecret"
 
 
 @pytest.mark.asyncio

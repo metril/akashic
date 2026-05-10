@@ -658,8 +658,23 @@ class TestScannersResponse(BaseModel):
     results: list[TestScannersResultRow]
 
 
-def _eligible_scanners_for(source: Source, all_scanners) -> list:
-    """Filter scanners whose pool/allowed_source_ids permits this source."""
+_ONLINE_THRESHOLD_SECONDS = 120
+
+
+def _eligible_scanners_for(
+    source: Source, all_scanners, *, online_only: bool = True,
+) -> list:
+    """Filter scanners whose pool/allowed_source_ids permits this source.
+
+    Default `online_only=True` skips scanners that haven't checked in
+    within the last two minutes. Without that filter, the bulk-test
+    paths waste 5 s of long-poll timeout per offline scanner. Callers
+    that explicitly named scanner_ids in the request override this
+    (offline scanners stay listed as `pending=true` so the user sees
+    they were skipped).
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_ONLINE_THRESHOLD_SECONDS)
     out = []
     for s in all_scanners:
         if not s.enabled:
@@ -667,6 +682,8 @@ def _eligible_scanners_for(source: Source, all_scanners) -> list:
         if source.preferred_pool is not None and s.pool != source.preferred_pool:
             continue
         if s.allowed_source_ids and source.id not in s.allowed_source_ids:
+            continue
+        if online_only and (s.last_seen_at is None or s.last_seen_at < cutoff):
             continue
         out.append(s)
     return out
@@ -685,17 +702,14 @@ async def test_source_scanners(
     """User-triggered reachability probe — for one source, against one
     or more scanners.
 
-    Non-local sources: the API runs `test_connection` inline per scanner
-    and returns the result synchronously. The result is recorded against
-    the requested scanner_id even though the API physically did the
-    dialing; for non-local sources every agent dials the same network
-    so the API's view is representative.
+    Every source type — local or remote — routes through the scanner
+    long-poll. Reachability is what a scanner reports from its own
+    network position with its own credentials; the API doesn't have
+    credentials to honestly answer for a scanner.
 
-    Local sources: the API publishes a probe request per scanner via
-    pubsub; the scanner consumes via the long-poll endpoint and POSTs
-    its result back. Results that arrive within 5 s are returned inline
-    (`pending=false`); slow scanners are returned as `pending=true` and
-    will land later via the source-reachability WS channel.
+    Results that arrive within 5 s are returned inline (`pending=false`);
+    slow scanners are returned as `pending=true` and their results land
+    later via the source-reachability WS channel.
     """
     await check_source_access(source_id, user, db, required_level="write")
     src = (await db.execute(
@@ -714,51 +728,30 @@ async def test_source_scanners(
         wanted = _eligible_scanners_for(src, all_scanners)
 
     from akashic.services import probe_dispatch
+    delivered = await probe_dispatch.dispatch_remote(
+        db=db, source=src,
+        scanner_ids=[s.id for s in wanted],
+        timeout_s=5.0,
+        triggered_by=user.id,
+    )
     rows: list[TestScannersResultRow] = []
-
-    if src.type == "local":
-        # Only the agent has the bind-mount — must round-trip through
-        # the scanner's long-poll channel.
-        delivered = await probe_dispatch.dispatch_remote(
-            source=src,
-            scanner_ids=[s.id for s in wanted],
-            timeout_s=5.0,
-        )
-        for s in wanted:
-            report = delivered.get(s.id)
-            if report is None:
-                rows.append(TestScannersResultRow(
-                    scanner_id=s.id, ok=None, step=None, error=None,
-                    pending=True,
-                ))
-            else:
-                rows.append(TestScannersResultRow(
-                    scanner_id=s.id,
-                    ok=report.get("ok"),
-                    step=report.get("step"),
-                    error=report.get("error"),
-                    pending=False,
-                    completed_at=report.get("completed_at"),
-                ))
-        await db.commit()
-    else:
-        # Non-local: API can dial directly. One inline probe per
-        # scanner so each gets its own attributed row in the panel.
-        for s in wanted:
-            result = await probe_dispatch.dispatch_inline(
-                db=db, source=src,
-                scanner_id=s.id, triggered_by=user.id,
-            )
+    for s in wanted:
+        report = delivered.get(s.id)
+        if report is None:
+            rows.append(TestScannersResultRow(
+                scanner_id=s.id, ok=None, step=None, error=None,
+                pending=True,
+            ))
+        else:
             rows.append(TestScannersResultRow(
                 scanner_id=s.id,
-                ok=result.get("ok"),
-                step=result.get("step"),
-                error=result.get("error"),
+                ok=report.get("ok"),
+                step=report.get("step"),
+                error=report.get("error"),
                 pending=False,
-                completed_at=result.get("completed_at"),
+                completed_at=report.get("completed_at"),
             ))
-        await db.commit()
-
+    await db.commit()
     return TestScannersResponse(results=rows)
 
 
@@ -776,6 +769,9 @@ class ReachabilitySummary(BaseModel):
     last_step: str | None
     last_error: str | None
     last_scanner_id: uuid.UUID | None
+    # Scanner display name when last_scanner_id is set, so the badge
+    # tooltip can say "Verified by scanner X" without a follow-up GET.
+    last_scanner_name: str | None = None
 
 
 @router.get(
@@ -804,10 +800,12 @@ async def get_source_reachability_summary(
     from sqlalchemy import text
     row = (await db.execute(text("""
         WITH latest_probe AS (
-            SELECT ok, step, error, completed_at, scanner_id
-              FROM reachability_results
-             WHERE source_id = :source_id
-             ORDER BY completed_at DESC
+            SELECT rr.ok, rr.step, rr.error, rr.completed_at,
+                   rr.scanner_id, sc.name AS scanner_name
+              FROM reachability_results rr
+              LEFT JOIN scanners sc ON sc.id = rr.scanner_id
+             WHERE rr.source_id = :source_id
+             ORDER BY rr.completed_at DESC
              LIMIT 1
         ),
         latest_scan AS (
@@ -823,10 +821,12 @@ async def get_source_reachability_summary(
             (SELECT step FROM latest_probe)           AS probe_step,
             (SELECT error FROM latest_probe)          AS probe_error,
             (SELECT scanner_id FROM latest_probe)     AS probe_scanner_id,
+            (SELECT scanner_name FROM latest_probe)   AS probe_scanner_name,
             (SELECT last_at FROM latest_scan)         AS scan_at
     """), {"source_id": source_id})).first()
 
-    probe_ok, probe_at, probe_step, probe_error, probe_scanner_id, scan_at = row
+    (probe_ok, probe_at, probe_step, probe_error, probe_scanner_id,
+     probe_scanner_name, scan_at) = row
 
     # If the latest scan completed successfully more recently than the
     # latest probe, treat the source as reachable.
@@ -837,11 +837,13 @@ async def get_source_reachability_summary(
             last_step=None,
             last_error=None,
             last_scanner_id=None,
+            last_scanner_name=None,
         )
     if probe_at is None:
         return ReachabilitySummary(
             ok=None, last_at=None,
-            last_step=None, last_error=None, last_scanner_id=None,
+            last_step=None, last_error=None,
+            last_scanner_id=None, last_scanner_name=None,
         )
     return ReachabilitySummary(
         ok=probe_ok,
@@ -849,6 +851,7 @@ async def get_source_reachability_summary(
         last_step=probe_step,
         last_error=probe_error,
         last_scanner_id=probe_scanner_id,
+        last_scanner_name=probe_scanner_name,
     )
 
 

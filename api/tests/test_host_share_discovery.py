@@ -216,11 +216,12 @@ async def test_list_shares_layers_host_credential_profile(
 
 
 @pytest.mark.asyncio
-async def test_test_connection_layers_host_credential_profile(
+async def test_online_check_layers_host_credential_profile(
     client: AsyncClient, monkeypatch
 ):
-    """Same regression for POST /api/hosts/{id}/test-connection.
-    The probe was previously called with only host.connection_config."""
+    """Same regression for POST /api/hosts/{id}/online-check (renamed
+    from /test-connection in v0.28.1). The probe was previously called
+    with only host.connection_config."""
     profile_id = await _create_credential_profile(
         client,
         name="smb-deploy-2",
@@ -246,7 +247,7 @@ async def test_test_connection_layers_host_credential_profile(
 
     monkeypatch.setattr(hosts_router, "_probe_host", _capture)
 
-    r = await client.post(f"/api/hosts/{host_id}/test-connection")
+    r = await client.post(f"/api/hosts/{host_id}/online-check")
     assert r.status_code == 200, r.text
     assert captured["host_type"] == "smb"
     assert captured["cfg"]["host"] == "fs2.example.com"
