@@ -63,10 +63,12 @@ func Run(ctx context.Context, cfg Config) error {
 	// online indicator fresh between jobs.
 	go heartbeatLoop(ctx, httpc, cfg, priv)
 
-	// 2a) Independent reachability poll goroutine. Claims and runs
-	// probes from /api/scanners/{id}/reachability/poll. Decoupled
-	// from the scan lease cadence so a long scan doesn't starve the
-	// reachability data path. v0.5.7.
+	// 2a) Independent on-demand probe goroutine. Long-polls
+	// /api/scanners/{id}/probes/long-poll for user-triggered probes
+	// dispatched from the API; runs each probe and posts the result.
+	// Decoupled from the scan lease cadence so a long scan doesn't
+	// starve probe delivery. v0.28.0 (replaces the v0.5.7 reachability
+	// poll loop).
 	go reachabilityLoop(ctx, httpc, cfg, priv)
 
 	// 3) Lease loop. Sleeps with ±20% jitter on empty leases so a

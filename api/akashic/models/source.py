@@ -45,13 +45,11 @@ class Source(Base):
         Integer, nullable=False, default=1, server_default="1",
     )
     # External / removable storage: USB drives, network shares whose host
-    # may be offline, etc. Distinguishes "intentionally intermittent"
-    # from "actually broken". `is_reachable` records the last on-demand
-    # /check-reachability or scan-complete result; NULL = never checked.
+    # may be offline. Hint only — the scan failure path surfaces "actually
+    # offline" at scan time; this column just lets the UI label the
+    # source's intermittent nature so users aren't surprised when it's
+    # unreachable.
     is_removable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    last_reachable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_reachability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # v0.5.9 — optional reference to a reusable CredentialProfile.
     # See models/credential_profile.py and
     # services/source_config.resolve_connection_config for the

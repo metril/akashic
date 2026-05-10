@@ -89,9 +89,6 @@ class SourceResponse(BaseModel):
     updated_at: datetime
     security_metadata: dict | None = None
     is_removable: bool = False
-    is_reachable: bool | None = None
-    last_reachable_at: datetime | None = None
-    last_reachability_check_at: datetime | None = None
     credential_profile_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
@@ -129,9 +126,6 @@ class SourceListResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_removable: bool = False
-    is_reachable: bool | None = None
-    last_reachable_at: datetime | None = None
-    last_reachability_check_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -160,9 +154,6 @@ class SourceListResponse(BaseModel):
             created_at=source.created_at,
             updated_at=source.updated_at,
             is_removable=source.is_removable,
-            is_reachable=source.is_reachable,
-            last_reachable_at=source.last_reachable_at,
-            last_reachability_check_at=source.last_reachability_check_at,
         )
 
 

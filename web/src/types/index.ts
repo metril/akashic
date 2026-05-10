@@ -20,12 +20,6 @@ export interface Host {
   // secrets masked as "***" (same convention as Source.connection_config).
   connection_config: Record<string, unknown>;
   source_count: number;
-  // v0.5.6 reachability — direct probe via /test-connection writes
-  // is_reachable + the timestamps; the source-side roll-up may
-  // overwrite is_reachable with the share-level truth.
-  is_reachable: boolean | null;
-  last_reachable_at: string | null;
-  last_reachability_check_at: string | null;
   // v0.5.9 — optional reusable credential profile reference.
   credential_profile_id: string | null;
   created_at: string;
@@ -79,13 +73,10 @@ export interface Source {
   status: string;
   created_at: string;
   updated_at: string;
-  // External / removable storage (USB drive, intermittent network mount).
-  // `is_reachable` records the last on-demand reachability probe or
-  // scan-complete result; null = never checked.
+  // External / removable storage hint (USB drive, intermittent
+  // network mount). Used by the UI to label intermittent sources;
+  // actual reachability lives in /sources/{id}/reachability-summary.
   is_removable: boolean;
-  is_reachable: boolean | null;
-  last_reachable_at: string | null;
-  last_reachability_check_at: string | null;
   // v0.5.9 — optional reusable credential profile reference.
   credential_profile_id: string | null;
 }

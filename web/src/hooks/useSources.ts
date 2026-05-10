@@ -63,33 +63,73 @@ export function useUpdateSource() {
 }
 
 /**
- * On-demand reachability probe. Persists is_reachable +
- * last_reachability_check_at server-side and returns the latest
- * Source row alongside the raw probe result. Invalidates the
- * sources list so the badge updates everywhere.
+ * v0.28.0 — replaces useCheckSourceReachability. The new endpoint
+ * runs probes for one or more (source, scanner) pairs on demand:
+ * inline for non-local sources, dispatched to the agent over long-
+ * poll for local sources. Returns one result row per scanner (with
+ * `pending: true` for slow agents whose result lands later via the
+ * source-reachability WS channel).
  */
-export interface CheckReachabilityResult {
-  result: {
-    ok: boolean;
-    step: string | null;
-    error: string | null;
-    tier?: string | null;
-    warn?: string | null;
-  };
-  source: Source;
+export interface TestScannersResultRow {
+  scanner_id: string | null;
+  ok: boolean | null;
+  step: string | null;
+  error: string | null;
+  pending: boolean;
+  completed_at: string | null;
 }
 
-export function useCheckSourceReachability() {
+export interface TestScannersResponse {
+  results: TestScannersResultRow[];
+}
+
+export function useTestSourceScanners() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (sourceId: string) =>
-      api.post<CheckReachabilityResult>(
-        `/sources/${sourceId}/check-reachability`,
-        {},
+    mutationFn: ({
+      sourceId,
+      scannerIds,
+    }: {
+      sourceId: string;
+      scannerIds?: string[];
+    }) =>
+      api.post<TestScannersResponse>(
+        `/sources/${sourceId}/test-scanners`,
+        { scanner_ids: scannerIds ?? null },
       ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sources"] });
+    onSuccess: (_, { sourceId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["sources", sourceId, "scanner-reachability"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["sources", sourceId, "reachability-summary"],
+      });
     },
+  });
+}
+
+/**
+ * Compact source-level reachability for badges + cards. Derived from
+ * the latest reachability_results row (across all scanners) and the
+ * latest successful scan, whichever is fresher.
+ */
+export interface ReachabilitySummary {
+  ok: boolean | null;
+  last_at: string | null;
+  last_step: string | null;
+  last_error: string | null;
+  last_scanner_id: string | null;
+}
+
+export function useReachabilitySummary(sourceId: string | null) {
+  return useQuery<ReachabilitySummary>({
+    queryKey: ["sources", sourceId, "reachability-summary"],
+    queryFn: () =>
+      api.get<ReachabilitySummary>(
+        `/sources/${sourceId}/reachability-summary`,
+      ),
+    enabled: sourceId != null,
+    staleTime: 30_000,
   });
 }
 
@@ -110,6 +150,13 @@ export interface DeleteSourceArgs {
 // last reachability probe said". Saving a new allowed-scanner set
 // translates into per-scanner allowed_source_ids writes server-side.
 
+export interface ScannerReachabilityHistoryEntry {
+  ok: boolean;
+  completed_at: string | null;
+  step: string | null;
+  error: string | null;
+}
+
 export interface ScannerReachabilityRow {
   scanner_id: string;
   name: string;
@@ -120,6 +167,7 @@ export interface ScannerReachabilityRow {
   last_probed_at: string | null;
   step: string | null;
   error: string | null;
+  history: ScannerReachabilityHistoryEntry[];
 }
 
 export function useSourceScannerReachability(sourceId: string | null) {

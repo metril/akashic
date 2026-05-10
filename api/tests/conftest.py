@@ -39,10 +39,25 @@ async def setup_db():
         reset_all()
     except Exception:
         pass
+    # Reset the shared Redis client too — scan_pubsub caches it on the
+    # event loop pytest-asyncio just closed, so a stale reference will
+    # raise "Event loop is closed" on the next publish in any test
+    # that exercises probe_dispatch / pubsub paths. The aclose() call
+    # is safe even if the cached client was bound to a dead loop.
+    try:
+        from akashic.services import scan_pubsub
+        await scan_pubsub.aclose()
+    except Exception:
+        pass
     yield session_maker
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+    try:
+        from akashic.services import scan_pubsub
+        await scan_pubsub.aclose()
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture

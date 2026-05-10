@@ -1,8 +1,15 @@
-"""External-drive awareness — is_removable inference, /check-reachability,
-scan-complete updates last_reachable_at."""
+"""External-drive awareness + on-demand reachability (v0.28.0).
+
+Tests the `infer_is_removable` heuristic and the new on-demand
+reachability surface that replaces the v0.5.6 continuous-poll model:
+
+  * POST /api/sources/{id}/test-scanners — runs probes inline (non-
+    local) or dispatches to scanners over long-poll (local).
+  * GET /api/sources/{id}/reachability-summary — derives source-level
+    reachability from the latest probe + latest successful scan.
+"""
 from __future__ import annotations
 
-import time
 import uuid
 
 import pytest
@@ -13,12 +20,9 @@ from sqlalchemy import select
 from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.main import create_app
-from akashic.models.audit_event import AuditEvent
-from akashic.models.scan import Scan
+from akashic.models.reachability_result import ReachabilityResult
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.services import source_tester
-from akashic.services.scanner_keys import sign_jwt
 from akashic.services.source_defaults import infer_is_removable
 # Aliased so pytest doesn't try to collect it as a test class.
 from akashic.services.source_tester import TestResult as _TestResult
@@ -114,12 +118,6 @@ async def test_create_source_infers_is_removable_for_usb_path(
     body = r.json()
     assert body["is_removable"] is True
 
-    async with setup_db() as session:
-        src = (await session.execute(
-            select(Source).where(Source.name == "usb-drive")
-        )).scalar_one()
-    assert src.is_removable is True
-
 
 @pytest.mark.asyncio
 async def test_create_source_infers_false_for_fixed_local_path(
@@ -156,257 +154,176 @@ async def test_create_source_explicit_is_removable_overrides_inference(
     assert r.json()["is_removable"] is True
 
 
+# ── /test-scanners (on-demand reachability) ─────────────────────────────
+
+
 @pytest.mark.asyncio
-async def test_check_reachability_happy_path(
-    client: AsyncClient, setup_db, tmp_path
+async def test_test_scanners_inline_for_non_local_source_writes_results(
+    client: AsyncClient, setup_db, monkeypatch,
 ):
-    """Probe ok=true → is_reachable=true, both timestamps set."""
-    # Use a real on-disk path so the local test_connection succeeds.
-    r = await client.post(
+    """Non-local sources are probed inline by the API. Each requested
+    scanner gets one reachability_results row attributed to it."""
+    # Stub out the actual network probe so the test doesn't need a
+    # real SMB server.
+    captured: list[dict] = []
+
+    def fake_test(source_type: str, cfg: dict) -> _TestResult:
+        captured.append({"type": source_type, "cfg": cfg})
+        return _TestResult(ok=True)
+
+    import akashic.services.probe_dispatch as probe_dispatch
+    monkeypatch.setattr(probe_dispatch, "test_connection", fake_test, raising=False)
+
+    # Create a source + two scanners.
+    src_r = await client.post(
         "/api/sources",
         json={
-            "name": "real-drive",
-            "type": "local",
-            "connection_config": {"path": str(tmp_path)},
-            "is_removable": True,
+            "name": "smb-src",
+            "type": "smb",
+            "connection_config": {
+                "host": "h", "share": "s", "username": "u", "password": "p",
+            },
         },
     )
-    sid = r.json()["id"]
+    sid = src_r.json()["id"]
 
-    r2 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
-    assert r2.status_code == 200, r2.text
-    body = r2.json()
-    assert body["result"]["ok"] is True
-    assert body["source"]["is_reachable"] is True
-    assert body["source"]["last_reachable_at"] is not None
-    assert body["source"]["last_reachability_check_at"] is not None
+    scn_a = (await client.post(
+        "/api/scanners", json={"name": "sc-a", "pool": "default"},
+    )).json()
+    scn_b = (await client.post(
+        "/api/scanners", json={"name": "sc-b", "pool": "default"},
+    )).json()
+
+    r = await client.post(
+        f"/api/sources/{sid}/test-scanners",
+        json={"scanner_ids": [scn_a["id"], scn_b["id"]]},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["results"]) == 2
+    for row in body["results"]:
+        assert row["ok"] is True
+        assert row["pending"] is False
 
     async with setup_db() as session:
-        src = (await session.execute(
-            select(Source).where(Source.id == uuid.UUID(sid))
-        )).scalar_one()
-    assert src.is_reachable is True
-    assert src.last_reachable_at is not None
-    assert src.last_reachability_check_at is not None
-
-
-@pytest.mark.asyncio
-async def test_check_reachability_failure_does_not_bump_last_reachable_at(
-    client: AsyncClient, setup_db
-):
-    """Probe ok=false → is_reachable=false; last_reachability_check_at
-    updates (we did run a check) but last_reachable_at must NOT change."""
-    r = await client.post(
-        "/api/sources",
-        json={
-            "name": "missing-drive",
-            "type": "local",
-            "connection_config": {"path": "/nonexistent/path/xyzzy"},
-            "is_removable": True,
-        },
-    )
-    sid = r.json()["id"]
-
-    r2 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
-    assert r2.status_code == 200
-    body = r2.json()
-    assert body["result"]["ok"] is False
-    assert body["result"]["step"] == "list"
-    assert body["source"]["is_reachable"] is False
-    assert body["source"]["last_reachable_at"] is None
-    assert body["source"]["last_reachability_check_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_check_reachability_failure_after_success_keeps_old_last_reachable(
-    client: AsyncClient, setup_db, tmp_path
-):
-    """Drive was reached once, then unplugged. last_reachable_at must
-    survive the failed probe so the UI can show "last seen 2h ago"."""
-    r = await client.post(
-        "/api/sources",
-        json={
-            "name": "plug-unplug",
-            "type": "local",
-            "connection_config": {"path": str(tmp_path)},
-            "is_removable": True,
-        },
-    )
-    sid = r.json()["id"]
-
-    # First check — reachable, sets last_reachable_at.
-    r1 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
-    first_seen = r1.json()["source"]["last_reachable_at"]
-    assert first_seen is not None
-
-    # Now break the path (mutate the source's connection_config so the
-    # next probe fails). Direct DB mutation since the API masks the path.
-    async with setup_db() as session:
-        src = (await session.execute(
-            select(Source).where(Source.id == uuid.UUID(sid))
-        )).scalar_one()
-        src.connection_config = {"path": "/nonexistent/now"}
-        await session.commit()
-
-    # Second check — unreachable; last_reachable_at must stay = first_seen.
-    r2 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
-    body = r2.json()
-    assert body["result"]["ok"] is False
-    assert body["source"]["is_reachable"] is False
-    assert body["source"]["last_reachable_at"] == first_seen
-
-
-@pytest.mark.asyncio
-async def test_check_reachability_records_audit_event(
-    client: AsyncClient, setup_db, tmp_path
-):
-    r = await client.post(
-        "/api/sources",
-        json={
-            "name": "audit-probe",
-            "type": "local",
-            "connection_config": {"path": str(tmp_path)},
-        },
-    )
-    sid = r.json()["id"]
-
-    await client.post(f"/api/sources/{sid}/check-reachability", json={})
-
-    async with setup_db() as session:
-        events = (await session.execute(
-            select(AuditEvent).where(
-                AuditEvent.event_type == "source_reachability_checked"
+        rows = (await session.execute(
+            select(ReachabilityResult).where(
+                ReachabilityResult.source_id == uuid.UUID(sid),
             )
         )).scalars().all()
-    assert len(events) == 1
-    assert events[0].payload["ok"] is True
+    assert {r.scanner_id for r in rows} == {
+        uuid.UUID(scn_a["id"]), uuid.UUID(scn_b["id"]),
+    }
+    assert all(r.ok for r in rows)
+    # The probe was actually called twice (once per scanner).
+    assert len(captured) == 2
 
 
 @pytest.mark.asyncio
-async def test_check_reachability_unknown_source_404(client: AsyncClient):
+async def test_test_scanners_local_source_returns_pending_when_no_agent(
+    client: AsyncClient, setup_db,
+):
+    """Local sources need a scanner agent to probe — without one, the
+    dispatcher times out (5 s) and the row comes back pending=True."""
+    src_r = await client.post(
+        "/api/sources",
+        json={
+            "name": "local-src",
+            "type": "local",
+            "connection_config": {"path": "/tmp/nonexistent"},
+        },
+    )
+    sid = src_r.json()["id"]
+    scn = (await client.post(
+        "/api/scanners", json={"name": "no-agent", "pool": "default"},
+    )).json()
+
+    # Patch the dispatcher's timeout to ~250 ms so the test isn't slow
+    # — without a live scanner the long-poll just won't deliver.
+    import akashic.services.probe_dispatch as probe_dispatch
+    real_dispatch_remote = probe_dispatch.dispatch_remote
+
+    async def fast_dispatch_remote(*, source, scanner_ids, timeout_s=5.0):
+        return await real_dispatch_remote(
+            source=source, scanner_ids=scanner_ids, timeout_s=0.25,
+        )
+
+    probe_dispatch.dispatch_remote = fast_dispatch_remote
+    try:
+        r = await client.post(
+            f"/api/sources/{sid}/test-scanners",
+            json={"scanner_ids": [scn["id"]]},
+        )
+    finally:
+        probe_dispatch.dispatch_remote = real_dispatch_remote
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["results"]) == 1
+    assert body["results"][0]["pending"] is True
+
+
+@pytest.mark.asyncio
+async def test_test_scanners_unknown_source_404(client: AsyncClient):
     r = await client.post(
-        f"/api/sources/{uuid.uuid4()}/check-reachability", json={},
+        f"/api/sources/{uuid.uuid4()}/test-scanners",
+        json={"scanner_ids": []},
     )
     assert r.status_code == 404
 
 
-def _scanner_token(sid: str, priv: str) -> str:
-    now = int(time.time())
-    return sign_jwt(
-        priv,
-        {"iss": "scanner", "sub": sid, "iat": now, "exp": now + 300},
-        headers={"kid": sid},
-    )
+# ── /reachability-summary ────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_scan_complete_bumps_last_reachable_at(
-    client: AsyncClient, setup_db
+async def test_reachability_summary_unchecked_when_no_data(
+    client: AsyncClient,
 ):
-    """A successful scan implies the source was reachable. Don't make
-    the user click Check now to update the badge."""
-    # Mint a scanner via the admin API (this is the only way to get a
-    # matching keypair we can use for the bearer token).
-    scn = (await client.post(
-        "/api/scanners", json={"name": f"sc-{uuid.uuid4().hex[:6]}", "pool": "default"},
-    )).json()
-
-    # Seed a removable source with stale "unreachable" state, plus a
-    # leased scan assigned to our scanner.
-    async with setup_db() as session:
-        src = Source(
-            id=uuid.uuid4(),
-            name="scanner-test-source",
-            type="local",
-            connection_config={"path": "/tmp/whatever"},
-            is_removable=True,
-            is_reachable=False,
-            last_reachable_at=None,
-        )
-        session.add(src)
-        await session.flush()
-        src_id = src.id
-
-        scan = Scan(
-            id=uuid.uuid4(),
-            source_id=src.id,
-            scan_type="incremental",
-            status="pending",
-        )
-        session.add(scan)
-        await session.commit()
-        scan_id = scan.id
-
-    # Lease the scan to assign it to our scanner. The lease endpoint
-    # uses the bearer-token auth path, so we bypass the test's
-    # admin-user override by using a fresh client.
-    token = _scanner_token(scn["id"], scn["private_key_pem"])
-
-    async def _override_get_db():
-        async with setup_db() as session:
-            yield session
-
-    app = create_app()
-    app.dependency_overrides[get_db] = _override_get_db
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test",
-    ) as bearer_ac:
-        lease_r = await bearer_ac.post(
-            "/api/scans/lease", json={},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert lease_r.status_code == 200, lease_r.text
-        complete_r = await bearer_ac.post(
-            f"/api/scans/{scan_id}/complete",
-            json={"status": "completed"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert complete_r.status_code == 204, complete_r.text
-
-    async with setup_db() as session:
-        src = (await session.execute(
-            select(Source).where(Source.id == src_id)
-        )).scalar_one()
-    assert src.is_reachable is True, "scan-complete should flip is_reachable=true"
-    assert src.last_reachable_at is not None
-    assert src.status == "online"
-
-
-@pytest.mark.asyncio
-async def test_check_reachability_uses_persisted_credentials(
-    client: AsyncClient, setup_db, monkeypatch
-):
-    """Caller doesn't re-supply credentials — the endpoint pulls them
-    from the persisted connection_config."""
-    captured = {}
-
-    def _fake_test_connection(source_type, cfg):
-        captured["type"] = source_type
-        captured["cfg"] = cfg
-        return _TestResult(ok=True)
-
-    monkeypatch.setattr(
-        "akashic.routers.sources.test_connection", _fake_test_connection,
-    )
-
-    r = await client.post(
+    src_r = await client.post(
         "/api/sources",
         json={
-            "name": "smb-creds",
-            "type": "smb",
-            "connection_config": {
-                "host": "h",
-                "username": "u",
-                "password": "secret-001",
-            },
+            "name": "fresh",
+            "type": "local",
+            "connection_config": {"path": "/tmp"},
         },
     )
-    sid = r.json()["id"]
+    sid = src_r.json()["id"]
 
-    r2 = await client.post(f"/api/sources/{sid}/check-reachability", json={})
-    assert r2.status_code == 200
-    assert r2.json()["result"]["ok"] is True
-    assert captured["type"] == "smb"
-    # Persisted creds — including the password — flow into the probe
-    # untouched. The /test endpoint never sees them.
-    assert captured["cfg"]["password"] == "secret-001"
+    r = await client.get(f"/api/sources/{sid}/reachability-summary")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is None
+    assert body["last_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_reachability_summary_reflects_latest_probe(
+    client: AsyncClient, setup_db,
+):
+    """Latest reachability_results row (across all scanners) drives the
+    badge state."""
+    src_r = await client.post(
+        "/api/sources",
+        json={
+            "name": "probed",
+            "type": "smb",
+            "connection_config": {"host": "h", "share": "s", "username": "u"},
+        },
+    )
+    sid = src_r.json()["id"]
+
+    from datetime import datetime, timezone
+    async with setup_db() as session:
+        session.add(ReachabilityResult(
+            id=uuid.uuid4(), source_id=uuid.UUID(sid), scanner_id=None,
+            ok=False, step="auth", error="bad creds",
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+        ))
+        await session.commit()
+
+    r = await client.get(f"/api/sources/{sid}/reachability-summary")
+    body = r.json()
+    assert body["ok"] is False
+    assert body["last_step"] == "auth"
+    assert body["last_error"] == "bad creds"

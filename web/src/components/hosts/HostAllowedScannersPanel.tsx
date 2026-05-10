@@ -20,36 +20,30 @@ interface Props {
 function deriveSummaryState(r: HostScannerSummaryRow): {
   state: ReachabilityState;
   label: string;
-  recommended: boolean;
 } {
   if (r.total_sources === 0) {
-    return { state: "unchecked", label: "No attached sources", recommended: false };
+    return { state: "unchecked", label: "No attached sources" };
   }
   if (r.reaches_count === r.total_sources) {
-    return {
-      state: "reachable",
-      label: `Reaches all ${r.total_sources}`,
-      recommended: r.online,
-    };
+    return { state: "reachable", label: `Reaches all ${r.total_sources}` };
   }
   if (r.unreachable_count === r.total_sources) {
     return {
       state: "unreachable",
-      label: `Reaches 0 of ${r.total_sources} — won't help`,
-      recommended: false,
+      label: `Reaches 0 of ${r.total_sources}`,
     };
   }
   if (r.reaches_count > 0) {
+    // Mixed result — some succeeded, some never probed or failed.
+    // Render as reachable; the per-source panel exposes the gory detail.
     return {
-      state: "stale",
+      state: "reachable",
       label: `Reaches ${r.reaches_count} of ${r.total_sources}`,
-      recommended: false,
     };
   }
   return {
     state: "unchecked",
-    label: `Not yet probed (${r.not_yet_probed_count} of ${r.total_sources} sources)`,
-    recommended: false,
+    label: `Not tested (${r.not_yet_probed_count} of ${r.total_sources} sources)`,
   };
 }
 
@@ -93,15 +87,6 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
       else next.add(id);
       return next;
     });
-  }
-
-  function autoFillRecommended() {
-    if (!summaryQ.data) return;
-    const next = new Set<string>();
-    for (const r of summaryQ.data) {
-      if (deriveSummaryState(r).recommended) next.add(r.scanner_id);
-    }
-    setSelected(next);
   }
 
   async function handleApply() {
@@ -162,14 +147,6 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
         <p className="text-xs text-fg-muted">
           {selected.size} of {rows.length} scanner{rows.length === 1 ? "" : "s"} selected
         </p>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={autoFillRecommended}
-          disabled={update.isPending}
-        >
-          Auto-fill recommended
-        </Button>
       </div>
 
       <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
@@ -198,11 +175,6 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
                   )}
                   {!r.online && (
                     <span className="text-[11px] text-fg-muted">offline</span>
-                  )}
-                  {s.recommended && (
-                    <span className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 font-semibold">
-                      ★ Recommended
-                    </span>
                   )}
                 </div>
                 <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-fg-muted">

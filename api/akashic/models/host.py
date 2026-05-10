@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String, DateTime, func
+from sqlalchemy import ForeignKey, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,14 +31,6 @@ class Host(Base):
     #   nfs: host, port, auth_method, krb5_*, auth_uid, auth_gid, auth_aux_gids
     #   s3:  endpoint, region, access_key_id, secret_access_key
     connection_config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    # Reachability mirror of Source — populated by direct host probe
-    # (POST /test-connection) and by roll-up across attached sources.
-    # The roll-up writes only `is_reachable`; timestamps stay tied to
-    # the last direct probe so the UI can disambiguate provenance.
-    # See api/akashic/services/host_reachability.py.
-    is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    last_reachable_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_reachability_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # v0.5.9 — optional reference to a reusable CredentialProfile.
     # NULL = inline credentials only; non-NULL = profile contributes
     # under inline values via resolve_connection_config.

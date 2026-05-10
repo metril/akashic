@@ -189,7 +189,7 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
           <div className="flex gap-2 pt-0.5">
             <dt className="text-fg-subtle">Reachability</dt>
             <dd className="min-w-0">
-              <ReachabilityBadge source={source} compact />
+              <ReachabilityBadge sourceId={source.id} compact />
             </dd>
           </div>
         </dl>

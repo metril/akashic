@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   useSourceScannerReachability,
+  useTestSourceScanners,
   useUpdateSourceAllowedScanners,
+  type ScannerReachabilityHistoryEntry,
   type ScannerReachabilityRow,
 } from "../../hooks/useSources";
 import {
   Button,
-  ConfirmDialog,
   ReachabilityDot,
   Spinner,
   type ReachabilityState,
@@ -18,82 +19,80 @@ interface Props {
   sourceId: string;
 }
 
-const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+/**
+ * v0.28.0 — On-demand reachability eligibility editor.
+ *
+ * Replaces the v0.5.7 stale / "★ Recommended" / "Auto-fill recommended"
+ * UX. Continuous polling is gone, so freshness is a function of when
+ * the user last clicked Test. The panel:
+ *
+ *   - shows every scanner with a checkbox for allow / disallow
+ *   - shows the most recent probe outcome per scanner (no staleness
+ *     gate — the latest result is the latest result)
+ *   - exposes a per-row "Test" button + bulk "Test all"
+ *   - discloses the last few results inline as coloured dots so
+ *     trends are visible without leaving the panel
+ *
+ * No nanny prompt: the user explicitly chose what to allow, and the
+ * scan failure path will surface real problems clearly enough.
+ */
 
 function deriveRowState(row: ScannerReachabilityRow): {
   state: ReachabilityState;
   label: string;
   detail: string;
-  recommended: boolean;
 } {
-  if (!row.online) {
+  if (row.last_probed_at == null || row.ok == null) {
     return {
       state: "unchecked",
-      label: "Offline",
-      detail: row.last_probed_at
-        ? `last probe ${formatRelative(row.last_probed_at)}`
-        : "scanner has never reported",
-      recommended: false,
+      label: "Not tested",
+      detail: row.online
+        ? "click Test to probe"
+        : "scanner offline",
     };
   }
-  if (row.last_probed_at == null) {
+  if (row.ok) {
     return {
-      state: "unchecked",
-      label: "Not yet probed",
-      detail: "no reachability data",
-      recommended: false,
+      state: "reachable",
+      label: "Reachable",
+      detail: `tested ${formatRelative(row.last_probed_at)}`,
     };
   }
-  const probedAt = Date.parse(row.last_probed_at);
-  const stale = Date.now() - probedAt > STALE_THRESHOLD_MS;
-  if (row.ok === true) {
-    return {
-      state: stale ? "stale" : "reachable",
-      label: stale ? "Stale" : "Reaches this source",
-      detail: `probed ${formatRelative(row.last_probed_at)}`,
-      recommended: !stale,
-    };
-  }
-  if (row.ok === false) {
-    const stepReason = row.step ? `${row.step}: ${row.error ?? "unknown"}` : (row.error ?? "unknown");
-    return {
-      state: "unreachable",
-      label: "Cannot reach",
-      detail: stepReason,
-      recommended: false,
-    };
-  }
+  const reason = row.step ? `${row.step}: ${row.error ?? "unknown"}` : (row.error ?? "unknown");
   return {
-    state: "unchecked",
-    label: "No probe data",
-    detail: `probed ${formatRelative(row.last_probed_at)}`,
-    recommended: false,
+    state: "unreachable",
+    label: "Failed",
+    detail: reason,
   };
 }
 
-/**
- * Per-source eligibility editor. Each row shows the scanner's name,
- * pool, online state, and the latest probe outcome AGAINST THIS
- * SOURCE. Lets the user check or uncheck which scanners may claim
- * scans for this source. Pre-fill matches the api's current state.
- *
- * "Auto-fill recommended" pre-checks every 🟢 row (recent
- * result_ok=true) and unchecks every 🔴 row. The user can override
- * either way; saving a 🔴 selection prompts a confirm because
- * allowing a scanner that's been proven unable to reach the source
- * just queues work that fails. v0.5.7.
- */
+function HistoryDots({ history }: { history: ScannerReachabilityHistoryEntry[] }) {
+  if (!history || history.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1 ml-2" aria-label="Recent probe history">
+      {history.slice(0, 5).map((h, i) => (
+        <span
+          key={i}
+          title={
+            (h.completed_at ? `${formatRelative(h.completed_at)} — ` : "") +
+            (h.ok ? "ok" : `failed${h.step ? ` (${h.step})` : ""}`)
+          }
+          className={`inline-block h-1.5 w-1.5 rounded-full ${
+            h.ok ? "bg-emerald-500" : "bg-rose-500"
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function AllowedScannersPanel({ sourceId }: Props) {
   const reachQ = useSourceScannerReachability(sourceId);
   const update = useUpdateSourceAllowedScanners();
+  const test = useTestSourceScanners();
 
-  // Local checkbox state — initialised from the server's view of
-  // currently_allowed once the data lands. Diff against the original
-  // set to know if there's anything to save.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [original, setOriginal] = useState<Set<string>>(new Set());
-  const [confirmingDoomed, setConfirmingDoomed] = useState(false);
-  const [doomed, setDoomed] = useState<ScannerReachabilityRow[]>([]);
 
   useEffect(() => {
     if (!reachQ.data) return;
@@ -119,19 +118,10 @@ export function AllowedScannersPanel({ sourceId }: Props) {
     });
   }
 
-  function autoFillRecommended() {
-    if (!reachQ.data) return;
-    const next = new Set<string>();
-    for (const r of reachQ.data) {
-      const state = deriveRowState(r);
-      if (state.recommended) next.add(r.scanner_id);
-    }
-    setSelected(next);
-  }
-
-  async function performSave(scannerIds: string[]) {
+  async function handleSave() {
+    const ids = Array.from(selected);
     try {
-      await update.mutateAsync({ sourceId, scannerIds });
+      await update.mutateAsync({ sourceId, scannerIds: ids });
       toast.success("Allowed scanners updated.");
     } catch (e) {
       toast.error(
@@ -140,19 +130,32 @@ export function AllowedScannersPanel({ sourceId }: Props) {
     }
   }
 
-  async function handleSave() {
-    if (!reachQ.data) return;
-    const ids = Array.from(selected);
-    // Doomed = scanners we're enabling that were proven unable to reach.
-    const doomedRows = reachQ.data.filter(
-      (r) => selected.has(r.scanner_id) && r.ok === false,
-    );
-    if (doomedRows.length > 0) {
-      setDoomed(doomedRows);
-      setConfirmingDoomed(true);
-      return;
+  async function handleTestAll() {
+    try {
+      const res = await test.mutateAsync({ sourceId });
+      const pending = res.results.filter((r) => r.pending).length;
+      const failed = res.results.filter((r) => r.ok === false).length;
+      const ok = res.results.filter((r) => r.ok === true).length;
+      const summary =
+        pending > 0
+          ? `${ok} ok, ${failed} failed, ${pending} still pending`
+          : `${ok} ok, ${failed} failed`;
+      toast.success(`Reachability tested — ${summary}.`);
+    } catch (e) {
+      toast.error(
+        `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
+      );
     }
-    await performSave(ids);
+  }
+
+  async function handleTestOne(scannerId: string) {
+    try {
+      await test.mutateAsync({ sourceId, scannerIds: [scannerId] });
+    } catch (e) {
+      toast.error(
+        `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
+      );
+    }
   }
 
   if (reachQ.isLoading) {
@@ -184,7 +187,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
     <div className="space-y-2">
       <p className="text-[11px] text-fg-muted">
         <em>Online</em> means the scanner agent is checking in.
-        The colored dot shows whether that scanner has reached this source.
+        Reachability is on-demand — click Test to probe.
       </p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
@@ -193,11 +196,11 @@ export function AllowedScannersPanel({ sourceId }: Props) {
         <Button
           size="sm"
           variant="ghost"
-          onClick={autoFillRecommended}
-          disabled={update.isPending}
-          title="Pre-check every scanner that's recently proven able to reach this source; uncheck the ones that have been proven unable."
+          onClick={handleTestAll}
+          loading={test.isPending}
+          title="Run a reachability probe against every scanner."
         >
-          Auto-fill recommended
+          Test all
         </Button>
       </div>
 
@@ -225,9 +228,9 @@ export function AllowedScannersPanel({ sourceId }: Props) {
                       pool={r.pool}
                     </span>
                   )}
-                  {s.recommended && (
-                    <span className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 font-semibold">
-                      ★ Recommended
+                  {!r.online && (
+                    <span className="text-[10px] uppercase tracking-wide text-fg-subtle">
+                      offline
                     </span>
                   )}
                 </div>
@@ -235,8 +238,19 @@ export function AllowedScannersPanel({ sourceId }: Props) {
                   <ReachabilityDot state={s.state} />
                   <span className="font-medium text-fg">{s.label}</span>
                   <span>· {s.detail}</span>
+                  <HistoryDots history={r.history} />
                 </div>
               </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleTestOne(r.scanner_id)}
+                loading={test.isPending}
+                disabled={!r.online}
+                title={r.online ? "Probe this scanner against this source." : "Scanner is offline."}
+              >
+                Test
+              </Button>
             </li>
           );
         })}
@@ -260,33 +274,6 @@ export function AllowedScannersPanel({ sourceId }: Props) {
           Save
         </Button>
       </div>
-
-      <ConfirmDialog
-        open={confirmingDoomed}
-        title={`Allow ${doomed.length} scanner${doomed.length === 1 ? "" : "s"} that can't reach this source?`}
-        description={
-          <div className="space-y-2">
-            <p>
-              The following scanners have a recent failed probe against this
-              source. Allowing them queues work that will fail at scan time.
-            </p>
-            <ul className="text-xs font-mono space-y-0.5">
-              {doomed.map((r) => (
-                <li key={r.scanner_id}>
-                  {r.name} — {r.step ?? "unknown"}: {r.error ?? "no detail"}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        confirmLabel="Allow anyway"
-        loading={update.isPending}
-        onConfirm={async () => {
-          setConfirmingDoomed(false);
-          await performSave(Array.from(selected));
-        }}
-        onCancel={() => !update.isPending && setConfirmingDoomed(false)}
-      />
     </div>
   );
 }

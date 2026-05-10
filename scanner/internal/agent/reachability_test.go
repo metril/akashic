@@ -13,54 +13,52 @@ import (
 	"time"
 )
 
-// TestReachabilityLoop_PollsAndReportsLocalProbe stands up a fake api
-// returning one local-source check, runs the loop for one tick, and
-// asserts the agent posted a report for that check id.
-func TestReachabilityLoop_PollsAndReportsLocalProbe(t *testing.T) {
+// TestReachabilityLoop_LongPollDeliversProbeAndReports stands up a
+// fake API that returns one local-source probe on the first long-
+// poll, then 204s subsequent calls. Asserts the agent ran the probe
+// and posted a report carrying the request_id + source_id back.
+func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var pollCount int32
-	var reportedCheckID string
+	var reportedReqID string
+	var reportedSrcID string
 	var reportedOK bool
 	reported := make(chan struct{}, 1)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/scanners/scan-1/reachability/poll", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scanners/scan-1/probes/long-poll", func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&pollCount, 1)
 		if count == 1 {
-			// First poll: hand the agent a local-source claim that
-			// points at a path that exists (probe should succeed).
-			body := reachabilityPollResponse{
-				Checks: []reachabilityClaim{{
-					ID:         "check-1",
-					SourceID:   "src-1",
-					SourceType: "local",
-					ConnectionConfig: map[string]any{
-						"root_path": t.TempDir(),
-					},
-				}},
+			req := probeRequest{
+				RequestID:  "req-1",
+				SourceID:   "src-1",
+				SourceType: "local",
+				ConnectionConfig: map[string]any{
+					"root_path": t.TempDir(),
+				},
 			}
-			_ = json.NewEncoder(w).Encode(body)
+			_ = json.NewEncoder(w).Encode(req)
 			return
 		}
-		// Subsequent polls return empty so the loop idles.
-		_ = json.NewEncoder(w).Encode(reachabilityPollResponse{})
+		// Subsequent long-polls timeout (204) so the loop idles.
+		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("/api/scanners/scan-1/reachability/", func(w http.ResponseWriter, r *http.Request) {
-		// Path: /api/scanners/scan-1/reachability/{check_id}/report
-		// Split → ["", "api", "scanners", "scan-1", "reachability", "{check_id}", "report"]
+	mux.HandleFunc("/api/scanners/scan-1/probes/", func(w http.ResponseWriter, r *http.Request) {
+		// Path: /api/scanners/scan-1/probes/{request_id}/report
+		// Split → ["", "api", "scanners", "scan-1", "probes", "{req}", "report"]
 		parts := strings.Split(r.URL.Path, "/")
 		if len(parts) < 7 || parts[6] != "report" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		checkID := parts[5]
-		var rep reachabilityReport
+		reportedReqID = parts[5]
+		var rep probeReport
 		_ = json.NewDecoder(r.Body).Decode(&rep)
-		reportedCheckID = checkID
+		reportedSrcID = rep.SourceID
 		reportedOK = rep.OK
 		w.WriteHeader(http.StatusNoContent)
 		select {
@@ -83,27 +81,30 @@ func TestReachabilityLoop_PollsAndReportsLocalProbe(t *testing.T) {
 	select {
 	case <-reported:
 	case <-time.After(5 * time.Second):
-		t.Fatal("agent did not report a reachability result within 5s")
+		t.Fatal("agent did not report a probe result within 5s")
 	}
 
-	if reportedCheckID != "check-1" {
-		t.Errorf("reported check id = %q, want check-1", reportedCheckID)
+	if reportedReqID != "req-1" {
+		t.Errorf("reported request id = %q, want req-1", reportedReqID)
+	}
+	if reportedSrcID != "src-1" {
+		t.Errorf("reported source id = %q, want src-1", reportedSrcID)
 	}
 	if !reportedOK {
 		t.Errorf("reported ok=false, want true (local probe against TempDir should succeed)")
 	}
 }
 
-// TestReachabilityLoop_HandlesEmptyPoll just verifies the loop doesn't
-// spin or panic when the api returns no checks.
-func TestReachabilityLoop_HandlesEmptyPoll(t *testing.T) {
+// TestReachabilityLoop_HandlesEmptyLongPoll verifies the loop doesn't
+// spin or panic when the api returns 204 No Content.
+func TestReachabilityLoop_HandlesEmptyLongPoll(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(reachabilityPollResponse{})
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
@@ -112,5 +113,5 @@ func TestReachabilityLoop_HandlesEmptyPoll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	reachabilityLoop(ctx, httpc, cfg, priv)
-	// No assertion — the test just needs to return promptly.
+	// No assertion — the test just needs to return promptly via ctx.Done.
 }

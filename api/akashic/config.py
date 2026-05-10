@@ -46,16 +46,6 @@ class Settings(BaseSettings):
     # Recover scans/sources stuck in pending|running|scanning after this many minutes.
     stale_scan_threshold_minutes: int = 60
 
-    # v0.5.6 — periodic reachability checks. The scheduler enqueues a
-    # ReachabilityCheck row per source whose last_reachability_check_at
-    # is older than `reachability_check_interval_seconds`. Scanner
-    # agents and the api self-worker claim rows via SELECT FOR UPDATE
-    # SKIP LOCKED, run `test-connection`, and report back. The
-    # staleness threshold the UI uses is 2× this interval.
-    reachability_check_enabled: bool = True
-    reachability_check_interval_seconds: int = 300
-    reachability_check_max_concurrency: int = 4
-
     audit_retention_days: int = 0  # 0 = forever
 
     # Cookie hardening. Default True so production deployments behind

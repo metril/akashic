@@ -1,100 +1,60 @@
 import { memo } from "react";
-import type { Source } from "../../types";
+import { useReachabilitySummary } from "../../hooks/useSources";
 import { formatRelative } from "../../lib/format";
 import { ReachabilityDot, type ReachabilityState } from "../ui";
 
 interface Props {
-  source: Source;
+  sourceId: string;
   /** When true, renders only the dot + label (compact list view).
    *  When false, also renders the relative-time hint. */
   compact?: boolean;
 }
 
-// v0.5.6 — match `2 × reachability_check_interval_seconds` (default
-// 5 min × 2 = 10 min). Server-side configuration; the badge falls
-// back to this constant if the operator hasn't exposed the setting.
-const STALENESS_THRESHOLD_MS = 10 * 60 * 1000;
-
-function isStale(checkedAt: string | null): boolean {
-  if (!checkedAt) return false;
-  return Date.now() - Date.parse(checkedAt) > STALENESS_THRESHOLD_MS;
-}
-
-function deriveState(source: Source): {
-  state: ReachabilityState;
-  label: string;
-  detail: string | null;
-} {
-  const stale = isStale(source.last_reachability_check_at);
-
-  if (source.is_reachable === true) {
-    if (stale) {
-      return {
-        state: "stale",
-        label: "Stale (was reachable)",
-        detail: source.last_reachable_at
-          ? `last seen ${formatRelative(source.last_reachable_at)}`
-          : null,
-      };
-    }
-    return {
-      state: "reachable",
-      label: "Reachable",
-      detail: source.last_reachable_at
-        ? `last seen ${formatRelative(source.last_reachable_at)}`
-        : null,
-    };
-  }
-
-  if (source.is_reachable === false) {
-    return {
-      state: "unreachable",
-      label: "Unreachable",
-      detail: source.last_reachable_at
-        ? `last reached ${formatRelative(source.last_reachable_at)}`
-        : "never reached",
-    };
-  }
-
-  // is_reachable === null
-  if (source.last_reachability_check_at && stale) {
-    // The misconfigured-pool case: a check was attempted but no
-    // probe ever returned, so we never learned reachability.
-    return {
-      state: "stale_unchecked",
-      label: "Stale (no recent probe)",
-      detail: "no scanner has reported",
-    };
-  }
-  return {
-    state: "unchecked",
-    label: "Not yet checked",
-    detail: null,
-  };
-}
-
 /**
- * Reachability indicator. v0.5.6 renders for every source — prior
- * versions showed it only when ``is_removable`` was true, which hid
- * the data the api was already collecting on every scan completion.
+ * Reachability indicator.
  *
- * Five states:
- *   - "Reachable" (green)              — fresh ok=true
- *   - "Stale" (yellow)                 — was reachable but no probe
- *                                         in 10 min
- *   - "Unreachable" (red)              — fresh ok=false
- *   - "Not yet checked" (grey)         — never probed
- *   - "Stale" (yellow, "no scanner")   — probed but never returned;
- *                                         signals a misconfigured pool
+ * v0.28.0: cached source.is_reachable + last_reachable_at fields are
+ * gone. Reachability is derived on read from the latest
+ * reachability_results row across all scanners (or from the latest
+ * successful scan, which is the strongest probe). No staleness gate —
+ * once a source has reached, it stays reached until a fresh failure
+ * contradicts it.
+ *
+ * States:
+ *   - "Reachable" (green)        — latest probe ok OR scan succeeded
+ *   - "Unreachable" (red)        — latest probe failed
+ *   - "Not yet checked" (grey)   — no data
  */
 export const ReachabilityBadge = memo(function ReachabilityBadge({
-  source,
+  sourceId,
   compact = false,
 }: Props) {
-  const { state, label, detail } = deriveState(source);
-  const tooltip = source.last_reachability_check_at
-    ? `Last check: ${new Date(source.last_reachability_check_at).toLocaleString()}`
-    : "No reachability check has been run yet.";
+  const summaryQ = useReachabilitySummary(sourceId);
+  const summary = summaryQ.data;
+
+  let state: ReachabilityState = "unchecked";
+  let label = "Not yet checked";
+  let detail: string | null = null;
+  let tooltip = "No reachability data yet — click Test Scanners on the source.";
+
+  if (summary?.ok === true) {
+    state = "reachable";
+    label = "Reachable";
+    detail = summary.last_at ? `verified ${formatRelative(summary.last_at)}` : null;
+    tooltip = summary.last_at
+      ? `Last verified: ${new Date(summary.last_at).toLocaleString()}`
+      : tooltip;
+  } else if (summary?.ok === false) {
+    state = "unreachable";
+    label = "Unreachable";
+    const reason = summary.last_step
+      ? `${summary.last_step}: ${summary.last_error ?? "unknown"}`
+      : (summary.last_error ?? "no detail");
+    detail = reason;
+    tooltip = summary.last_at
+      ? `Last failed: ${new Date(summary.last_at).toLocaleString()} — ${reason}`
+      : `Latest probe failed — ${reason}`;
+  }
 
   return (
     <span

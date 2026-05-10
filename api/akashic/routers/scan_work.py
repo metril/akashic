@@ -149,10 +149,26 @@ async def _maybe_finalize_scan(
         if new_status == "completed":
             source.status = "online"
             source.last_scan_at = now
-            # A successful scan implies the source was reachable; bump
-            # the reachability timestamp without an explicit Check-now.
-            source.is_reachable = True
-            source.last_reachable_at = now
+            # v0.28.0 — record one implicit reachability_results row
+            # per scanner that successfully completed at least one
+            # work unit on this scan. Same intent as the single-
+            # scanner /complete path: a scan is the strongest probe
+            # we can ever do, so the per-pair panel shows it.
+            from akashic.services import reachability_results
+            unit_scanners = (await db.execute(
+                select(ScanWorkUnit.assigned_scanner_id)
+                .where(ScanWorkUnit.scan_id == scan.id)
+                .where(ScanWorkUnit.status == "completed")
+                .distinct()
+            )).scalars().all()
+            for sid in unit_scanners:
+                if sid is None:
+                    continue
+                await reachability_results.record_result(
+                    db=db, source_id=source.id, scanner_id=sid,
+                    ok=True, step=None, error=None,
+                    started_at=now, triggered_by=None,
+                )
         elif new_status == "failed":
             source.status = "failed"
     return new_status

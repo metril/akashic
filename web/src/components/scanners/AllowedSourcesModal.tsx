@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   useScannerSourceReachability,
+  useTestScannerSources,
   useUpdateScannerAllowedSources,
   type SourceReachabilityRow,
 } from "../../hooks/useHosts";
@@ -21,59 +22,45 @@ interface Props {
   onClose: () => void;
 }
 
-const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+/**
+ * v0.28.0 — On-demand mirror of AllowedScannersPanel from the scanner
+ * side. Same rules: no staleness, no auto-recommendation. The user
+ * explicitly probes; the user explicitly decides.
+ */
 
 function deriveState(row: SourceReachabilityRow): {
   state: ReachabilityState;
   label: string;
   detail: string;
-  recommended: boolean;
 } {
-  if (row.last_probed_at == null) {
+  if (row.last_probed_at == null || row.ok == null) {
     return {
       state: "unchecked",
-      label: "Not yet probed from this scanner",
-      detail: "no reachability data yet",
-      recommended: false,
+      label: "Not tested",
+      detail: "click Test to probe",
     };
   }
-  const stale = Date.now() - Date.parse(row.last_probed_at) > STALE_THRESHOLD_MS;
-  if (row.ok === true) {
+  if (row.ok) {
     return {
-      state: stale ? "stale" : "reachable",
-      label: stale ? "Stale" : "Reachable from this scanner",
-      detail: `probed ${formatRelative(row.last_probed_at)}`,
-      recommended: !stale,
+      state: "reachable",
+      label: "Reachable",
+      detail: `tested ${formatRelative(row.last_probed_at)}`,
     };
   }
-  if (row.ok === false) {
-    const stepReason = row.step ? `${row.step}: ${row.error ?? "unknown"}` : (row.error ?? "unknown");
-    return {
-      state: "unreachable",
-      label: "Path not found from this scanner — won't work if enabled",
-      detail: stepReason,
-      recommended: false,
-    };
-  }
+  const reason = row.step ? `${row.step}: ${row.error ?? "unknown"}` : (row.error ?? "unknown");
   return {
-    state: "unchecked",
-    label: "No probe data",
-    detail: `probed ${formatRelative(row.last_probed_at)}`,
-    recommended: false,
+    state: "unreachable",
+    label: "Failed",
+    detail: reason,
   };
 }
 
-/**
- * Per-scanner eligibility editor. The inverse of AllowedScannersPanel:
- * one scanner across all sources, each row carrying THIS scanner's
- * latest probe outcome against THAT source. Saves directly via PATCH
- * /api/scanners/{id} (allowed_source_ids).
- */
 export function AllowedSourcesModal({
   open, scannerId, scannerName, onClose,
 }: Props) {
   const reachQ = useScannerSourceReachability(open ? scannerId : null);
   const update = useUpdateScannerAllowedSources();
+  const test = useTestScannerSources();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [original, setOriginal] = useState<Set<string>>(new Set());
@@ -102,22 +89,11 @@ export function AllowedSourcesModal({
     });
   }
 
-  function autoFillRecommended() {
-    if (!reachQ.data) return;
-    const next = new Set<string>();
-    for (const r of reachQ.data) {
-      if (deriveState(r).recommended) next.add(r.source_id);
-    }
-    setSelected(next);
-  }
-
   async function handleSave() {
     if (!scannerId || !reachQ.data) return;
     const allRowIds = reachQ.data.map((r) => r.source_id);
     const all = selected.size === allRowIds.length && allRowIds.every((id) => selected.has(id));
     try {
-      // If user selected EVERY source, send null = "unrestricted" (same
-      // semantics in the server). Otherwise send the explicit list.
       await update.mutateAsync({
         scannerId,
         sourceIds: all ? null : Array.from(selected),
@@ -127,6 +103,36 @@ export function AllowedSourcesModal({
     } catch (e) {
       toast.error(
         `Couldn't save allowed sources: ${e instanceof Error ? e.message : "unknown error"}.`,
+      );
+    }
+  }
+
+  async function handleTestAll() {
+    if (!scannerId) return;
+    try {
+      const res = await test.mutateAsync({ scannerId });
+      const pending = res.results.filter((r) => r.pending).length;
+      const failed = res.results.filter((r) => r.ok === false).length;
+      const ok = res.results.filter((r) => r.ok === true).length;
+      const summary =
+        pending > 0
+          ? `${ok} ok, ${failed} failed, ${pending} still pending`
+          : `${ok} ok, ${failed} failed`;
+      toast.success(`Reachability tested — ${summary}.`);
+    } catch (e) {
+      toast.error(
+        `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
+      );
+    }
+  }
+
+  async function handleTestOne(sourceId: string) {
+    if (!scannerId) return;
+    try {
+      await test.mutateAsync({ scannerId, sourceIds: [sourceId] });
+    } catch (e) {
+      toast.error(
+        `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
     }
   }
@@ -147,10 +153,9 @@ export function AllowedSourcesModal({
         </h2>
         <p className="text-xs text-fg-muted mt-1">
           Each row shows this scanner's most recent reachability probe
-          against that source — distinct from the scanner's online state
-          (whether the agent is checking in). Allowing a "won't work"
-          source still queues scans, just expect them to fail at connect
-          time.
+          against that source. Reachability is on-demand — click Test to
+          probe. Allowing a "failed" source still queues scans; expect
+          them to fail at connect time.
         </p>
       </div>
 
@@ -176,10 +181,11 @@ export function AllowedSourcesModal({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={autoFillRecommended}
-                disabled={update.isPending}
+                onClick={handleTestAll}
+                loading={test.isPending}
+                title="Run a reachability probe against every source."
               >
-                Auto-fill recommended
+                Test all
               </Button>
             </div>
             <ul className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
@@ -205,11 +211,6 @@ export function AllowedSourcesModal({
                           {r.source_type}
                           {r.host_name ? ` on ${r.host_name}` : ""}
                         </span>
-                        {s.recommended && (
-                          <span className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 font-semibold">
-                            ★ Recommended
-                          </span>
-                        )}
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-fg-muted">
                         <ReachabilityDot state={s.state} />
@@ -217,6 +218,14 @@ export function AllowedSourcesModal({
                         <span>· {s.detail}</span>
                       </div>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleTestOne(r.source_id)}
+                      loading={test.isPending}
+                    >
+                      Test
+                    </Button>
                   </li>
                 );
               })}

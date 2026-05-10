@@ -28,8 +28,8 @@ _log_cleanup_task: asyncio.Task | None = None
 _snapshot_task: asyncio.Task | None = None
 _discovery_expiry_task: asyncio.Task | None = None
 _settings_invalidator_task: asyncio.Task | None = None
-_reachability_enqueue_task: asyncio.Task | None = None
-_reachability_self_worker_task: asyncio.Task | None = None
+_reachability_enqueue_task: asyncio.Task | None = None  # holds the prune loop now
+_reachability_self_worker_task: asyncio.Task | None = None  # retained name for compat; unused
 
 # Phase 1 — log entries are kept for 7 days after the parent scan completes.
 # Long-running scans never expire while in flight; only completed/failed
@@ -463,137 +463,33 @@ async def _discovery_expiry_loop():
         await asyncio.sleep(60)
 
 
-async def _reachability_enqueue_loop():
-    """Periodically enqueue reachability_check rows for sources whose
-    last check is older than the interval.
+async def _reachability_results_prune_loop():
+    """Cap reachability_results at the last N rows per (source, scanner)
+    pair. Replaces the old enqueue + self-worker loops with a single
+    daily prune since results are now append-only on user trigger.
 
-    Single SQL `INSERT ... ON CONFLICT DO NOTHING` per pass — the
-    partial unique index `uq_reachability_checks_pending` makes the
-    pass race-safe. Also sweeps expired leases back to pending so
-    crashed workers don't strand rows in `running` forever.
-
-    Runs every 60 s; the interval at which a particular source comes
-    up for re-check is `settings.reachability_check_interval_seconds`
-    (default 300 s). v0.5.6.
+    24-hour cadence is plenty — the per-pair cap (default 20) means
+    growth is bounded by O(sources * scanners) anyway; prune just
+    reclaims rows users write in bulk (clicking Test all repeatedly).
     """
-    from sqlalchemy import text
+    from akashic.services import reachability_results
     while True:
         try:
-            if not settings.reachability_check_enabled:
-                await asyncio.sleep(60)
-                continue
             async with async_session() as db:
-                # Sweep expired leases.
-                await db.execute(text("""
-                    UPDATE reachability_checks
-                       SET status='pending', assigned_scanner_id=NULL,
-                           lease_expires_at=NULL
-                     WHERE status='running' AND lease_expires_at < now()
-                """))
-                # Enqueue stale sources.
-                await db.execute(text("""
-                    INSERT INTO reachability_checks
-                          (id, source_id, pool, status, created_at)
-                    SELECT gen_random_uuid(), s.id, s.preferred_pool,
-                           'pending', now()
-                      FROM sources s
-                     WHERE (s.last_reachability_check_at IS NULL
-                            OR s.last_reachability_check_at <
-                               now() - make_interval(secs => :interval))
-                       AND NOT EXISTS (
-                         SELECT 1 FROM reachability_checks rc
-                          WHERE rc.source_id = s.id
-                            AND rc.status = 'pending'
-                       )
-                    ON CONFLICT DO NOTHING
-                """), {"interval": settings.reachability_check_interval_seconds})
-                await db.commit()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("reachability enqueue pass failed: %s", exc)
-        await asyncio.sleep(60)
-
-
-async def _reachability_self_worker_loop():
-    """In-process reachability worker.
-
-    Claims default-pool reachability_check rows for non-local sources
-    and runs them via the existing test_connection() dispatcher (the
-    same code the manual /check-reachability endpoint uses). Lets a
-    deployment that hasn't installed any remote scanner agents still
-    get continuous reachability data.
-
-    Local sources are skipped — the api container almost never has
-    the source's path bind-mounted, and a wrong scanner would just
-    report unreachable. Local-source reachability is exclusively a
-    scanner-agent job. v0.5.6.
-    """
-    from sqlalchemy import text
-    from akashic.services.reachability_report import apply_reachability_result
-    from akashic.services.source_config import merge_host_and_source
-    from akashic.services.source_tester import test_connection
-    while True:
-        try:
-            if not settings.reachability_check_enabled:
-                await asyncio.sleep(10)
-                continue
-            async with async_session() as db:
-                # Lease one row at a time — keeps memory bounded and
-                # serialises with concurrent scanner-agent claims via
-                # SKIP LOCKED.
-                lease = await db.execute(text("""
-                    WITH next_check AS (
-                        SELECT rc.id FROM reachability_checks rc
-                          JOIN sources s ON s.id = rc.source_id
-                         WHERE rc.status = 'pending'
-                           AND (rc.pool IS NULL)
-                           AND s.type <> 'local'
-                         ORDER BY rc.created_at ASC, rc.id ASC
-                         LIMIT 1
-                         FOR UPDATE OF rc SKIP LOCKED
-                    )
-                    UPDATE reachability_checks
-                       SET status='running',
-                           lease_expires_at = now() + interval '30 seconds',
-                           started_at = COALESCE(started_at, now())
-                      FROM next_check
-                     WHERE reachability_checks.id = next_check.id
-                    RETURNING reachability_checks.id, reachability_checks.source_id
-                """))
-                row = lease.first()
-                await db.commit()
-                if row is None:
-                    await asyncio.sleep(5)
-                    continue
-                check_id, source_id = row
-
-                # Hydrate full source + host for the merged config.
-                src = (await db.execute(
-                    select(Source).where(Source.id == source_id)
-                )).scalar_one_or_none()
-                if src is None:
-                    # Source vanished mid-claim; fail the check and move on.
-                    await apply_reachability_result(
-                        db=db, check_id=check_id, ok=False,
-                        step="config", error="source missing at lease time",
-                    )
-                    await db.commit()
-                    continue
-
-                merged = merge_host_and_source(getattr(src, "host", None), src)
-                # test_connection is blocking — push to a thread.
-                result = await asyncio.to_thread(
-                    test_connection, src.type, merged
-                )
-                await apply_reachability_result(
-                    db=db, check_id=check_id, ok=result.ok,
-                    step=result.step, error=result.error,
+                deleted = await reachability_results.prune_old(
+                    db, per_pair_limit=20,
                 )
                 await db.commit()
+                if deleted:
+                    logger.info(
+                        "reachability_results prune removed %d rows",
+                        deleted,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.warning("reachability self-worker pass failed: %s", exc)
-        await asyncio.sleep(2)
+            logger.warning("reachability_results prune failed: %s", exc)
+        await asyncio.sleep(24 * 60 * 60)
 
 
 def start_scheduler():
@@ -622,12 +518,15 @@ def start_scheduler():
             listen_for_invalidations(),
         )
         logger.info("Server-settings cache invalidator started")
-    if _reachability_enqueue_task is None or _reachability_enqueue_task.done():
-        _reachability_enqueue_task = asyncio.create_task(_reachability_enqueue_loop())
-        logger.info("Reachability enqueue scheduler started")
-    if _reachability_self_worker_task is None or _reachability_self_worker_task.done():
-        _reachability_self_worker_task = asyncio.create_task(_reachability_self_worker_loop())
-        logger.info("Reachability self-worker started")
+    # v0.28.0 — replaces the old continuous-poll reachability loops.
+    if (
+        _reachability_enqueue_task is None
+        or _reachability_enqueue_task.done()
+    ):
+        _reachability_enqueue_task = asyncio.create_task(
+            _reachability_results_prune_loop(),
+        )
+        logger.info("Reachability results prune scheduler started")
 
 
 def stop_scheduler():
@@ -649,5 +548,3 @@ def stop_scheduler():
         _settings_invalidator_task.cancel()
     if _reachability_enqueue_task and not _reachability_enqueue_task.done():
         _reachability_enqueue_task.cancel()
-    if _reachability_self_worker_task and not _reachability_self_worker_task.done():
-        _reachability_self_worker_task.cancel()

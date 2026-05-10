@@ -250,8 +250,20 @@ async def test_complete_unit_finalizes_scan_when_last(
     assert scan.completed_at is not None
     assert src.status == "online"
     assert src.last_scan_at is not None
-    assert src.is_reachable is True
-    assert src.last_reachable_at is not None
+    # v0.28.0: cached source.is_reachable + last_reachable_at columns
+    # are gone. The implicit reachability proof now lives in
+    # reachability_results — assert one row landed for the assigned
+    # scanner with ok=true.
+    from akashic.models.reachability_result import ReachabilityResult
+    async with setup_db() as db:
+        rr = (await db.execute(
+            select(ReachabilityResult).where(
+                ReachabilityResult.source_id == source_id,
+            )
+        )).scalars().all()
+    assert any(r.ok and r.scanner_id is not None for r in rr), (
+        "expected an implicit reachability_results row from scan completion"
+    )
 
 
 @pytest.mark.asyncio

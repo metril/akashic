@@ -5,7 +5,6 @@ import { Badge, Button, Drawer } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import {
-  useCheckSourceReachability,
   useDeleteSource,
   useUpdateSource,
 } from "../../hooks/useSources";
@@ -147,7 +146,6 @@ const DetailsTab = memo(function DetailsTab({
   const updateSource = useUpdateSource();
   const deleteSource = useDeleteSource();
   const testSource = useTestSource();
-  const checkReachability = useCheckSourceReachability();
 
 
   const [editing, setEditing] = useState(false);
@@ -270,36 +268,12 @@ const DetailsTab = memo(function DetailsTab({
     }
   }
 
-  async function handleCheckNow() {
-    const p = checkReachability.mutateAsync(source.id);
-    toast.promise(p, {
-      loading: `Checking reachability for "${source.name}"…`,
-      success: (r) =>
-        r.result.ok
-          ? r.result.tier
-            ? `Reachable · ${r.result.tier}.`
-            : `Reachable: "${source.name}".`
-          : `Unreachable: ${r.result.step ?? "error"}: ${r.result.error ?? "unknown"}.`,
-      error: (e: unknown) =>
-        `Couldn't check reachability: ${e instanceof Error ? e.message : "unknown error"}.`,
-    });
-    try {
-      await p;
-    } catch {
-      // toast already surfaced the error
-    }
-  }
-
   async function handleScanNow() {
-    // Removable + known-unreachable → block to avoid queuing a scan
-    // that will immediately fail at Connect time. The user can still
-    // Check now to refresh state, then retry.
-    if (source.is_removable && source.is_reachable === false) {
-      toast.error(
-        "Source is currently unmounted. Click Check now to refresh, or reconnect the drive first.",
-      );
-      return;
-    }
+    // v0.28.0 — Removable / unreachable guard removed alongside the
+    // continuous-poll subsystem. The cached is_reachable column is
+    // gone and re-deriving freshness on every click would itself
+    // require a network probe; if the source is offline at scan time,
+    // the scan failure path surfaces it cleanly.
     const p = api.post("/scans/trigger", {
       source_id: source.id,
       scan_type: "incremental",
@@ -402,11 +376,6 @@ const DetailsTab = memo(function DetailsTab({
               // assuming the first click did nothing. The api now
               // dedups on the server side too — both belt-and-braces.
               disabled={source.status === "scanning" || activeScanId != null}
-              title={
-                source.is_removable && source.is_reachable === false
-                  ? "Source is currently unmounted. Use Check now first."
-                  : undefined
-              }
             >
               {source.status === "scanning"
                 ? "Scanning…"
@@ -414,17 +383,6 @@ const DetailsTab = memo(function DetailsTab({
                   ? "Queued…"
                   : "Scan now"}
             </Button>
-            {source.is_removable && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleCheckNow}
-                loading={checkReachability.isPending}
-                title="Run a connection probe and update the reachability badge."
-              >
-                Check now
-              </Button>
-            )}
             {isAdmin && (
               <Button
                 size="sm"
@@ -574,7 +532,7 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
         </Row>
       )}
       <Row label="Reachability">
-        <ReachabilityBadge source={source} />
+        <ReachabilityBadge sourceId={source.id} />
       </Row>
       <Row label="Last scanned">
         <div className="text-fg-muted">

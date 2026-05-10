@@ -4,7 +4,7 @@ from akashic.models.source import Source
 from akashic.models.entry import Entry, EntryVersion, EntryEvent
 from akashic.models.scan import Scan
 from akashic.models.scan_work_unit import ScanWorkUnit
-from akashic.models.reachability_check import ReachabilityCheck
+from akashic.models.reachability_result import ReachabilityResult
 from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.tag import Tag, EntryTag
@@ -32,7 +32,7 @@ __all__ = [
     "EntryEvent",
     "Scan",
     "ScanWorkUnit",
-    "ReachabilityCheck",
+    "ReachabilityResult",
     "ScanLogEntry",
     "ScanSnapshot",
     "Tag",

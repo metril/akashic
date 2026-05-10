@@ -122,14 +122,12 @@ export interface HostTestResult {
 }
 
 export function useTestHostConnection() {
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (hostId: string) =>
       api.post<HostTestResult>(`/hosts/${hostId}/test-connection`, {}),
-    onSuccess: () => {
-      // The endpoint persists is_reachable + timestamps now (v0.5.6).
-      queryClient.invalidateQueries({ queryKey: ["hosts"] });
-    },
+    // v0.28.0 — endpoint no longer persists host-side reachability
+    // columns (they were dropped). Result is rendered by the caller
+    // directly; no cache to invalidate.
   });
 }
 
@@ -201,6 +199,47 @@ export function useScannerSourceReachability(scannerId: string | null) {
       ),
     enabled: scannerId != null,
     staleTime: 10_000,
+  });
+}
+
+/**
+ * v0.28.0 — scanner-side mirror of useTestSourceScanners. Triggers
+ * on-demand probes of one (or all) sources from this scanner. Inline
+ * for non-local sources; long-poll dispatched for local sources.
+ */
+export interface TestSourcesResultRow {
+  source_id: string;
+  ok: boolean | null;
+  step: string | null;
+  error: string | null;
+  pending: boolean;
+  completed_at: string | null;
+}
+
+export interface TestSourcesResponse {
+  results: TestSourcesResultRow[];
+}
+
+export function useTestScannerSources() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      scannerId,
+      sourceIds,
+    }: {
+      scannerId: string;
+      sourceIds?: string[];
+    }) =>
+      api.post<TestSourcesResponse>(
+        `/scanners/${scannerId}/test-sources`,
+        { source_ids: sourceIds ?? null },
+      ),
+    onSuccess: (_, { scannerId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["scanners", scannerId, "source-reachability"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+    },
   });
 }
 

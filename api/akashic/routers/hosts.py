@@ -27,7 +27,6 @@ from akashic.schemas.host import (
 )
 from akashic.services import share_enumerator
 from akashic.services.audit import record_event
-from akashic.services.host_reachability import recompute_host_reachability
 from akashic.services.source_config import merge_host_and_source
 from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
@@ -60,9 +59,6 @@ def _serialize(host: Host, source_count: int) -> HostResponse:
         "connection_config": dict(host.connection_config or {}),
         "credential_profile_id": host.credential_profile_id,
         "source_count": source_count,
-        "is_reachable": host.is_reachable,
-        "last_reachable_at": host.last_reachable_at,
-        "last_reachability_check_at": host.last_reachability_check_at,
         "created_at": host.created_at,
         "updated_at": host.updated_at,
     }
@@ -332,23 +328,10 @@ async def test_host_connection(
         _probe_host, host.type, merge_host_and_source(host, None)
     )
     now = datetime.now(timezone.utc)
-    # v0.5.6: persist reachability on the host. Direct probe writes
-    # both is_reachable and the timestamps. If sources are attached,
-    # the source-side roll-up may overwrite is_reachable with the
-    # share-level truth — but the timestamps stay tied to the direct
-    # probe so the UI can disambiguate provenance.
-    host.last_reachability_check_at = now
-    host.is_reachable = result.ok
-    if result.ok:
-        host.last_reachable_at = now
-    # Roll-up only writes is_reachable (not timestamps), so call after
-    # we've set the direct-probe values.
-    has_sources = (await db.execute(
-        select(func.count(Source.id)).where(Source.host_id == host.id)
-    )).scalar_one() > 0
-    if has_sources:
-        await recompute_host_reachability(db, host.id)
-    await db.commit()
+    # v0.28.0: host /test-connection is a synchronous on-demand probe.
+    # No persistence — the cached host.is_reachable / timestamp columns
+    # were dropped along with the continuous-poll subsystem. The result
+    # ship to the caller and the audit event is the durable record.
     await record_event(
         db=db, user=user, event_type="host_connection_tested",
         request=request,
@@ -394,10 +377,22 @@ async def host_scanner_reachability_summary(
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
 
+    # v0.28.0: read from reachability_results (latest per pair, any age).
+    # The 15-min staleness threshold is gone — under the new on-demand
+    # model, "this scanner reached this source" stays true until a fresh
+    # failed probe contradicts it. The history disclosure in the panel
+    # is where age + trend information surfaces.
     from sqlalchemy import text
     rows = (await db.execute(text("""
         WITH attached AS (
             SELECT id FROM sources WHERE host_id = :host_id
+        ),
+        latest AS (
+            SELECT DISTINCT ON (rr.source_id, rr.scanner_id)
+                   rr.source_id, rr.scanner_id, rr.ok
+              FROM reachability_results rr
+              JOIN attached a ON a.id = rr.source_id
+             ORDER BY rr.source_id, rr.scanner_id, rr.completed_at DESC
         )
         SELECT
             sc.id,
@@ -406,22 +401,10 @@ async def host_scanner_reachability_summary(
             (sc.last_seen_at IS NOT NULL
              AND sc.last_seen_at > now() - interval '2 minutes') AS online,
             sc.allowed_source_ids,
-            (SELECT count(*) FROM attached a
-              WHERE EXISTS (
-                SELECT 1 FROM reachability_checks rc
-                 WHERE rc.source_id = a.id
-                   AND rc.assigned_scanner_id = sc.id
-                   AND rc.result_ok = true
-                   AND rc.completed_at > now() - interval '15 minutes'
-              )) AS reaches_count,
-            (SELECT count(*) FROM attached a
-              WHERE EXISTS (
-                SELECT 1 FROM reachability_checks rc
-                 WHERE rc.source_id = a.id
-                   AND rc.assigned_scanner_id = sc.id
-                   AND rc.result_ok = false
-                   AND rc.completed_at > now() - interval '15 minutes'
-              )) AS unreachable_count,
+            (SELECT count(*) FROM latest l
+              WHERE l.scanner_id = sc.id AND l.ok = true) AS reaches_count,
+            (SELECT count(*) FROM latest l
+              WHERE l.scanner_id = sc.id AND l.ok = false) AS unreachable_count,
             (SELECT count(*) FROM attached) AS total_sources
           FROM scanners sc
          ORDER BY sc.name ASC

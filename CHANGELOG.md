@@ -5,6 +5,135 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.28.0 — 2026-05-09
+
+**Reachability redesign — on-demand only, pubsub-distributed.** The
+v0.5.6 continuous-poll subsystem was over-built for a status that
+almost never changes. It enqueued a probe per source every 5 minutes,
+ran two competing workers (in-process API + scanner agents) racing
+for the same `reachability_checks` rows, and produced false-positive
+"Stale" badges in the eligibility panels whenever the in-process
+worker beat the agent to a probe (verified live: a successful
+12,967-file Music scan still showed "Stale" for the scanner). The
+scan-lease query also pre-filtered local sources by recent failed
+probes — load-bearing on data we're now choosing not to maintain.
+
+The user's framing was right: "source-online" and
+"(scanner, source)-can-reach" are different concepts; the latter
+only matters when assigning sources to a scanner; both should be
+**triggerable, not polled**. The scan IS the strongest reachability
+proof we'll ever have.
+
+### Behaviour changes
+
+- **No more continuous reachability polling.** Both scheduler loops
+  (`_reachability_enqueue_loop`, `_reachability_self_worker_loop`)
+  are deleted. The `reachability_check_enabled` and
+  `reachability_check_interval_seconds` settings are dropped.
+  Replaced by a daily prune tick that caps the new
+  `reachability_results` table at the 20 most recent rows per
+  (source, scanner) pair.
+- **Probes run on user trigger or implicitly from a successful scan.**
+  Three triggers exist: explicit "Test all" / per-row "Test now"
+  buttons in the eligibility panels; explicit "Test connection" on
+  the Host detail; implicit insertion from a successful scan
+  completion (the scanner just walked the source — the strongest
+  possible probe).
+- **Eligibility panels** (`AllowedScannersPanel`,
+  `AllowedSourcesModal`, `HostAllowedScannersPanel`) drop the
+  "Stale", "★ Recommended", and "Auto-fill recommended" UX. They
+  now show plain checkboxes + a per-row probe state + a small
+  history disclosure (5 most recent results as colored dots).
+  The doomed-scanner ConfirmDialog is gone — the user chose the
+  scanner explicitly; no nanny prompt.
+- **Source `is_reachable` / `last_reachable_at` /
+  `last_reachability_check_at` columns dropped**, plus the same
+  three on `hosts`. State is derived on read from the latest
+  `reachability_results` row across all scanners or the latest
+  successful scan, whichever is fresher.
+- **Removable-disk "Scan now" guard removed.** Without a cached
+  reachability flag the guard would always be wrong; the scan
+  failure path surfaces "actually offline" cleanly.
+- **Scan-lease no longer pre-filters local sources by reachability.**
+  `routers/scanners.py:839-843` removed — the filter relied on
+  continuous-poll data that no longer exists.
+
+### API surface (changes)
+
+- **NEW** `POST /api/sources/{id}/test-scanners` — runs probes for one
+  or more scanners against this source. Inline for non-local
+  sources (the API can dial SMB/NFS/S3/etc. directly); long-poll
+  dispatched to the scanner over `scanner:{id}:probe` for local
+  sources. Results land in `reachability_results`. Returns the
+  array of results synchronously; slow scanners come back
+  `pending: true` and their results land later via the
+  `source:{id}:reachability` pubsub channel.
+- **NEW** `POST /api/scanners/{id}/test-sources` — mirror from the
+  scanner side, for `AllowedSourcesModal`.
+- **NEW** `GET /api/sources/{id}/reachability-summary` — compact
+  `{ ok, last_at, last_step, last_error, last_scanner_id }` for
+  the badge component.
+- **NEW** `GET /api/scanners/{id}/probes/long-poll` — scanner-JWT
+  authenticated. Holds the connection up to 30 s waiting for a
+  probe to be published; returns 204 on timeout.
+- **NEW** `POST /api/scanners/{id}/probes/{request_id}/report` —
+  scanner posts the result; persists to `reachability_results` and
+  fans out to the per-source frontend channel.
+- **REMOVED** `POST /api/sources/{id}/check-reachability` — subsumed
+  by `/test-scanners`.
+- **REMOVED** `POST /api/scanners/{id}/reachability/poll` — replaced
+  by `/probes/long-poll`.
+- **REMOVED** `POST /api/scanners/{id}/reachability/{check_id}/report`
+  — replaced by `/probes/{request_id}/report`.
+
+### Schema
+
+- New migration `0031_reachability_ondemand`:
+  - DROP `reachability_checks` table + its three indexes.
+  - DROP `sources.is_reachable / last_reachable_at /
+    last_reachability_check_at`.
+  - DROP same three columns on `hosts`.
+  - CREATE `reachability_results` (append-only history) with one
+    composite index on `(source_id, scanner_id, completed_at DESC)`
+    so latest-per-pair lookups resolve via index without a sort.
+  - Irreversible — the dropped data was ephemeral status.
+
+### Scanner agent
+
+- Replaces the v0.5.7 `/reachability/poll` cadence loop with a
+  long-poll loop on `/probes/long-poll`. Each iteration: long-poll
+  for one probe (server holds the connection up to 30 s), run it,
+  POST the result, repeat. On 204 timeout reconnect immediately;
+  on 5xx back off 5 s. Sequential — one probe at a time — to keep
+  failure handling simple. The earlier 15 s polling wake-up cost
+  is eliminated entirely.
+
+### Frontend
+
+- `AllowedScannersPanel`, `AllowedSourcesModal`,
+  `HostAllowedScannersPanel`: stale/recommended UX gone; new
+  Test buttons (bulk + per-row); history disclosure inline.
+- `ReachabilityBadge`: derives state from
+  `/sources/{id}/reachability-summary`; states reduced to
+  Reachable / Unreachable / Not yet checked.
+- `ReachabilityDot`: dropped `stale` and `stale_unchecked` from
+  the type union and color map.
+- `SourceDetail`: dropped the `is_removable && !is_reachable`
+  Scan-now guard and the legacy "Check now" button.
+- `Hosts`: dropped staleness threshold + dot.
+
+### Verification
+
+- `pytest tests/`: 663 passed, 1 skipped.
+- `npx tsc --noEmit`: clean.
+- `npx vitest run`: 133 passed.
+- Scanner Go tests: `go test ./internal/agent/...` green.
+- Alembic upgrade head against the live DB applied cleanly; new
+  schema verified via `\d reachability_results`.
+- Restart cycle: api + scanner come up healthy; scanner handshake
+  succeeds; long-poll loop is silent (one heartbeat every 30 s,
+  no continuous reachability traffic).
+
 ## v0.27.2 — 2026-05-09
 
 **Live Log finished the v0.24.0 audience-scoping job.** v0.24.0 fixed

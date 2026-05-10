@@ -24,7 +24,7 @@ from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.audit_event import AuditEvent
 from akashic.models.host import Host
-from akashic.models.reachability_check import ReachabilityCheck
+from akashic.models.reachability_result import ReachabilityResult
 from akashic.models.scanner import Scanner
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -389,25 +389,33 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     assert body["host"]["id"] == host_id
     assert body["host"]["name"] == "smb-host"
 
-    # Source's reachability check should see the merged config — verify
-    # by stubbing test_connection and asserting the merged dict it
-    # receives includes the host's username + password.
+    # v0.28.0: source-level /test-scanners replaces the legacy
+    # /check-reachability — verify the merged config (host creds
+    # under the source's share-only fields) flows through to the
+    # inline probe via probe_dispatch.dispatch_inline.
     captured: list[dict] = []
 
     def fake_test(source_type: str, cfg: dict) -> _TestResult:
         captured.append(cfg)
         return _TestResult(ok=True)
 
-    import akashic.routers.sources as routers_sources
-    from akashic.services.source_tester import TestResult as TR
-    routers_sources.test_connection = fake_test  # type: ignore[assignment]
+    import akashic.services.probe_dispatch as probe_dispatch
+    real_test_connection = probe_dispatch.test_connection
+    probe_dispatch.test_connection = fake_test  # type: ignore[assignment]
+    # Need a scanner registered so /test-scanners has someone to probe.
+    scn = await client.post(
+        "/api/scanners",
+        json={"name": "merge-cfg-scanner", "pool": "default"},
+    )
+    assert scn.status_code == 201, scn.text
     try:
         check = await client.post(
-            f"/api/sources/{body['id']}/check-reachability"
+            f"/api/sources/{body['id']}/test-scanners",
+            json={"scanner_ids": [scn.json()["id"]]},
         )
         assert check.status_code == 200, check.text
     finally:
-        routers_sources.test_connection = source_tester.test_connection
+        probe_dispatch.test_connection = real_test_connection
     assert captured, "test_connection was never called"
     cfg = captured[0]
     assert cfg["share"] == "Docs"
@@ -558,18 +566,19 @@ async def test_scanner_reachability_summary_with_attached_source_and_probe(
         scanner_id = scanner.id
         source_id = source.id
 
-    # Seed a recent successful probe so reaches_count == 1.
+    # Seed a successful probe in the new on-demand model so
+    # reaches_count == 1 in the host-level summary.
     from datetime import datetime, timezone
     async with setup_db() as session:
-        check = ReachabilityCheck(
+        result = ReachabilityResult(
             id=uuid.uuid4(),
             source_id=source_id,
-            status="completed",
-            assigned_scanner_id=scanner_id,
-            result_ok=True,
+            scanner_id=scanner_id,
+            ok=True,
+            started_at=datetime.now(timezone.utc),
             completed_at=datetime.now(timezone.utc),
         )
-        session.add(check)
+        session.add(result)
         await session.commit()
 
     r = await client.get(f"/api/hosts/{host_id}/scanner-reachability-summary")

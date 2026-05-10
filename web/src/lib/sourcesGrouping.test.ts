@@ -17,9 +17,6 @@ function src(overrides: Partial<Source>): Source {
     created_at: "2026-05-04T00:00:00Z",
     updated_at: "2026-05-04T00:00:00Z",
     is_removable: false,
-    is_reachable: null,
-    last_reachable_at: null,
-    last_reachability_check_at: null,
     credential_profile_id: null,
     ...overrides,
   };
