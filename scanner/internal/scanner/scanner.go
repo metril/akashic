@@ -169,6 +169,13 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			return fmt.Errorf("send batch: %w", err)
 		}
 		result.BatchesSent++
+		// v0.28.2 — surface batch sends to docker logs so silent scans
+		// are no longer silent. Goes through stdlib log (not s.info)
+		// because the LogSink at this point already saw the structured
+		// progress log every progressLogInterval; this is for ops
+		// tailing `docker compose logs scanner`.
+		log.Printf("scan %s: batch %d sent (%d entries, final=%v)",
+			s.opts.ScanID, result.BatchesSent, len(batch), final)
 		batch = nil
 		return nil
 	}

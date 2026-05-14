@@ -294,6 +294,31 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
  * parent commit, with `new Date(line.ts).toLocaleTimeString(...)`
  * (~Intl-formatter-cost) per row per render.
  */
+// v0.28.2 — palette derived from a hash of scanner_id so the same
+// scanner gets the same colour across reloads / browser tabs / pages,
+// without persisting any preference. Eight colours cover most fleets;
+// anything bigger wraps and may collide visually but stays consistent
+// per-id.
+const SCANNER_PILL_COLORS = [
+  "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300",
+  "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+  "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300",
+  "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+  "bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300",
+  "bg-cyan-100 text-cyan-800 dark:bg-cyan-500/15 dark:text-cyan-300",
+  "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+  "bg-lime-100 text-lime-800 dark:bg-lime-500/15 dark:text-lime-300",
+];
+
+function scannerPillColor(scannerId: string): string {
+  // Simple djb2-ish hash, mod palette length.
+  let h = 5381;
+  for (let i = 0; i < scannerId.length; i++) {
+    h = ((h << 5) + h + scannerId.charCodeAt(i)) | 0;
+  }
+  return SCANNER_PILL_COLORS[Math.abs(h) % SCANNER_PILL_COLORS.length];
+}
+
 const LogRow = memo(function LogRow({
   line, showLevel,
 }: {
@@ -313,6 +338,7 @@ const LogRow = memo(function LogRow({
   );
   const display = useMemo(() => truncateForDisplay(line.message), [line.message]);
   const colorClass = LEVEL_COLOR[line.level] ?? "text-fg";
+  const scannerLabel = line.scanner_name ?? (line.scanner_id ? line.scanner_id.slice(0, 8) : null);
 
   return (
     <div className="flex gap-2">
@@ -320,6 +346,14 @@ const LogRow = memo(function LogRow({
       {showLevel && (
         <span className={`shrink-0 w-12 uppercase font-semibold ${colorClass}`}>
           {line.level}
+        </span>
+      )}
+      {scannerLabel && line.scanner_id && (
+        <span
+          className={`shrink-0 px-1.5 py-px rounded text-[10px] font-mono uppercase tracking-wide ${scannerPillColor(line.scanner_id)}`}
+          title={`scanner: ${scannerLabel}`}
+        >
+          {scannerLabel}
         </span>
       )}
       <span

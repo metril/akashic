@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.dependencies import (
     check_source_access,
     get_current_user,
+    get_ingest_scanner_id,
     get_ingest_user,
 )
 from akashic.database import get_db
@@ -175,12 +176,21 @@ async def _persist_lines(
     scan: Scan,
     rows: list[tuple[datetime, str, str]],
     db: AsyncSession,
+    scanner_id: uuid.UUID | None = None,
 ) -> list[ScanLogEntry]:
     """Insert log rows and return the persisted models. Single COMMIT keeps
     the round-trip latency from dominating the 500 ms scanner debounce
-    window — the scanner already coalesces; we shouldn't re-fragment."""
+    window — the scanner already coalesces; we shouldn't re-fragment.
+
+    v0.28.2 — `scanner_id` is the claim baked into the ingest JWT at
+    lease time. When set it's persisted on every row so the Live Log
+    panel can attribute lines to the right scanner; None for tokens
+    predating the claim."""
     objs = [
-        ScanLogEntry(scan_id=scan.id, ts=_now_or(ts), level=level, message=message)
+        ScanLogEntry(
+            scan_id=scan.id, scanner_id=scanner_id,
+            ts=_now_or(ts), level=level, message=message,
+        )
         for (ts, level, message) in rows
     ]
     db.add_all(objs)
@@ -190,6 +200,22 @@ async def _persist_lines(
     return objs
 
 
+async def _scanner_name(
+    db: AsyncSession, scanner_id: uuid.UUID | None,
+) -> str | None:
+    """Single lookup per batch so each fanned-out line in the WS
+    payload carries a human-readable scanner pill without the
+    frontend needing a separate cache. None for legacy/no-attribution
+    rows."""
+    if scanner_id is None:
+        return None
+    from akashic.models.scanner import Scanner as _Scanner
+    res = await db.execute(
+        select(_Scanner.name).where(_Scanner.id == scanner_id)
+    )
+    return res.scalar_one_or_none()
+
+
 @router.post("/{scan_id}/log", status_code=204)
 async def post_log_batch(
     scan_id: uuid.UUID,
@@ -197,12 +223,14 @@ async def post_log_batch(
     db: AsyncSession = Depends(get_db),
     # Ingest-audience JWT — see post_heartbeat for the rationale.
     user: User = Depends(get_ingest_user),
+    scanner_id: uuid.UUID | None = Depends(get_ingest_scanner_id),
 ) -> None:
     if not body.lines:
         return
     scan = await _load_scan_with_write(scan_id, user, db)
     rows = [(line.ts, line.level, line.message) for line in body.lines]
-    saved = await _persist_lines(scan, rows, db)
+    saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
+    scanner_name = await _scanner_name(db, scanner_id)
     await scan_pubsub.publish(
         scan_id,
         {
@@ -214,6 +242,10 @@ async def post_log_batch(
                     "ts": s.ts.isoformat(),
                     "level": s.level,
                     "message": s.message,
+                    "scanner_id": (
+                        str(s.scanner_id) if s.scanner_id else None
+                    ),
+                    "scanner_name": scanner_name,
                 }
                 for s in saved
             ],
@@ -228,12 +260,14 @@ async def post_stderr_batch(
     db: AsyncSession = Depends(get_db),
     # Ingest-audience JWT — see post_heartbeat for the rationale.
     user: User = Depends(get_ingest_user),
+    scanner_id: uuid.UUID | None = Depends(get_ingest_scanner_id),
 ) -> None:
     if not body.chunks:
         return
     scan = await _load_scan_with_write(scan_id, user, db)
     rows = [(c.ts, "stderr", c.chunk) for c in body.chunks]
-    saved = await _persist_lines(scan, rows, db)
+    saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
+    scanner_name = await _scanner_name(db, scanner_id)
     await scan_pubsub.publish(
         scan_id,
         {
@@ -245,6 +279,10 @@ async def post_stderr_batch(
                     "ts": s.ts.isoformat(),
                     "level": s.level,
                     "message": s.message,
+                    "scanner_id": (
+                        str(s.scanner_id) if s.scanner_id else None
+                    ),
+                    "scanner_name": scanner_name,
                 }
                 for s in saved
             ],
@@ -260,16 +298,25 @@ async def get_log(
     limit: int = Query(500, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[ScanLogEntry]:
+) -> list[LogEntryOut]:
     """Backfill / catch-up endpoint. The WS path streams new events live;
     GET handles the gap on reconnect (`since=<last_ts>`) and the initial
-    drawer mount before WS is ready."""
+    drawer mount before WS is ready.
+
+    v0.28.2 — LEFT JOINs scanners to populate scanner_name so the
+    Live Log panel renders the per-row scanner pill without a follow-
+    up GET."""
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
     await check_source_access(scan.source_id, user, db, required_level="read")
 
-    stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
+    from akashic.models.scanner import Scanner as _Scanner
+    stmt = (
+        select(ScanLogEntry, _Scanner.name)
+        .outerjoin(_Scanner, _Scanner.id == ScanLogEntry.scanner_id)
+        .where(ScanLogEntry.scan_id == scan_id)
+    )
     if since is not None:
         stmt = stmt.where(ScanLogEntry.ts > _now_or(since))
     if kind == "structured":
@@ -278,5 +325,15 @@ async def get_log(
         stmt = stmt.where(ScanLogEntry.level == "stderr")
     stmt = stmt.order_by(ScanLogEntry.ts).limit(limit)
 
-    rows = (await db.execute(stmt)).scalars().all()
-    return list(rows)
+    rows = (await db.execute(stmt)).all()
+    return [
+        LogEntryOut(
+            id=entry.id,
+            ts=entry.ts,
+            level=entry.level,
+            message=entry.message,
+            scanner_id=entry.scanner_id,
+            scanner_name=scanner_name,
+        )
+        for (entry, scanner_name) in rows
+    ]

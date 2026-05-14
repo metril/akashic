@@ -74,6 +74,10 @@ class LogEntryOut(BaseModel):
     ts: datetime
     level: str
     message: str
+    # v0.28.2 — scanner attribution for the Live Log per-row pill.
+    # Both fields are nullable to keep legacy rows (pre-v0.28.2) valid.
+    scanner_id: uuid.UUID | None = None
+    scanner_name: str | None = None
 
     model_config = {"from_attributes": True}
 

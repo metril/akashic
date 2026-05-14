@@ -34,6 +34,28 @@ def test_access_token_rejected_by_ingest_decoder():
     assert decode_ingest_token(tok) is None
 
 
+def test_ingest_token_carries_scanner_id_claim_when_minted_with_one():
+    """v0.28.2 — `_mint_ingest_jwt` at lease time embeds the leasing
+    scanner.id as a `scanner_id` claim so scan-progress endpoints can
+    attribute heartbeat / log / stderr rows to the right scanner
+    without trusting a client-supplied header."""
+    user_id = "00000000-0000-0000-0000-000000000000"
+    scanner_id = "11111111-1111-1111-1111-111111111111"
+    tok = create_ingest_token(user_id, scanner_id=scanner_id)
+    payload = decode_ingest_token(tok)
+    assert payload is not None
+    assert payload["scanner_id"] == scanner_id
+
+
+def test_ingest_token_without_scanner_id_decodes_cleanly():
+    """Tokens minted without a scanner_id (legacy path) must still
+    decode — the claim is optional, not required."""
+    tok = create_ingest_token("00000000-0000-0000-0000-000000000000")
+    payload = decode_ingest_token(tok)
+    assert payload is not None
+    assert "scanner_id" not in payload
+
+
 @pytest.mark.asyncio
 async def test_ingest_token_cannot_call_admin_endpoint(client, db_session):
     """End-to-end: an ingest-scoped token presented to /api/users/me

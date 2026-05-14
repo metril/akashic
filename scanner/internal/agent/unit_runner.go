@@ -264,7 +264,8 @@ func runUnitWalk(
 		SourceID:        leased.Source.ID,
 		ScanID:          leased.ScanID,
 		Root:            subRoot,
-		BatchSize:       1000,
+		// v0.28.2 — see agent.go for rationale.
+		BatchSize:       500,
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: excludes,
 		State:           state,

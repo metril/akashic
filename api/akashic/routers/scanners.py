@@ -753,11 +753,18 @@ async def scanner_heartbeat(
 _LEASE_DURATION_SECONDS = 60
 
 
-async def _mint_ingest_jwt(db: AsyncSession) -> str | None:
+async def _mint_ingest_jwt(
+    db: AsyncSession, scanner_id: uuid.UUID,
+) -> str | None:
     """Pick any admin user and mint an ingest-audience JWT bound to
     their identity so the agent can call /api/ingest/batch and the
     per-scan heartbeat endpoint, both of which still need an
     authenticated user for ACL/audit purposes.
+
+    v0.28.2 — embeds the leasing ``scanner_id`` as a JWT claim so the
+    scan-progress endpoints can persist scanner attribution on every
+    heartbeat / log / stderr row. Trustworthy because the claim is
+    minted server-side, not lifted from a client header.
 
     Audience is "akashic-ingest" (not "akashic-api"), so even though
     the user identity behind the token is admin, the token itself
@@ -770,7 +777,11 @@ async def _mint_ingest_jwt(db: AsyncSession) -> str | None:
     admin = res.scalar_one_or_none()
     if admin is None:
         return None
-    return create_ingest_token(str(admin.id), expires_delta=timedelta(hours=24))
+    return create_ingest_token(
+        str(admin.id),
+        scanner_id=str(scanner_id),
+        expires_delta=timedelta(hours=24),
+    )
 
 
 @router.post("/api/scans/lease")
@@ -912,7 +923,7 @@ async def lease_scan(
         total_estimated=None,
     )
 
-    api_jwt = await _mint_ingest_jwt(db)
+    api_jwt = await _mint_ingest_jwt(db, scanner.id)
     # Merge host config (if any) under the source's share-only fields so
     # the scanner sees one combined dict, regardless of where the
     # connection-level keys live. Legacy sources without a host_id keep

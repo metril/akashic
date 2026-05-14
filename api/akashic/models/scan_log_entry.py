@@ -26,6 +26,14 @@ class ScanLogEntry(Base):
     scan_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
     )
+    # v0.28.2 — populated from the `scanner_id` claim baked into the
+    # ingest JWT at lease time; nullable so legacy pre-v0.28.2 rows
+    # remain valid. The Live Log UI renders a per-scanner pill when set.
+    scanner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scanners.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

@@ -29,17 +29,33 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
 
-def create_ingest_token(user_id: str, expires_delta: timedelta | None = None) -> str:
+def create_ingest_token(
+    user_id: str,
+    *,
+    scanner_id: str | None = None,
+    expires_delta: timedelta | None = None,
+) -> str:
     """Mint a JWT scoped to the ingest audience. Only the ingest +
     scan-heartbeat endpoints accept this audience; presenting it to
     /api/users, /api/sources, or any other admin endpoint will fail
-    audience validation in decode_access_token."""
+    audience validation in decode_access_token.
+
+    v0.28.2 — when ``scanner_id`` is provided (lease-time mint), it
+    is embedded as a `scanner_id` claim so scan-progress handlers can
+    persist scanner attribution on every heartbeat / log / stderr row
+    without trusting a client-supplied header. Tokens minted without
+    a scanner_id (legacy / pre-v0.28.2) still decode and authorise;
+    rows they produce simply land with `scanner_id IS NULL`.
+    """
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=24))
-    return jwt.encode(
-        {"sub": user_id, "exp": expire, "aud": INGEST_AUDIENCE},
-        settings.secret_key,
-        algorithm=ALGORITHM,
-    )
+    claims: dict[str, object] = {
+        "sub": user_id,
+        "exp": expire,
+        "aud": INGEST_AUDIENCE,
+    }
+    if scanner_id is not None:
+        claims["scanner_id"] = scanner_id
+    return jwt.encode(claims, settings.secret_key, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict | None:

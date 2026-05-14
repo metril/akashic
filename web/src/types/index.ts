@@ -191,6 +191,12 @@ export interface ScanLogLine {
   ts: string;
   level: "info" | "warn" | "error" | "stderr";
   message: string;
+  // v0.28.2 — attribution to the scanner that produced this row.
+  // Populated from the scanner_id claim baked into the ingest JWT
+  // at lease time. Null for legacy rows (pre-v0.28.2) and for rows
+  // produced before the agent's JWT carried the claim.
+  scanner_id?: string | null;
+  scanner_name?: string | null;
 }
 
 export interface ScanSnapshot {

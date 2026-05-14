@@ -5,6 +5,78 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.28.2 — 2026-05-14
+
+**Multi-scanner stability + observability.** Three bugs surfaced after
+a user added a remote scanner: ingest batches 413'd through the web's
+nginx proxy, reachability probes silently dropped during multi-scanner
+fan-out, and the Live Log gave no clue which scanner produced each
+row. All three fixed in one patch.
+
+### Bug fixes
+
+- **Remote scanner ingest no longer 413s.** `web/nginx.conf`'s
+  `/api/` block had no `client_max_body_size`, so it inherited
+  nginx's 1 MB default — under which a 1000-entry batch (~1–2 MB
+  serialized) failed every time. Local-compose scanner happens to
+  hit `api:8000` directly so this never reproduced in dev. Fix:
+  `client_max_body_size 32m;` plus `proxy_read_timeout`/
+  `proxy_send_timeout` bumped to 120 s (the 30 s probe long-poll
+  plus bulk `/test-shares` could nudge the default 60 s upstream
+  timeout). Scanner default `BatchSize` also lowered 1000 → 500 in
+  [scanner/internal/agent/agent.go](scanner/internal/agent/agent.go)
+  and [scanner/internal/agent/unit_runner.go](scanner/internal/agent/unit_runner.go)
+  as a defensive belt for ops running their own reverse proxy.
+- **Probe queue is now durable** ([services/probe_dispatch.py](api/akashic/services/probe_dispatch.py)).
+  `scanner:{id}:probe` switched from Redis pub/sub to a list backed
+  by `LPUSH` + `BRPOP`. The pub/sub regime silently dropped any
+  probe published during the ~50 ms gap between consecutive long-
+  poll cycles — visible during bulk `/test-shares` fan-out, where
+  one scanner per share would time out to `pending=true` while the
+  rest reported. Lists are durable until consumed; `LTRIM 0 99` caps
+  per-scanner backlog at 100 items so an offline scanner can't
+  accumulate unbounded probes.
+
+### Observability
+
+- **Scanner-side log lines.** `docker compose logs scanner` now
+  actually shows what the agent is doing: probe receive / result /
+  report-error in [reachability.go](scanner/internal/agent/reachability.go),
+  scan begin / exit in [agent.go](scanner/internal/agent/agent.go),
+  and per-batch counts in [scanner/internal/scanner/scanner.go](scanner/internal/scanner/scanner.go).
+- **Scanner attribution in the Live Log.** New migration
+  `0032_scan_log_scanner_id` adds a nullable `scanner_id` column to
+  `scan_log_entries`. The ingest JWT minted by `_mint_ingest_jwt`
+  at lease time now carries a `scanner_id` claim — server-side
+  minted, trusted, not lifted from a client header. A new
+  `get_ingest_scanner_id` dep in [auth/dependencies.py](api/akashic/auth/dependencies.py)
+  extracts it; scan-progress POSTs in
+  [scan_progress.py](api/akashic/routers/scan_progress.py) persist
+  it on every heartbeat / log / stderr row.
+- **Per-row scanner pill in the Live Log panel**
+  ([ScanLogPanel.tsx](web/src/components/scans/ScanLogPanel.tsx)).
+  Hash-keyed colour from an 8-shade palette so each scanner reads
+  as a distinct, consistent colour across reloads. Legacy rows
+  (pre-v0.28.2 ingest JWTs without the claim) hide the pill
+  rather than showing a misleading one.
+
+### Schema
+
+- New migration `0032_scan_log_scanner_id`:
+  - `scan_log_entries.scanner_id UUID NULL` with `ON DELETE SET NULL`
+    so deleting a scanner row doesn't cascade out historical logs.
+  - Partial index `ix_scan_log_entries_scanner_id` only on
+    non-NULL rows.
+
+### Verification
+
+- `pytest tests/`: 674 passed, 1 skipped.
+- `npx tsc --noEmit && npx vitest run`: clean (133 passed).
+- Scanner Go: `go test ./internal/agent/... ./internal/scanner/...` green.
+- Live deploy: api + scanner + web restart healthy; alembic version
+  `0032_scan_log_scanner_id` applied; nginx config in the running
+  container shows the new ceiling + timeouts.
+
 ## v0.28.1 — 2026-05-09
 
 **Online vs reachability — split the concepts; route every credentialed

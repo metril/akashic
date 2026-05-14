@@ -55,6 +55,44 @@ async def get_ingest_user(
     return user
 
 
+# Optional-credentials bearer for the scanner_id extractor below.
+# We deliberately don't raise on missing creds — the real auth gate
+# is `get_ingest_user`; this dep is purely "if a valid ingest JWT
+# carried a scanner_id claim, surface it". Tests that override
+# `get_ingest_user` (and therefore never present a real Authorization
+# header) must not 401 just because this companion dep also runs.
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_ingest_scanner_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+) -> uuid.UUID | None:
+    """Extract the scanner_id claim (if any) from an ingest JWT.
+
+    v0.28.2 — minted into the token at lease time by `_mint_ingest_jwt`
+    so scan-progress POSTs can attribute heartbeat / log / stderr rows
+    to the scanner that actually produced them, without trusting a
+    client-supplied header.
+
+    Returns None for legacy tokens that predate the claim (rows still
+    persist, just with scanner_id NULL — the column is nullable) and
+    for requests where no bearer is presented (auth is enforced by
+    `get_ingest_user` separately; this dep only annotates).
+    """
+    if credentials is None:
+        return None
+    payload = decode_ingest_token(credentials.credentials)
+    if payload is None:
+        return None
+    sid = payload.get("scanner_id")
+    if sid is None:
+        return None
+    try:
+        return uuid.UUID(sid)
+    except (TypeError, ValueError):
+        return None
+
+
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")

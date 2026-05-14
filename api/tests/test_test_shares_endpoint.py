@@ -131,49 +131,36 @@ async def test_test_shares_publishes_one_probe_per_source_scanner_pair(
 
     probe_dispatch.dispatch_remote = fast
 
-    # Subscribe to both scanners' probe channels so we can count
-    # publishes after the API runs.
+    # v0.28.2 — probes now land in per-scanner Redis LISTs (LPUSH),
+    # not pub/sub. Drain each scanner's list after the API returns;
+    # we expect 2 sources × 2 scanners = 4 items total.
     from akashic.services.probe_dispatch import _probe_channel
     from akashic.services.scan_pubsub import _client as redis_client
     redis = redis_client()
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(_probe_channel(s1), _probe_channel(s2))
-
-    publishes: list[tuple[str, dict]] = []
-
-    async def collect():
-        async for msg in pubsub.listen():
-            if msg.get("type") != "message":
-                continue
-            data = msg.get("data")
-            if not isinstance(data, str):
-                continue
-            publishes.append((msg.get("channel"), json.loads(data)))
-
-    collector = asyncio.create_task(collect())
 
     try:
         r = await client.post(
             f"/api/hosts/{host_id}/test-shares", json={},
         )
-        # Give the subscriber a moment to drain in-flight publishes.
-        await asyncio.sleep(0.4)
     finally:
         probe_dispatch.dispatch_remote = real_dispatch
-        collector.cancel()
-        try:
-            await pubsub.unsubscribe(_probe_channel(s1), _probe_channel(s2))
-            await pubsub.aclose()
-        except Exception:  # noqa: BLE001
-            pass
 
     assert r.status_code == 200, r.text
     body = r.json()
     # 2 sources × 2 scanners = 4 result rows.
     assert len(body["results"]) == 4
     assert all(row["pending"] is True for row in body["results"])
-    # Same shape on the publish side.
-    assert len(publishes) == 4
+
+    # Pull everything off both scanner queues and confirm the count.
+    items: list[dict] = []
+    for sid in (s1, s2):
+        chan = _probe_channel(sid)
+        while True:
+            raw = await redis.rpop(chan)
+            if raw is None:
+                break
+            items.append(json.loads(raw))
+    assert len(items) == 4
 
 
 @pytest.mark.asyncio

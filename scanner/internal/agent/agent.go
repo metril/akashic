@@ -358,6 +358,16 @@ func runLeasedScan(
 		// flag instead). For Phase 2, just use the empty string and
 		// let the connector default.
 	}
+	// v0.28.2 — observability: surface scan start/complete in the
+	// agent's docker logs so `docker compose logs scanner` actually
+	// shows what's happening without needing the Live Log UI open.
+	scanStart := time.Now()
+	log.Printf("scan %s: started source=%s type=%s root=%q",
+		leased.ScanID, leased.Source.ID, leased.Source.Type, root)
+	defer func() {
+		log.Printf("scan %s: exited in %s",
+			leased.ScanID, time.Since(scanStart).Round(time.Millisecond))
+	}()
 	apiClient := client.New(cfg.APIBase, leased.APIJWT)
 
 	state := observe.NewState()
@@ -372,7 +382,14 @@ func runLeasedScan(
 		SourceID:        leased.Source.ID,
 		ScanID:          leased.ScanID,
 		Root:            root,
-		BatchSize:       1000,
+		// v0.28.2 — lowered from 1000 to keep batch payloads under
+		// ~1 MB worst case (SMB rows with full ACLs/xattrs serialize
+		// at ~2 KB). Anything larger trips a default-configured
+		// nginx 1 MB cap on deployments fronting the API with a
+		// reverse proxy. nginx in this repo bumps the cap to 32 MB,
+		// but the smaller batch is a defensive belt for ops who run
+		// their own proxy.
+		BatchSize:       500,
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: leased.Source.ExcludePatterns,
 		Reporter:        reporter,

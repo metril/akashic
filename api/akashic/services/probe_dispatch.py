@@ -137,13 +137,19 @@ async def dispatch_remote(
         # publishing before subscribe means the message is lost.
         await pubsub.subscribe(_result_channel(request_id))
 
-        # Publish one probe request per scanner. Each scanner's long-poll
-        # subscriber consumes from its own scanner channel; the result
-        # channel is shared per request_id and tagged by scanner_id.
+        # v0.28.2 — push the probe onto each scanner's per-id queue.
+        # The previous PUBLISH implementation lost messages whenever
+        # the scanner's long-poll was momentarily unsubscribed
+        # (between report-post and next long-poll subscribe). Redis
+        # LISTs are durable until consumed, so the agent picks the
+        # probe up on its next BRPOP regardless of timing. LTRIM caps
+        # each queue at 100 items so a disconnected scanner can't
+        # accumulate unbounded backlog.
+        body = json.dumps(payload, default=str)
         for sid in scanner_ids:
-            await redis.publish(
-                _probe_channel(sid), json.dumps(payload, default=str),
-            )
+            chan = _probe_channel(sid)
+            await redis.lpush(chan, body)
+            await redis.ltrim(chan, 0, 99)
 
         deadline = asyncio.get_running_loop().time() + timeout_s
         wanted = {str(sid) for sid in scanner_ids}
@@ -238,47 +244,37 @@ async def publish_report(
 async def wait_for_probe(
     scanner_id: uuid.UUID, timeout_s: float = 30.0,
 ) -> Optional[dict[str, Any]]:
-    """Subscribe to ``scanner:{id}:probe`` and yield the first message,
-    or return None on timeout. Used by the long-poll endpoint.
+    """Block on ``scanner:{id}:probe`` until a probe arrives, or
+    return None after ``timeout_s``. Used by the long-poll endpoint.
 
-    Uses pubsub.listen() (the same async iterator scan_pubsub.subscribe
-    relies on) rather than get_message — listen() handles the SUBSCRIBE
-    confirmation cleanly so a fast publisher doesn't race the
-    subscriber and silently drop the message.
+    v0.28.2 — switched from pub/sub subscribe to ``BRPOP`` against a
+    Redis list. Pub/sub had no replay, so any probe published while
+    the scanner was between long-poll calls (subscribe → wait →
+    unsubscribe → reconnect) was silently dropped — especially
+    visible under bulk fan-out with multiple scanners. The list-based
+    queue absorbs probes whenever they're produced; the agent picks
+    them up on its next BRPOP regardless of subscribe timing.
     """
     redis = _redis_client()
-    pubsub = redis.pubsub()
+    chan = _probe_channel(scanner_id)
+    # BRPOP returns (key, value) tuple or None on timeout. Redis
+    # requires an integer timeout (seconds); 0 means "wait forever",
+    # which we deliberately avoid here.
+    timeout_int = max(1, int(timeout_s))
     try:
-        await pubsub.subscribe(_probe_channel(scanner_id))
-
-        async def _next_message():
-            async for message in pubsub.listen():
-                if message.get("type") != "message":
-                    # Skip the SUBSCRIBE confirmation and any
-                    # housekeeping frames.
-                    continue
-                return message
-            return None
-
-        try:
-            msg = await asyncio.wait_for(_next_message(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            return None
-        if msg is None:
-            return None
-        data = msg.get("data")
-        if not isinstance(data, str):
-            return None
-        try:
-            return json.loads(data)
-        except json.JSONDecodeError:
-            return None
-    finally:
-        try:
-            await pubsub.unsubscribe(_probe_channel(scanner_id))
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("probe_dispatch long-poll unsubscribe noise: %s", exc)
-        try:
-            await pubsub.aclose()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("probe_dispatch long-poll aclose noise: %s", exc)
+        result = await redis.brpop(chan, timeout=timeout_int)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("probe_dispatch BRPOP failed for %s: %s", chan, exc)
+        return None
+    if result is None:
+        return None
+    # `decode_responses=True` is set on the shared client, so values
+    # come back as strings.
+    _key, data = result
+    if not isinstance(data, str):
+        return None
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        logger.warning("probe_dispatch: malformed probe payload on %s", chan)
+        return None

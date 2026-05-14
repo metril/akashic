@@ -320,3 +320,70 @@ async def test_empty_log_post_is_noop(client: AsyncClient, fixture_scan: Scan):
         json={"lines": []},
     )
     assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_log_post_persists_scanner_id_from_ingest_jwt(
+    setup_db, admin_user, fixture_scan: Scan,
+):
+    """v0.28.2 — a real bearer ingest JWT carries `scanner_id` as a
+    claim (minted at lease time). The log POST must persist that
+    attribution on every row so the Live Log panel can render the
+    per-scanner pill. Bypasses the test_scan_progress `client`
+    fixture (which overrides the deps to skip auth) to exercise the
+    real JWT decode path."""
+    import uuid as _uuid
+    from akashic.auth.jwt import create_ingest_token
+    from akashic.auth.dependencies import get_current_user
+    from akashic.database import get_db
+    from akashic.main import create_app
+    from akashic.models.scanner import Scanner
+    from sqlalchemy import select
+    from httpx import ASGITransport, AsyncClient
+
+    scanner_id = _uuid.uuid4()
+    async with setup_db() as session:
+        session.add(Scanner(
+            id=scanner_id, name="lp-attribution", pool="default",
+            public_key_pem="x", key_fingerprint=f"fp-{scanner_id}",
+        ))
+        await session.commit()
+
+    tok = create_ingest_token(str(admin_user.id), scanner_id=str(scanner_id))
+
+    async def _override_get_db():
+        async with setup_db() as session:
+            yield session
+
+    async def _override_get_current_user():
+        return admin_user
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _override_get_db
+    # GET /log uses get_current_user; keep that override so we can
+    # also query afterward if we want.
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test",
+    ) as ac:
+        r = await ac.post(
+            f"/api/scans/{fixture_scan.id}/log",
+            json={
+                "lines": [
+                    {"ts": datetime.now(timezone.utc).isoformat(),
+                     "level": "info", "message": "from-scanner-A"},
+                ],
+            },
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r.status_code == 204, r.text
+
+    async with setup_db() as session:
+        rows = (await session.execute(
+            select(ScanLogEntry).where(
+                ScanLogEntry.scan_id == fixture_scan.id,
+                ScanLogEntry.message == "from-scanner-A",
+            )
+        )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].scanner_id == scanner_id

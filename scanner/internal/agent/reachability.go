@@ -115,7 +115,19 @@ func runOneProbe(
 	probeCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
+	start := time.Now()
+	log.Printf("probe %s: started source=%s type=%s",
+		req.RequestID, req.SourceID, req.SourceType)
+
 	result := probe.Run(probeCtx, req.SourceType, req.ConnectionConfig)
+	elapsed := time.Since(start)
+	if result.OK {
+		log.Printf("probe %s: ok in %s", req.RequestID, elapsed.Round(time.Millisecond))
+	} else {
+		log.Printf("probe %s: failed step=%s error=%q in %s",
+			req.RequestID, result.Step, result.Error,
+			elapsed.Round(time.Millisecond))
+	}
 
 	body := probeReport{
 		OK:       result.OK,
@@ -124,7 +136,7 @@ func runOneProbe(
 		SourceID: req.SourceID,
 	}
 	if err := postProbeReport(ctx, httpc, cfg, priv, req.RequestID, body); err != nil {
-		log.Printf("probe report (request=%s source=%s): %v",
+		log.Printf("probe %s: report POST failed source=%s: %v",
 			req.RequestID, req.SourceID, err)
 	}
 }

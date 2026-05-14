@@ -176,24 +176,15 @@ async def test_long_poll_delivers_published_probe(
     }
     channel = _probe_channel(scn["id"])
 
-    # Retry publish until at least one subscriber is listening — Redis
-    # `PUBLISH` returns the count of receivers, so we know when the
-    # handler's `subscribe` has registered. Cap at 30 attempts (~3 s)
-    # so a real bug fails the test instead of hanging.
-    async def publish_when_subscribed():
-        await asyncio.sleep(0.05)
-        for _ in range(30):
-            n = await redis_client().publish(channel, json.dumps(probe))
-            if n > 0:
-                return
-            await asyncio.sleep(0.1)
+    # v0.28.2 — the long-poll handler now does BRPOP from a Redis list.
+    # We LPUSH a probe before the long-poll starts; BRPOP picks it up
+    # immediately. No subscribe race, no retry loop.
+    await redis_client().lpush(channel, json.dumps(probe))
 
-    task = asyncio.create_task(publish_when_subscribed())
     r = await bearer_client.get(
         f"/api/scanners/{scn['id']}/probes/long-poll",
         headers={"Authorization": f"Bearer {tok}"},
     )
-    await task
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["request_id"] == str(request_id)
