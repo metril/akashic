@@ -54,6 +54,14 @@ class Scan(Base):
         Integer, default=0, server_default="0", nullable=False,
     )
 
+    # v0.29.2 — most recent adaptive batch size the leasing scanner
+    # reported via heartbeat. Surfaced in the Live Log row tooltip so
+    # operators can see whether AIMD has converged on a high or low
+    # value for the current source. Nullable to keep legacy rows valid.
+    current_batch_size: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+    )
+
     # Phase 2 multi-scanner — pool-tagged lease queue.
     # `pool` is a snapshot of the source's preferred_pool at enqueue time
     # (NULL = any scanner can claim). `assigned_scanner_id` + `lease_expires_at`

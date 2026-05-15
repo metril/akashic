@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,6 +143,48 @@ func newKeepaliveTransport() *http.Transport {
 	t.MaxIdleConnsPerHost = 8
 	t.IdleConnTimeout = 90 * time.Second
 	return t
+}
+
+// newAdaptiveBatcher returns a per-scan AIMD batch sizer with the
+// production defaults. Env overrides allow ops to pin a fixed size
+// or shift the band when the defaults misbehave on their workload:
+//   - AKASHIC_INGEST_BATCH_SIZE_INITIAL  (default 1000)
+//   - AKASHIC_INGEST_BATCH_SIZE_FLOOR    (default 250)
+//   - AKASHIC_INGEST_BATCH_SIZE_CEILING  (default 5000)
+//   - AKASHIC_INGEST_BATCH_TARGET_LOW_MS  (default 100)
+//   - AKASHIC_INGEST_BATCH_TARGET_HIGH_MS (default 400)
+//
+// Setting FLOOR == CEILING pins the size — useful for ops who want
+// reproducible behaviour while we tune defaults.
+func newAdaptiveBatcher(scanID string) *scanner.AdaptiveBatchSize {
+	initial := envInt("AKASHIC_INGEST_BATCH_SIZE_INITIAL", 1000)
+	floor := envInt("AKASHIC_INGEST_BATCH_SIZE_FLOOR", 250)
+	ceiling := envInt("AKASHIC_INGEST_BATCH_SIZE_CEILING", 5000)
+	low := envInt("AKASHIC_INGEST_BATCH_TARGET_LOW_MS", 100)
+	high := envInt("AKASHIC_INGEST_BATCH_TARGET_HIGH_MS", 400)
+	a := scanner.NewAdaptiveBatchSize(initial, floor, ceiling, low, high)
+	a.OnAdjust = func(prev, next int, latencyMs int64, err error) {
+		if err != nil {
+			log.Printf("scan %s: batch size %d → %d after error (was at %s latency window)",
+				scanID, prev, next, time.Duration(latencyMs)*time.Millisecond)
+			return
+		}
+		log.Printf("scan %s: batch size %d → %d after %dms",
+			scanID, prev, next, latencyMs)
+	}
+	return a
+}
+
+func envInt(key string, dflt int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return dflt
+	}
+	return n
 }
 
 // ── Wire types ───────────────────────────────────────────────────────────
@@ -386,18 +429,20 @@ func runLeasedScan(
 	reporter.Start(scanCtx)
 	defer reporter.Stop()
 
+	// v0.29.2 — adaptive batch sizing. The static BatchSize: 500 is
+	// kept as a fallback floor in case the AdaptiveBatcher is somehow
+	// nil mid-scan, but the walker reads from the batcher on every
+	// flush check so the size moves dynamically toward whatever the
+	// current source + API + proxy stack can sustain. AIMD logging
+	// fires through OnAdjust into the agent's stdout (visible via
+	// `docker compose logs scanner`).
+	batcher := newAdaptiveBatcher(leased.ScanID)
 	s := scanner.New(apiClient, conn, scanner.Options{
 		SourceID:        leased.Source.ID,
 		ScanID:          leased.ScanID,
 		Root:            root,
-		// v0.28.2 — lowered from 1000 to keep batch payloads under
-		// ~1 MB worst case (SMB rows with full ACLs/xattrs serialize
-		// at ~2 KB). Anything larger trips a default-configured
-		// nginx 1 MB cap on deployments fronting the API with a
-		// reverse proxy. nginx in this repo bumps the cap to 32 MB,
-		// but the smaller batch is a defensive belt for ops who run
-		// their own proxy.
 		BatchSize:       500,
+		AdaptiveBatcher: batcher,
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: leased.Source.ExcludePatterns,
 		Reporter:        reporter,

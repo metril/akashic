@@ -85,6 +85,8 @@ async def post_heartbeat(
         scan.phase = body.phase
     if body.total_estimated is not None:
         scan.total_estimated = body.total_estimated
+    if body.current_batch_size is not None:
+        scan.current_batch_size = body.current_batch_size
     scan.bytes_scanned_so_far = body.bytes_scanned
     scan.files_skipped = body.files_skipped
     scan.dirs_walked = body.dirs_walked
@@ -128,7 +130,14 @@ async def post_heartbeat(
     # crossed an adaptive threshold. The 1 Hz scanner heartbeat is still
     # required for cancellation detection + watchdog, but heartbeats
     # without meaningful change persist silently.
-    files_found = scan.files_found or 0
+    # v0.29.2 — overlay Redis counters on the scan row so the WS
+    # broadcast reflects live ingest progress during the scan. Pre-fix
+    # this read scan.files_found directly, which now stays at 0 until
+    # terminal flush — so the dashboard's "files found" count froze at
+    # zero throughout a running scan.
+    from akashic.services import scan_counters
+    live_counters = await scan_counters.overlay(scan)
+    files_found = live_counters["files_found"]
     if await scan_broadcast.should_broadcast(
         str(scan_id),
         phase=scan.phase,

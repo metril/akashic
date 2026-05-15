@@ -260,12 +260,17 @@ func runUnitWalk(
 		)
 	}
 	subRoot := joinSubpath(leased.Source.Type, root, unit.Path)
+	// v0.29.2 — adaptive batch sizing for unit runs too. Each unit
+	// builds its own batcher rather than sharing one across units;
+	// shared state would couple a slow SMB unit to a fast local one
+	// and erase the per-unit signal AIMD wants to act on.
+	batcher := newAdaptiveBatcher(leased.ScanID)
 	s := scanner.New(apiClient, conn, scanner.Options{
 		SourceID:        leased.Source.ID,
 		ScanID:          leased.ScanID,
 		Root:            subRoot,
-		// v0.28.2 — see agent.go for rationale.
 		BatchSize:       500,
+		AdaptiveBatcher: batcher,
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: excludes,
 		State:           state,

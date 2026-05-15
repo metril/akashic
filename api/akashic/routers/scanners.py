@@ -1005,6 +1005,25 @@ async def complete_scan(
         scan.error_message = body.error_message
     scan.lease_expires_at = None
 
+    # v0.29.2 — flush the Redis-backed counters back onto scan.* so
+    # the row is authoritative post-scan. Single-scanner /complete
+    # paths hit this; the multi-scanner work-units path flushes from
+    # _maybe_finalize_scan instead.
+    from akashic.services import scan_counters
+    await scan_counters.flush_to_db(db, scan)
+    # v0.29.2 — drain any pending Meilisearch index entries for this
+    # source so search reflects scan-final state at "completed" time
+    # without waiting for the 5 s debounce window.
+    if scan.source_id is not None:
+        from akashic.services import meili_indexer
+        try:
+            await meili_indexer.flush(scan.source_id)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).debug(
+                "meili flush on scan complete failed: %s", exc,
+            )
+
     # Phase-2 status transition: source.status mirrors the scan's
     # terminal state. Cancelled scans don't mark the source failed
     # (the user pulled the plug; the source itself isn't broken).

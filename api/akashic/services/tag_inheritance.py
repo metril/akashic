@@ -135,30 +135,77 @@ async def propagate_to_new_entry(
     """A new entry just appeared via ingest; pick up any tags whose
     direct origin is a tagged ancestor directory.
 
-    Called after `db.flush()` of the new Entry row (we need its id),
-    before the post-batch commit. No-op when the new entry has no
-    tagged ancestors — the SELECT returns zero rows.
+    Thin wrapper over `propagate_to_new_entries` for callers (admin
+    tag-apply paths, the move-rebalancer) that only have one entry.
+    The hot path through ingest uses the bulk version directly.
     """
-    await db.execute(
-        text(
-            r"""
-            INSERT INTO entry_tags
-                (id, entry_id, tag, inherited_from_entry_id, created_by_user_id)
-            SELECT
-                gen_random_uuid(), :entry_id, et.tag, et.entry_id, et.created_by_user_id
-            FROM entry_tags et
-            JOIN entries anc ON anc.id = et.entry_id
-            WHERE et.inherited_from_entry_id IS NULL
-              AND anc.kind = 'directory'
-              AND anc.source_id = :source_id
-              AND :path LIKE
-                  replace(replace(replace(anc.path, '\', '\\'), '%', '\%'), '_', '\_')
-                  || '/%' ESCAPE '\'
-            ON CONFLICT (entry_id, tag, inherited_from_entry_id) DO NOTHING
-            """
-        ),
-        {"entry_id": entry_id, "source_id": source_id, "path": path},
+    await propagate_to_new_entries(
+        db,
+        new_entries=[(entry_id, source_id, path)],
     )
+
+
+async def propagate_to_new_entries(
+    db: AsyncSession,
+    *,
+    new_entries: list[tuple[uuid.UUID, uuid.UUID, str]],
+) -> None:
+    """Bulk variant: propagate tagged-ancestor inheritance to many new
+    entries in one round-trip.
+
+    Pre-v0.29.2 every Phase-3 ingest entry called the singular helper,
+    which issued one SELECT per entry to find tagged ancestors. On a
+    2000-row full-scan batch with 80% new entries, that was ~1600
+    SELECTs per batch — measured at ~1 ms each, so 1.6 s of pure
+    round-trip cost the walker was waiting on at the API side. This
+    bulk variant computes the entire fan-out in a single query using
+    PostgreSQL's `unnest(uuid[], text[])` to feed the new entries in
+    as a derived table.
+
+    Per-source loop: the JOIN to `entries` is bounded to one source
+    at a time so the LIKE-pattern path lookups stay efficient
+    (the existing path index is single-source). Mixed-source batches
+    fan out into one round-trip per source — still a huge win over
+    one round-trip per entry.
+
+    `new_entries` is a list of (entry_id, source_id, path) tuples.
+    No-op on empty input.
+    """
+    if not new_entries:
+        return
+
+    # Group by source_id so each query targets one source's path index.
+    by_source: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+    for entry_id, source_id, path in new_entries:
+        by_source.setdefault(source_id, []).append((entry_id, path))
+
+    for source_id, items in by_source.items():
+        eids = [eid for eid, _ in items]
+        paths = [p for _, p in items]
+        await db.execute(
+            text(
+                r"""
+                INSERT INTO entry_tags
+                    (id, entry_id, tag, inherited_from_entry_id, created_by_user_id)
+                SELECT
+                    gen_random_uuid(),
+                    n.entry_id, et.tag, et.entry_id, et.created_by_user_id
+                FROM unnest(CAST(:eids AS uuid[]), CAST(:paths AS text[]))
+                     AS n(entry_id, path)
+                JOIN entries anc
+                  ON anc.source_id = :source_id
+                 AND anc.kind = 'directory'
+                 AND n.path LIKE
+                     replace(replace(replace(anc.path, '\', '\\'), '%', '\%'), '_', '\_')
+                     || '/%' ESCAPE '\'
+                JOIN entry_tags et
+                  ON et.entry_id = anc.id
+                 AND et.inherited_from_entry_id IS NULL
+                ON CONFLICT (entry_id, tag, inherited_from_entry_id) DO NOTHING
+                """
+            ),
+            {"eids": eids, "paths": paths, "source_id": source_id},
+        )
 
 
 async def rebalance_on_move(

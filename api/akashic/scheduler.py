@@ -239,6 +239,13 @@ async def _check_stale_scans():
         for scan in result.scalars().all():
             scan.status = "failed"
             scan.error_message = message
+            # v0.29.2 — flush per-scan Redis counter hash back onto
+            # scan.* before terminal commit. Without this, a failed
+            # scan loses whatever counters had accumulated in Redis
+            # since the last batch (the row's columns stay at the
+            # pre-flush snapshot).
+            from akashic.services import scan_counters
+            await scan_counters.flush_to_db(db, scan)
             await db.execute(
                 update(Source)
                 .where(Source.id == scan.source_id, Source.status == "scanning")

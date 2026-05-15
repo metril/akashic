@@ -21,7 +21,7 @@ from akashic.services.ingest import (
     serialize_acl,
 )
 from akashic.services.tag_inheritance import (
-    propagate_to_new_entry,
+    propagate_to_new_entries,
     rebalance_on_move,
 )
 
@@ -62,31 +62,6 @@ def _bg_session(db_url: str) -> "async_sessionmaker[AsyncSession]":
         sm = _asm(engine, class_=AsyncSession, expire_on_commit=False)
         _bg_session_makers[db_url] = sm
     return sm
-
-
-async def _index_files_to_meilisearch(entry_ids: list[str], db_url: str):
-    """Background task: index ingested file entries into Meilisearch."""
-    from akashic.services.search import build_entry_doc, index_files_batch
-    from akashic.services.tag_inheritance import get_tags_for_entries
-
-    try:
-        async with _bg_session(db_url)() as db:
-            uuids = [uuid.UUID(i) for i in entry_ids]
-            tag_map = await get_tags_for_entries(db, entry_ids=uuids)
-            # Bulk-fetch all entries in one round-trip rather than one
-            # SELECT per id. The downstream Meili push is already a
-            # single batch call.
-            result = await db.execute(
-                select(Entry).where(Entry.id.in_(uuids))
-            )
-            entries = [e for e in result.scalars() if e.kind == "file"]
-            if entries:
-                await index_files_batch([
-                    build_entry_doc(e, tags=tag_map.get(e.id, []))
-                    for e in entries
-                ])
-    except Exception as exc:
-        logger.warning("Meilisearch indexing failed: %s", exc)
 
 
 def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
@@ -298,6 +273,23 @@ async def ingest_batch(
     files_processed = 0
     new_file_ids: list[str] = []
     changed_file_ids: list[str] = []
+    # v0.29.2 — accumulate counter deltas locally, write to Redis in
+    # one shot at end-of-batch. Removes the per-batch scan-row
+    # contention point: two scanners batching on the same scan no
+    # longer serialize at the Scan row's UPDATE lock; they HINCRBY
+    # independently into a per-scan Redis hash. flush_to_db on
+    # terminal status transition writes the final values back to the
+    # row.
+    delta_files_new = 0
+    delta_files_changed = 0
+    # v0.29.2 — accumulate (entry_id, source_id, path) for every
+    # candidate that should pick up ancestor-directory-tagged
+    # inheritance: tombstone resurrects in Phase 1, fresh INSERTs in
+    # Phase 3, and tombstone resurrects discovered as Phase 4 race
+    # losers. One propagate_to_new_entries call at the end of the
+    # batch fans out per source in a single SELECT + INSERT instead
+    # of one round trip per entry (N+1 elimination).
+    pending_tag_propagation: list[tuple[uuid.UUID, uuid.UUID, str]] = []
 
     # Bulk-load existing entries for dedup in a single round-trip.
     # Pre-v0.4.x this was one SELECT per incoming entry, which dominated
@@ -332,18 +324,16 @@ async def ingest_batch(
             db.add(_snapshot_version(existing, batch.scan_id))
             _apply_entry_fields(existing, incoming)
             if existing.kind == "file":
-                scan.files_changed += 1
+                nonlocal delta_files_changed
+                delta_files_changed += 1
                 changed_file_ids.append(str(existing.id))
         existing.last_seen_at = now
         existing.is_deleted = False
         existing.deleted_at = None
 
         if was_tombstone:
-            await propagate_to_new_entry(
-                db,
-                entry_id=existing.id,
-                source_id=batch.source_id,
-                path=existing.path,
+            pending_tag_propagation.append(
+                (existing.id, batch.source_id, existing.path)
             )
             if existing.kind == "file":
                 new_file_ids.append(str(existing.id))
@@ -467,18 +457,19 @@ async def ingest_batch(
         new_entry = new_candidates_by_path[path]
         # Seed a v0 row so version history starts on first observation.
         db.add(_snapshot_version(new_entry, batch.scan_id))
-        # Phase C — a new entry under a tagged ancestor inherits the
-        # ancestor's tags. Cheap on the common case (no tagged
-        # ancestors); one indexed SELECT either way.
-        await propagate_to_new_entry(
-            db,
-            entry_id=new_entry.id,
-            source_id=batch.source_id,
-            path=new_entry.path,
+        # v0.29.2 — defer ancestor-tag propagation to a single bulk
+        # call after Phase 4. Pre-fix this loop made one
+        # propagate_to_new_entry call per new entry — 1600 SELECTs on
+        # a 2000-row 80%-new batch, sequential, ~1 ms each → 1.6 s of
+        # round-trip latency the walker waited on at API-side. Bulk
+        # version computes the whole fan-out in 1 SELECT + 1 INSERT
+        # per source.
+        pending_tag_propagation.append(
+            (new_entry.id, batch.source_id, new_entry.path)
         )
         if new_entry.kind == "file":
             new_file_ids.append(str(new_entry.id))
-            scan.files_new += 1
+            delta_files_new += 1
 
     # Phase 4 — race losers: paths we tried to INSERT but ON CONFLICT
     # skipped because another batch got there first. Bulk-fetch the
@@ -498,7 +489,27 @@ async def ingest_batch(
             existing_by_path[race_winner.path] = race_winner
             await _apply_existing(race_winner, incoming_by_path[race_winner.path])
 
-    scan.files_found += files_processed
+    # v0.29.2 — bulk propagate ancestor tags for every Phase-1/3/4
+    # candidate that needs it. One SELECT + INSERT per source via
+    # unnest(uuid[], text[]) instead of one round trip per entry.
+    if pending_tag_propagation:
+        await propagate_to_new_entries(
+            db, new_entries=pending_tag_propagation,
+        )
+
+    # v0.29.2 — write the per-batch counter deltas to Redis (one
+    # round-trip total), not to scan.* columns. Reads overlay Redis on
+    # top of the row; flush_to_db on terminal transition writes the
+    # final values back so the row's columns are authoritative
+    # post-scan. Skip when scan_id is unset (can't happen via the
+    # router but defensive).
+    from akashic.services import scan_counters
+    await scan_counters.add(
+        batch.scan_id,
+        files_found=files_processed,
+        files_new=delta_files_new,
+        files_changed=delta_files_changed,
+    )
 
     if batch.source_security_metadata is not None:
         source_result = await db.execute(
@@ -513,10 +524,14 @@ async def ingest_batch(
     # parallel-agent path sends one IsFinal=true batch per work unit with
     # per-unit totals. Both produce the right scan-level sum because we
     # add (don't assign) on every batch carrying nonzero counts.
-    if batch.inaccessible_dirs:
-        scan.inaccessible_dirs = (scan.inaccessible_dirs or 0) + batch.inaccessible_dirs
-    if batch.inaccessible_files:
-        scan.inaccessible_files = (scan.inaccessible_files or 0) + batch.inaccessible_files
+    # v0.29.2 — routed through scan_counters so the additive semantics
+    # land in Redis instead of contending on the scan row.
+    if batch.inaccessible_dirs or batch.inaccessible_files:
+        await scan_counters.add(
+            batch.scan_id,
+            inaccessible_dirs=batch.inaccessible_dirs or 0,
+            inaccessible_files=batch.inaccessible_files or 0,
+        )
 
     if batch.is_final:
         scan.status = "completed"
@@ -553,7 +568,9 @@ async def ingest_batch(
                     Entry.source_id, Entry.path,
                 )
             )).all()
-            scan.files_deleted += sum(1 for r in stale_returning if r.kind == "file")
+            stale_file_count = sum(1 for r in stale_returning if r.kind == "file")
+            if stale_file_count:
+                await scan_counters.add(batch.scan_id, files_deleted=stale_file_count)
 
             # Move detection (review I13): pre-fix this ran one
             # SELECT per stale file with a content_hash, an N+1 that
@@ -597,6 +614,14 @@ async def ingest_batch(
                             scan_id=batch.scan_id,
                         ))
 
+    # v0.29.2 — on terminal batch, flush the Redis hash back onto
+    # scan.* columns so the row is authoritative post-scan. Same
+    # transaction as the status flip, so a crash between flush and
+    # commit leaves the row pre-flush (the hash survives 7 days and
+    # the watchdog or a re-scan picks up where we left off).
+    if batch.is_final:
+        await scan_counters.flush_to_db(db, scan)
+
     await db.commit()
 
     # v0.4.11: event-driven scan.state broadcast. Batches arrive only
@@ -604,6 +629,13 @@ async def ingest_batch(
     # event, so we always publish (and update the change-detection
     # snapshot so a heartbeat arriving 1s later doesn't immediately
     # re-broadcast the same state).
+    #
+    # v0.29.2 — overlay the live Redis counters on top of the row so
+    # the WS subscribers see the in-flight totals during a long scan,
+    # not the post-last-flush snapshot. On the terminal batch we
+    # already flushed above, so this just reads from the row.
+    live = await scan_counters.overlay(scan)
+    files_found = live["files_found"]
     from akashic.services import scan_broadcast, scan_pubsub
     await scan_pubsub.publish_source_event({
         "kind": "scan.state",
@@ -616,7 +648,7 @@ async def ingest_batch(
         ),
         "scanner_name": None,
         "scan_type": scan.scan_type,
-        "files_found": scan.files_found,
+        "files_found": files_found,
         "current_path": scan.current_path,
         "started_at": scan.started_at.isoformat() if scan.started_at else None,
     })
@@ -624,7 +656,7 @@ async def ingest_batch(
         str(batch.scan_id),
         phase=scan.phase,
         status=scan.status,
-        files_found=scan.files_found,
+        files_found=files_found,
         total_estimated=scan.total_estimated,
     )
 
@@ -640,14 +672,27 @@ async def ingest_batch(
 
     indexed_ids = list(set(new_file_ids + changed_file_ids))
     if indexed_ids:
-        background_tasks.add_task(
-            _index_files_to_meilisearch, indexed_ids, settings.database_url
-        )
+        # v0.29.2 — replace the per-batch _index_files_to_meilisearch
+        # background task with a SADD into the per-source pending set.
+        # The meili_indexer debouncer (started in main.py lifespan)
+        # flushes the set every 5 s or when it hits 5000 entries,
+        # whichever comes first; the scan-terminal path force-flushes
+        # so search results catch up at "completed" time. Cuts Meili
+        # task count by ~100× on a fast scan.
+        from akashic.services import meili_indexer
+        await meili_indexer.mark_dirty(batch.source_id, indexed_ids)
         background_tasks.add_task(
             _enqueue_extraction_jobs, indexed_ids, settings.redis_url
         )
 
     if batch.is_final:
+        # v0.29.2 — drain the pending Meili set immediately on
+        # terminal so search reflects scan-final state without waiting
+        # for the 5 s debounce window.
+        from akashic.services import meili_indexer
+        background_tasks.add_task(
+            meili_indexer.flush, batch.source_id,
+        )
         # Order matters: rollup runs BEFORE the snapshot writer so the
         # snapshot's totals see the freshly-computed subtree aggregates.
         # Both run in the background — the user sees the ScanBatchResponse

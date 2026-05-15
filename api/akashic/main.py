@@ -1,3 +1,4 @@
+import gzip
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -23,6 +24,103 @@ _REQUEST_SLOW_MS = 250
 # every scrape, and /health is called constantly enough to dwarf
 # real api traffic in the histogram.
 _INSTRUMENT_SKIP_PATHS = frozenset({"/metrics", "/health"})
+
+
+class _GzipRequestMiddleware:
+    """ASGI middleware that decompresses ``Content-Encoding: gzip``
+    request bodies before route handlers see them.
+
+    v0.29.2 — the scanner agent's batch POSTs (5–500 KB JSON each) now
+    arrive gzipped to cut wire size 5–10× on remote-scanner deployments.
+    FastAPI/uvicorn don't decode request bodies automatically — Starlette's
+    GZipMiddleware is response-side only — so this middleware bridges
+    the gap.
+
+    Implementation: wraps the ASGI ``receive`` callable, collects all
+    ``http.request`` chunks until ``more_body=false``, decompresses the
+    accumulated body, then yields it back as a single synthetic
+    ``http.request`` event. Memory usage matches what FastAPI's
+    ``request.body()`` would buffer anyway. The 32 MB cap on the
+    decompressed size prevents a hostile sender from gzip-bombing the
+    API (decompressed-size DoS).
+    """
+
+    _MAX_DECOMPRESSED_BYTES = 32 * 1024 * 1024  # 32 MB — matches nginx's body cap
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = scope.get("headers") or []
+        content_encoding = None
+        for k, v in headers:
+            if k == b"content-encoding":
+                content_encoding = v.decode("latin-1").strip().lower()
+                break
+        if content_encoding != "gzip":
+            await self.app(scope, receive, send)
+            return
+
+        # Drain the upstream request body, then synthesize one event.
+        body_parts: list[bytes] = []
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                # http.disconnect or similar — pass it through.
+                await self.app(scope, receive, send)
+                return
+            body_parts.append(message.get("body") or b"")
+            if not message.get("more_body", False):
+                break
+
+        try:
+            decompressed = gzip.decompress(b"".join(body_parts))
+        except (OSError, EOFError) as exc:
+            await Response(
+                content=f"Invalid gzip body: {exc}".encode(),
+                status_code=400,
+            )(scope, receive, send)
+            return
+        if len(decompressed) > self._MAX_DECOMPRESSED_BYTES:
+            await Response(
+                content=b"Decompressed body exceeds 32 MB cap",
+                status_code=413,
+            )(scope, receive, send)
+            return
+
+        # Replace the encoding header so downstream code doesn't try to
+        # decode again. Also drop content-length — it now reflects the
+        # encoded length and is wrong for the decoded body.
+        new_headers = []
+        for k, v in headers:
+            if k in (b"content-encoding", b"content-length"):
+                continue
+            new_headers.append((k, v))
+        new_headers.append((b"content-length", str(len(decompressed)).encode("latin-1")))
+        scope = dict(scope)
+        scope["headers"] = new_headers
+
+        sent = False
+
+        async def _replay():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {
+                    "type": "http.request",
+                    "body": decompressed,
+                    "more_body": False,
+                }
+            # Mirror what uvicorn would emit after the body: an empty
+            # disconnect signal lets long-running consumers shut down
+            # cleanly. Without this, code that loops on receive() would
+            # block forever after consuming the synthetic body.
+            return {"type": "http.disconnect"}
+
+        await self.app(scope, _replay, send)
 
 
 class _TimingMiddleware(BaseHTTPMiddleware):
@@ -100,12 +198,32 @@ async def lifespan(app: FastAPI):
     from akashic.services import top_children_worker
     top_children_worker.start_worker()
 
+    # v0.29.2 — Meilisearch debouncer. Drains per-source dirty sets
+    # every tick so high-throughput scans produce a handful of Meili
+    # batches rather than hundreds of per-batch tasks. The handle +
+    # stop event are stashed on app.state so shutdown can cancel.
+    import asyncio as _asyncio
+    from akashic.services import meili_indexer
+    app.state.meili_debouncer_stop = _asyncio.Event()
+    app.state.meili_debouncer_task = _asyncio.create_task(
+        meili_indexer.run_debouncer(app.state.meili_debouncer_stop)
+    )
+
     yield
 
     # Shutdown
     from akashic.scheduler import stop_scheduler
     stop_scheduler()
     await top_children_worker.stop_worker()
+    # Stop the Meili debouncer cleanly so an in-flight flush isn't
+    # cancelled mid-call (which could leave the pending set partially
+    # SPOPed without the index push completing).
+    if hasattr(app.state, "meili_debouncer_stop"):
+        app.state.meili_debouncer_stop.set()
+        try:
+            await app.state.meili_debouncer_task
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("meili debouncer shutdown noise: %s", exc)
     from akashic.services import scan_pubsub
     await scan_pubsub.aclose()
 
@@ -133,6 +251,14 @@ def create_app() -> FastAPI:
     # endpoint. `/health` and `/metrics` are excluded inside the
     # middleware (see _INSTRUMENT_SKIP_PATHS).
     app.add_middleware(_TimingMiddleware)
+
+    # v0.29.2 — gzip request-body decoder. Added last so it sits
+    # OUTSIDE _TimingMiddleware (last add_middleware = first to see
+    # the request). The scanner agent gzip-encodes batch POSTs to
+    # /api/ingest/batch; this middleware decompresses transparently
+    # so the route handlers receive plain JSON regardless of whether
+    # the client compressed.
+    app.add_middleware(_GzipRequestMiddleware)
 
     # Liveness probe for compose healthchecks. Deliberately doesn't
     # touch the DB / Meili / Redis — we want this to flip green the

@@ -145,6 +145,23 @@ async def _maybe_finalize_scan(
     scan.status = new_status
     scan.completed_at = now
     scan.lease_expires_at = None
+
+    # v0.29.2 — flush per-scan Redis counter hash back to scan.*
+    # before terminal commit. Single round-trip; safe to call even
+    # when the scan never had a hash (no-op).
+    from akashic.services import scan_counters
+    await scan_counters.flush_to_db(db, scan)
+    # And drain the Meilisearch debouncer for this source so search
+    # is current at terminal time.
+    if source is not None:
+        from akashic.services import meili_indexer
+        try:
+            await meili_indexer.flush(source.id)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).debug(
+                "meili flush on _maybe_finalize_scan failed: %s", exc,
+            )
     if source is not None:
         if new_status == "completed":
             source.status = "online"

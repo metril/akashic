@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
@@ -30,6 +31,11 @@ type Options struct {
 	// (useful for tests / standalone manual runs).
 	Reporter *observe.Reporter
 	State    *observe.State
+	// v0.29.2 — when non-nil, the walker reads the current batch size
+	// from AdaptiveBatcher.Current() on every flush check, and the
+	// sender goroutine calls AdaptiveBatcher.Observe() after each
+	// SendBatch. The static BatchSize is ignored when this is set.
+	AdaptiveBatcher *AdaptiveBatchSize
 }
 
 type Result struct {
@@ -137,7 +143,70 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	const progressLogInterval = 3 * time.Second
 	var lastProgressLog time.Time
 
-	flush := func(final bool) error {
+	// v0.29.2 — pipeline the walker and sender. Pre-fix the walker
+	// synchronously blocked on SendBatch's HTTP round trip (typically
+	// 200–600 ms per batch on a real network), which left the walker
+	// idle 12–50% of the time on fast storage. Now the walker pushes
+	// completed batches onto a bounded channel and continues; a single
+	// sender goroutine drains the channel and POSTs.
+	//
+	// Buffer size 3: enough to absorb one slow batch without backing
+	// up the walker, small enough that memory under worst-case batch
+	// size (5000 entries × ~5 KB/entry on SMB-with-ACLs ≈ 25 MB) stays
+	// bounded — three buffered batches ≈ 75 MB worst case.
+	//
+	// Final-batch invariant: flushFinal closes batchCh and waits for
+	// the sender to drain; we then return the sender's first error
+	// (if any). The InaccessibleDirs/Files counts that v0.5.11 only
+	// attached to the final batch still ride on it — the walker
+	// stamps them on the final batch before the close.
+	batchCh := make(chan models.ScanBatch, 3)
+	senderDone := make(chan struct{})
+	scanCtx, cancelScan := context.WithCancel(ctx)
+	defer cancelScan()
+	var firstSendErr atomic.Value // error
+
+	// v0.29.2 — seed the State with the initial batch size so the
+	// very first heartbeat carries it (without this, the Live Log
+	// row tooltip would say "—" until the first batch lands).
+	if s.opts.AdaptiveBatcher != nil && s.opts.State != nil {
+		s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())
+	}
+
+	go func() {
+		defer close(senderDone)
+		for scanBatch := range batchCh {
+			start := time.Now()
+			err := s.client.SendBatch(scanCtx, scanBatch)
+			elapsed := time.Since(start)
+			if s.opts.AdaptiveBatcher != nil {
+				s.opts.AdaptiveBatcher.Observe(elapsed, err)
+				if s.opts.State != nil {
+					s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())
+				}
+			}
+			if err != nil {
+				if firstSendErr.Load() == nil {
+					firstSendErr.Store(err)
+				}
+				// Cancel the walker — no point producing more batches
+				// when the sender is failing.
+				cancelScan()
+				s.warn("send batch failed: %v", err)
+				continue
+			}
+			result.BatchesSent++
+			log.Printf("scan %s: batch %d sent (%d entries, final=%v) in %s",
+				s.opts.ScanID, result.BatchesSent, len(scanBatch.Entries),
+				scanBatch.IsFinal, elapsed.Round(time.Millisecond))
+		}
+	}()
+
+	// enqueue moves the in-progress batch onto batchCh, returns
+	// without blocking on the network. Resets batch to a fresh slice
+	// (don't reuse — the sender goroutine now owns the old backing
+	// array). When final=true, attaches the inaccessible counts.
+	enqueue := func(final bool) error {
 		if len(batch) == 0 && !final {
 			return nil
 		}
@@ -151,31 +220,15 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			scanBatch.SourceSecurityMetadata = bucketSecurity
 			firstBatch = false
 		}
-		// v0.5.11 — only the final batch carries the inaccessible
-		// counts. Intermediate batches don't have them set yet
-		// (the walker still has subdirs in flight) and the api
-		// only persists once per scan anyway.
 		if final {
 			scanBatch.InaccessibleDirs = result.InaccessibleDirs
 			scanBatch.InaccessibleFiles = result.InaccessibleFiles
 		}
-		if err := s.client.SendBatch(ctx, scanBatch); err != nil {
-			// Same reasoning as the Connect path above: emit through
-			// the LogSink before returning so the user sees WHY the
-			// scan died, not just that it did. The api side typically
-			// returns a structured error (HTTP status + body); SendBatch
-			// folds those into the err string, so logging %v is enough.
-			s.warn("send batch failed: %v", err)
-			return fmt.Errorf("send batch: %w", err)
+		select {
+		case batchCh <- scanBatch:
+		case <-scanCtx.Done():
+			return scanCtx.Err()
 		}
-		result.BatchesSent++
-		// v0.28.2 — surface batch sends to docker logs so silent scans
-		// are no longer silent. Goes through stdlib log (not s.info)
-		// because the LogSink at this point already saw the structured
-		// progress log every progressLogInterval; this is for ops
-		// tailing `docker compose logs scanner`.
-		log.Printf("scan %s: batch %d sent (%d entries, final=%v)",
-			s.opts.ScanID, result.BatchesSent, len(batch), final)
 		batch = nil
 		return nil
 	}
@@ -186,7 +239,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	walkHash := s.opts.Hash && !incremental
 	fullScan := !incremental
 
-	walkStats, err := s.connector.Walk(ctx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
+	walkStats, err := s.connector.Walk(scanCtx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
 			if s.opts.State != nil {
@@ -204,7 +257,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			}
 
 			if incremental && entry.ModifiedAt != nil && !entry.ModifiedAt.Before(*s.opts.LastScanTime) {
-				r, err := s.connector.ReadFile(ctx, entry.Path)
+				r, err := s.connector.ReadFile(scanCtx, entry.Path)
 				if err == nil {
 					hash, herr := metadata.HashReader(r)
 					r.Close()
@@ -223,12 +276,31 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			lastProgressLog = now
 		}
 
-		if len(batch) >= s.opts.BatchSize {
-			return flush(false)
+		// v0.29.2 — adaptive threshold. When AdaptiveBatcher is set,
+		// the walker reads Current() on every check so a mid-scan
+		// adjustment takes effect on the very next batch boundary.
+		threshold := s.opts.BatchSize
+		if s.opts.AdaptiveBatcher != nil {
+			threshold = s.opts.AdaptiveBatcher.Current()
+		}
+		if len(batch) >= threshold {
+			return enqueue(false)
 		}
 		return nil
 	})
 	if err != nil {
+		// Cancel and close the channel so the sender's range loop
+		// exits, then wait for drain — without close(batchCh) the
+		// sender keeps blocking on the channel forever and the wait
+		// below deadlocks.
+		cancelScan()
+		close(batchCh)
+		<-senderDone
+		// Prefer the walker's error if there is one; otherwise the
+		// sender's first error explains the cancel.
+		if sendErr, _ := firstSendErr.Load().(error); sendErr != nil && err == scanCtx.Err() {
+			return nil, fmt.Errorf("send batch: %w", sendErr)
+		}
 		return nil, fmt.Errorf("walk: %w", err)
 	}
 
@@ -236,8 +308,16 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	result.InaccessibleFiles = walkStats.InaccessibleFiles
 
 	s.setPhase("finalize")
-	if err := flush(true); err != nil {
+	if err := enqueue(true); err != nil {
+		cancelScan()
+		close(batchCh)
+		<-senderDone
 		return nil, err
+	}
+	close(batchCh)
+	<-senderDone
+	if sendErr, _ := firstSendErr.Load().(error); sendErr != nil {
+		return nil, fmt.Errorf("send batch: %w", sendErr)
 	}
 
 	s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",

@@ -45,6 +45,11 @@ class HeartbeatIn(BaseModel):
     dirs_queued: int = 0
     total_estimated: int | None = None
     phase: ScanPhase | None = None
+    # v0.29.2 — current adaptive batch size, surfaced so the Live Log
+    # row tooltip can show "batch size: 1250" mid-scan. Nullable so
+    # legacy scanners (pre-v0.29.2) without AIMD still post valid
+    # heartbeats.
+    current_batch_size: int | None = None
 
 
 class LogLineIn(BaseModel):

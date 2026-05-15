@@ -32,6 +32,10 @@ type State struct {
 	dirsWalked     atomic.Int64
 	dirsQueued     atomic.Int64
 	totalEstimated atomic.Int64 // 0 = unset (matches "no prewalk" signal)
+	// v0.29.2 — current adaptive batch size. 0 = unset; the heartbeat
+	// snapshot omits the field when zero so legacy/non-adaptive scans
+	// don't post a misleading "0" to the API.
+	currentBatchSize atomic.Int64
 
 	// currentPath and phase change less frequently — guarded by a single
 	// mutex rather than atomic.Value so the heartbeat sees a coherent
@@ -50,6 +54,12 @@ func (s *State) IncDirWalked()             { s.dirsWalked.Add(1) }
 func (s *State) SetDirsQueued(n int64)     { s.dirsQueued.Store(n) }
 func (s *State) SetTotalEstimated(n int64) { s.totalEstimated.Store(n) }
 
+// SetCurrentBatchSize records the current AIMD batch size so the next
+// heartbeat snapshot picks it up. Called from the scanner.Run loop
+// after each AdaptiveBatcher.Observe() — and once at scan start so the
+// very first heartbeat carries the initial value.
+func (s *State) SetCurrentBatchSize(n int) { s.currentBatchSize.Store(int64(n)) }
+
 func (s *State) SetCurrent(path, phase string) {
 	s.mu.Lock()
 	if path != "" {
@@ -62,14 +72,15 @@ func (s *State) SetCurrent(path, phase string) {
 }
 
 type snapshot struct {
-	CurrentPath    string `json:"current_path,omitempty"`
-	FilesScanned   int64  `json:"files_scanned"`
-	BytesScanned   int64  `json:"bytes_scanned"`
-	FilesSkipped   int64  `json:"files_skipped"`
-	DirsWalked     int64  `json:"dirs_walked"`
-	DirsQueued     int64  `json:"dirs_queued"`
-	TotalEstimated *int64 `json:"total_estimated,omitempty"`
-	Phase          string `json:"phase,omitempty"`
+	CurrentPath      string `json:"current_path,omitempty"`
+	FilesScanned     int64  `json:"files_scanned"`
+	BytesScanned     int64  `json:"bytes_scanned"`
+	FilesSkipped     int64  `json:"files_skipped"`
+	DirsWalked       int64  `json:"dirs_walked"`
+	DirsQueued       int64  `json:"dirs_queued"`
+	TotalEstimated   *int64 `json:"total_estimated,omitempty"`
+	Phase            string `json:"phase,omitempty"`
+	CurrentBatchSize *int64 `json:"current_batch_size,omitempty"`
 }
 
 func (s *State) snapshot() snapshot {
@@ -87,6 +98,9 @@ func (s *State) snapshot() snapshot {
 	}
 	if t := s.totalEstimated.Load(); t > 0 {
 		out.TotalEstimated = &t
+	}
+	if b := s.currentBatchSize.Load(); b > 0 {
+		out.CurrentBatchSize = &b
 	}
 	return out
 }

@@ -5,6 +5,141 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.2 — 2026-05-15
+
+**Throughput rework: pipeline + gzip + AIMD + N+1 elimination + Redis
+scan counters + Meili debouncer.** Stage 2 of v0.29. The user reported
+"the batching seems slow" after v0.28.2; this release attacks four
+walls in series:
+
+  1. Walker→sender pipelining + gzip + adaptive batch sizing in the
+     scanner (Part B).
+  2. Bulk tag-inheritance propagation in ingest (Part F) — one
+     `SELECT … FROM unnest(uuid[], text[])` per source per batch
+     instead of one round trip per new entry.
+  3. Redis-backed per-scan counters (Part G) — removes the per-batch
+     `Scan`-row lock so two scanners on the same scan no longer
+     serialize at COMMIT time.
+  4. Per-source Meilisearch debouncer (Part H) — replaces the
+     per-batch background task with a 5 s / 5000-entry debounced
+     bulk index call.
+
+### Throughput — scanner (Part B)
+
+- **Walker→sender pipelining** ([scanner/internal/scanner/scanner.go](scanner/internal/scanner/scanner.go)).
+  Pre-fix the walker synchronously blocked on each batch's
+  `SendBatch` HTTP round-trip (200–600 ms per batch on a real
+  network), idling the walker 12–50% of the time on fast storage.
+  Post-fix a bounded channel (buffer=3) sits between the walker and
+  a dedicated sender goroutine; the walker pushes a batch and
+  continues immediately. Final-batch + error paths close the channel
+  cleanly so the sender drains without deadlock or goroutine leak.
+- **Adaptive batch sizing (AIMD)** ([scanner/internal/scanner/batchsize.go](scanner/internal/scanner/batchsize.go)).
+  Static `BatchSize: 500` is wrong for someone — local NVMe sources
+  sustain 5000+/batch, remote SMB with full ACLs barely 250. AIMD
+  converges on whatever the source × API × Postgres × proxy can
+  sustain: initial 1000, floor 250, ceiling 5000; latency target
+  band 100–400 ms; below low → +250; above high → ÷2; error → ÷2 +
+  clamp to floor. Env overrides (`AKASHIC_INGEST_BATCH_SIZE_*`) pin
+  the size when ops want fixed sizing. Adjustments log to
+  `docker compose logs scanner` so changes are visible in real time.
+  Heartbeat carries the current value through a new
+  `current_batch_size` field so the Live Log row tooltip can
+  surface it.
+- **gzip request body** ([scanner/internal/client/client.go](scanner/internal/client/client.go),
+  [api/akashic/main.py](api/akashic/main.py)).
+  Batches >= 1 KB now ship gzip-encoded (`Content-Encoding: gzip`)
+  with an ASGI middleware on the API side that decompresses before
+  routing. Scan-batch JSON compresses 80–90% (repeated keys + paths
+  + ASCII strings), so wire size shrinks 5–10× — a meaningful win
+  for remote scanners on slow uplinks. Includes a 32 MB
+  decompressed-size cap as a gzip-bomb guard.
+
+### Throughput — API (Parts F + G + H)
+
+- **Bulk tag-inheritance propagation** ([services/tag_inheritance.py:propagate_to_new_entries](api/akashic/services/tag_inheritance.py),
+  [routers/ingest.py](api/akashic/routers/ingest.py)).
+  Pre-fix the ingest hot path called `propagate_to_new_entry` once
+  per new entry from three sites (Phase 1 tombstone resurrect, Phase
+  3 fresh INSERT, Phase 4 race-loser resurrect) — at ~1 ms per
+  round-trip, a 2000-row 80%-new batch spent ~1.6 s in this N+1
+  loop alone. New bulk variant takes a list of
+  `(entry_id, source_id, path)` and runs one
+  `SELECT … FROM unnest(uuid[], text[]) … JOIN entries anc …` per
+  source per batch. The kept singular `propagate_to_new_entry` is a
+  thin wrapper for non-ingest callers (admin tag-apply,
+  move-rebalancer).
+- **Redis-backed per-scan counters** ([services/scan_counters.py](api/akashic/services/scan_counters.py)).
+  Pre-fix every batch held a brief row-level lock on the `scans`
+  row while it did `scan.files_found += N`, `scan.files_new += M`,
+  etc. With multi-scanner cooperation finally working in v0.29.0
+  and AIMD batch sizes climbing, the lock became the dominant
+  per-batch serialization point. Post-fix the hot path does one
+  `HINCRBY` per non-zero counter into a Redis hash
+  `akashic:scan:{id}:counters` — single round-trip, no row lock,
+  no transaction contention. Reads (heartbeat broadcast,
+  `/api/scans/{id}`) overlay row + hash so the live counter view
+  matches the pre-v0.29.2 semantics. Terminal-status transitions
+  (`/api/scans/{id}/complete`, `_maybe_finalize_scan`, stale-scan
+  watchdog) flush the hash as deltas onto the row, then delete the
+  hash. 7-day TTL on the hash + watchdog flush handle the crash-
+  recovery case.
+- **Per-source Meilisearch debouncer** ([services/meili_indexer.py](api/akashic/services/meili_indexer.py)).
+  Pre-fix every ingest batch enqueued an
+  `_index_files_to_meilisearch` background task — hundreds of
+  Meili tasks queued back-to-back on a high-throughput scan, each
+  creating per-task overhead and serializing internally on Meili's
+  indexing queue. Post-fix every batch SADDs entry ids onto a per-
+  source set `akashic:meili:pending:{source_id}`; a single
+  `run_debouncer()` asyncio task (started from the app lifespan)
+  sweeps every 1 s and flushes a source when its set hits 5000
+  entries or the first-marked-at timestamp is 5 s old, whichever
+  comes first. Parallel across sources — two concurrent scans on
+  different sources flush independently. Scan-completion paths
+  call `flush(source_id)` directly so search results catch up at
+  terminal time without waiting for the debounce window.
+
+### Schema
+
+- New migration `0033_scan_curr_batch_size`: adds nullable
+  `scans.current_batch_size INTEGER` so the Live Log row tooltip
+  can render the heartbeat-reported AIMD value.
+
+### Surface
+
+- `HeartbeatIn` schema gains `current_batch_size: int | None`
+  ([api/akashic/schemas/scan.py](api/akashic/schemas/scan.py)).
+  Legacy scanners (pre-v0.29.2) omit the field and continue to
+  work; only the new agent populates it.
+- The per-scan WS `scan.state` events now reflect Redis-overlaid
+  `files_found` so a long running scan's dashboard tile updates
+  smoothly, not at flush boundaries.
+
+### Tests
+
+- Scanner Go: new `batchsize_test.go` (8 cases — grow/halve/in-band/
+  error/ceiling/floor/pin/hooks), `pipeline_test.go` (walker proceeds
+  through slow sender; sender error propagates; final batch reaches
+  server), `client_gzip_test.go` (large body gzipped + decodes
+  cleanly; small body sent plain).
+- API: new `test_scan_counters.py` (8 cases — accumulate, dedup zero,
+  reject typo, overlay sums, flush as delta + clear, multi-flush
+  accumulation, no-op on empty, concurrent adds from two
+  "scanners"), `test_meili_indexer.py` (8 cases — mark_dirty
+  accumulates, empty input no-ops, should_flush size/age/empty,
+  flush empty/idempotent, two-source independence, flush clears
+  keys), `test_tag_propagation_bulk.py` (5 cases — empty list,
+  many-children-one-ancestor, no cross-contamination, singular
+  wrapper, mixed-source grouping).
+
+### Verification
+
+- `pytest tests/` — 715 passed, 1 skipped (21 new cases across the
+  three new test files).
+- `npx tsc --noEmit && npx vitest run` — clean (133 passed).
+- `go test ./...` from `scanner/` — all packages green (8 new AIMD
+  cases + 3 new pipeline cases + 2 new gzip cases).
+
 ## v0.29.1 — 2026-05-15
 
 **SMB probe honesty.** v0.29.0 shipped an NFS-side fix for the
