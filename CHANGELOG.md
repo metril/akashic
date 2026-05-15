@@ -5,6 +5,35 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.9 — 2026-05-15
+
+**Production compose file gets the v0.29.8 Tika worker.** The
+v0.29.8 `extraction-worker` service and the Tika healthcheck fix
+landed only in `compose.yaml` (the dev/build file);
+`compose.release.yaml` (production, pre-built GHCR images) was
+missed — so production deployments would still hit the unbounded
+`rq:queue:extraction` backlog v0.29.8 set out to fix.
+
+### Bug fixes
+
+- **`extraction-worker` added to `compose.release.yaml`**
+  ([compose.release.yaml](compose.release.yaml)). Same service as
+  the dev file but reusing the pre-built
+  `ghcr.io/metril/akashic-api` image (the RQ worker module ships
+  in the api package). Two replicas, `restart: unless-stopped`.
+
+- **Tika healthcheck added to `compose.release.yaml`**
+  ([compose.release.yaml](compose.release.yaml)). The release file
+  had no Tika healthcheck at all — the file's header claims
+  healthchecks "match compose.yaml exactly", which was untrue for
+  Tika. Without it the new worker's `tika: service_healthy`
+  dependency could never be satisfied. Uses the same bash
+  `/dev/tcp` probe as v0.29.8's `compose.yaml` fix.
+
+### Verification
+
+- `docker compose -f compose.release.yaml config` — valid.
+
 ## v0.29.8 — 2026-05-15
 
 **Four-bug fix bundle from a multi-scanner production deployment.**
@@ -39,16 +68,15 @@ user" message. All four were pre-existing latent bugs.
   other two paths.
 
 - **Tika extraction jobs actually get processed**
-  ([compose.yaml](compose.yaml),
-  [compose.release.yaml](compose.release.yaml)). Both compose
-  files started the Tika service but never the RQ worker that
-  drains its queue — the worker was a manual `rq worker
-  extraction` step nobody ran, so jobs accumulated in
-  `rq:queue:extraction` forever (the smoke test found a 1 508-job
-  backlog). A new `extraction-worker` service (2 replicas,
-  `restart: unless-stopped`) now runs alongside the API in both
-  the dev and release compose files. Scale out with
+  ([compose.yaml](compose.yaml)). `compose.yaml` started the Tika
+  service but never the RQ worker that drains its queue — the
+  worker was a manual `rq worker extraction` step nobody ran, so
+  jobs accumulated in `rq:queue:extraction` forever (the smoke
+  test found a 1 508-job backlog). A new `extraction-worker`
+  service (2 replicas, `restart: unless-stopped`) now runs
+  alongside the API. Scale out with
   `docker compose up --scale extraction-worker=N`.
+  (v0.29.9 extends this to `compose.release.yaml`.)
 
 - **Scans no longer mislabel non-user cancellations as "by user"**
   ([routers/scan_progress.py](api/akashic/routers/scan_progress.py),
@@ -65,14 +93,12 @@ user" message. All four were pre-existing latent bugs.
   fall back to the "by user" message for compatibility.
 
 - **Tika container healthcheck fixed**
-  ([compose.yaml](compose.yaml),
-  [compose.release.yaml](compose.release.yaml)). The v0.29.0
-  healthcheck in `compose.yaml` shelled out to `wget`, which the
-  `apache/tika:3.0.0.0` image does not ship — the container sat
-  `unhealthy` indefinitely; `compose.release.yaml` had no Tika
-  healthcheck at all. Harmless until the new `extraction-worker`
-  added a `tika: service_healthy` dependency. Both files now use
-  a bash `/dev/tcp` probe (the image has bash + java only).
+  ([compose.yaml](compose.yaml)). The v0.29.0 healthcheck shelled
+  out to `wget`, which the `apache/tika:3.0.0.0` image does not
+  ship — the container sat `unhealthy` indefinitely. Harmless
+  until the new `extraction-worker` added a `tika:
+  service_healthy` dependency. The check now uses bash's
+  `/dev/tcp` pseudo-device (the image has bash + java only).
 
 ### Surface
 
