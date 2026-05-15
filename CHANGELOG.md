@@ -5,6 +5,61 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.7 — 2026-05-15
+
+**Scan log survives scan completion.** User report: "the live log
+disappears once a scan is completed." The SourceDetail "Live log"
+tab vanished the instant a scan transitioned to a terminal state —
+both the tab button (gated on `isScanning`) and its content (gated
+on `isScanning && activeScanId`) unmounted, taking the buffered
+log lines with them via `useScanStream`'s `setState(initialState)`
+cleanup. The user couldn't review the just-completed scan's log
+without re-triggering or hunting in the audit history.
+
+### Bug fixes
+
+- **SourceDetail "Scan log" tab persists past scan completion**
+  ([components/sources/SourceDetail.tsx](web/src/components/sources/SourceDetail.tsx)).
+  New `latestScanId` prop (terminal-inclusive, derived from
+  `useActiveScanForSource`) drives both tab visibility and content.
+  The tab button shows whenever the source has any scan to inspect;
+  the content stays mounted across the scan's terminal transition.
+  Renamed from "Live log" → "Scan log" to reflect that it works for
+  both running and completed scans.
+  ([pages/Sources.tsx](web/src/pages/Sources.tsx))
+  passes `latestScanId={latestScanForOpen?.id ?? null}` alongside
+  the existing `activeScanId`.
+
+### Surface
+
+- **Terminal-status badge in the log panel header**
+  ([components/scans/ScanLogPanel.tsx](web/src/components/scans/ScanLogPanel.tsx)).
+  When viewing a completed/failed/cancelled scan's log, a Badge
+  appears next to the WS status pill (which would otherwise still
+  say "Live" or "Closed" — misleading for a frozen, ended scan).
+  Variant follows the scan's terminal state: `online` for
+  completed, `failed` for failed, `neutral` for cancelled. Hidden
+  for in-flight scans (the existing pill is enough).
+
+- **Tab auto-resets to Details if no scan exists**. If the user is
+  on the Scan log tab and `latestScanId` becomes null (e.g., the
+  source has never been scanned or its scan history was purged),
+  the tab falls back to Details rather than disappearing
+  underneath the user.
+
+### Tests
+
+- New [components/scans/ScanLogPanel.test.ts](web/src/components/scans/ScanLogPanel.test.ts):
+  6 cases covering `terminalBadgeVariantFor` (null for in-flight /
+  nullish input, completed → online, failed → failed, cancelled →
+  neutral, unknown → null). React-render assertions stay in manual
+  smoke since the web test setup is node-env, no jsdom.
+
+### Verification
+
+- `npx tsc --noEmit && npx vitest run` — clean (139 passed; was 133).
+- Backend untouched — pytest + go test unchanged.
+
 ## v0.29.6 — 2026-05-15
 
 **SMB probe surfaces share-ACL denial. Empty-batch wire-shape crash

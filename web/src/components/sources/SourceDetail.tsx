@@ -35,23 +35,40 @@ interface SourceDetailProps {
   source: Source | null;
   open: boolean;
   onClose: () => void;
-  /** Latest scan id for this source, when source.status === "scanning" */
+  /** Latest pending/running scan id; null once the scan terminates.
+   *  Used by DetailsTab to disable the Scan-now button while a scan
+   *  is in flight. */
   activeScanId?: string | null;
+  /** Most-recent scan id for this source — terminal-inclusive. Survives
+   *  the scan completing so the Scan log tab can keep showing the log
+   *  after the scan finishes. v0.29.7. */
+  latestScanId?: string | null;
 }
 
 type Tab = "details" | "history" | "live";
 
 export const SourceDetail = memo(function SourceDetail({
-  source, open, onClose, activeScanId,
+  source, open, onClose, activeScanId, latestScanId,
 }: SourceDetailProps) {
   const [tab, setTab] = useState<Tab>("details");
-  const isScanning = source?.status === "scanning";
+  // v0.29.7 — drive the Scan log tab off the terminal-inclusive
+  // scan id so the tab + content survive scan completion. The user
+  // can review the just-completed scan's log without re-triggering.
+  const scanLogScanId = latestScanId ?? activeScanId ?? null;
 
   // When the drawer opens for a different source, reset to the Details
   // tab. Otherwise the previous tab (e.g., History) leaks across opens.
   useEffect(() => {
     if (open) setTab("details");
   }, [source?.id, open]);
+
+  // v0.29.7 — if the user is on the Scan log tab and the source has
+  // no scan to inspect (never scanned, or just deleted history),
+  // fall back to Details so the tab doesn't disappear underneath
+  // them without a redirect.
+  useEffect(() => {
+    if (tab === "live" && !scanLogScanId) setTab("details");
+  }, [tab, scanLogScanId]);
 
   if (!source) return null;
 
@@ -76,9 +93,14 @@ export const SourceDetail = memo(function SourceDetail({
           <TabButton active={tab === "history"} onClick={() => setTab("history")}>
             History
           </TabButton>
-          {isScanning && (
+          {/* v0.29.7 — Scan log tab visible whenever the source has
+              any scan to inspect (running OR terminal). Pre-fix the
+              tab + content disappeared the instant a scan completed,
+              leaving the user no way to review the just-finished
+              scan's log. */}
+          {scanLogScanId && (
             <TabButton active={tab === "live"} onClick={() => setTab("live")}>
-              Live log
+              Scan log
             </TabButton>
           )}
         </div>
@@ -94,8 +116,8 @@ export const SourceDetail = memo(function SourceDetail({
           {tab === "history" && (
             <SourceAuditTab sourceId={source.id} visible={tab === "history"} />
           )}
-          {tab === "live" && isScanning && activeScanId && (
-            <InlineLogPanel scanId={activeScanId} sourceName={source.name} />
+          {tab === "live" && scanLogScanId && (
+            <InlineLogPanel scanId={scanLogScanId} sourceName={source.name} />
           )}
         </div>
       </div>

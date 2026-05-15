@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Drawer } from "../ui";
+import { Badge, Button, Drawer } from "../ui";
+import type { BadgeVariant } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,29 @@ const STATUS_COLOR: Record<string, string> = {
   closed: "bg-gray-400",
   error: "bg-rose-500",
 };
+
+// v0.29.7 — variant-selection helper for the terminal-status badge.
+// Returns null for in-flight states (running/pending) so the badge
+// doesn't double-label scans the existing WS status pill already
+// describes. Extracted as a pure function so vitest (in node env,
+// no jsdom) can cover it.
+export function terminalBadgeVariantFor(
+  scanStatus: string | null | undefined,
+): BadgeVariant | null {
+  if (!scanStatus) return null;
+  if (scanStatus === "completed") return "online";
+  if (scanStatus === "failed")    return "failed";
+  if (scanStatus === "cancelled") return "neutral";
+  return null;
+}
+
+// terminalBadge renders the v0.29.7 post-completion status hint
+// next to the WS state pill. Hidden for in-flight scans.
+function terminalBadge(scanStatus: string | null | undefined): React.ReactNode {
+  const variant = terminalBadgeVariantFor(scanStatus);
+  if (variant === null) return null;
+  return <Badge variant={variant}>{scanStatus}</Badge>;
+}
 
 // Drawer width: "xl" = max-w-4xl. Live log lines are dense and
 // path-heavy (see "current: <SMB share path/Season/Episode>" lines);
@@ -184,6 +208,12 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               className={`inline-block h-2 w-2 rounded-full ${STATUS_COLOR[stream.status]}`}
             />
             <span className="text-xs text-fg-muted">{STATUS_LABEL[stream.status]}</span>
+            {/* v0.29.7 — terminal-status badge. When viewing a
+                completed/failed/cancelled scan's log, this tells the
+                user the panel isn't frozen — the scan just ended.
+                Hidden for in-flight scans (running/pending); the
+                existing status pill already conveys that. */}
+            {terminalBadge(stream.snapshot?.status)}
             {/* v0.29.2 — adaptive batch size, surfaced when the scanner
                 reports it. Hidden on legacy / pre-v0.29.2 agents and on
                 terminal scans where the value is no longer moving. */}

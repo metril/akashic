@@ -601,6 +601,7 @@ export default function Sources() {
         open={openSource !== null}
         onClose={handleClose}
         activeScanId={openScanForOpen?.id ?? null}
+        latestScanId={latestScanForOpen?.id ?? null}
       />
 
       <ScanLogPanel
