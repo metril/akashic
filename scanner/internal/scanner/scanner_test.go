@@ -1,8 +1,10 @@
 package scanner
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,8 +22,22 @@ func newTestServer(t *testing.T, onBatch func(models.ScanBatch)) *httptest.Serve
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if onBatch != nil {
+			// v0.29.2 — the client gzips bodies >= 1 KB. Local-connector
+			// entries with full ACL/hash fields cross that threshold
+			// in a 2-entry batch, so the test server must decode gzip
+			// before parsing JSON or onBatch never fires.
+			var bodyReader io.Reader = r.Body
+			if r.Header.Get("Content-Encoding") == "gzip" {
+				gz, err := gzip.NewReader(r.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				defer gz.Close()
+				bodyReader = gz
+			}
 			var b models.ScanBatch
-			if err := json.NewDecoder(r.Body).Decode(&b); err == nil {
+			if err := json.NewDecoder(bodyReader).Decode(&b); err == nil {
 				onBatch(b)
 			}
 		}
