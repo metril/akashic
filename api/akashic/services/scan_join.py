@@ -67,14 +67,22 @@ async def notify_eligible_joiners(
     in the JWT (v0.28.2 pattern) so attribution propagates.
     """
     if source is None:
+        logger.debug("scan_join: scan=%s — no source attached, skipping notify", scan.id)
         return 0
     if source.max_parallel_scanners <= 1:
         # Nothing to share — don't even enumerate candidates.
+        logger.debug(
+            "scan_join: scan=%s source=%s max_parallel_scanners=%d — skipping",
+            scan.id, source.id, source.max_parallel_scanners,
+        )
         return 0
 
     from akashic.models.scanner import Scanner
     from akashic.routers.scanners import _mint_ingest_jwt
-    from akashic.routers.sources import _eligible_scanners_for
+    from akashic.routers.sources import (
+        _NOTIFY_ONLINE_THRESHOLD_SECONDS,
+        _eligible_scanners_for,
+    )
     from akashic.services.source_config import merge_host_and_source
     from akashic.services.source_oauth import (
         OAuthExchangeFailed,
@@ -84,9 +92,39 @@ async def notify_eligible_joiners(
     all_scanners = list(
         (await db.execute(select(Scanner))).scalars().all()
     )
-    candidates = _eligible_scanners_for(source, all_scanners, online_only=True)
+    # v0.29.5 — softer online threshold for the notify path
+    # (10 min vs the bulk-probe path's 120 s). Rationale: the join
+    # queue is durable, so notifying a marginally-stale scanner is
+    # essentially free; a missed notification is the actual
+    # user-visible failure mode for re-scans where the second scanner
+    # has been idle between scans.
+    candidates = _eligible_scanners_for(
+        source, all_scanners,
+        online_only=True,
+        online_threshold_seconds=_NOTIFY_ONLINE_THRESHOLD_SECONDS,
+    )
+    eligible_count = len(candidates)
     candidates = [s for s in candidates if s.id != exclude_scanner_id]
     if not candidates:
+        # Useful diagnostic: how many scanners are in the source's
+        # pool / allowed-list at all, vs how many passed the online
+        # filter. A "0 of 0" line means the source has no other
+        # scanners attached; "0 of N" means everyone was excluded by
+        # the holder filter (single-scanner deploy by definition).
+        total_with_pool_access = len([
+            s for s in all_scanners
+            if s.enabled
+            and (source.preferred_pool is None or s.pool == source.preferred_pool)
+            and (not s.allowed_source_ids or source.id in s.allowed_source_ids)
+        ])
+        logger.info(
+            "scan_join: scan=%s source=%s holder=%s — 0 eligible scanner(s) "
+            "after filter (online_only=True threshold=%ds, %d total with "
+            "pool/source access, %d after online filter)",
+            scan.id, source.id, exclude_scanner_id,
+            _NOTIFY_ONLINE_THRESHOLD_SECONDS,
+            total_with_pool_access, eligible_count,
+        )
         return 0
 
     merged = merge_host_and_source(getattr(source, "host", None), source)
@@ -109,7 +147,7 @@ async def notify_eligible_joiners(
             merged["access_token_expires_at"] = expires_at.isoformat()
 
     redis = _redis_client()
-    notified = 0
+    notified: list[uuid.UUID] = []
     for s in candidates:
         api_jwt = await _mint_ingest_jwt(db, s.id)
         if api_jwt is None:
@@ -133,7 +171,7 @@ async def notify_eligible_joiners(
         try:
             await redis.lpush(chan, body)
             await redis.ltrim(chan, 0, _JOIN_QUEUE_CAP - 1)
-            notified += 1
+            notified.append(s.id)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "scan_join: LPUSH failed scanner=%s scan=%s: %s",
@@ -141,11 +179,13 @@ async def notify_eligible_joiners(
             )
     if notified:
         logger.info(
-            "scan_join: scan=%s source=%s notified %d eligible scanner(s) "
-            "(holder=%s excluded)",
-            scan.id, source.id, notified, exclude_scanner_id,
+            "scan_join: scan=%s source=%s notified %d of %d eligible "
+            "scanner(s) (holder=%s excluded); ids=%s",
+            scan.id, source.id, len(notified), len(candidates),
+            exclude_scanner_id,
+            [str(sid) for sid in notified],
         )
-    return notified
+    return len(notified)
 
 
 async def wait_for_scan_join(

@@ -33,6 +33,11 @@ type SMBConnector struct {
 	username  string
 	password  string
 	share     string
+	// v0.29.5 — explicit opt-in for empty-password sessions. Defaults
+	// to false; Connect() refuses an empty password unless the caller
+	// explicitly flips this. Lab/anonymous-share configs can set it
+	// via SetAllowEmptyPassword.
+	allowEmptyPassword bool
 	conn      net.Conn
 	session   *smb2.Session
 	smbShare  *smb2.Share
@@ -54,7 +59,33 @@ func NewSMBConnector(host string, port int, username, password, share string) *S
 	}
 }
 
+// SetAllowEmptyPassword opts the connector into empty-password sessions
+// (anonymous / null-password / guest-fallback configurations). Callers
+// must set this BEFORE Connect — flipping it mid-session is a no-op.
+//
+// Default is false so the common-case mistake (credential profile
+// missing the password) gets caught as `smb session: password required`
+// rather than producing a green probe + ambiguous-data scan.
+func (c *SMBConnector) SetAllowEmptyPassword(v bool) {
+	c.allowEmptyPassword = v
+}
+
 func (c *SMBConnector) Connect(ctx context.Context) error {
+	// v0.29.5 — defense in depth against the empty-password bypass
+	// (see scanner/internal/probe/probe.go:runSMB for the full
+	// rationale). The probe rejects this case for reachability tests;
+	// the connector enforces the same rule for real scans so a
+	// credential row that slipped through API validation still gets
+	// caught before producing ambiguous scan data.
+	if c.password == "" && !c.allowEmptyPassword {
+		return fmt.Errorf(
+			"smb session: password required for user %q "+
+				"(empty-password sessions disabled; "+
+				"call SetAllowEmptyPassword(true) to opt in)",
+			c.username,
+		)
+	}
+
 	addr := net.JoinHostPort(c.host, fmt.Sprintf("%d", c.port))
 	// DialContext (review S-C2): plain net.Dial has no timeout, so an
 	// unreachable host (firewall drop, packet loss) blocks the goroutine

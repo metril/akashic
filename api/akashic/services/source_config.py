@@ -27,12 +27,38 @@ from typing import Any
 
 
 def _profile_credentials(holder: Any | None) -> dict:
-    """Read a model row's credential_profile.credentials, or {}."""
+    """Read a model row's credential_profile.credentials, or {}.
+
+    v0.29.5 — prefers the encrypted ``credentials_encrypted`` column,
+    falls back to the legacy plaintext ``credentials`` JSONB column
+    when the encrypted one is unset (pre-migration row, or a write
+    path that hasn't been updated). Best-effort: a decryption failure
+    (wrong SECRET_KEY, tampered ciphertext) returns ``{}`` and logs at
+    WARNING — the merged config will then be missing the credentials
+    and downstream code surfaces a clearer auth failure than "valid
+    plaintext that decrypted to nonsense".
+    """
     if holder is None:
         return {}
     profile = getattr(holder, "credential_profile", None)
     if profile is None:
         return {}
+    encrypted = getattr(profile, "credentials_encrypted", None)
+    if encrypted is not None:
+        from akashic.services.credential_crypto import (
+            InvalidToken,
+            decrypt_credentials,
+        )
+        try:
+            return dict(decrypt_credentials(bytes(encrypted)))
+        except InvalidToken as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "credential_crypto: decrypt failed for profile=%s: %s "
+                "(SECRET_KEY rotated or ciphertext tampered)",
+                getattr(profile, "id", "?"), exc,
+            )
+            return {}
     return dict(getattr(profile, "credentials", None) or {})
 
 

@@ -101,12 +101,17 @@ func TestClassifySMBProbeError(t *testing.T) {
 // failure as step=connect, not the previous step=auth catch-all. Uses
 // a reserved 240.0.0.0/4 address that won't route — same trick as
 // TestNFSConnectsAtRealHost.
+//
+// v0.29.5 — supply a password so the test exercises the connector
+// path (the new config-step guard would otherwise short-circuit
+// before TCP dial).
 func TestSMBNoServerFailsAtConnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*1e9)
 	defer cancel()
 	r := runSMB(ctx, map[string]any{
 		"host":     "240.0.0.1",
 		"username": "alice",
+		"password": "irrelevant-since-tcp-will-fail",
 		"share":    "test",
 	})
 	if r.OK {

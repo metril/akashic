@@ -325,7 +325,14 @@ async def test_reachability_summary_reflects_latest_probe(
         json={
             "name": "probed",
             "type": "smb",
-            "connection_config": {"host": "h", "share": "s", "username": "u"},
+            # v0.29.5 — SMB sources require a non-empty password (or
+            # explicit allow_empty_password opt-in). Supply one so
+            # the create succeeds and the test exercises the
+            # reachability path it actually cares about.
+            "connection_config": {
+                "host": "h", "share": "s",
+                "username": "u", "password": "p",
+            },
         },
     )
     sid = src_r.json()["id"]

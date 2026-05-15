@@ -119,11 +119,35 @@ func runSMB(ctx context.Context, c map[string]any) Result {
 	if host == "" || user == "" || share == "" {
 		return Result{OK: false, Step: "config", Error: "host, user, share required"}
 	}
+	password := str(c, "password")
+	// v0.29.5 — reject empty-password SMB probes. Pre-fix
+	// `NTLMInitiator{User: "alice", Password: ""}` was accepted by
+	// go-smb2 (the vendor only rejects empty User); some SMB servers
+	// — Samba with `force user`, Windows with a null-password
+	// account, allow-anonymous shares — respond to that with a fully
+	// AUTHENTICATED session (not guest), so the v0.29.1 IsGuest /
+	// IsAnonymous rejection never fires and `ok=true` came back for
+	// credentials the user knew were wrong. The opt-out
+	// `allow_empty_password: true` exists for legitimate
+	// lab/anonymous-share configurations.
+	if password == "" && !boolish(c, "allow_empty_password") {
+		return Result{
+			OK:    false,
+			Step:  "config",
+			Error: "password required (empty-password SMB scans are not supported; " +
+				"some servers accept this as an authenticated session against a " +
+				"null-password account, masking real auth failures — set " +
+				"connection_config.allow_empty_password=true to explicitly opt in)",
+		}
+	}
 	port := intish(c, "port")
 	if port == 0 {
 		port = 445
 	}
-	conn := connector.NewSMBConnector(host, port, user, str(c, "password"), share)
+	conn := connector.NewSMBConnector(host, port, user, password, share)
+	if boolish(c, "allow_empty_password") {
+		conn.SetAllowEmptyPassword(true)
+	}
 	if err := conn.Connect(ctx); err != nil {
 		// Classify by SMBConnector's prefix taxonomy. Pre-fix every
 		// Connect error mapped to step=auth, which made the v0.29.1
@@ -134,6 +158,22 @@ func runSMB(ctx context.Context, c map[string]any) Result {
 	}
 	defer conn.Close()
 	return Result{OK: true}
+}
+
+// boolish reads a config bool with the same tolerance as intish for ints:
+// accepts native bool, plus "true"/"1"/"yes" string aliases. Missing or
+// any other value reads as false.
+func boolish(c map[string]any, key string) bool {
+	switch v := c[key].(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes":
+			return true
+		}
+	}
+	return false
 }
 
 // classifySMBProbeError maps an SMBConnector.Connect error to a probe

@@ -31,6 +31,15 @@ import (
 func scanJoinLoop(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 ) {
+	// v0.29.5 — emit a heartbeat-style log line every Nth consecutive
+	// 204 timeout so `docker compose logs scanner-2 | grep scan_join`
+	// reveals "this loop is alive and waiting" — useful when the user
+	// is debugging a re-scan where they expect the second scanner to
+	// join but nothing seems to happen. N=10 keeps the cadence to
+	// once every ~5 minutes (10 × 30s long-poll) on an idle agent.
+	const idleHeartbeatEveryN = 10
+	idleCount := 0
+
 	for {
 		if ctx.Err() != nil {
 			return
@@ -45,8 +54,14 @@ func scanJoinLoop(
 			// 204 timeout — reconnect immediately. Per-call MintJWT
 			// gives every long-poll a fresh JTI so replay protection
 			// stays intact.
+			idleCount++
+			if idleCount%idleHeartbeatEveryN == 0 {
+				log.Printf("scan_join: %d consecutive 204 timeouts — loop alive, no work pending",
+					idleCount)
+			}
 			continue
 		}
+		idleCount = 0
 		// We joined a cooperative scan. Run it through the same
 		// unit-coordinated path the original lease holder uses.
 		log.Printf("scan %s: joining via scan_join channel source=%s type=%s",

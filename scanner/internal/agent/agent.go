@@ -470,13 +470,20 @@ func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 	case "nfs":
 		return connector.NewNFSConnector(), nil
 	case "smb":
-		return connector.NewSMBConnector(
+		smbc := connector.NewSMBConnector(
 			stringFromConfig(cfg, "host", ""),
 			intFromConfig(cfg, "port", 445),
 			stringFromConfig(cfg, "username", ""),
 			stringFromConfig(cfg, "password", ""),
 			stringFromConfig(cfg, "share", ""),
-		), nil
+		)
+		// v0.29.5 — propagate the opt-in flag so lab/anonymous shares
+		// that explicitly set allow_empty_password on the source can
+		// still be scanned. Default is reject, matching the probe.
+		if boolFromConfig(cfg, "allow_empty_password", false) {
+			smbc.SetAllowEmptyPassword(true)
+		}
+		return smbc, nil
 	case "s3":
 		s3conn := connector.NewS3Connector(
 			stringFromConfig(cfg, "endpoint", ""),

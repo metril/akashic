@@ -90,23 +90,28 @@ async def test_create_unsupported_type_returns_400(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_duplicate_name_returns_409(client: AsyncClient):
+    # v0.29.5 — SMB profiles require a non-empty password (see
+    # schemas/credential_profile.py:assert_smb_has_password). Both
+    # payloads now carry one.
     r = await client.post(
         "/api/credential-profiles",
-        json={"name": "dup", "type": "smb", "credentials": {"username": "u"}},
+        json={"name": "dup", "type": "smb", "credentials": {"username": "u", "password": "p1"}},
     )
     assert r.status_code == 201
     r2 = await client.post(
         "/api/credential-profiles",
-        json={"name": "dup", "type": "smb", "credentials": {"username": "v"}},
+        json={"name": "dup", "type": "smb", "credentials": {"username": "v", "password": "p2"}},
     )
     assert r2.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_list_filters_by_type(client: AsyncClient):
+    # SMB requires a password (v0.29.5); NFS profile contents are
+    # unconstrained here.
     await client.post(
         "/api/credential-profiles",
-        json={"name": "smb-1", "type": "smb", "credentials": {}},
+        json={"name": "smb-1", "type": "smb", "credentials": {"username": "u", "password": "p"}},
     )
     await client.post(
         "/api/credential-profiles",
@@ -145,8 +150,13 @@ async def test_sentinel_update_preserves_stored_secret(
         stored = (await session.execute(
             select(CredentialProfile).where(CredentialProfile.id == uuid.UUID(profile_id))
         )).scalar_one()
-    assert stored.credentials["password"] == "real-secret"
-    assert stored.credentials["username"] == "newer"
+    # v0.29.5 — credentials are now stored encrypted-at-rest.
+    # `stored.credentials` is NULL post-write; decrypt the ciphertext
+    # column to assert against the stored values.
+    from akashic.services.credential_crypto import decrypt_credentials
+    plain = decrypt_credentials(bytes(stored.credentials_encrypted))
+    assert plain["password"] == "real-secret"
+    assert plain["username"] == "newer"
 
 
 @pytest.mark.asyncio
@@ -177,7 +187,7 @@ async def test_assign_mismatched_profile_to_host_returns_400(
 async def test_delete_while_referenced_returns_409(client: AsyncClient):
     rp = await client.post(
         "/api/credential-profiles",
-        json={"name": "smb-attached", "type": "smb", "credentials": {"username": "u"}},
+        json={"name": "smb-attached", "type": "smb", "credentials": {"username": "u", "password": "p"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(

@@ -5,6 +5,138 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.5 — 2026-05-15
+
+**SMB empty-password bypass, scan-join observability, credential
+retest, credentials encrypted at rest.** Four bugs / hardening items
+the user surfaced after v0.29.4 deployed.
+
+### Bug fixes
+
+- **SMB reachability still claimed access with wrong credentials.**
+  v0.29.1 added a guest/anonymous session-flag rejector, but there's
+  a parallel bypass when the merged config carries `password = ""`
+  — go-smb2's `NTLMInitiator{User: "alice", Password: ""}` is
+  permitted (the vendor only rejects empty `User`). Some SMB servers
+  (Samba `force user`, Windows null-password accounts, anonymous
+  shares) respond with a fully AUTHENTICATED session — not guest —
+  so `IsGuest()` / `IsAnonymous()` never fires.
+
+  Three-layer fix:
+
+  - **Scanner probe** ([scanner/internal/probe/probe.go:runSMB](scanner/internal/probe/probe.go#L112-L155)).
+    Reject empty password as `step=config` unless
+    `connection_config.allow_empty_password=true` is explicitly set.
+  - **Scanner connector** ([scanner/internal/connector/smb.go:Connect](scanner/internal/connector/smb.go#L57-L100)).
+    Defense in depth — the connector refuses empty password at Connect
+    so a credential row that slipped through API validation still
+    gets caught at scan time. Opt-in via new
+    `SetAllowEmptyPassword(true)` method.
+  - **API validation** ([routers/credential_profiles.py](api/akashic/routers/credential_profiles.py)
+    + [routers/sources.py:_validate_smb_password_requirement](api/akashic/routers/sources.py)).
+    `POST/PATCH /api/credential-profiles` rejects SMB profiles with
+    missing/empty `password`. `POST/PATCH /api/sources` rejects SMB
+    sources whose merged config (host_profile + host + source_profile
+    + source) has no non-empty password. Same `allow_empty_password`
+    opt-in for legitimate lab / anonymous-share configurations.
+
+### Observability + tuning
+
+- **Multi-scanner re-scan diagnostics** ([services/scan_join.py](api/akashic/services/scan_join.py),
+  [routers/scan_work.py:split_units](api/akashic/routers/scan_work.py)).
+  The notify-side of v0.29.0's push-based discovery was silent on
+  re-scans where the second scanner didn't engage. Now:
+  - INFO log on every `/work/split` showing the notify count.
+  - INFO log when `notify_eligible_joiners` finds 0 eligible scanners
+    after the filter, including "of N total with pool/source access"
+    so the gap is observable (`docker compose logs api | grep scan_join`).
+  - DEBUG log every 10 consecutive 204 timeouts in the scanner agent's
+    `scanJoinLoop` so an idle-and-listening agent is visible from the
+    scanner-side log too.
+
+- **Softer online threshold for scan-join notifications**
+  ([routers/sources.py:_eligible_scanners_for](api/akashic/routers/sources.py#L664-L700)).
+  The bulk-probe path keeps the 120 s online window (don't waste 5 s
+  per dead scanner). The notify path now uses 600 s — the join queue
+  is durable for 7 days and capped at 50, so notifying a
+  marginally-stale scanner is essentially free and a missed
+  notification is the actual user-visible failure mode for re-scans
+  where the second scanner was idle between scans.
+
+### Hardening
+
+- **Auto-retest reachability after a credential-profile update**
+  ([services/credential_retest.py](api/akashic/services/credential_retest.py)).
+  After `PATCH /api/credential-profiles/{id}` actually changes the
+  credentials, a background task fans out fresh probes against every
+  source whose effective credentials derive from that profile —
+  directly via `Source.credential_profile_id` OR via
+  `Host.credential_profile_id`. Cap of 50 sources per fan-out so a
+  widely-shared profile doesn't trigger a thundering herd; the
+  remainder can be retested manually via the panel. Closes the "I
+  fixed broken creds but the panel keeps showing green" foot-gun.
+
+- **Credentials encrypted at rest**
+  ([services/credential_crypto.py](api/akashic/services/credential_crypto.py),
+  [migration 0034_credential_profile_encrypt](api/alembic/versions/0034_credential_profile_encrypt.py)).
+  Pre-fix the `credential_profiles.credentials` JSONB column stored
+  usernames + passwords in plaintext — anyone with DB read access
+  (pg backup, replica snoop, support-session `SELECT *`) saw every
+  SMB/NFS credential. Post-fix:
+  - New `credentials_encrypted: bytea` column. Fernet over
+    HKDF-SHA256 of `settings.secret_key` (same primitive as OAuth
+    refresh tokens; see [services/secret_encryption.py](api/akashic/services/secret_encryption.py)).
+  - Migration `0034` adds the column, encrypts every legacy
+    plaintext row, NULLs the plaintext column. Refuses to run with
+    the dev-default `SECRET_KEY` so an unprepared deployment can't
+    accidentally "encrypt" with a known key.
+  - Read path ([services/source_config.py:_profile_credentials](api/akashic/services/source_config.py))
+    prefers the encrypted column, falls back to plaintext for
+    pre-migration rows. Decrypt failure (rotated key / tampered
+    ciphertext) returns `{}` and logs at WARN.
+  - Write paths in the credential-profiles router encrypt on
+    create/update; the plaintext column is left NULL.
+  - `CredentialProfileResponse.from_model` decrypts then applies the
+    existing `_scrub_config` masking so API responses still mask
+    `password` / `secret_key` / `api_token` as `"***"`.
+
+### Tests
+
+- New scanner tests:
+  [scanner/internal/probe/probe_smb_empty_password_test.go](scanner/internal/probe/probe_smb_empty_password_test.go)
+  — 3 cases for the new config-step guard + opt-in behaviour (native
+  bool + string form). Updated `TestSMBNoServerFailsAtConnect` to
+  supply a password so it exercises the connector path.
+- New API tests:
+  - [test_credential_crypto.py](api/tests/test_credential_crypto.py) —
+    7 cases for the encrypt/decrypt primitive (round-trip, tamper,
+    wrong key, empty, str/bytes ciphertext input, type errors).
+  - [test_smb_password_validation.py](api/tests/test_smb_password_validation.py)
+    — 8 cases for credential-profile + source create/update API guards.
+  - [test_credential_retest.py](api/tests/test_credential_retest.py)
+    — 5 cases for the auto-retest fan-out (direct, via-host, cap,
+    dispatch count, empty case).
+  - [test_scan_join_threshold.py](api/tests/test_scan_join_threshold.py)
+    — 3 cases for the wider notify-path online threshold + the
+    0-eligible diagnostic log line.
+- Updated 6 pre-existing tests to add passwords to their SMB profile /
+  source payloads now that empty SMB passwords are rejected
+  ([test_credential_profiles.py](api/tests/test_credential_profiles.py)
+  + [test_source_reachability.py](api/tests/test_source_reachability.py)).
+
+### Schema
+
+- Migration `0034_cred_prof_encrypt`: adds
+  `credential_profiles.credentials_encrypted: bytea NULL`, runs
+  one-time encrypt sweep, NULLs out plaintext column. Reversible.
+
+### Verification
+
+- `pytest tests/` — 737 passed, 1 skipped (23 new cases + 6 updated).
+- `go test ./...` from `scanner/` — all packages green (3 new SMB
+  empty-password cases).
+- `npx tsc --noEmit && npx vitest run` — clean (133 passed).
+
 ## v0.29.4 — 2026-05-15
 
 **CI test-server gzips: lets v0.29.x Release pipelines actually pass.**

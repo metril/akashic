@@ -50,6 +50,79 @@ def _config_safe_summary(cfg: dict | None) -> dict:
     }
 
 
+async def _validate_smb_password_requirement(
+    *,
+    db: AsyncSession,
+    host_id: uuid.UUID | None,
+    credential_profile_id: uuid.UUID | None,
+    connection_config: dict | None,
+) -> None:
+    """v0.29.5 — refuse SMB sources whose merged config ends up with
+    an empty password.
+
+    Bypass surface ([scanner/internal/probe/probe.go:runSMB](scanner/internal/probe/probe.go)):
+    go-smb2's `NTLMInitiator` accepts ``Password: ""``. Some servers
+    (Samba `force user`, Windows null-password accounts, anonymous
+    shares) respond with a fully authenticated session — not guest —
+    so the v0.29.1 IsGuest/IsAnonymous rejection never fires and the
+    probe lands `ok=true` against credentials the user knew were
+    wrong.
+
+    The explicit opt-in is `connection_config.allow_empty_password ==
+    True` at the source level; profiles are NOT permitted to carry
+    this opt-in (they're reusable across sources where it might not
+    apply).
+    """
+    cfg = connection_config or {}
+    if cfg.get("allow_empty_password") is True:
+        return
+
+    # Compose the merged credential dict in the same precedence the
+    # scan-time `merge_host_and_source` helper uses (last write wins):
+    # host_profile < host_inline < source_profile < source_inline.
+    from akashic.models.credential_profile import CredentialProfile
+    merged: dict = {}
+
+    if host_id is not None:
+        host = (await db.execute(
+            select(Host).where(Host.id == host_id)
+        )).scalar_one_or_none()
+        if host is not None:
+            if host.credential_profile_id is not None:
+                hp = (await db.execute(
+                    select(CredentialProfile).where(
+                        CredentialProfile.id == host.credential_profile_id
+                    )
+                )).scalar_one_or_none()
+                if hp is not None:
+                    merged.update(hp.credentials or {})
+            merged.update(host.connection_config or {})
+
+    if credential_profile_id is not None:
+        sp = (await db.execute(
+            select(CredentialProfile).where(
+                CredentialProfile.id == credential_profile_id
+            )
+        )).scalar_one_or_none()
+        if sp is not None:
+            merged.update(sp.credentials or {})
+
+    merged.update(cfg)
+
+    pw = merged.get("password")
+    if not isinstance(pw, str) or pw == "":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "SMB source: merged connection_config has no non-empty "
+                "password. Either attach a credential profile that "
+                "carries a password, set `password` on the source / host, "
+                "or set `connection_config.allow_empty_password=true` "
+                "for an explicit anonymous-share scan."
+            ),
+        )
+
+
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_source(
     data: SourceCreate,
@@ -100,6 +173,17 @@ async def create_source(
                     f"source type {data.type!r}."
                 ),
             )
+
+    # v0.29.5 — SMB sources must end up with a non-empty password at
+    # scan time unless explicitly opted out via
+    # `connection_config.allow_empty_password=true`. See
+    # scanner/internal/probe/probe.go runSMB for the bypass rationale.
+    if data.type == "smb":
+        await _validate_smb_password_requirement(
+            db=db, host_id=data.host_id,
+            credential_profile_id=data.credential_profile_id,
+            connection_config=data.connection_config,
+        )
 
     payload = data.model_dump()
     mps = payload.get("max_parallel_scanners")
@@ -363,6 +447,19 @@ async def update_source(
             # the masked sentinel `"***"`. See source_merge.py for why.
             value = merge_connection_config(source.connection_config, value)
         setattr(source, field, value)
+
+    # v0.29.5 — re-validate the SMB password requirement on the
+    # merged post-update state. Catches the case where the user
+    # updates `credential_profile_id` to NULL (removing the only
+    # source of password) while leaving connection_config without a
+    # password and without the allow_empty_password opt-in.
+    if source.type == "smb":
+        await _validate_smb_password_requirement(
+            db=db, host_id=source.host_id,
+            credential_profile_id=source.credential_profile_id,
+            connection_config=source.connection_config,
+        )
+
     await db.commit()
     await db.refresh(source)
 
@@ -660,21 +757,35 @@ class TestScannersResponse(BaseModel):
 
 _ONLINE_THRESHOLD_SECONDS = 120
 
+# v0.29.5 — softer threshold for *notification* paths. The scan-join
+# Redis queue is durable (LTRIM 50, 7-day TTL — agents pick up the
+# notification on their next BRPOP), so notifying a marginally-stale
+# scanner is essentially free. A *missed* notification is the bug the
+# user reported on re-scans. 10 min covers any reasonable inter-scan
+# idle without making the rare actually-dead scanner cost anything.
+_NOTIFY_ONLINE_THRESHOLD_SECONDS = 600
+
 
 def _eligible_scanners_for(
-    source: Source, all_scanners, *, online_only: bool = True,
+    source: Source, all_scanners, *,
+    online_only: bool = True,
+    online_threshold_seconds: int = _ONLINE_THRESHOLD_SECONDS,
 ) -> list:
     """Filter scanners whose pool/allowed_source_ids permits this source.
 
     Default `online_only=True` skips scanners that haven't checked in
-    within the last two minutes. Without that filter, the bulk-test
-    paths waste 5 s of long-poll timeout per offline scanner. Callers
-    that explicitly named scanner_ids in the request override this
-    (offline scanners stay listed as `pending=true` so the user sees
-    they were skipped).
+    within `online_threshold_seconds` (default 120 s). Without that
+    filter, the bulk-test paths waste 5 s of long-poll timeout per
+    offline scanner. Callers that explicitly named scanner_ids in the
+    request override this (offline scanners stay listed as
+    `pending=true` so the user sees they were skipped).
+
+    v0.29.5 — `online_threshold_seconds` parameter so callers with a
+    cheap-miss profile (the scan-join notify) can widen the window
+    without affecting the bulk-probe path.
     """
     from datetime import datetime, timezone, timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_ONLINE_THRESHOLD_SECONDS)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=online_threshold_seconds)
     out = []
     for s in all_scanners:
         if not s.enabled:

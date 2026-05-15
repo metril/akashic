@@ -518,17 +518,28 @@ async def split_units(
         )).scalar_one_or_none()
     if source is not None and source.max_parallel_scanners > 1:
         from akashic.services import scan_join
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
         try:
-            await scan_join.notify_eligible_joiners(
+            notified = await scan_join.notify_eligible_joiners(
                 db=db, scan=scan, source=source,
                 exclude_scanner_id=scanner.id,
+            )
+            # v0.29.5 — emit one diagnostic line per split call so the
+            # user can verify the notify side-effect from
+            # `docker compose logs api | grep split_units` on a
+            # re-scan. notify_eligible_joiners itself logs the per-
+            # scanner detail; this is the call-site summary.
+            _log.info(
+                "split_units: scan=%s source=%s created=%d skipped=%d "
+                "notified=%d eligible scanner(s)",
+                scan_id, source.id, created, skipped, notified,
             )
         except Exception as exc:  # noqa: BLE001
             # Notification is a best-effort wake-up; failure must not
             # block the split. The holder keeps going alone; joiners
             # will eventually pick up via the next split's notify.
-            import logging
-            logging.getLogger(__name__).warning(
+            _log.warning(
                 "split_units: notify_eligible_joiners failed scan=%s: %s",
                 scan_id, exc,
             )

@@ -58,6 +58,7 @@ func runTestConnection(args []string) {
 	krb5SPN := fs.String("krb5-service-principal", "", "NFS krb5 service principal name (default: nfs/<host>)")
 	krb5Keytab := fs.String("krb5-keytab", "", "NFS krb5 keytab path (mutually exclusive with stdin password)")
 	krb5Config := fs.String("krb5-config", "", "Alternate krb5.conf path (default: /etc/krb5.conf, then DNS-discovery fallback)")
+	allowEmptyPw := fs.Bool("allow-empty-password", false, "SMB: opt into empty-password sessions (lab / anonymous-share configs)")
 	_ = fs.Parse(args)
 
 	pw := *password
@@ -77,7 +78,7 @@ func runTestConnection(args []string) {
 		if p == 0 {
 			p = 445
 		}
-		ok, step, msg = testSMB(*host, p, *user, pw, *share)
+		ok, step, msg = testSMB(*host, p, *user, pw, *share, *allowEmptyPw)
 	case "s3":
 		ok, step, msg = testS3(*endpoint, *bucket, *region, *user, pw, *pathStyle)
 	case "nfs":
@@ -135,11 +136,24 @@ func classifySMBError(err error) (step, msg string) {
 	}
 }
 
-func testSMB(host string, port int, user, password, share string) (ok bool, step, msg string) {
+func testSMB(host string, port int, user, password, share string, allowEmptyPw bool) (ok bool, step, msg string) {
 	if host == "" || user == "" || share == "" {
 		return false, "config", "host, user, share required"
 	}
+	// v0.29.5 — pre-empt go-smb2's empty-password permissiveness
+	// (the vendor only rejects empty User). Match probe.runSMB so
+	// the CLI surfaces the same diagnostic.
+	if password == "" && !allowEmptyPw {
+		return false, "config",
+			"password required (empty-password SMB scans are not supported; " +
+				"some servers accept this as an authenticated session against a " +
+				"null-password account, masking real auth failures — set " +
+				"connection_config.allow_empty_password=true to explicitly opt in)"
+	}
 	c := connector.NewSMBConnector(host, port, user, password, share)
+	if allowEmptyPw {
+		c.SetAllowEmptyPassword(true)
+	}
 	if err := c.Connect(context.Background()); err != nil {
 		s, m := classifySMBError(err)
 		return false, s, m

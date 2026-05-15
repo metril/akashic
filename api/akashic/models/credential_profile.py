@@ -14,7 +14,7 @@ write, not enforced at the schema level since types are open-ended.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import DateTime, LargeBinary, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,7 +29,17 @@ class CredentialProfile(Base):
     )
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
-    credentials: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # v0.29.5 — credentials are now stored encrypted-at-rest in
+    # `credentials_encrypted` (Fernet over HKDF(secret_key)). The
+    # original `credentials` JSONB column survives for legacy rows
+    # not yet migrated: read path prefers the encrypted column,
+    # falls back to plaintext. After migration 0034 runs the one-time
+    # encrypt sweep, every row has `credentials_encrypted` set and
+    # `credentials` NULL. New writes only touch the encrypted column.
+    credentials: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    credentials_encrypted: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True,
+    )
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
