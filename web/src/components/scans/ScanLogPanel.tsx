@@ -184,6 +184,20 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               className={`inline-block h-2 w-2 rounded-full ${STATUS_COLOR[stream.status]}`}
             />
             <span className="text-xs text-fg-muted">{STATUS_LABEL[stream.status]}</span>
+            {/* v0.29.2 — adaptive batch size, surfaced when the scanner
+                reports it. Hidden on legacy / pre-v0.29.2 agents and on
+                terminal scans where the value is no longer moving. */}
+            {(stream.progress?.current_batch_size ??
+              stream.snapshot?.current_batch_size) != null && (
+              <span
+                className="text-[10px] font-mono uppercase tracking-wide text-fg-muted bg-surface-muted rounded px-1.5 py-px"
+                title="Adaptive ingest batch size — converges toward what the source + API can sustain."
+              >
+                batch{" "}
+                {stream.progress?.current_batch_size ??
+                  stream.snapshot?.current_batch_size}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {/* Stop button shows whenever the stream is open — i.e., the

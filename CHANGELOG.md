@@ -5,6 +5,37 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.3 — 2026-05-15
+
+**Live Log surfaces the AIMD batch size.** Closes out the v0.29.2
+plan: the heartbeat carries `current_batch_size` and the scan row
+captures it, but nothing on the frontend rendered the value. Now the
+Live Log header shows a small `batch 1250` chip next to the status
+pill, updating live from the WS progress events. Hidden on legacy /
+pre-v0.29.2 agents where the field is null.
+
+### Surface
+
+- WS progress events ([routers/scan_progress.py](api/akashic/routers/scan_progress.py))
+  + per-scan snapshot ([routers/scan_websocket.py](api/akashic/routers/scan_websocket.py))
+  + source-events broadcast all carry `current_batch_size` so any
+  consumer can render it.
+- Live Log drawer chip ([components/scans/ScanLogPanel.tsx](web/src/components/scans/ScanLogPanel.tsx))
+  reads from the progress event first, falling back to the snapshot
+  field — so a scan that opened the drawer mid-flight gets an
+  immediate value from the snapshot then tracks the heartbeat from
+  there.
+- Frontend `Scan` / `ScanSnapshot` / `ScanProgressEvent` types
+  ([web/src/types/index.ts](web/src/types/index.ts)) gain
+  `current_batch_size?: number | null`.
+
+### Verification
+
+- `npx tsc --noEmit && npx vitest run` — clean (133 passed).
+- Targeted pytest — 30 passed across scan_progress + the
+  v0.29.2 scan_counters / meili_indexer / tag_propagation_bulk
+  suites.
+
 ## v0.29.2 — 2026-05-15
 
 **Throughput rework: pipeline + gzip + AIMD + N+1 elimination + Redis

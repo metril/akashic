@@ -183,6 +183,10 @@ export interface Scan {
   // (permission denied, ENOENT mid-scan). 0 on legacy rows.
   inaccessible_dirs?: number;
   inaccessible_files?: number;
+  // v0.29.2 — latest adaptive batch size reported by the scanner
+  // via heartbeat. Surfaced in dashboards / live log for ops
+  // visibility. Null on legacy rows / pre-v0.29.2 scanners.
+  current_batch_size?: number | null;
   source?: Source;
 }
 
@@ -221,6 +225,8 @@ export interface ScanSnapshot {
   last_heartbeat_at: string | null;
   error_message: string | null;
   recent_lines: ScanLogLine[];
+  // v0.29.2 — latest adaptive batch size from the scanner heartbeat.
+  current_batch_size?: number | null;
 }
 
 export interface ScanProgressEvent {
@@ -235,6 +241,8 @@ export interface ScanProgressEvent {
   total_estimated: number | null;
   phase: string | null;
   ts: string;
+  // v0.29.2 — current AIMD batch size; nullable for pre-v0.29.2 agents.
+  current_batch_size?: number | null;
 }
 
 export interface ScanLogEvent {

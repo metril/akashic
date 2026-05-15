@@ -91,6 +91,8 @@ def _scan_snapshot(scan: Scan) -> dict:
             scan.last_heartbeat_at.isoformat() if scan.last_heartbeat_at else None
         ),
         "error_message": scan.error_message,
+        # v0.29.2 — latest AIMD batch size from scanner heartbeat.
+        "current_batch_size": scan.current_batch_size,
     }
 
 

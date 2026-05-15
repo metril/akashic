@@ -121,6 +121,10 @@ async def post_heartbeat(
             "total_estimated": scan.total_estimated,
             "phase": scan.phase,
             "ts": now.isoformat(),
+            # v0.29.2 — surface the AIMD batch size through to the
+            # Live Log header so operators can see whether the
+            # adaptive batcher has converged on a high or low value.
+            "current_batch_size": scan.current_batch_size,
         },
     )
 
@@ -163,6 +167,11 @@ async def post_heartbeat(
             # recomputeBySource against older terminal scans whose
             # started_at was populated.
             "started_at": scan.started_at.isoformat() if scan.started_at else None,
+            # v0.29.2 — latest AIMD batch size reported by the scanner.
+            # Surfaced in the Live Log row tooltip so operators can see
+            # whether the adaptive batcher has converged on a high or
+            # low value for the current source.
+            "current_batch_size": scan.current_batch_size,
         })
         await scan_broadcast.record_broadcast(
             str(scan_id),
