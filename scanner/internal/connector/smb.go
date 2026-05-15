@@ -80,6 +80,36 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 		conn.Close()
 		return fmt.Errorf("smb session: %w", err)
 	}
+
+	// v0.29.1 — reject guest / anonymous downgrades. Windows and
+	// Samba both honour a server-side "fall back to guest" policy:
+	// when the NTLMSSP credentials don't match a known account, the
+	// server returns a SUCCESSFUL session-setup with the IS_GUEST
+	// (or IS_NULL) flag set instead of an auth failure. The pre-fix
+	// SMB probe accepted that, so a user who supplied wrong
+	// credentials saw "reachable" because the server happily handed
+	// them a guest session. The user reported this as the original
+	// bug. We mint these connections only with explicit credentials,
+	// so a guest result means the server effectively rejected those
+	// credentials — surface as an auth failure, not silent success.
+	if session.IsGuest() {
+		session.Logoff()
+		conn.Close()
+		return fmt.Errorf(
+			"smb session: server fell back to guest session for user %q — "+
+				"supplied credentials were rejected (configure the server to "+
+				"deny guest fallback if you need to detect this earlier)",
+			c.username,
+		)
+	}
+	if session.IsAnonymous() {
+		session.Logoff()
+		conn.Close()
+		return fmt.Errorf(
+			"smb session: server returned an anonymous (NULL) session for "+
+				"user %q — supplied credentials were rejected", c.username,
+		)
+	}
 	c.session = session
 
 	share, err := session.Mount(c.share)

@@ -125,10 +125,34 @@ func runSMB(ctx context.Context, c map[string]any) Result {
 	}
 	conn := connector.NewSMBConnector(host, port, user, str(c, "password"), share)
 	if err := conn.Connect(ctx); err != nil {
-		return Result{OK: false, Step: "auth", Error: err.Error()}
+		// Classify by SMBConnector's prefix taxonomy. Pre-fix every
+		// Connect error mapped to step=auth, which made the v0.29.1
+		// guest-rejection diagnostic harder to read against a real
+		// "host unreachable" failure. Match the CLI's classifySMBError.
+		step, msg := classifySMBProbeError(err)
+		return Result{OK: false, Step: step, Error: msg}
 	}
 	defer conn.Close()
 	return Result{OK: true}
+}
+
+// classifySMBProbeError maps an SMBConnector.Connect error to a probe
+// step. The connector wraps each failure with a known prefix: "smb dial",
+// "smb session", or "smb mount". Mirrors the CLI's classifySMBError so
+// the agent-side and CLI-side probes report the same step for the same
+// underlying failure.
+func classifySMBProbeError(err error) (step, msg string) {
+	s := err.Error()
+	switch {
+	case strings.HasPrefix(s, "smb dial"):
+		return "connect", strings.TrimPrefix(s, "smb dial ")
+	case strings.HasPrefix(s, "smb session"):
+		return "auth", strings.TrimPrefix(s, "smb session: ")
+	case strings.HasPrefix(s, "smb mount"):
+		return "mount", strings.TrimPrefix(s, "smb mount ")
+	default:
+		return "connect", s
+	}
 }
 
 func runS3(ctx context.Context, c map[string]any) Result {

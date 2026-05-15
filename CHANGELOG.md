@@ -5,6 +5,54 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.1 — 2026-05-15
+
+**SMB probe honesty.** v0.29.0 shipped an NFS-side fix for the
+reachability false-positive, but the user's actual report was about
+SMB. Root cause was different: SMB servers (Samba, older Windows)
+honour a "fall back to guest on bad credentials" policy and return a
+SUCCESSFUL session-setup with `SMB2_SESSION_FLAG_IS_GUEST` set instead
+of an auth failure. The pre-fix SMB connector silently accepted the
+guest session, so the probe reported `ok=true` when the user knew the
+credentials wouldn't work — they didn't; the server was handing out
+guest sessions.
+
+### Bug fixes
+
+- **SMB probe rejects guest / anonymous downgrades**
+  ([scanner/internal/connector/smb.go](scanner/internal/connector/smb.go#L57-L135),
+  [scanner/internal/probe/probe.go:runSMB](scanner/internal/probe/probe.go#L112-L154)).
+  After a successful `Dial`, the connector now checks
+  `session.IsGuest()` / `IsAnonymous()`. If either is set, the
+  session is logged off and Connect returns an explicit auth error
+  (`server fell back to guest session for user "alice" — supplied
+  credentials were rejected`). Required exposing the SMB2 session
+  flags on the vendored go-smb2 `*Session` — added `IsGuest()` and
+  `IsAnonymous()` methods in
+  [scanner/internal/vendor/go-smb2/client.go](scanner/internal/vendor/go-smb2/client.go).
+- **SMB probe error classification**
+  ([scanner/internal/probe/probe.go:classifySMBProbeError](scanner/internal/probe/probe.go#L134-L154)).
+  Pre-fix every `Connect` error mapped to `step=auth`, which made
+  the guest-rejection diagnostic indistinguishable from a real
+  "host unreachable" failure in the reachability panel. Mirrors
+  the CLI's `classifySMBError`: `smb dial` → step=connect,
+  `smb session` → step=auth, `smb mount` → step=mount.
+
+### Tests
+
+- New [scanner/internal/probe/probe_smb_test.go](scanner/internal/probe/probe_smb_test.go):
+  config-step short-circuits, error-classifier table tests (including
+  the new guest / anonymous rejection messages landing on step=auth),
+  and a routable-failure case proving `step=connect` (not `step=auth`)
+  surfaces for an unreachable host.
+
+### Verification
+
+- `go test ./...` from `scanner/` — all packages green (8 new SMB
+  probe cases + the v0.29.0 NFS cases).
+- The v0.29.0 NFS-side honesty fix still stands — different code path,
+  different downgrade vector. Both layers needed.
+
 ## v0.29.0 — 2026-05-15
 
 **Multi-scanner cooperation, NFS probe honesty, history dedup, services

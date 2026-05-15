@@ -91,6 +91,26 @@ func (c *Session) Logoff() error {
 	return c.s.logoff(c.ctx)
 }
 
+// IsGuest reports whether the server downgraded the session to a guest
+// session. Windows / Samba do this when the supplied NTLM credentials
+// don't match any account AND guest fallback is enabled on the server.
+// Callers that care about authenticated access must reject this case —
+// otherwise wrong credentials silently scan as a guest.
+//
+// Patch (v0.29.1): added so the akashic SMB probe can surface a guest
+// downgrade as an auth failure instead of a green "reachable".
+func (c *Session) IsGuest() bool {
+	return c.s.sessionFlags&SMB2_SESSION_FLAG_IS_GUEST != 0
+}
+
+// IsAnonymous reports whether the session is a NULL / anonymous session
+// (RFC: SMB2_SESSION_FLAG_IS_NULL). Same downgrade risk as IsGuest.
+//
+// Patch (v0.29.1).
+func (c *Session) IsAnonymous() bool {
+	return c.s.sessionFlags&SMB2_SESSION_FLAG_IS_NULL != 0
+}
+
 // Mount mounts the SMB share.
 // sharename must follow format like `<share>` or `\\<server>\<share>`.
 // Note that the mounted share doesn't inherit session's context.
