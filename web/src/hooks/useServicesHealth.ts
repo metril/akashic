@@ -27,6 +27,7 @@ export interface ServicesHealth {
 export interface TikaActivity {
   queue_depth: number | null;
   failed_count: number | null;
+  last_failed_at: string | null;
   extracted_total: number | null;
   extracted_last_5min: number | null;
   last_extracted_at: string | null;

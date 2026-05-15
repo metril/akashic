@@ -959,6 +959,39 @@ async def lease_scan(
         merged_config["access_token"] = access_token
         if expires_at is not None:
             merged_config["access_token_expires_at"] = expires_at.isoformat()
+
+    # v0.29.8 — fire notify_eligible_joiners at claim time, not just at
+    # split_units time. Pre-fix: the second scanner only got woken up
+    # AFTER scanner A had mounted the source, walked the root, and
+    # called /scan-work/split_units — commonly 30-60s for an SMB share.
+    # Now scanner B receives its LPUSH immediately and starts mounting
+    # in parallel. Helper short-circuits when max_parallel_scanners<=1.
+    if source.max_parallel_scanners > 1:
+        from akashic.services import scan_join
+        try:
+            scan = (await db.execute(
+                select(Scan).where(Scan.id == scan_id)
+            )).scalar_one_or_none()
+            if scan is not None:
+                notified = await scan_join.notify_eligible_joiners(
+                    db=db, scan=scan, source=source,
+                    exclude_scanner_id=scanner.id,
+                )
+                logger.info(
+                    "claim: scan=%s source=%s scanner=%s notified=%d "
+                    "eligible joiner(s) at lease time",
+                    scan_id, source.id, scanner.id, notified,
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Notification is best-effort. A failure here must not
+            # block the lease return — the holder still gets the work,
+            # joiners will be picked up at the next split's notify
+            # exactly as before this change.
+            logger.warning(
+                "claim: notify_eligible_joiners failed scan=%s: %s",
+                scan_id, exc,
+            )
+
     return LeasedScan(
         scan_id=scan_id,
         scan_type=scan_type or "incremental",
@@ -1004,6 +1037,21 @@ async def complete_scan(
     if body.error_message is not None:
         scan.error_message = body.error_message
     scan.lease_expires_at = None
+    # v0.29.8 — distinguish scanner-driven terminal states so a sibling
+    # scanner that races a heartbeat against the close logs the right
+    # message. Joining scanners on a cooperative scan all post their
+    # own /complete; whichever lands first sets the reason, the rest
+    # see the existing reason on the next heartbeat 409.
+    if scan.cancellation_reason is None:
+        if body.status == "completed":
+            scan.cancellation_reason = "completed"
+        elif body.status == "failed":
+            short = (body.error_message or "").splitlines()[0][:80] if body.error_message else ""
+            scan.cancellation_reason = f"failed:{short}" if short else "failed"
+        else:
+            # cancelled via the /complete path — preserve "user" if a
+            # prior /cancel already wrote it.
+            scan.cancellation_reason = "user"
 
     # v0.29.2 — flush the Redis-backed counters back onto scan.* so
     # the row is authoritative post-scan. Single-scanner /complete

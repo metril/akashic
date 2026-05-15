@@ -69,13 +69,26 @@ async def post_heartbeat(
 ) -> None:
     scan = await _load_scan_with_write(scan_id, user, db)
 
-    # Cancellation signal: if a user marked this scan as cancelled, tell
-    # the scanner to stop with HTTP 409. The scanner's heartbeat poster
-    # treats 409 as "exit cleanly" — the scan record stays cancelled,
+    # Cancellation signal: if the scan is in a terminal state, tell the
+    # scanner to stop with HTTP 409. The scanner's heartbeat poster
+    # treats 409 as "exit cleanly" — the scan record stays terminal,
     # the source.status was already flipped to online by /cancel, and
     # any in-flight batches arriving after this point also get refused.
+    #
+    # v0.29.8 — include the cancellation reason in the response body
+    # so the scanner can log accurately rather than always saying
+    # "scan cancelled by user". Reason values: "user", "watchdog",
+    # "completed", "failed:<cause>", or NULL (legacy rows) which the
+    # scanner treats as "user" for backwards compatibility.
     if scan.status in {"cancelled", "completed", "failed"}:
-        raise HTTPException(status_code=409, detail=f"scan is {scan.status}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": scan.status,
+                "reason": scan.cancellation_reason,
+                "message": f"scan is {scan.status}",
+            },
+        )
 
     now = datetime.now(timezone.utc)
 

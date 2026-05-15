@@ -96,12 +96,18 @@ def _scan_snapshot(scan: Scan) -> dict:
     }
 
 
-def _log_line(row: ScanLogEntry) -> dict:
+def _log_line(row: ScanLogEntry, scanner_name: str | None = None) -> dict:
+    # v0.29.8 — include scanner_id + scanner_name so the per-line scanner
+    # badge re-renders when the user closes and re-opens the panel. The
+    # live-stream and REST-backfill paths already carry these fields; the
+    # snapshot dropping them was a silent attribution-loss-on-reopen bug.
     return {
         "id": str(row.id),
         "ts": row.ts.isoformat(),
         "level": row.level,
         "message": row.message,
+        "scanner_id": str(row.scanner_id) if row.scanner_id else None,
+        "scanner_name": scanner_name,
     }
 
 
@@ -132,17 +138,24 @@ async def scan_stream(
             return
 
         # Build the snapshot synchronously (last 100 lines newest-first then
-        # reversed so the client can append in order).
+        # reversed so the client can append in order). LEFT JOIN scanners
+        # so the per-row scanner badge has a name to render, matching the
+        # REST backfill at scan_progress.py:333-357.
+        from akashic.models.scanner import Scanner as _Scanner
         recent = (
             await db.execute(
-                select(ScanLogEntry)
+                select(ScanLogEntry, _Scanner.name)
+                .outerjoin(_Scanner, _Scanner.id == ScanLogEntry.scanner_id)
                 .where(ScanLogEntry.scan_id == scan_id)
                 .order_by(ScanLogEntry.ts.desc())
                 .limit(100)
             )
-        ).scalars().all()
+        ).all()
         snapshot = _scan_snapshot(scan)
-        snapshot["recent_lines"] = [_log_line(r) for r in reversed(list(recent))]
+        snapshot["recent_lines"] = [
+            _log_line(entry, scanner_name)
+            for (entry, scanner_name) in reversed(list(recent))
+        ]
 
     await websocket.accept()
     try:

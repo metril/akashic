@@ -76,3 +76,15 @@ class Scan(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+
+    # v0.29.8 — disambiguates the HTTP 409 returned by /heartbeat,
+    # /log, /stderr, /ingest/batch when a scan is in a terminal
+    # state. Pre-fix, the scanner unconditionally logged "scan
+    # cancelled by user" on every 409, even when the watchdog reaped
+    # the scan or a sibling scanner closed it cleanly. Allowed values:
+    # "user", "watchdog", "completed", "failed:<cause>". NULL on
+    # legacy rows — the serializer treats NULL as "user" so existing
+    # cancelled scans keep their current log message.
+    cancellation_reason: Mapped[str | None] = mapped_column(
+        String, nullable=True,
+    )

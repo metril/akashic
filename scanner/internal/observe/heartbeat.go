@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 )
@@ -58,12 +59,43 @@ func (r *Reporter) postHeartbeat(ctx context.Context) {
 	}
 	defer resp.Body.Close()
 
-	// 409 is the API's "this scan was cancelled — please stop"
-	// signal. We pull the trigger on the cancel-callback exactly once;
-	// subsequent 409s (which will keep arriving until our process
-	// exits) are no-ops.
+	// 409 is the API's "this scan ended — please stop" signal. We pull
+	// the cancel-callback trigger exactly once; subsequent 409s (which
+	// keep arriving until our process exits) are no-ops.
+	//
+	// v0.29.8 — the body now carries {status, reason, message}. Pre-fix
+	// every 409 was logged as "scan cancelled by user" — wrong when
+	// the API watchdog had reaped a stale scan or a sibling scanner
+	// closed it cleanly. Decode and route the message accordingly.
 	if resp.StatusCode == http.StatusConflict {
-		r.logSink.Warn("scan cancelled by user; exiting")
+		r.logSink.Warn(decodeCancelMessage(resp.Body))
 		r.signalCancel()
+	}
+}
+
+// decodeCancelMessage parses the 409 body and produces an accurate
+// exit-log line. Falls back to "scan cancelled by user; exiting" when
+// the body is missing, malformed, or pre-v0.29.8 (legacy contract).
+func decodeCancelMessage(body io.Reader) string {
+	type detail struct {
+		Detail struct {
+			Status  string `json:"status"`
+			Reason  string `json:"reason"`
+			Message string `json:"message"`
+		} `json:"detail"`
+	}
+	var d detail
+	if err := json.NewDecoder(body).Decode(&d); err != nil {
+		return "scan cancelled by user; exiting"
+	}
+	switch d.Detail.Reason {
+	case "user", "":
+		return "scan cancelled by user; exiting"
+	case "watchdog":
+		return "scan terminated by watchdog (stale heartbeat); exiting"
+	case "completed":
+		return "scan completed; exiting"
+	default:
+		return "scan ended (reason=" + d.Detail.Reason + "); exiting"
 	}
 }

@@ -5,6 +5,110 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.8 — 2026-05-15
+
+**Four-bug fix bundle from a multi-scanner production deployment.**
+The user reported four issues that the new multi-scanner setup
+surfaced: a second scanner took too long to join a running scan;
+the scan log lost its per-scanner attribution when the panel was
+closed and reopened; Tika extraction jobs piled up unbounded; and
+scans sometimes self-cancelled with a misleading "cancelled by
+user" message. All four were pre-existing latent bugs.
+
+### Bug fixes
+
+- **Second scanner joins a scan within seconds, not minutes**
+  ([routers/scanners.py](api/akashic/routers/scanners.py)).
+  `notify_eligible_joiners` was only fired inside the
+  `split_units` handler — so a joining scanner stayed parked in
+  its 30 s long-poll until the lease holder had mounted the
+  source, walked the root, and posted its first split (commonly
+  30–60 s on an SMB share). The notify now also fires at
+  `/api/scans/lease` claim time, so the second scanner starts
+  mounting in parallel with the first. Short-circuits when the
+  source's `max_parallel_scanners <= 1`.
+
+- **Scan log keeps per-scanner attribution on reopen**
+  ([routers/scan_websocket.py](api/akashic/routers/scan_websocket.py)).
+  The WebSocket snapshot's `_log_line()` serializer dropped
+  `scanner_id` + `scanner_name` — fields the live stream and the
+  REST backfill both carry. Closing and reopening the log panel
+  sends a fresh snapshot, so the per-line scanner badge silently
+  vanished even though the data was on the row. The snapshot now
+  LEFT JOINs `scanners` and serializes both fields, matching the
+  other two paths.
+
+- **Tika extraction jobs actually get processed**
+  ([compose.yaml](compose.yaml)). `compose.yaml` started the Tika
+  service but never the RQ worker that drains its queue — the
+  worker was a manual `rq worker extraction` step nobody ran, so
+  jobs accumulated in `rq:queue:extraction` forever (the smoke
+  test found a 1 508-job backlog). A new `extraction-worker`
+  service (2 replicas, `restart: unless-stopped`) now runs
+  alongside the API. Scale out with
+  `docker compose up --scale extraction-worker=N`.
+
+- **Scans no longer mislabel non-user cancellations as "by user"**
+  ([routers/scan_progress.py](api/akashic/routers/scan_progress.py),
+  [observe/heartbeat.go](scanner/internal/observe/heartbeat.go)).
+  The heartbeat endpoint returned a bare HTTP 409 for *any*
+  terminal scan state, and the scanner unconditionally logged
+  "scan cancelled by user; exiting" on every 409 — wrong when the
+  watchdog had reaped a stale scan or a sibling scanner closed it
+  cleanly. The 409 body now carries `{status, reason}`; the
+  scanner decodes it and logs accurately: "terminated by watchdog
+  (stale heartbeat)", "scan completed", or "cancelled by user"
+  only when it genuinely was. New `scans.cancellation_reason`
+  column (migration `0035_scan_cancel_reason`); legacy NULL rows
+  fall back to the "by user" message for compatibility.
+
+- **Tika container healthcheck fixed**
+  ([compose.yaml](compose.yaml)). The v0.29.0 healthcheck shelled
+  out to `wget`, which the `apache/tika:3.0.0.0` image does not
+  ship — the container sat `unhealthy` indefinitely. Harmless
+  until the new `extraction-worker` added a `tika:
+  service_healthy` dependency. The check now uses bash's
+  `/dev/tcp` pseudo-device (the image has bash + java only).
+
+### Surface
+
+- **Extraction retry cap + dead-letter visibility.** Each
+  extraction job is enqueued with `Retry(max=3, interval=[10, 60,
+  300])` ([routers/ingest.py](api/akashic/routers/ingest.py)) — a
+  poison file (corrupt PDF, Tika 500) lands in `rq:failed` after
+  three attempts instead of re-queuing forever. The System Status
+  page's "Failed" card now shows the last-failure timestamp and a
+  "view" link to a new read-only endpoint
+  `GET /api/health/services/extraction/failed` that lists failed
+  jobs with their exception messages
+  ([routers/health_services.py](api/akashic/routers/health_services.py),
+  [pages/AdminSystemStatus.tsx](web/src/pages/AdminSystemStatus.tsx)).
+
+### Tests
+
+- New [tests/test_scan_join_notify_on_claim.py](api/tests/test_scan_join_notify_on_claim.py):
+  the lease endpoint fires the join notify; single-scanner
+  sources short-circuit.
+- New [tests/test_scan_websocket.py](api/tests/test_scan_websocket.py)
+  case: the WS snapshot carries `scanner_id` + `scanner_name`,
+  including null for legacy rows.
+- New [tests/test_scan_cancellation_reason.py](api/tests/test_scan_cancellation_reason.py):
+  user-cancel / watchdog-reap / terminal-complete each yield the
+  right `reason` in the 409 body; legacy NULL stays representable.
+- New [tests/test_extraction_retry_cap.py](api/tests/test_extraction_retry_cap.py):
+  enqueued jobs carry `retries_left=3` + `[10, 60, 300]` intervals.
+- New [internal/observe/heartbeat_test.go](scanner/internal/observe/heartbeat_test.go):
+  `decodeCancelMessage` routes each `reason` variant to the right
+  log line and falls back cleanly on malformed / legacy bodies.
+
+### Verification
+
+- `pytest` — 748 passed (was 739; +9 new).
+- `go test ./internal/observe/...` + `go build ./...` + `go vet` — clean.
+- `npx tsc --noEmit && npx vitest run` — clean (139 passed).
+- `docker compose up -d extraction-worker` — tika healthy, both
+  worker replicas drained the live 1 508-job backlog.
+
 ## v0.29.7 — 2026-05-15
 
 **Scan log survives scan completion.** User report: "the live log

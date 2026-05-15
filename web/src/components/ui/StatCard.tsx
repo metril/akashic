@@ -5,7 +5,7 @@ import { Skeleton } from "./Skeleton";
 interface StatCardProps {
   label: string;
   value: string | number;
-  subtext?: string;
+  subtext?: React.ReactNode;
   icon?: React.ReactNode;
   loading?: boolean;
   className?: string;

@@ -179,6 +179,80 @@ async def test_ws_includes_recent_log_lines_in_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_ws_snapshot_carries_scanner_attribution(
+    app, admin_user, fixture_scan, setup_db, monkeypatch,
+):
+    """v0.29.8 — pre-fix the WS snapshot's `recent_lines` dropped
+    `scanner_id` and `scanner_name`. When the user closed and reopened
+    the log panel, the per-line scanner badge silently disappeared
+    even though the column was populated on the DB row. This asserts
+    both fields ride the snapshot wire shape now."""
+    from akashic.models.scanner import Scanner
+    from akashic.services.scanner_keys import generate_keypair
+    monkeypatch.setattr(scan_pubsub, "subscribe", _empty_subscribe)
+
+    async with setup_db() as session:
+        kp_a = generate_keypair()
+        kp_b = generate_keypair()
+        scanner_a = Scanner(
+            id=uuid.uuid4(),
+            name="scanner-A",
+            public_key_pem=kp_a.public_pem,
+            key_fingerprint=kp_a.fingerprint,
+        )
+        scanner_b = Scanner(
+            id=uuid.uuid4(),
+            name="scanner-B",
+            public_key_pem=kp_b.public_pem,
+            key_fingerprint=kp_b.fingerprint,
+        )
+        session.add_all([scanner_a, scanner_b])
+        await session.flush()
+        session.add_all([
+            ScanLogEntry(
+                scan_id=fixture_scan.id,
+                ts=datetime.now(timezone.utc),
+                level="info",
+                message="from A",
+                scanner_id=scanner_a.id,
+            ),
+            ScanLogEntry(
+                scan_id=fixture_scan.id,
+                ts=datetime.now(timezone.utc),
+                level="info",
+                message="from B",
+                scanner_id=scanner_b.id,
+            ),
+            ScanLogEntry(
+                scan_id=fixture_scan.id,
+                ts=datetime.now(timezone.utc),
+                level="info",
+                message="from unknown",
+                scanner_id=None,
+            ),
+        ])
+        await session.commit()
+        scanner_a_id = str(scanner_a.id)
+        scanner_b_id = str(scanner_b.id)
+
+    token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role})
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            f"/ws/scans/{fixture_scan.id}?token={token}"
+        ) as ws:
+            snapshot = ws.receive_json()
+            lines = {r["message"]: r for r in snapshot["recent_lines"]}
+            assert lines["from A"]["scanner_id"] == scanner_a_id
+            assert lines["from A"]["scanner_name"] == "scanner-A"
+            assert lines["from B"]["scanner_id"] == scanner_b_id
+            assert lines["from B"]["scanner_name"] == "scanner-B"
+            # Legacy rows / pre-v0.28.2 scans with no scanner_id stay
+            # representable — both fields null, no badge rendered.
+            assert lines["from unknown"]["scanner_id"] is None
+            assert lines["from unknown"]["scanner_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_ws_rejects_invalid_token(app, fixture_scan):
     with TestClient(app) as client:
         with pytest.raises(Exception):

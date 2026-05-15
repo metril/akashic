@@ -128,9 +128,21 @@ export default function AdminSystemStatus() {
               label="Failed"
               value={formatNumber(activity.data.tika.failed_count)}
               subtext={
-                (activity.data.tika.failed_count ?? 0) > 0
-                  ? "stuck jobs"
-                  : "no failures"
+                (activity.data.tika.failed_count ?? 0) > 0 ? (
+                  <span className="flex items-center gap-1">
+                    <span>last {formatRelative(activity.data.tika.last_failed_at)}</span>
+                    <a
+                      className="text-accent hover:underline"
+                      href="/api/health/services/extraction/failed"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      view
+                    </a>
+                  </span>
+                ) : (
+                  "no failures"
+                )
               }
             />
             <StatCard

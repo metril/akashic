@@ -239,6 +239,11 @@ async def _check_stale_scans():
         for scan in result.scalars().all():
             scan.status = "failed"
             scan.error_message = message
+            # v0.29.8 — disambiguates the 409 the scanner receives on
+            # its next heartbeat; without this, the scanner logs
+            # "scan cancelled by user" for a watchdog reap. See
+            # heartbeat_test.go for the matching scanner-side path.
+            scan.cancellation_reason = "watchdog"
             # v0.29.2 — flush per-scan Redis counter hash back onto
             # scan.* before terminal commit. Without this, a failed
             # scan loses whatever counters had accumulated in Redis

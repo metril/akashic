@@ -234,6 +234,10 @@ async def cancel_scan(
         if scan.completed_at is None:
             scan.completed_at = datetime.now(timezone.utc)
         scan.error_message = "Cancelled by user"
+        # v0.29.8 — write cancellation_reason so the scanner's next
+        # heartbeat receives the disambiguated 409 body and logs
+        # "scan cancelled by user" only when it was actually the user.
+        scan.cancellation_reason = "user"
 
         # Flip the source back to online so the user can immediately
         # retrigger. If the scanner is mid-flight it'll keep posting

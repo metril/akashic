@@ -65,15 +65,28 @@ def _bg_session(db_url: str) -> "async_sessionmaker[AsyncSession]":
 
 
 def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
-    """Background task: enqueue text extraction jobs to Redis."""
+    """Background task: enqueue text extraction jobs to Redis.
+
+    v0.29.8 — each job carries a Retry(max=3, interval=[10, 60, 300])
+    policy. Pre-fix RQ defaulted to infinite retries: a single
+    poison file (corrupt PDF, Tika 500, unreadable bytes) would
+    re-queue forever and the "pending" count on the System Status
+    page would grow with each retry tick. After three attempts the
+    job lands in `rq:failed` (read out via /api/admin/extraction/failed)
+    and stops contributing to `rq:queue:extraction` LLEN.
+    """
     try:
         from redis import Redis
-        from rq import Queue
+        from rq import Queue, Retry
 
         conn = Redis.from_url(redis_url)
         q = Queue("extraction", connection=conn)
         for entry_id in entry_ids:
-            q.enqueue("akashic.workers.extraction.process_file_extraction", entry_id)
+            q.enqueue(
+                "akashic.workers.extraction.process_file_extraction",
+                entry_id,
+                retry=Retry(max=3, interval=[10, 60, 300]),
+            )
         logger.info("Enqueued %d extraction jobs", len(entry_ids))
     except Exception as exc:
         logger.warning("Failed to enqueue extraction jobs: %s", exc)
