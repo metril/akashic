@@ -152,6 +152,33 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 	c.smbShare = share
 	c.sdSource = share // *smb2.Share satisfies sdFetcher via GetSecurityDescriptorBytes
 
+	// v0.29.6 — share-ACL smoke. v0.29.1 catches guest-fallback +
+	// v0.29.5 catches empty-password sessions, but there's a third
+	// bypass: the user authenticates fine, gets tree-connect
+	// permission to mount the share, but ACL denies READ at the
+	// share root. Pre-fix Connect returned nil here, the probe lands
+	// ok=true, and at scan time the walker hits ACCESS_DENIED on
+	// every ReadDir → swallows as inaccessible_dirs → zero entries
+	// produced → final batch crash (or just a silent empty scan).
+	//
+	// Drop a tiny ReadDir(".") to confirm the user can actually
+	// LIST the share before claiming success. Empty result is a
+	// legit pass (mountable + readable + empty share is a real
+	// configuration). go-smb2's Share.ReadDir reads relative to the
+	// mount; "." is the share root.
+	if _, rerr := share.ReadDir("."); rerr != nil {
+		share.Umount()
+		session.Logoff()
+		conn.Close()
+		c.smbShare = nil
+		c.sdSource = nil
+		return fmt.Errorf(
+			"smb session: share %q mounted but ReadDir denied "+
+				"(credentials lack list permission for user %q: %s)",
+			c.share, c.username, rerr,
+		)
+	}
+
 	// Try opening LSARPC named pipe for SID resolution. Failures are non-fatal —
 	// capture continues with raw SIDs (well-known table still resolves what it can).
 	// go-smb2 requires a separate IPC$ mount to access named pipes; keep ipcShare

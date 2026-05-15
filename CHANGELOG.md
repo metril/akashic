@@ -5,6 +5,92 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.6 — 2026-05-15
+
+**SMB probe surfaces share-ACL denial. Empty-batch wire-shape crash
+fixed. AIMD no longer halves on 4xx.** Three problems chained
+together in production: user supplied credentials that authenticate
+but lack list permission on the SMB share, the probe still reported
+green, the scan ran and the walker hit ACCESS_DENIED on every
+ReadDir → zero entries → final batch sent with `Entries: nil` which
+JSON-marshals to `null`, which the API rejects as 422.
+
+### Bug fixes
+
+- **SMB probe: ReadDir(`.`) smoke after Mount**
+  ([scanner/internal/connector/smb.go:Connect](scanner/internal/connector/smb.go)).
+  v0.29.1 caught guest fallback. v0.29.5 caught empty-password
+  bypass. v0.29.6 catches the third bypass: authenticated session
+  + permitted tree-connect (mount succeeds) + DENIED list/read at
+  the share root. Pre-fix Connect returned nil after Mount; the
+  probe lands ok=true; the scan silently fails. Post-fix the
+  connector does a `share.ReadDir(".")` smoke before returning;
+  any error there is surfaced as `step=auth` with the diagnostic
+  `share "X" mounted but ReadDir denied (credentials lack list
+  permission for user "Y": ...)`.
+
+- **Empty-batch JSON wire shape**
+  ([scanner/internal/scanner/scanner.go:Run](scanner/internal/scanner/scanner.go)).
+  `var batch []models.EntryRecord` declared a NIL slice; the final
+  `enqueue(true)` on a zero-entry walk sent `Entries: nil` which Go's
+  encoding/json marshals to `"entries":null`, rejected by the API's
+  required `list[EntryIn]` Pydantic field with 422. Bug existed
+  since the scanner first emitted final batches; v0.29.2's pipeline
+  refactor changed when it surfaced. Initialise as
+  `batch := []models.EntryRecord{}`, reset to fresh empty slice
+  after each enqueue, plus a defensive `if batch == nil` guard
+  inside enqueue.
+
+### Hardening
+
+- **AIMD ignores non-load 4xx**
+  ([scanner/internal/client/client.go](scanner/internal/client/client.go),
+  [scanner/internal/scanner/scanner.go](scanner/internal/scanner/scanner.go)).
+  v0.29.2's AdaptiveBatcher halved on any non-nil error — but a
+  422 / 400 / 401 is misuse / code bug, not overload. Halving the
+  batch makes no sense and muddies the diagnostic (the user just
+  saw "1000 → 500 after error" alongside their wire-shape 422,
+  implying a load issue that wasn't there). Post-fix the client
+  exports `IsLoadSignal(err) bool` (true for 5xx, network failure,
+  413; false for other 4xx). The sender goroutine skips
+  AdaptiveBatcher.Observe entirely on non-load errors so the size
+  neither halves NOR grows.
+
+### Observability
+
+- **Walk-finished log line**
+  ([scanner/internal/scanner/scanner.go:Run](scanner/internal/scanner/scanner.go)).
+  Pre-fix the only post-walk log was inside the success branch
+  (`scan complete: N files, M dirs, K batches`), which was SKIPPED
+  when the send-batch path errored — exactly the empty-batch
+  crash case. Now an INFO line `walk finished: N files, M dirs,
+  X inaccessible dirs, Y inaccessible files, Z pending` fires
+  unconditionally, so an empty walk is visible in
+  `docker compose logs scanner`.
+
+### Tests
+
+- New scanner tests:
+  - [scanner/internal/scanner/empty_batch_wire_test.go](scanner/internal/scanner/empty_batch_wire_test.go)
+    — 2 cases verifying the JSON wire shape for an empty-walk
+    final batch (`"entries":[]`, never `null`; round-trips as a
+    JSON array).
+  - [scanner/internal/scanner/batchsize_load_signal_test.go](scanner/internal/scanner/batchsize_load_signal_test.go)
+    — table test: 500/503/413 halve; 422/400/401 leave the batch
+    size unchanged.
+  - [scanner/internal/client/client_load_signal_test.go](scanner/internal/client/client_load_signal_test.go)
+    — 7 cases for the `IsLoadSignal` classifier (nil, each typed
+    error, wrapped through `fmt.Errorf %w`, integration against
+    a stub HTTP server for every status code).
+- Extended [scanner/internal/probe/probe_smb_test.go](scanner/internal/probe/probe_smb_test.go)
+  with the new ReadDir-denied error string → step=auth case.
+
+### Verification
+
+- `pytest tests/` — 737 still pass (no API changes).
+- `go test ./...` from `scanner/` — all green.
+- `npx tsc --noEmit && npx vitest run` — clean (133 passed).
+
 ## v0.29.5 — 2026-05-15
 
 **SMB empty-password bypass, scan-join observability, credential

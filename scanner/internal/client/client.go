@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -150,6 +151,15 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) error {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return retryableError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
 	}
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		// v0.29.6 — 413 is a "your batch is too big" signal, which
+		// IS a load signal worth feeding to AIMD even though it's
+		// 4xx. Wrap with payloadTooLargeError so the sender can
+		// surface it to AdaptiveBatcher.Observe while still treating
+		// it as terminal for retry purposes.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return payloadTooLargeError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
+	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return terminalError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
@@ -163,9 +173,47 @@ type retryableError struct{ error }
 
 // terminalError marks an error that won't fix itself — bad request,
 // auth failure, malformed body, etc. SendBatch returns immediately.
+// Per v0.29.6 these are NOT load signals — AIMD should leave the
+// batch size alone (a 422 is a code/config bug, not "server is
+// overloaded").
 type terminalError struct{ error }
 
+// payloadTooLargeError marks a 413 specifically. It's a terminal-
+// for-retry error (the batch as-shipped won't fit, retrying it won't
+// help) but IS a load signal for AIMD — exactly the case AIMD's
+// multiplicative-decrease was designed for.
+type payloadTooLargeError struct{ error }
+
 func isRetryable(err error) bool {
-	_, ok := err.(retryableError)
-	return ok
+	switch err.(type) {
+	case retryableError:
+		return true
+	}
+	return false
+}
+
+// IsLoadSignal reports whether the error indicates that the batch
+// triggered a real load condition on the API path (overloaded,
+// timeout, or payload-too-large). AdaptiveBatcher's multiplicative-
+// decrease should only run on these — 4xx-other-than-413 is misuse,
+// not overload, and halving the batch makes no sense.
+//
+// Walks the error chain (errors.As) so it correctly identifies the
+// wrapped form SendBatch returns after retry exhaustion ("send
+// batch: 4 attempts failed: %w").
+//
+// v0.29.6.
+func IsLoadSignal(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rt retryableError
+	if errors.As(err, &rt) {
+		return true
+	}
+	var pt payloadTooLargeError
+	if errors.As(err, &pt) {
+		return true
+	}
+	return false
 }

@@ -130,7 +130,14 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	s.info("walk starting: %s", s.opts.Root)
 
 	result := &Result{}
-	var batch []models.EntryRecord
+	// v0.29.6 — initialise as a non-nil empty slice so the final
+	// batch on a zero-entry walk serializes as `"entries":[]`, not
+	// `"entries":null`. A nil slice marshals to JSON `null` which
+	// the API's required `list[EntryIn]` Pydantic field rejects with
+	// 422. The bug had existed since the scanner first emitted final
+	// batches; v0.29.2's pipelined refactor surfaced it later than
+	// the prior synchronous path but didn't fix it.
+	batch := []models.EntryRecord{}
 	firstBatch := true
 
 	// Progress-log throttle: emit a "scanned N files (current path)" line
@@ -180,9 +187,18 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			err := s.client.SendBatch(scanCtx, scanBatch)
 			elapsed := time.Since(start)
 			if s.opts.AdaptiveBatcher != nil {
-				s.opts.AdaptiveBatcher.Observe(elapsed, err)
-				if s.opts.State != nil {
-					s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())
+				// v0.29.6 — non-load errors (422 / 400 / 401 / 403)
+				// are misuse signals, not overload. Skip Observe
+				// entirely so AIMD neither halves (would be wrong
+				// for a 422) nor grows (which would happen if we
+				// passed nil + the fast retry/short latency of a
+				// terminal-error round trip). Real load signals
+				// (5xx, network failure, 413) DO feed Observe.
+				if err == nil || client.IsLoadSignal(err) {
+					s.opts.AdaptiveBatcher.Observe(elapsed, err)
+					if s.opts.State != nil {
+						s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())
+					}
 				}
 			}
 			if err != nil {
@@ -210,6 +226,14 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		if len(batch) == 0 && !final {
 			return nil
 		}
+		// v0.29.6 — defense in depth: ensure Entries is non-nil so
+		// the JSON wire shape is `[]`, not `null`. The slice is
+		// initialised as []EntryRecord{} at function-top and reset
+		// to the same after each enqueue, but a future refactor
+		// could re-introduce nil; this guard catches that too.
+		if batch == nil {
+			batch = []models.EntryRecord{}
+		}
 		scanBatch := models.ScanBatch{
 			SourceID: s.opts.SourceID,
 			ScanID:   s.opts.ScanID,
@@ -229,7 +253,9 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		case <-scanCtx.Done():
 			return scanCtx.Err()
 		}
-		batch = nil
+		// Fresh non-nil slice so a follow-up enqueue (e.g., the
+		// final flush after a normal walk) ships `[]` not `null`.
+		batch = []models.EntryRecord{}
 		return nil
 	}
 
@@ -306,6 +332,22 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 
 	result.InaccessibleDirs = walkStats.InaccessibleDirs
 	result.InaccessibleFiles = walkStats.InaccessibleFiles
+
+	// v0.29.6 — log walk-finished totals regardless of subsequent
+	// send-batch outcome. The existing "scan complete:" line fires
+	// inside the success branch of Run(), so a send-batch error (the
+	// v0.29.5-era empty-batch 422 + similar) hid the walk result. With
+	// this line, an empty walk is no longer silent — the user can
+	// see `walk finished: 0 files, 0 dirs` and start asking the right
+	// questions (share-ACL denial, wrong root path, etc.).
+	log.Printf("scan %s: walk finished: %d files, %d dirs, "+
+		"%d inaccessible dirs, %d inaccessible files, "+
+		"%d entries pending in final batch",
+		s.opts.ScanID,
+		result.FilesFound, result.DirsFound,
+		result.InaccessibleDirs, result.InaccessibleFiles,
+		len(batch),
+	)
 
 	s.setPhase("finalize")
 	if err := enqueue(true); err != nil {

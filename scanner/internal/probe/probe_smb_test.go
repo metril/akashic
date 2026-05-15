@@ -76,6 +76,17 @@ func TestClassifySMBProbeError(t *testing.T) {
 			wantMsg:  `server returned an anonymous (NULL) session for user "alice" — supplied credentials were rejected`,
 		},
 		{
+			// v0.29.6 share-ACL ReadDir-smoke rejection. The
+			// connector mounts the share successfully (tree connect
+			// permitted), then a ReadDir(".") at the share root
+			// returns ACCESS_DENIED — credentials authenticate but
+			// don't grant list permission. Classifies as step=auth
+			// and the full diagnostic survives in the message.
+			err:      `smb session: share "public" mounted but ReadDir denied (credentials lack list permission for user "alice": STATUS_ACCESS_DENIED)`,
+			wantStep: "auth",
+			wantMsg:  `share "public" mounted but ReadDir denied (credentials lack list permission for user "alice": STATUS_ACCESS_DENIED)`,
+		},
+		{
 			err:      "smb mount \\\\h\\share: STATUS_ACCESS_DENIED",
 			wantStep: "mount",
 			wantMsg:  "\\\\h\\share: STATUS_ACCESS_DENIED",
