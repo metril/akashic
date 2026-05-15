@@ -5,6 +5,33 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.4 — 2026-05-15
+
+**CI test-server gzips: lets v0.29.x Release pipelines actually pass.**
+v0.29.2's client started gzipping batches >= 1 KB, but the
+`scanner_test.go` test server still parsed raw JSON. Local-connector
+entries (full ACL/hash/owner fields) cross the threshold in a 2-entry
+batch, so `Decode` errored, the `onBatch` callback never fired, and
+`TestScanner_ScanLocal` failed seeing 1 of 3 batches counted. v0.29.2
+and v0.29.3 both released their docker artifacts via the tag-push
+Release workflow which ran the failing test → release failed → no
+images published.
+
+Fix: gzip-decode the request body in `newTestServer` when
+`Content-Encoding: gzip` is set, mirroring what the API's
+`_GzipRequestMiddleware` does in production. Bumped as v0.29.4 so the
+released tag carries the fix — re-running the Release workflow on
+v0.29.2 / v0.29.3 would have run the same failing test against the
+pre-fix code.
+
+No application change. Same code as v0.29.3, plus the test-server
+update.
+
+### Verification
+
+- Build CI green (run 25902020627): web tests + typecheck ✓,
+  API tests ✓ (11m19s), scanner tests ✓ (19s), all image builds ✓.
+
 ## v0.29.3 — 2026-05-15
 
 **Live Log surfaces the AIMD batch size.** Closes out the v0.29.2
