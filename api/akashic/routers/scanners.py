@@ -1097,6 +1097,48 @@ async def long_poll_probes(
     return payload
 
 
+@router.get("/api/scanners/{scanner_id}/scans/long-poll")
+async def long_poll_scan_joins(
+    scanner_id: uuid.UUID,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    scanner: Scanner = Depends(verify_scanner_jwt),
+):
+    """Block until a multi-scanner scan needs help, or 30 s elapses.
+
+    v0.29.0 — discovery channel for the second-and-later scanner on a
+    source with ``max_parallel_scanners > 1``. The lease holder calls
+    ``POST /scans/{id}/work/split`` after enumerating; the API LPUSHes
+    a join notification to each eligible-other scanner's queue; this
+    endpoint BRPOPs from that queue and returns a ``LeasedScan``-shaped
+    payload so the agent can dispatch straight into
+    ``runUnitCoordinated`` (same code path as a fresh lease).
+
+    Returns 204 on timeout (agent reconnects immediately). On 200 the
+    payload mirrors ``/api/scans/lease`` exactly so the agent can reuse
+    its dispatch code without branching.
+
+    Auth: scanner JWT; scanner_id in the URL must match the JWT subject
+    so a compromised scanner can't subscribe to another scanner's
+    queue.
+    """
+    if scanner_id != scanner.id:
+        raise HTTPException(status_code=403, detail="scanner_id mismatch")
+    if not scanner.enabled:
+        raise HTTPException(status_code=403, detail="scanner is disabled")
+
+    # Long-poll counts as a keep-alive (mirrors probes long-poll).
+    scanner.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    from akashic.services.scan_join import wait_for_scan_join
+    payload = await wait_for_scan_join(scanner.id, timeout_s=30.0)
+    if payload is None:
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+    return payload
+
+
 @router.post(
     "/api/scanners/{scanner_id}/probes/{request_id}/report",
     status_code=status.HTTP_204_NO_CONTENT,

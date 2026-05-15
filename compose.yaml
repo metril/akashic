@@ -46,6 +46,16 @@ services:
     image: apache/tika:3.0.0.0
     ports:
       - "127.0.0.1:9998:9998"
+    # v0.29.0 — liveness check so /api/health/services can report tika
+    # status without relying on a probe at request time. Apache's
+    # tika image (eclipse-temurin base) ships wget; /tika returns a
+    # plain-text banner identifying the running server.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9998/tika | grep -q Tika"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
   api:
     build:

@@ -481,4 +481,39 @@ async def split_units(
         except IntegrityError:
             skipped += 1
     await db.commit()
+
+    # v0.29.0 — push-based multi-scanner cooperation. Once units exist
+    # on the queue, notify every other eligible scanner so they can
+    # join via /api/scans/{id}/work/lease without having to first
+    # discover the scan via /api/scans/lease (which filters out scans
+    # that already have an assigned_scanner_id).
+    #
+    # Only fired when the source allows >1 cooperating scanner; the
+    # notify helper short-circuits on max_parallel_scanners <= 1.
+    # Fire on every split, not just the root one — late-arriving
+    # subdirectory splits should still wake idle joiners. The
+    # per-scanner queue is durable and LTRIM-capped, so repeated
+    # notifications for the same scan don't accumulate.
+    source = None
+    if scan.source_id is not None:
+        source = (await db.execute(
+            select(Source).where(Source.id == scan.source_id)
+        )).scalar_one_or_none()
+    if source is not None and source.max_parallel_scanners > 1:
+        from akashic.services import scan_join
+        try:
+            await scan_join.notify_eligible_joiners(
+                db=db, scan=scan, source=source,
+                exclude_scanner_id=scanner.id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Notification is a best-effort wake-up; failure must not
+            # block the split. The holder keeps going alone; joiners
+            # will eventually pick up via the next split's notify.
+            import logging
+            logging.getLogger(__name__).warning(
+                "split_units: notify_eligible_joiners failed scan=%s: %s",
+                scan_id, exc,
+            )
+
     return SplitResponse(created=created, skipped=skipped)

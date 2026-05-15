@@ -71,6 +71,14 @@ func Run(ctx context.Context, cfg Config) error {
 	// poll loop).
 	go reachabilityLoop(ctx, httpc, cfg, priv)
 
+	// 2b) Independent multi-scanner join goroutine. Long-polls
+	// /api/scanners/{id}/scans/long-poll for join notifications
+	// pushed by the API when another scanner has split units on a
+	// max_parallel_scanners>1 source we're eligible for. Decoupled
+	// from the lease loop so an idle agent picks up cooperative work
+	// the instant the holder finishes enumeration. v0.29.0.
+	go scanJoinLoop(ctx, httpc, cfg, priv)
+
 	// 3) Lease loop. Sleeps with ±20% jitter on empty leases so a
 	// fleet of agents in the same pool doesn't synchronise their
 	// polls and pound the api.

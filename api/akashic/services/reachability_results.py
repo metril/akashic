@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.models.reachability_result import ReachabilityResult
@@ -32,14 +32,52 @@ async def record_result(
     started_at: datetime,
     triggered_by: Optional[uuid.UUID] = None,
 ) -> ReachabilityResult:
-    """INSERT one probe outcome. Caller commits.
+    """Record one probe outcome — dedup'd against the most recent row
+    for the same (source, scanner) pair. Caller commits.
 
     `scanner_id=None` means an inline probe by the API itself (non-local
     sources can be dialled directly without an agent round-trip).
     `triggered_by=None` means an implicit bump (e.g. successful scan
     completion); set the caller's user id for explicit panel actions
     so the audit trail attributes who asked.
+
+    v0.29.0 — dedup write-side: when the most recent row for this
+    (source_id, scanner_id) pair has identical (ok, step, error),
+    bump its `completed_at` to now and return it instead of inserting
+    a new row. Eliminates "click Test 5 times, see 5 identical green
+    dots" noise in the AllowedScannersPanel history disclosure and
+    keeps the table compact under bulk fan-out (the test-shares
+    endpoint can fire many same-outcome probes back-to-back).
     """
+    completed_at = datetime.now(timezone.utc)
+
+    latest = (await db.execute(
+        select(ReachabilityResult)
+        .where(ReachabilityResult.source_id == source_id)
+        .where(ReachabilityResult.scanner_id.is_(scanner_id) if scanner_id is None
+               else ReachabilityResult.scanner_id == scanner_id)
+        .order_by(ReachabilityResult.completed_at.desc(),
+                  ReachabilityResult.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if (
+        latest is not None
+        and latest.ok == ok
+        and (latest.step or None) == (step or None)
+        and (latest.error or None) == (error or None)
+    ):
+        # Same state as last time — just advance the timestamp so the
+        # panel still shows "fresh" without growing a duplicate dot.
+        latest.completed_at = completed_at
+        latest.started_at = started_at
+        # Refresh triggered_by when the user explicitly re-triggered; an
+        # implicit scan-completion shouldn't overwrite a recorded user
+        # action since the action is what gives the row audit value.
+        if triggered_by is not None:
+            latest.triggered_by = triggered_by
+        return latest
+
     row = ReachabilityResult(
         source_id=source_id,
         scanner_id=scanner_id,
@@ -47,7 +85,7 @@ async def record_result(
         step=step,
         error=error,
         started_at=started_at,
-        completed_at=datetime.now(timezone.utc),
+        completed_at=completed_at,
         triggered_by=triggered_by,
     )
     db.add(row)

@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { cn } from "./ui/cn";
 import { Icon, type IconName } from "./ui";
 import { BrandMark } from "./BrandMark";
+import { ServicesHealthBadge } from "./admin/ServicesHealthBadge";
 
 interface NavItem {
   to: string;
@@ -47,6 +48,7 @@ const sections: NavSection[] = [
     items: [
       { to: "/admin/access", label: "Access", iconName: "shield" },
       { to: "/admin/audit", label: "Audit log", iconName: "audit-log" },
+      { to: "/admin/system-status", label: "System status", iconName: "database" },
     ],
   },
 ];
@@ -138,6 +140,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             </div>
           ))}
         </nav>
+
+        {/* v0.29.0 — admin services health chip. Self-hides for non-
+            admins / when the query errors out. */}
+        <div className={cn("border-t border-line-subtle py-2", isCollapsed ? "px-1" : "px-2")}>
+          <ServicesHealthBadge collapsed={isCollapsed} />
+        </div>
 
         {/* Collapse toggle — only on md+ viewports, hidden inside the mobile sheet */}
         {!forceFullWidth && (

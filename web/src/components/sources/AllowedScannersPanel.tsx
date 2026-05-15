@@ -68,9 +68,21 @@ function deriveRowState(row: ScannerReachabilityRow): {
 
 function HistoryDots({ history }: { history: ScannerReachabilityHistoryEntry[] }) {
   if (!history || history.length === 0) return null;
+  // v0.29.0 — collapse consecutive identical (ok, step) entries
+  // client-side as a belt against the write-side dedup. Prevents
+  // legacy rows that pre-date the API dedup from rendering as
+  // repeating dots. `history` arrives most-recent-first.
+  const collapsed: ScannerReachabilityHistoryEntry[] = [];
+  for (const h of history) {
+    const prev = collapsed[collapsed.length - 1];
+    if (prev && prev.ok === h.ok && (prev.step ?? null) === (h.step ?? null)) {
+      continue;
+    }
+    collapsed.push(h);
+  }
   return (
     <span className="inline-flex items-center gap-1 ml-2" aria-label="Recent probe history">
-      {history.slice(0, 5).map((h, i) => (
+      {collapsed.slice(0, 5).map((h, i) => (
         <span
           key={i}
           title={

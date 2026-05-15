@@ -5,6 +5,135 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.0 — 2026-05-15
+
+**Multi-scanner cooperation, NFS probe honesty, history dedup, services
+panel.** Stage 1 of the v0.29 work — the user added a second scanner
+and discovered four separate cliffs: only one scanner ever did any
+work, the NFS reachability test claimed green when credentials were
+broken, repeat reachability tests stacked identical dots forever, and
+the Tika/Meili workflow was a black box. All four addressed in one
+release; the throughput rework (pipeline, gzip, AIMD batch size,
+bulk N+1, Redis-backed scan counters, Meili debouncing) lands in
+v0.29.1.
+
+### Bug fixes
+
+- **Multi-scanner scans actually use both scanners**
+  ([services/scan_join.py](api/akashic/services/scan_join.py),
+  [routers/scan_work.py](api/akashic/routers/scan_work.py)).
+  Pre-fix the cap-enforcement code in `_distinct_active_scanners`
+  existed but never mattered: scanner B polling `/api/scans/lease`
+  was filtered out by `assigned_scanner_id IS NULL` once scanner A
+  claimed the scan, and had no other channel to discover an in-flight
+  cooperative scan — so B idled forever and A worked the whole pool
+  alone. Push-based discovery via a new per-scanner Redis list
+  `scanner:{id}:scan_join`: after `POST /scans/{id}/work/split` the
+  API LPUSHes a join payload to every eligible-other scanner; each
+  long-polls `GET /api/scanners/{id}/scans/long-poll` and BRPOPs the
+  payload, then dispatches straight into `runUnitCoordinated` — the
+  same path the original lease holder runs. `LTRIM 0 49` caps backlog
+  per scanner; eligibility mirrors the existing `_eligible_scanners_for`
+  rules (pool match, allowed_source_ids match, currently online).
+  Source-side guard: `max_parallel_scanners <= 1` short-circuits the
+  notify so single-scanner sources never wake other agents.
+- **NFS reachability now reflects credentials**
+  ([scanner/internal/probe/probe.go:runNFS](scanner/internal/probe/probe.go#L187-L300)).
+  Pre-fix the in-process probe was `net.Dial("tcp", host:port)` —
+  ok=true purely from port reachability, even when AUTH_SYS uid was
+  root-squashed or the export wasn't actually accessible. Post-fix
+  it calls `nfsprobe.Probe` (the same in-process protocol library
+  the API-side `test_nfs` invokes via `akashic-scanner test-connection`)
+  with AUTH_SYS uid/gid plus Kerberos plumbing forwarded from
+  `connection_config`. Now `ok=true` means "this scanner can mount and
+  walk this export", not "the NFS port answers". `export_path` is now
+  required (a missing `export_path` returns `step=config` rather than
+  silently falling back to TCP-only success). SMB / S3 / cloud probes
+  were already honest — only NFS had the TCP-fallthrough bug.
+- **History dots stop stacking on no-state-change**
+  ([services/reachability_results.py:record_result](api/akashic/services/reachability_results.py#L24-L75),
+  [components/sources/AllowedScannersPanel.tsx:HistoryDots](web/src/components/sources/AllowedScannersPanel.tsx)).
+  Pre-fix every probe inserted a fresh row, so clicking "Test" three
+  times in a row produced three identical green dots regardless of
+  whether the state actually changed. Write-side dedup: when the
+  newest row for the (source, scanner) pair has identical
+  `(ok, step, error)`, UPDATE its `completed_at` to now instead of
+  INSERTing a new row. Read-side defence in `HistoryDots`: collapse
+  consecutive same-state entries client-side before the `.slice(0, 5)`
+  so legacy rows that pre-date the dedup don't render as duplicate
+  dots.
+
+### Observability
+
+- **Service activity surface for Tika + Meilisearch**
+  ([routers/health_services.py](api/akashic/routers/health_services.py),
+  [pages/AdminSystemStatus.tsx](web/src/pages/AdminSystemStatus.tsx)).
+  Two new admin-auth endpoints, both with 5-second in-process caches:
+  - `GET /api/health/services` — per-service liveness for Postgres,
+    Redis, Meilisearch, Tika. `{ok, latency_ms, error}` per service.
+    Drives a sidebar chip
+    ([ServicesHealthBadge.tsx](web/src/components/admin/ServicesHealthBadge.tsx))
+    that flips green / amber / red without needing the user to navigate.
+  - `GET /api/health/services/activity` — rich payload. Tika side:
+    RQ extraction queue depth (`LLEN rq:queue:extraction`), failed-job
+    count (`ZCARD rq:failed`), and three new Redis counters the
+    extraction worker now writes (`akashic:tika:extracted_total`,
+    `akashic:tika:last_extracted_at`, per-minute bucket
+    `akashic:tika:extracted:YYYYMMDDHHMM` with 6-minute TTL — summed
+    over the last 5 buckets for "extracted in last 5 min").
+    Meilisearch side: document count from
+    `/indexes/files/stats`, pending task count + last-task status
+    from `/tasks` — Meilisearch's own admin surfaces. A Meili-side
+    failure surfaces as `ok: false` with the error string rather than
+    cratering the activity endpoint.
+- **Tika healthcheck in compose** ([compose.yaml](compose.yaml)).
+  `apache/tika:3.0.0.0` had neither a compose healthcheck nor any
+  liveness signal beyond port-reachable. Added a `wget`-based check
+  against `/tika` so the new `/api/health/services` doesn't have to
+  carry the whole "is Tika alive" answer at request time.
+- **Scanner agent long-polls scan-join channel**
+  ([scanner/internal/agent/scan_join.go](scanner/internal/agent/scan_join.go),
+  [agent.go](scanner/internal/agent/agent.go)).
+  New `scanJoinLoop` goroutine started from `Run()`. Mirrors the
+  existing `reachabilityLoop` (probes) and lease loop ergonomics —
+  one cooperative scan at a time per agent, blocks in
+  `runUnitCoordinated` until its leased units drain.
+
+### Surface
+
+- New admin route `/admin/system-status` showing per-service liveness
+  chips plus Tika and Meilisearch activity cards (queue depth,
+  throughput, document count, last task). 10 s poll while the page
+  is open; 30 s poll on the sidebar chip.
+- New sidebar entry under Admin → "System status".
+- New hooks: [useServicesHealth.ts](web/src/hooks/useServicesHealth.ts),
+  exposing `useServicesHealth` + `useServicesActivity`.
+
+### Tests
+
+- New API tests:
+  [test_scan_join_queue.py](api/tests/test_scan_join_queue.py) — 10
+  cases covering notify fan-out rules (pool, allowed_source_ids,
+  online, enabled), LTRIM cap, JWT-gated long-poll endpoint, durable
+  list semantics.
+  [test_reachability_results_dedup.py](api/tests/test_reachability_results_dedup.py)
+  — 4 cases covering consecutive-identical merge, state-change INSERT,
+  per-pair scoping, and the `scanner_id=None` (inline) path.
+  [test_health_services.py](api/tests/test_health_services.py) — 6
+  cases covering auth gating, payload shape, 5 s cache, Tika counter
+  read, and graceful Meili-failure surfacing.
+- New scanner Go test:
+  [scanner/internal/probe/probe_nfs_test.go](scanner/internal/probe/probe_nfs_test.go)
+  — guards the config-step short-circuits (no host / no export_path)
+  and confirms an unreachable host returns a protocol-step failure
+  rather than the pre-fix TCP-only ok=true.
+
+### Verification
+
+- `pytest tests/` — 694 passed, 1 skipped.
+- `npx tsc --noEmit && npx vitest run` — clean (133 passed).
+- `go test ./...` from `scanner/` — all packages green.
+
 ## v0.28.2 — 2026-05-14
 
 **Multi-scanner stability + observability.** Three bugs surfaced after

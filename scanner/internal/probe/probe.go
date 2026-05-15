@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/nfsprobe"
 )
 
 // Result captures the same shape the api expects in a reachability
@@ -193,37 +193,128 @@ func runNFS(ctx context.Context, c map[string]any) Result {
 	if port == 0 {
 		port = 2049
 	}
-	// TCP-level reachability is enough for the agent's reachability
-	// probe — full MOUNT3/NFSv4 probes happen via the CLI subcommand
-	// during pre-flight. The reachability loop runs every minute and
-	// just needs to know "is the NFS service answering?".
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	exportPath := str(c, "export_path")
+	if exportPath == "" {
+		// "path" is the legacy key that older configs may carry. The CLI
+		// requires --export-path, so without one we'd be doing the same
+		// fall-through to TCP-only the pre-v0.29.0 probe did — which is
+		// the bug we're fixing. Be explicit instead.
+		return Result{
+			OK:    false,
+			Step:  "config",
+			Error: "export_path required (NFS mount path on the server)",
+		}
+	}
+
+	// v0.29.0 — honest probe via the in-process nfsprobe package, the
+	// same code path `akashic-scanner test-connection --type=nfs` calls
+	// from the API-side source_tester. Pre-fix the in-process probe was
+	// a raw `net.Dial("tcp", host:port)` which returned ok=true purely
+	// from port reachability — credentials wrong, share missing, root-
+	// squashed UID — all reported "reachable". A scanner reachability
+	// claim must reflect whether the share is actually *scanable* with
+	// the configured credentials, not just that the NFS port is open.
+	authMethod := nfsprobe.AuthMethod(strings.ToLower(strings.TrimSpace(str(c, "auth_method"))))
+	if authMethod == "" {
+		authMethod = nfsprobe.AuthSys
+	}
+	auxGIDs := parseAuxGIDsAny(c["auth_aux_gids"])
+
+	timeout := time.Duration(intish(c, "probe_timeout_seconds")) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	// Outer timeout matches the CLI: 3× per-RPC for sys, 5× for krb5
+	// (TGS_REQ + INIT + LOOKUP serial round trips). The cancel
+	// derivation already respects the caller's ctx — whichever
+	// deadline fires first wins.
+	mult := 3
+	if authMethod == nfsprobe.AuthKrb5 || authMethod == nfsprobe.AuthKrb5Integrity || authMethod == nfsprobe.AuthKrb5Privacy {
+		mult = 5
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(mult)*timeout)
 	defer cancel()
-	d := net.Dialer{}
-	conn, err := d.DialContext(probeCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+
+	res, err := nfsprobe.Probe(probeCtx, nfsprobe.ProbeOptions{
+		Host:                 host,
+		Port:                 uint32(port),
+		ExportPath:           exportPath,
+		AuthMethod:           authMethod,
+		AuthUID:              uint32(intish(c, "auth_uid")),
+		AuthGID:              uint32(intish(c, "auth_gid")),
+		AuthAuxGIDs:          auxGIDs,
+		Timeout:              timeout,
+		Krb5Principal:        str(c, "krb5_principal"),
+		Krb5Realm:            str(c, "krb5_realm"),
+		Krb5ServicePrincipal: str(c, "krb5_service_principal"),
+		Krb5KeytabPath:       str(c, "krb5_keytab_path"),
+		Krb5Password:         str(c, "krb5_password"),
+		Krb5ConfigPath:       str(c, "krb5_config_path"),
+	})
 	if err != nil {
+		var pe *nfsprobe.ProbeError
+		if errors.As(err, &pe) {
+			return Result{OK: false, Step: string(pe.Step), Error: pe.Msg}
+		}
 		return Result{OK: false, Step: "connect", Error: err.Error()}
 	}
-	_ = conn.Close()
-	// Stat the local mount path the actual scan will read from
-	// (review S-I5). Without this we can report OK on TCP reachability
-	// while the export isn't mounted at the scanner's expected
-	// path, then the real scan would crash at os.Stat. Optional —
-	// only fails if a mount path was supplied AND it doesn't exist.
-	mountPath := str(c, "export_path")
-	if mountPath == "" {
-		mountPath = str(c, "path")
+	if res == nil || !res.OK {
+		// nfsprobe contract says either typed error OR non-nil ok=true,
+		// but be defensive — a malformed return shouldn't claim ok.
+		return Result{OK: false, Step: "connect", Error: "nfsprobe returned no result"}
 	}
-	if mountPath != "" {
-		if _, statErr := os.Stat(mountPath); statErr != nil {
+	// A local-mount safety check — if the source was configured to
+	// expect a local mount path (separate from the server-side export),
+	// stat it so the scan doesn't crash later. Kept post-probe so the
+	// honest auth/mount/list result takes precedence.
+	if localMount := str(c, "local_mount_path"); localMount != "" {
+		if _, statErr := os.Stat(localMount); statErr != nil {
 			return Result{
 				OK:    false,
 				Step:  "list",
-				Error: fmt.Sprintf("mount path %q not accessible: %v", mountPath, statErr),
+				Error: fmt.Sprintf("local mount path %q not accessible: %v", localMount, statErr),
 			}
 		}
 	}
 	return Result{OK: true}
+}
+
+// parseAuxGIDsAny normalises the auth_aux_gids field which may arrive
+// as []any (JSON decode), []uint32 (programmatic), or a comma-string.
+// Non-numeric fragments are dropped silently — input validation lives
+// on the API side, this is the scanner being tolerant of shape drift.
+func parseAuxGIDsAny(v any) []uint32 {
+	switch t := v.(type) {
+	case []uint32:
+		return t
+	case []any:
+		out := make([]uint32, 0, len(t))
+		for _, x := range t {
+			switch n := x.(type) {
+			case float64:
+				out = append(out, uint32(n))
+			case int:
+				out = append(out, uint32(n))
+			case int64:
+				out = append(out, uint32(n))
+			case string:
+				if u, err := strconv.ParseUint(strings.TrimSpace(n), 10, 32); err == nil {
+					out = append(out, uint32(u))
+				}
+			}
+		}
+		return out
+	case string:
+		parts := strings.Split(t, ",")
+		out := make([]uint32, 0, len(parts))
+		for _, p := range parts {
+			if u, err := strconv.ParseUint(strings.TrimSpace(p), 10, 32); err == nil {
+				out = append(out, uint32(u))
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // runWebDAV validates a WebDAV source by issuing the connector's
