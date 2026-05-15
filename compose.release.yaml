@@ -60,6 +60,17 @@ services:
     image: apache/tika:3.0.0.0
     ports:
       - "127.0.0.1:9998:9998"
+    # v0.29.8 — healthcheck added so the extraction-worker's
+    # `tika: service_healthy` dependency can be satisfied. Matches
+    # compose.yaml: bash /dev/tcp probe (the apache/tika image ships
+    # neither wget nor curl — only bash + java).
+    healthcheck:
+      test: ["CMD", "bash", "-c",
+             "exec 3<>/dev/tcp/localhost/9998; printf 'GET /tika HTTP/1.0\\r\\n\\r\\n' >&3; grep -q 'Apache Tika' <&3"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
   api:
     image: ghcr.io/metril/akashic-api:${AKASHIC_VERSION:-latest}
@@ -84,6 +95,30 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  # v0.29.8 — drains the `extraction` RQ queue the api LPUSHes into
+  # on every ingest. Without it, Tika jobs accumulate forever in
+  # `rq:queue:extraction` (the System Status page's "pending" count
+  # grows without bound). Reuses the api image — the worker module
+  # ships in the same package. Two replicas by default; scale with
+  # `docker compose -f compose.release.yaml up -d --scale
+  # extraction-worker=N`.
+  extraction-worker:
+    image: ghcr.io/metril/akashic-api:${AKASHIC_VERSION:-latest}
+    command: ["rq", "worker", "extraction", "--url", "redis://redis:6379/0"]
+    env_file: .env
+    environment:
+      TIKA_URL: ${TIKA_URL:-http://tika:9998}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      tika:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      replicas: 2
 
   web:
     image: ghcr.io/metril/akashic-web:${AKASHIC_VERSION:-latest}
