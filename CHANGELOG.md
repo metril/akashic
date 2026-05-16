@@ -5,6 +5,102 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.30.0 — 2026-05-16
+
+**Text extraction moved into the scanner — search now sees the
+contents of SMB, S3 and cloud-drive files.** Previously a standalone
+Python `extraction-worker` read file bytes off a *mounted disk*, so
+content extraction only ever worked for `local` and `nfs` sources;
+`smb`, `s3`, `gdrive` and `onedrive` files were indexed by name only,
+never by content. The scanner already has connectors for every source
+type, so extraction now runs there: each scanner reads its files,
+extracts text (plain decode natively, documents via a co-located
+Apache Tika), and posts the text back to the API.
+
+### New behaviour
+
+- **Content extraction works for every source type.** A scan now
+  extracts text from new/changed files regardless of whether the
+  source is local, NFS, SMB, S3, Google Drive or OneDrive — the
+  scanner reads the bytes through the same connector it walks with.
+  Document formats (PDF, Office, EPUB, …) go through Tika; plain-text
+  files are decoded by the scanner directly.
+
+- **Tika is co-located with the scanner.** For a remote scanner host,
+  the new [compose.scanner.yaml](compose.scanner.yaml) runs the
+  scanner agent + its own Tika as a unit — document bytes stay on the
+  scanner's local network and only the extracted text crosses to the
+  API. `AKASHIC_TIKA_URL` configures the address (empty disables
+  document extraction; plain-text still works).
+
+### How it works
+
+- The scanner walks metadata as fast as before. After the walk, a
+  bounded extraction pool reads the files the API flagged as
+  new/changed (returned in each `/api/ingest/batch` response as
+  `extract_candidates`), extracts text, and posts it to the new
+  `POST /api/ingest/content` endpoint, keyed by `(source_id, path)`.
+  The metadata walk is never gated on Tika latency. SMB extraction
+  uses a dedicated connector instance + a low worker count so reads
+  don't contend with the walk's session.
+
+### Bug fixes
+
+- **A routine re-index no longer wipes extracted text.** The
+  Meilisearch metadata flush ([services/meili_indexer.py](api/akashic/services/meili_indexer.py))
+  and the tag re-index ([routers/tags.py](api/akashic/routers/tags.py))
+  used `add_documents` — a full-document *replace* — so any later
+  metadata-only re-index dropped a doc's `content_text`. Both now use
+  Meilisearch partial updates (`update_documents`): the metadata
+  flush and the content-ingest endpoint are independent partial
+  writers that merge by id and never clobber each other.
+
+### Removed
+
+- The Python `extraction-worker` process, the RQ `extraction` queue,
+  `akashic/workers/extraction.py`, `akashic/services/extraction.py`,
+  and the `rq` dependency — extraction is no longer a separate
+  worker. The `extraction-worker` service is gone from both
+  `compose.yaml` and `compose.release.yaml`; the `tika` service in
+  those files is now profile-gated to `scanner` (the central API
+  stack doesn't run Tika).
+- The `/api/health/services/extraction/failed` endpoint and the RQ
+  queue-depth / failed-job counters — there is no queue to inspect.
+  The System Status "Tika" card now shows extraction throughput
+  (last 5 min, lifetime total, last-extraction time), fed by counters
+  the `/api/ingest/content` endpoint bumps.
+
+### Tests
+
+- New Go: [internal/extract](scanner/internal/extract) — `IsEligible`
+  / `ExtractPlain` / `ExtractTika` against a fake Tika; the
+  extraction pool drains all jobs, swallows per-file errors, waits
+  for in-flight work on `Close`, clamps workers for SMB. New
+  `client.SendContent` tests (gzip + retry).
+- New pytest [tests/test_ingest_content.py](api/tests/test_ingest_content.py):
+  the content endpoint resolves `(source_id, path)`, partial-updates
+  Meili, skips unknown paths and directories.
+- New pytest [tests/test_meili_indexer.py](api/tests/test_meili_indexer.py)
+  case (the regression guard): `flush` uses the partial
+  `update_files_partial`, never the full-replace `index_files_batch`.
+
+### Verification
+
+- `go test ./...` from `scanner/` — all packages pass.
+- `pytest` from `api/` — all green incl. the new content + indexer
+  tests.
+- `npx tsc --noEmit && npx vitest run` from `web/` — clean.
+- `docker compose -f compose.scanner.yaml` — scanner + co-located
+  Tika validate and start.
+
+### Upgrade note
+
+Existing deployments running the v0.29.8 `extraction-worker` will
+find it gone after upgrade — that is expected. Already-extracted
+content in Meilisearch is preserved (partial updates no longer
+overwrite it). Files on `smb`/`s3`/`gdrive`/`onedrive` sources, which
+never had content extraction, get it on their next scan.
+
 ## v0.29.10 — 2026-05-15
 
 **Phantom "cancelled by api" — scans were re-queued out from under

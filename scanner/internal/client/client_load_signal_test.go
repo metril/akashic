@@ -92,7 +92,7 @@ func TestSendOnce_StatusCodeClassification(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := New(srv.URL, "k")
-			err := c.sendOnce(context.Background(), []byte("{}"))
+			_, err := c.sendOnce(context.Background(), []byte("{}"))
 			if err == nil {
 				t.Fatalf("expected error for status %d", tc.status)
 			}

@@ -25,9 +25,9 @@ export interface ServicesHealth {
 }
 
 export interface TikaActivity {
-  queue_depth: number | null;
-  failed_count: number | null;
-  last_failed_at: string | null;
+  // v0.30.0 — extraction moved into the scanner; there is no RQ queue
+  // or failed-job registry any more. Throughput counters are bumped
+  // by the /api/ingest/content endpoint.
   extracted_total: number | null;
   extracted_last_5min: number | null;
   last_extracted_at: string | null;

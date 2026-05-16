@@ -22,9 +22,24 @@ class ScanBatchIn(BaseModel):
     inaccessible_files: int = 0
 
 
+class ExtractCandidate(BaseModel):
+    """A new-or-changed file the scanner should extract text from.
+    v0.30.0 — extraction moved into the scanner; the API tells it
+    which files actually changed so it doesn't re-extract everything
+    every scan."""
+
+    path: str
+    mime_type: str = ""
+    size_bytes: int = 0
+
+
 class ScanBatchResponse(BaseModel):
     files_processed: int
     scan_id: uuid.UUID
+    # v0.30.0 — new/changed FILE entries from this batch. The scanner
+    # reads each, extracts text (Tika for documents), and posts it to
+    # /api/ingest/content.
+    extract_candidates: list[ExtractCandidate] = []
 
 
 # Phase 1 — observability inputs from the scanner. Kept on a separate channel

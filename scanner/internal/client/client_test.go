@@ -37,7 +37,7 @@ func TestClient_SendBatch(t *testing.T) {
 		},
 	}
 
-	err := c.SendBatch(context.Background(), batch)
+	_, err := c.SendBatch(context.Background(), batch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestClient_SendBatch_RetriesOn5xx(t *testing.T) {
 	c := New(server.URL, "k")
 	c.backoffBase = 1 * time.Millisecond // keep test fast
 
-	if err := c.SendBatch(context.Background(), models.ScanBatch{}); err != nil {
+	if _, err := c.SendBatch(context.Background(), models.ScanBatch{}); err != nil {
 		t.Fatalf("expected success after retry, got %v", err)
 	}
 	if got := calls.Load(); got != 3 {
@@ -85,7 +85,7 @@ func TestClient_SendBatch_DoesNotRetry4xx(t *testing.T) {
 	c := New(server.URL, "k")
 	c.backoffBase = 1 * time.Millisecond
 
-	if err := c.SendBatch(context.Background(), models.ScanBatch{}); err == nil {
+	if _, err := c.SendBatch(context.Background(), models.ScanBatch{}); err == nil {
 		t.Fatal("expected error on 400")
 	}
 	if got := calls.Load(); got != 1 {

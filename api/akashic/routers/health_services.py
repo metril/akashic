@@ -156,12 +156,14 @@ async def services_health(
 
 
 async def _tika_activity() -> dict[str, Any]:
-    """Tika queue depth + throughput + last-activity from Redis.
+    """Text-extraction throughput from Redis.
 
-    Reads:
-      * RQ extraction queue length (job list `rq:queue:extraction`)
-      * RQ failed-job registry (`rq:failed`) — non-zero = stuck jobs
-      * `akashic:tika:extracted_total` — lifetime counter (info only)
+    v0.30.0 — extraction moved out of the standalone RQ worker into the
+    scanner, so there is no `rq:queue:extraction` job list or
+    `rq:failed` registry to read. Throughput is now derived purely from
+    the activity counters the `/api/ingest/content` endpoint bumps:
+
+      * `akashic:tika:extracted_total` — lifetime files-extracted count
       * `akashic:tika:last_extracted_at` — ISO timestamp
       * `akashic:tika:extracted:YYYYMMDDHHMM` × last 5 minutes — sum
         for "extracted in last 5 min" throughput.
@@ -171,9 +173,6 @@ async def _tika_activity() -> dict[str, Any]:
     """
     from akashic.services.scan_pubsub import _client as _redis_client
     out: dict[str, Any] = {
-        "queue_depth": None,
-        "failed_count": None,
-        "last_failed_at": None,
         "extracted_total": None,
         "extracted_last_5min": None,
         "last_extracted_at": None,
@@ -187,27 +186,6 @@ async def _tika_activity() -> dict[str, Any]:
         return out
 
     try:
-        out["queue_depth"] = int(await redis.llen("rq:queue:extraction") or 0)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("tika activity: queue length read failed: %s", exc)
-    try:
-        # RQ's failed-job registry is a sorted set, not a list. The
-        # score is a unix timestamp of when the job entered the
-        # registry, so ZRANGE …WITHSCORES with REV pulls the most
-        # recent failure for `last_failed_at`. v0.29.8.
-        out["failed_count"] = int(await redis.zcard("rq:failed") or 0)
-        if out["failed_count"]:
-            latest = await redis.zrange(
-                "rq:failed", 0, 0, desc=True, withscores=True,
-            )
-            if latest:
-                _, score = latest[0]
-                out["last_failed_at"] = datetime.fromtimestamp(
-                    float(score), tz=timezone.utc,
-                ).isoformat()
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("tika activity: failed count read failed: %s", exc)
-    try:
         total = await redis.get("akashic:tika:extracted_total")
         out["extracted_total"] = int(total) if total else 0
     except Exception as exc:  # noqa: BLE001
@@ -219,7 +197,7 @@ async def _tika_activity() -> dict[str, Any]:
         logger.debug("tika activity: last_at read failed: %s", exc)
 
     # Per-minute bucket sum for the last 5 minutes. Bucket key shape
-    # mirrors what workers/extraction.py writes.
+    # mirrors what routers/ingest.py:_bump_tika_counters writes.
     try:
         now = datetime.now(timezone.utc)
         keys = []
@@ -308,8 +286,8 @@ async def _meili_activity() -> dict[str, Any]:
 async def services_activity(
     _: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Tika + Meilisearch activity: queue depth, document count, last-
-    activity timestamps. 5-second cached, admin-only.
+    """Tika extraction throughput + Meilisearch activity. 5-second
+    cached, admin-only.
 
     Driving the "Admin → System Status" page so operators can answer
     "is anything actually happening" without grepping logs.
@@ -326,56 +304,3 @@ async def services_activity(
     }
     _store("activity", payload)
     return payload
-
-
-@router.get("/extraction/failed")
-async def extraction_failed_jobs(
-    limit: int = 50,
-    _: User = Depends(require_admin),
-) -> dict[str, Any]:
-    """Read-only inspection of the RQ failed-job registry. v0.29.8.
-
-    Surfaces up to `limit` (default 50, max 200) most-recent failed
-    extraction jobs as ``[{id, failed_at, exc_message, entry_id}]``.
-    Used by the System Status page's "View failed jobs" link so an
-    operator can see WHY jobs are landing in the DLQ rather than
-    only the count. No mutation — retry/delete is a follow-up
-    surface once this read view shows it's needed.
-    """
-    from akashic.services.scan_pubsub import _client as _redis_client
-    from rq import Queue
-    from rq.job import Job
-    from rq.registry import FailedJobRegistry
-    from redis import Redis as _SyncRedis
-
-    limit = max(1, min(int(limit), 200))
-    out: dict[str, Any] = {"jobs": [], "total": 0, "ok": True}
-    try:
-        # FailedJobRegistry needs a sync Redis client; the activity
-        # endpoint's async client doesn't fit. Build a one-shot sync
-        # connection from the same URL.
-        sync_conn = _SyncRedis.from_url(settings.redis_url)
-        q = Queue("extraction", connection=sync_conn)
-        registry = FailedJobRegistry(queue=q)
-        out["total"] = registry.count
-        job_ids = registry.get_job_ids(0, limit - 1)
-        for jid in job_ids:
-            try:
-                job = Job.fetch(jid, connection=sync_conn)
-                args = list(job.args or [])
-                out["jobs"].append({
-                    "id": jid,
-                    "failed_at": (
-                        job.ended_at.isoformat() if job.ended_at else None
-                    ),
-                    "exc_message": (job.exc_info or "").splitlines()[-1][:300]
-                        if job.exc_info else None,
-                    "entry_id": str(args[0]) if args else None,
-                })
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("failed-job fetch %s: %s", jid, exc)
-                out["jobs"].append({"id": jid, "error": str(exc)})
-    except Exception as exc:  # noqa: BLE001
-        out["ok"] = False
-        out["error"] = f"failed-job registry read failed: {exc}"
-    return out

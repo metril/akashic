@@ -42,21 +42,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # v0.30.0 — Tika serves the SCANNER, not the API. Text extraction
+  # moved into the scanner (it has connectors for every source type),
+  # so Tika is co-located with whichever scanner runs. In this
+  # all-in-one dev compose the bundled `scanner` reaches this service
+  # over the compose network; it's profile-gated to "scanner" so a
+  # plain `docker compose up` (api + web only) doesn't start it. For a
+  # remote scanner host, run compose.scanner.yaml (scanner + its own
+  # Tika) instead.
   tika:
     image: apache/tika:3.0.0.0
     ports:
       - "127.0.0.1:9998:9998"
-    # v0.29.0 — liveness check so /api/health/services can report tika
-    # status without relying on a probe at request time. /tika returns
-    # a plain-text banner identifying the running server.
-    #
-    # v0.29.8 — the v0.29.0 check shelled out to `wget`, which the
-    # apache/tika:3.0.0.0 image does NOT ship (it's a minimal
-    # eclipse-temurin JRE — only bash + java on PATH). The container
-    # therefore sat `unhealthy` forever; harmless until the v0.29.8
-    # extraction-worker added a `tika: service_healthy` dependency,
-    # which then refused to start. Bash's /dev/tcp pseudo-device does
-    # the HTTP GET with no external tool.
+    # Healthcheck uses bash's /dev/tcp pseudo-device: the
+    # apache/tika:3.0.0.0 image is a minimal eclipse-temurin JRE and
+    # ships neither wget nor curl — only bash + java on PATH.
     healthcheck:
       test: ["CMD", "bash", "-c",
              "exec 3<>/dev/tcp/localhost/9998; printf 'GET /tika HTTP/1.0\\r\\n\\r\\n' >&3; grep -q 'Apache Tika' <&3"]
@@ -64,6 +64,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+    profiles: ["scanner"]
 
   api:
     build:
@@ -90,42 +91,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    develop:
-      watch:
-        - action: rebuild
-          path: ./api/akashic
-        - action: rebuild
-          path: ./api/pyproject.toml
-
-  # v0.29.8 — drains the `extraction` RQ queue that the api LPUSHes
-  # into on every ingest. Pre-v0.29.8 the worker had no compose service
-  # and operators were expected to run `rq worker extraction --url …`
-  # by hand; in deployments where nobody ran it, Tika jobs accumulated
-  # forever in `rq:queue:extraction` and the System Status page showed
-  # an ever-growing "pending" count.
-  #
-  # Two replicas by default — increase via `docker compose up
-  # --scale extraction-worker=N`. RQ workers are inherently
-  # single-threaded per process; scaling out is the only knob.
-  extraction-worker:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    command: ["rq", "worker", "extraction", "--url", "redis://redis:6379/0"]
-    env_file: .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://akashic:changeme@postgres:5432/akashic}
-      TIKA_URL: ${TIKA_URL:-http://tika:9998}
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      tika:
-        condition: service_healthy
-    restart: unless-stopped
-    deploy:
-      replicas: 2
     develop:
       watch:
         - action: rebuild
@@ -191,6 +156,10 @@ services:
       AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
       AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
       SCANNER_ID: ${SCANNER_ID:-}
+      # v0.30.0 — the scanner extracts file text itself and sends
+      # documents to this co-located Tika. Empty disables document
+      # extraction (plain-text still works).
+      AKASHIC_TIKA_URL: ${AKASHIC_TIKA_URL:-http://tika:9998}
     volumes:
       - scanner-data:/secrets
     depends_on:
@@ -199,6 +168,8 @@ services:
         # the container to be created. Without this, the scanner POSTs
         # to /api/scanners/discover before uvicorn is bound and hits a
         # connection-refused on first try.
+        condition: service_healthy
+      tika:
         condition: service_healthy
     profiles: ["scanner"]
 

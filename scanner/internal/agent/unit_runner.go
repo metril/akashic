@@ -34,6 +34,7 @@ import (
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
@@ -67,6 +68,15 @@ func runUnitCoordinated(
 
 	root := sourceRoot(leased.Source)
 	apiClient := client.New(cfg.APIBase, leased.APIJWT)
+
+	// v0.30.0 — content extraction for the unit-coordinated path.
+	// Built once and shared across this scanner's units; each
+	// extraction pass builds its own connector instance via the
+	// factory so SMB sessions stay isolated from the walk.
+	extractor := extract.NewExtractor(cfg.TikaURL)
+	extractFactory := func() (connector.Connector, error) {
+		return connectorFromLeased(leased.Source)
+	}
 
 	state := observe.NewState()
 	reporter := observe.New(cfg.APIBase, leased.APIJWT, leased.ScanID, state)
@@ -116,7 +126,7 @@ func runUnitCoordinated(
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
 		go heartbeatUnitLoop(hbCtx, httpc, cfg, priv, leased.ScanID, unit.ID)
 
-		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, leased.Source.ExcludePatterns)
+		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, leased.Source.ExcludePatterns, extractor, extractFactory, cfg.ExtractWorkers)
 		hbCancel()
 
 		// Terminal-status delivery uses a fresh, short-lived context
@@ -251,12 +261,16 @@ func runUnitWalk(
 	unit *workUnit,
 	state *observe.State,
 	excludes []string,
+	extractor *extract.Extractor,
+	extractFactory func() (connector.Connector, error),
+	extractWorkers int,
 ) error {
 	if unit.Path == "" {
 		return runRootFilesUnit(
 			ctx, apiClient, shallow,
 			leased.Source.ID, leased.ScanID,
 			root, excludes,
+			extractor, extractFactory, extractWorkers,
 		)
 	}
 	subRoot := joinSubpath(leased.Source.Type, root, unit.Path)
@@ -274,6 +288,10 @@ func runUnitWalk(
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: excludes,
 		State:           state,
+		// v0.30.0 — content extraction for this unit's subtree.
+		Extractor:               extractor,
+		ExtractConnectorFactory: extractFactory,
+		ExtractWorkers:          extractWorkers,
 	})
 	_, err := s.Run(ctx)
 	return err
@@ -290,6 +308,9 @@ func runRootFilesUnit(
 	ctx context.Context, apiClient *client.Client,
 	shallow connector.ShallowWalker,
 	sourceID, scanID, root string, excludePatterns []string,
+	extractor *extract.Extractor,
+	extractFactory func() (connector.Connector, error),
+	extractWorkers int,
 ) error {
 	var batch []models.EntryRecord
 	_, err := shallow.WalkShallow(ctx, root, excludePatterns, false,
@@ -314,7 +335,26 @@ func runRootFilesUnit(
 		// path is canonical, not the batch flag.)
 		Entries: batch, IsFinal: false,
 	}
-	return apiClient.SendBatch(ctx, scanBatch)
+	resp, err := apiClient.SendBatch(ctx, scanBatch)
+	if err != nil {
+		return err
+	}
+	// v0.30.0 — extract text for the root-level files the API flagged
+	// new/changed. Best-effort: failures are logged inside
+	// DriveExtraction, never returned.
+	if resp != nil && len(resp.ExtractCandidates) > 0 && extractor != nil && extractFactory != nil {
+		extractConn, ecErr := extractFactory()
+		if ecErr != nil {
+			log.Printf("scan %s: root-files extraction skipped: %v", scanID, ecErr)
+		} else {
+			scanner.DriveExtraction(
+				ctx, apiClient, extractor, extractConn, extractWorkers,
+				sourceID, scanID, resp.ExtractCandidates,
+				func(f string, a ...any) { log.Printf("scan "+scanID+": "+f, a...) },
+			)
+		}
+	}
+	return nil
 }
 
 func heartbeatUnitLoop(

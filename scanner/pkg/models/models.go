@@ -219,6 +219,38 @@ type ScanBatch struct {
 	InaccessibleFiles int `json:"inaccessible_files,omitempty"`
 }
 
+// ExtractCandidate is a new-or-changed file the API flagged for
+// content extraction in a batch response. v0.30.0 — the scanner
+// extracts only files the API marked new/changed, not every file
+// every scan.
+type ExtractCandidate struct {
+	Path      string `json:"path"`
+	MimeType  string `json:"mime_type"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+// BatchResponse is the JSON body /api/ingest/batch returns. v0.30.0 —
+// previously the scanner ignored the response body; it now reads
+// extract_candidates to drive scanner-side text extraction.
+type BatchResponse struct {
+	ExtractCandidates []ExtractCandidate `json:"extract_candidates"`
+}
+
+// ContentItem is one file's extracted text, posted to
+// /api/ingest/content. v0.30.0.
+type ContentItem struct {
+	Path        string `json:"path"`
+	ContentText string `json:"content_text"`
+}
+
+// ContentBatch carries a set of extracted-text records back to the
+// API for Meilisearch indexing. v0.30.0.
+type ContentBatch struct {
+	SourceID string        `json:"source_id"`
+	ScanID   string        `json:"scan_id"`
+	Items    []ContentItem `json:"items"`
+}
+
 // SourceSecurityMetadata is sent at scan-start for S3 sources.
 type SourceSecurityMetadata struct {
 	CapturedAt          string                 `json:"captured_at"`

@@ -9,6 +9,7 @@ import (
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
@@ -36,6 +37,17 @@ type Options struct {
 	// sender goroutine calls AdaptiveBatcher.Observe() after each
 	// SendBatch. The static BatchSize is ignored when this is set.
 	AdaptiveBatcher *AdaptiveBatchSize
+	// v0.30.0 — content extraction. When Extractor is non-nil, after
+	// the metadata walk the scanner extracts text from the new/changed
+	// files the API flagged in batch responses and posts it to
+	// /api/ingest/content. ExtractConnectorFactory builds a dedicated
+	// connector instance for extraction reads, kept separate from the
+	// walk's connector so SMB sessions don't contend. ExtractWorkers
+	// bounds the extraction goroutine pool (default 4, clamped low for
+	// SMB).
+	Extractor               *extract.Extractor
+	ExtractConnectorFactory func() (connector.Connector, error)
+	ExtractWorkers          int
 }
 
 type Result struct {
@@ -49,6 +61,9 @@ type Result struct {
 	// skipped" instead of pretending the scan was clean.
 	InaccessibleDirs  int
 	InaccessibleFiles int
+	// v0.30.0 — content-extraction outcome for this scan.
+	FilesExtracted     int64
+	ExtractionFailures int64
 }
 
 type Scanner struct {
@@ -173,6 +188,12 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	defer cancelScan()
 	var firstSendErr atomic.Value // error
 
+	// v0.30.0 — new/changed files the API flags for extraction,
+	// accumulated across batch responses. Only the sender goroutine
+	// appends; Run reads it after `<-senderDone` (the channel close
+	// establishes the happens-before), so no lock is needed.
+	var extractCandidates []models.ExtractCandidate
+
 	// v0.29.2 — seed the State with the initial batch size so the
 	// very first heartbeat carries it (without this, the Live Log
 	// row tooltip would say "—" until the first batch lands).
@@ -184,7 +205,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		defer close(senderDone)
 		for scanBatch := range batchCh {
 			start := time.Now()
-			err := s.client.SendBatch(scanCtx, scanBatch)
+			resp, err := s.client.SendBatch(scanCtx, scanBatch)
 			elapsed := time.Since(start)
 			if s.opts.AdaptiveBatcher != nil {
 				// v0.29.6 — non-load errors (422 / 400 / 401 / 403)
@@ -212,6 +233,18 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 				continue
 			}
 			result.BatchesSent++
+			// v0.30.0 — collect the API's new/changed-file flags so the
+			// post-walk extraction pass knows what to read + Tika. Gate
+			// by IsEligible here (not just in the pool) so the slice
+			// holds only extraction-eligible files — bounds memory on a
+			// large scan where most files are images/video/binaries.
+			if resp != nil && s.opts.Extractor != nil {
+				for _, cand := range resp.ExtractCandidates {
+					if extract.IsEligible(cand.MimeType, cand.SizeBytes) {
+						extractCandidates = append(extractCandidates, cand)
+					}
+				}
+			}
 			log.Printf("scan %s: batch %d sent (%d entries, final=%v) in %s",
 				s.opts.ScanID, result.BatchesSent, len(scanBatch.Entries),
 				scanBatch.IsFinal, elapsed.Round(time.Millisecond))
@@ -360,6 +393,30 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	<-senderDone
 	if sendErr, _ := firstSendErr.Load().(error); sendErr != nil {
 		return nil, fmt.Errorf("send batch: %w", sendErr)
+	}
+
+	// v0.30.0 — post-walk content extraction. The metadata walk is
+	// fully ingested and queryable by now; extraction is a separate
+	// best-effort phase that reads each new/changed file via a
+	// dedicated connector, extracts text (Tika for documents), and
+	// posts it to /api/ingest/content. A failure here never fails the
+	// scan — the metadata stands on its own.
+	if s.opts.Extractor != nil && s.opts.ExtractConnectorFactory != nil && len(extractCandidates) > 0 {
+		s.setPhase("extract")
+		s.info("extracting text from %d new/changed file(s)", len(extractCandidates))
+		extractConn, ecErr := s.opts.ExtractConnectorFactory()
+		if ecErr != nil {
+			s.warn("extraction skipped: build connector: %v", ecErr)
+		} else {
+			ext, fail := DriveExtraction(
+				scanCtx, s.client, s.opts.Extractor, extractConn,
+				s.opts.ExtractWorkers, s.opts.SourceID, s.opts.ScanID,
+				extractCandidates, s.warn,
+			)
+			result.FilesExtracted = ext
+			result.ExtractionFailures = fail
+			s.info("extraction complete: %d extracted, %d failed", ext, fail)
+		}
 	}
 
 	s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",

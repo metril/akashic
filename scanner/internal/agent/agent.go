@@ -24,6 +24,7 @@ import (
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/protocol"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
@@ -38,6 +39,11 @@ type Config struct {
 	LeasePoll  time.Duration // jittered ±20%
 	Hostname   string        // self-reported on handshake
 	Version    string        // build-time version string
+	// v0.30.0 — co-located Tika for content extraction. Empty disables
+	// document extraction (plain-text extraction still runs).
+	TikaURL string
+	// v0.30.0 — extraction goroutine-pool size; 0 = package default.
+	ExtractWorkers int
 }
 
 // Run is the entry point used by `akashic-scanner agent`. It blocks
@@ -449,6 +455,13 @@ func runLeasedScan(
 		ExcludePatterns: leased.Source.ExcludePatterns,
 		Reporter:        reporter,
 		State:           state,
+		// v0.30.0 — content extraction. A dedicated connector instance
+		// per extraction pass keeps SMB sessions clear of the walk.
+		Extractor: extract.NewExtractor(cfg.TikaURL),
+		ExtractConnectorFactory: func() (connector.Connector, error) {
+			return connectorFromLeased(leased.Source)
+		},
+		ExtractWorkers: cfg.ExtractWorkers,
 	})
 	_, err = s.Run(scanCtx)
 	if err != nil && (errors.Is(err, context.Canceled) || scanCtx.Err() != nil) {

@@ -146,17 +146,15 @@ async def test_services_health_is_cached_for_5s(admin_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tika_activity_reads_redis_counters(admin_client):
-    """Seed the same Redis keys the extraction worker writes, then
-    call the activity endpoint and assert they surface."""
+    """Seed the Redis counters the /api/ingest/content endpoint
+    bumps (v0.30.0), then call the activity endpoint and assert they
+    surface."""
     from akashic.services.scan_pubsub import _client as redis_client
     from datetime import datetime, timezone
 
     redis = redis_client()
-    # Clear prior bleed (RQ queue length is shared with whatever's
-    # been left over).
     await redis.delete(
         "akashic:tika:extracted_total",
-        "akashic:tika:failed_total",
         "akashic:tika:last_extracted_at",
     )
     await redis.set("akashic:tika:extracted_total", 1234)
@@ -200,9 +198,8 @@ async def test_meili_activity_degrades_gracefully(admin_client, monkeypatch):
     # Tika is available either (the cache is cleared in the autouse
     # fixture so the second branch executes).
     async def fake_tika_act():
-        return {"ok": True, "queue_depth": 0, "failed_count": 0,
-                "extracted_total": 0, "extracted_last_5min": 0,
-                "last_extracted_at": None}
+        return {"ok": True, "extracted_total": 0,
+                "extracted_last_5min": 0, "last_extracted_at": None}
     monkeypatch.setattr(health_services, "_tika_activity", fake_tika_act)
 
     r = await admin_client.get("/api/health/services/activity")

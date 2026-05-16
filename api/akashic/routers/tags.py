@@ -58,7 +58,7 @@ async def _reindex_entries(entry_ids: list[str], db_url: str) -> None:
     # (review D-I2). Pre-fix this created + disposed an engine per
     # bulk-tag operation, churning DB connections.
     from akashic.routers.ingest import _bg_session
-    from akashic.services.search import build_entry_doc, index_files_batch
+    from akashic.services.search import build_entry_doc, update_files_partial
 
     session = _bg_session(db_url)
     try:
@@ -75,7 +75,10 @@ async def _reindex_entries(entry_ids: list[str], db_url: str) -> None:
                 doc = await _build_doc_with_tags(entry, db)
                 docs.append(doc)
             if docs:
-                await index_files_batch(docs)
+                # v0.30.0 — partial update so a tag re-index doesn't
+                # wipe the doc's extracted content_text (which
+                # build_entry_doc doesn't emit). See meili_indexer.
+                await update_files_partial(docs)
     except Exception as exc:
         logger.warning("Tag re-index failed: %s", exc)
 

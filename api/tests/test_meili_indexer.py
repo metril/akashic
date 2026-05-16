@@ -11,8 +11,8 @@ Covers:
   * Ingest no longer creates the per-batch BackgroundTask
     (_index_files_to_meilisearch is no longer added).
 
-We stub the actual Meili push (index_files_batch) so the tests don't
-require a running Meilisearch instance.
+We stub the actual Meili push (update_files_partial) so the tests
+don't require a running Meilisearch instance.
 """
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ import uuid
 
 import pytest
 
+from akashic.models.entry import Entry
+from akashic.models.source import Source
 from akashic.services import meili_indexer
 from akashic.services.scan_pubsub import _client as redis_client
 
@@ -142,7 +144,7 @@ async def test_flush_clears_set_and_ts(setup_db, monkeypatch):
     async def _noop_index(_):
         return None
     monkeypatch.setattr(
-        "akashic.services.search.index_files_batch", _noop_index,
+        "akashic.services.search.update_files_partial", _noop_index,
     )
     try:
         await meili_indexer.mark_dirty(sid, [uuid.uuid4()])
@@ -152,5 +154,63 @@ async def test_flush_clears_set_and_ts(setup_db, monkeypatch):
         redis = redis_client()
         assert await redis.exists(meili_indexer._set_key(sid)) == 0
         assert await redis.exists(meili_indexer._ts_key(sid)) == 0
+    finally:
+        await _cleanup(sid)
+
+
+@pytest.mark.asyncio
+async def test_flush_uses_partial_update_not_replace(setup_db, monkeypatch):
+    """v0.30.0 regression guard: the metadata flush must go through
+    Meili's partial `update_documents` (update_files_partial), NOT the
+    full-replace `add_documents` (index_files_batch). A full replace
+    would wipe the `content_text` the scanner posts via
+    /api/ingest/content, since build_entry_doc emits only metadata.
+    """
+    sid = uuid.uuid4()
+    async with setup_db() as session:
+        src = Source(
+            id=sid, name=f"src-{uuid.uuid4().hex[:6]}",
+            type="local", connection_config={"path": "/tmp"},
+        )
+        session.add(src)
+        await session.flush()
+        entry = Entry(
+            id=uuid.uuid4(), source_id=sid, kind="file",
+            parent_path="/tmp", path="/tmp/doc.pdf", name="doc.pdf",
+        )
+        session.add(entry)
+        await session.commit()
+        entry_id = entry.id
+
+    monkeypatch.setattr(meili_indexer, "_bg_session", lambda: setup_db)
+
+    partial_docs: list = []
+    replace_docs: list = []
+
+    async def _capture_partial(docs):
+        partial_docs.extend(docs)
+
+    async def _capture_replace(docs):
+        replace_docs.extend(docs)
+
+    monkeypatch.setattr(
+        "akashic.services.search.update_files_partial", _capture_partial,
+    )
+    monkeypatch.setattr(
+        "akashic.services.search.index_files_batch", _capture_replace,
+    )
+
+    try:
+        await meili_indexer.mark_dirty(sid, [entry_id])
+        n = await meili_indexer.flush(sid)
+        assert n == 1
+        # The fix: partial update was used, full replace was NOT.
+        assert len(partial_docs) == 1, "flush must call update_files_partial"
+        assert replace_docs == [], "flush must NOT call index_files_batch (full replace)"
+        # The metadata doc carries no content_text — so a partial
+        # update leaves any existing content_text on the Meili doc
+        # untouched. (A full replace would have dropped it.)
+        assert "content_text" not in partial_docs[0]
+        assert partial_docs[0]["id"] == str(entry_id)
     finally:
         await _cleanup(sid)

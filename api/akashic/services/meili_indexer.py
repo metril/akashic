@@ -27,9 +27,11 @@ This module replaces that with a per-source dirty set in Redis:
     the index is current at terminal time without waiting for the
     5 s debounce window.
 
-The extraction worker keeps its existing single-doc re-index for
-content_text after Tika — that path is rarer and lower-throughput; the
-debouncer would just add latency without a meaningful win.
+v0.30.0 — `flush` uses Meilisearch partial updates (update_documents),
+not full add_documents. The scanner extracts file text and posts it
+to /api/ingest/content, which partial-updates the doc's content_text.
+A metadata flush here that did a full replace would wipe that text;
+partial updates from both writers merge cleanly by id.
 """
 from __future__ import annotations
 
@@ -167,7 +169,7 @@ async def flush(source_id: uuid.UUID | str) -> int:
     if not uuids:
         return 0
 
-    from akashic.services.search import build_entry_doc, index_files_batch
+    from akashic.services.search import build_entry_doc, update_files_partial
     from akashic.services.tag_inheritance import get_tags_for_entries
 
     try:
@@ -178,7 +180,15 @@ async def flush(source_id: uuid.UUID | str) -> int:
             )
             entries = [e for e in result.scalars() if e.kind == "file"]
             if entries:
-                await index_files_batch([
+                # v0.30.0 — partial update, NOT add_documents (full
+                # replace). build_entry_doc emits only metadata fields
+                # (no content_text), so a replace would wipe the
+                # extracted text the scanner posted via
+                # /api/ingest/content. update_documents merges by id:
+                # metadata fields are overwritten, content_text is
+                # left intact. The two writers (metadata flush here +
+                # content endpoint) are independent and order-safe.
+                await update_files_partial([
                     build_entry_doc(e, tags=tag_map.get(e.id, []))
                     for e in entries
                 ])

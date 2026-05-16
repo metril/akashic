@@ -46,7 +46,7 @@ func TestAdaptiveBatcher_HalvesOnly_OnLoadSignal(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := client.New(srv.URL, "k")
-			err := c.SendBatch(context.Background(), models.ScanBatch{
+			_, err := c.SendBatch(context.Background(), models.ScanBatch{
 				SourceID: "s", ScanID: "sc",
 				Entries: []models.EntryRecord{{Path: "/a", Kind: "file"}},
 			})

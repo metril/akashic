@@ -56,7 +56,7 @@ func TestSendBatch_GzipsLargeBody(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "test-jwt")
-	if err := c.SendBatch(context.Background(), batch); err != nil {
+	if _, err := c.SendBatch(context.Background(), batch); err != nil {
 		t.Fatalf("SendBatch: %v", err)
 	}
 	if sawEncoding != "gzip" {
@@ -89,7 +89,7 @@ func TestSendBatch_PlainBelowGzipThreshold(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "test-jwt")
-	if err := c.SendBatch(context.Background(), batch); err != nil {
+	if _, err := c.SendBatch(context.Background(), batch); err != nil {
 		t.Fatalf("SendBatch: %v", err)
 	}
 	if sawEncoding != "" {

@@ -15,6 +15,7 @@ import (
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/config"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
+	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
 )
@@ -75,6 +76,7 @@ func main() {
 	lastScanStr := flag.String("last-scan", "", "RFC3339 timestamp of last scan; enables incremental mode (only re-hashes changed files)")
 	prewalk := flag.Bool("prewalk", false, "Run a count-only pass first to estimate total files for ETA (first-scan only — adds I/O)")
 	noObserve := flag.Bool("no-observe", false, "Disable live progress reporting and stderr relay (run scanner standalone)")
+	tikaURL := flag.String("tika-url", "", "Apache Tika base URL for content extraction (e.g. http://tika:9998); empty disables document extraction")
 
 	flag.Parse()
 
@@ -105,22 +107,32 @@ func main() {
 
 	cfg := config.Load()
 
-	var conn connector.Connector
-	switch *sourceType {
-	case "local":
-		conn = connector.NewLocalConnector()
-	case "nfs":
-		conn = connector.NewNFSConnector()
-	case "smb":
-		p := *port
-		if p == 0 {
-			p = 445
+	// buildConnector constructs a fresh connector from the CLI flags.
+	// Used for the walk connector and — v0.30.0 — as the extraction
+	// pool's connector factory (a separate instance keeps SMB sessions
+	// uncontended).
+	buildConnector := func() (connector.Connector, error) {
+		switch *sourceType {
+		case "local":
+			return connector.NewLocalConnector(), nil
+		case "nfs":
+			return connector.NewNFSConnector(), nil
+		case "smb":
+			p := *port
+			if p == 0 {
+				p = 445
+			}
+			return connector.NewSMBConnector(*host, p, *username, *password, *share), nil
+		case "s3":
+			return connector.NewS3Connector(*endpoint, *bucket, *region, *username, *password), nil
+		default:
+			return nil, fmt.Errorf("unknown source type: %s", *sourceType)
 		}
-		conn = connector.NewSMBConnector(*host, p, *username, *password, *share)
-	case "s3":
-		conn = connector.NewS3Connector(*endpoint, *bucket, *region, *username, *password)
-	default:
-		log.Fatalf("unknown source type: %s", *sourceType)
+	}
+
+	conn, err := buildConnector()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	var excludePatterns []string
@@ -176,6 +188,11 @@ func main() {
 		Prewalk:         *prewalk,
 		Reporter:        reporter,
 		State:           state,
+		// v0.30.0 — content extraction. ExtractConnectorFactory reuses
+		// buildConnector so the extraction pool gets its own connector
+		// instance built from the same CLI flags.
+		Extractor:               extract.NewExtractor(*tikaURL),
+		ExtractConnectorFactory: buildConnector,
 	})
 
 	result, err := s.Run(ctx)

@@ -14,6 +14,7 @@ from akashic.models.entry import Entry, EntryEvent, EntryVersion
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.schemas.ingest_content import ContentBatchIn, ContentBatchResponse
 from akashic.schemas.scan import ScanBatchIn, ScanBatchResponse
 from akashic.services.ingest import (
     compute_viewable_buckets,
@@ -62,34 +63,6 @@ def _bg_session(db_url: str) -> "async_sessionmaker[AsyncSession]":
         sm = _asm(engine, class_=AsyncSession, expire_on_commit=False)
         _bg_session_makers[db_url] = sm
     return sm
-
-
-def _enqueue_extraction_jobs(entry_ids: list[str], redis_url: str):
-    """Background task: enqueue text extraction jobs to Redis.
-
-    v0.29.8 — each job carries a Retry(max=3, interval=[10, 60, 300])
-    policy. Pre-fix RQ defaulted to infinite retries: a single
-    poison file (corrupt PDF, Tika 500, unreadable bytes) would
-    re-queue forever and the "pending" count on the System Status
-    page would grow with each retry tick. After three attempts the
-    job lands in `rq:failed` (read out via /api/admin/extraction/failed)
-    and stops contributing to `rq:queue:extraction` LLEN.
-    """
-    try:
-        from redis import Redis
-        from rq import Queue, Retry
-
-        conn = Redis.from_url(redis_url)
-        q = Queue("extraction", connection=conn)
-        for entry_id in entry_ids:
-            q.enqueue(
-                "akashic.workers.extraction.process_file_extraction",
-                entry_id,
-                retry=Retry(max=3, interval=[10, 60, 300]),
-            )
-        logger.info("Enqueued %d extraction jobs", len(entry_ids))
-    except Exception as exc:
-        logger.warning("Failed to enqueue extraction jobs: %s", exc)
 
 
 async def _rollup_subtree_aggregates(source_id: str, db_url: str):
@@ -286,6 +259,11 @@ async def ingest_batch(
     files_processed = 0
     new_file_ids: list[str] = []
     changed_file_ids: list[str] = []
+    # v0.30.0 — new/changed FILE entries flagged for content extraction.
+    # Returned in the batch response so the scanner extracts only the
+    # files that actually changed, not every file every scan. Each item
+    # is {path, mime_type, size_bytes}; the scanner mime/size-gates.
+    extract_candidates: list[dict] = []
     # v0.29.2 — accumulate counter deltas locally, write to Redis in
     # one shot at end-of-batch. Removes the per-batch scan-row
     # contention point: two scanners batching on the same scan no
@@ -340,6 +318,11 @@ async def ingest_batch(
                 nonlocal delta_files_changed
                 delta_files_changed += 1
                 changed_file_ids.append(str(existing.id))
+                extract_candidates.append({
+                    "path": incoming.path,
+                    "mime_type": incoming.mime_type or "",
+                    "size_bytes": incoming.size_bytes or 0,
+                })
         existing.last_seen_at = now
         existing.is_deleted = False
         existing.deleted_at = None
@@ -350,6 +333,11 @@ async def ingest_batch(
             )
             if existing.kind == "file":
                 new_file_ids.append(str(existing.id))
+                extract_candidates.append({
+                    "path": incoming.path,
+                    "mime_type": incoming.mime_type or "",
+                    "size_bytes": incoming.size_bytes or 0,
+                })
 
     # Phase 1 — apply updates to pre-loaded existing rows in incoming
     # order, and stage Entry candidates for the new-row bulk INSERT.
@@ -483,6 +471,11 @@ async def ingest_batch(
         if new_entry.kind == "file":
             new_file_ids.append(str(new_entry.id))
             delta_files_new += 1
+            extract_candidates.append({
+                "path": new_entry.path,
+                "mime_type": new_entry.mime_type or "",
+                "size_bytes": new_entry.size_bytes or 0,
+            })
 
     # Phase 4 — race losers: paths we tried to INSERT but ON CONFLICT
     # skipped because another batch got there first. Bulk-fetch the
@@ -692,11 +685,14 @@ async def ingest_batch(
         # whichever comes first; the scan-terminal path force-flushes
         # so search results catch up at "completed" time. Cuts Meili
         # task count by ~100× on a fast scan.
+        #
+        # v0.30.0 — text extraction is no longer enqueued here. The
+        # scanner extracts content itself (it has connectors for every
+        # source type) and posts it to /api/ingest/content. The
+        # new/changed files it should extract ride the response's
+        # `extract_candidates`.
         from akashic.services import meili_indexer
         await meili_indexer.mark_dirty(batch.source_id, indexed_ids)
-        background_tasks.add_task(
-            _enqueue_extraction_jobs, indexed_ids, settings.redis_url
-        )
 
     if batch.is_final:
         # v0.29.2 — drain the pending Meili set immediately on
@@ -729,4 +725,76 @@ async def ingest_batch(
             settings.database_url,
         )
 
-    return ScanBatchResponse(files_processed=files_processed, scan_id=batch.scan_id)
+    return ScanBatchResponse(
+        files_processed=files_processed,
+        scan_id=batch.scan_id,
+        extract_candidates=extract_candidates,
+    )
+
+
+async def _bump_tika_counters(count: int) -> None:
+    """Bump the Redis activity counters the admin System Status page
+    reads. Best-effort — content indexing succeeds even when Redis is
+    unreachable; the counters are purely observational. v0.30.0 — these
+    were formerly bumped by the standalone extraction worker; the
+    scanner-driven flow bumps them here, on the content-ingest path,
+    so the metric stays meaningful for every source type."""
+    if count <= 0:
+        return
+    try:
+        from akashic.services.scan_pubsub import _client as _redis_client
+        redis = _redis_client()
+        now = datetime.now(timezone.utc)
+        # Per-minute bucket (YYYYMMDDHHMM) with a 6-minute TTL — the
+        # activity endpoint sums the last 5 buckets for "last 5 min".
+        bucket = now.strftime("%Y%m%d%H%M")
+        pipe = redis.pipeline()
+        pipe.incrby("akashic:tika:extracted_total", count)
+        pipe.set("akashic:tika:last_extracted_at", now.isoformat())
+        pipe.incrby(f"akashic:tika:extracted:{bucket}", count)
+        pipe.expire(f"akashic:tika:extracted:{bucket}", 360)
+        await pipe.execute()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tika counter bump failed: %s", exc)
+
+
+@router.post("/content", response_model=ContentBatchResponse)
+async def ingest_content(
+    batch: ContentBatchIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_ingest_user),
+) -> ContentBatchResponse:
+    """Receive extracted file text from the scanner and merge it into
+    the Meilisearch documents. v0.30.0.
+
+    Keyed by (source_id, path) — the scanner doesn't know the
+    API-assigned entry UUID. Unresolved paths (content raced ahead of
+    the metadata batch, or the file was deleted) are skipped; the next
+    scan re-extracts. The Meili write is a partial update, so it
+    touches only `content_text` and never the metadata fields the
+    batch-ingest flush owns.
+    """
+    await check_source_access(batch.source_id, user, db, required_level="write")
+    if not batch.items:
+        return ContentBatchResponse(items_indexed=0, scan_id=batch.scan_id)
+
+    paths = [it.path for it in batch.items]
+    rows = await db.execute(
+        select(Entry.id, Entry.path).where(
+            Entry.source_id == batch.source_id,
+            Entry.path.in_(paths),
+            Entry.kind == "file",
+        )
+    )
+    id_by_path = {row.path: row.id for row in rows.all()}
+
+    docs = [
+        {"id": str(id_by_path[it.path]), "content_text": it.content_text}
+        for it in batch.items
+        if it.path in id_by_path
+    ]
+    if docs:
+        from akashic.services.search import update_files_partial
+        await update_files_partial(docs)
+        await _bump_tika_counters(len(docs))
+    return ContentBatchResponse(items_indexed=len(docs), scan_id=batch.scan_id)

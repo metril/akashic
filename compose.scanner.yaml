@@ -1,0 +1,61 @@
+# Standalone scanner-host deployment (v0.30.0).
+#
+# Run this on a host that should act as an Akashic scanner but does
+# NOT run the API/Postgres/Meilisearch stack — e.g. a machine at a
+# remote site, close to the SMB/NFS shares it scans.
+#
+# It brings up two containers as one unit:
+#   - scanner : the Akashic scanner agent
+#   - tika    : Apache Tika, co-located so document text extraction
+#               happens locally. The scanner reads a file's bytes,
+#               extracts text via this local Tika, and sends only the
+#               extracted text to the (remote) API — the document
+#               bytes never cross the WAN.
+#
+# Usage:
+#   AKASHIC_API_URL=https://akashic.example.com \
+#   AKASHIC_CLAIM_TOKEN=akcl_… \
+#     docker compose -f compose.scanner.yaml up -d
+#
+# On first run supply either AKASHIC_CLAIM_TOKEN (a join token from
+# Settings → Scanners) or AKASHIC_DISCOVER=1 (then approve the pairing
+# code shown in `docker compose -f compose.scanner.yaml logs scanner`).
+# Subsequent runs need neither — credentials persist in the
+# scanner-data volume.
+#
+# Pin a scanner image version with AKASHIC_VERSION (defaults latest).
+
+services:
+  tika:
+    image: apache/tika:3.0.0.0
+    # bash /dev/tcp probe — the apache/tika image ships neither wget
+    # nor curl, only bash + java.
+    healthcheck:
+      test: ["CMD", "bash", "-c",
+             "exec 3<>/dev/tcp/localhost/9998; printf 'GET /tika HTTP/1.0\\r\\n\\r\\n' >&3; grep -q 'Apache Tika' <&3"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  scanner:
+    image: ghcr.io/metril/akashic-scanner:${AKASHIC_VERSION:-latest}
+    command: [auto]
+    environment:
+      # Required — the (remote) Akashic API base URL.
+      AKASHIC_API_URL: ${AKASHIC_API_URL:?set AKASHIC_API_URL to your Akashic API base URL}
+      AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
+      AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
+      SCANNER_ID: ${SCANNER_ID:-}
+      # Co-located Tika — document bytes stay on this host's network.
+      AKASHIC_TIKA_URL: http://tika:9998
+    volumes:
+      - scanner-data:/secrets
+    depends_on:
+      tika:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  scanner-data:

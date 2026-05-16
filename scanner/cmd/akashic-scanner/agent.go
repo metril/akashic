@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,12 +26,28 @@ func runAgent(args []string) {
 	scannerID := fs.String("scanner-id", "", "Scanner UUID, as registered in the api")
 	keyPath := fs.String("key", "", "Path to the Ed25519 private key (PEM, PKCS8)")
 	leasePoll := fs.Duration("lease-poll", 5*time.Second, "Lease-poll interval (jittered ±20%%)")
+	tikaURL := fs.String("tika-url", "", "Apache Tika base URL for content extraction (e.g. http://tika:9998); empty disables document extraction")
+	extractWorkers := fs.Int("extract-workers", 0, "Content-extraction worker pool size (0 = default)")
 	if err := fs.Parse(args); err != nil {
 		log.Fatalf("agent flags: %v", err)
 	}
 	if *apiURL == "" || *scannerID == "" || *keyPath == "" {
 		fs.Usage()
 		log.Fatal("--api, --scanner-id, --key are required")
+	}
+
+	// v0.30.0 — env fallbacks so the compose `auto` entrypoint (which
+	// re-execs `agent` with only --api/--scanner-id/--key but inherits
+	// the environment) can still configure extraction.
+	resolvedTikaURL := *tikaURL
+	if resolvedTikaURL == "" {
+		resolvedTikaURL = strings.TrimRight(os.Getenv("AKASHIC_TIKA_URL"), "/")
+	}
+	resolvedExtractWorkers := *extractWorkers
+	if resolvedExtractWorkers == 0 {
+		if n, err := strconv.Atoi(os.Getenv("AKASHIC_EXTRACT_WORKERS")); err == nil && n > 0 {
+			resolvedExtractWorkers = n
+		}
 	}
 
 	hostname, _ := os.Hostname()
@@ -50,12 +68,14 @@ func runAgent(args []string) {
 	}()
 
 	cfg := agent.Config{
-		APIBase:   *apiURL,
-		ScannerID: *scannerID,
-		KeyPath:   *keyPath,
-		LeasePoll: *leasePoll,
-		Hostname:  hostname,
-		Version:   Version,
+		APIBase:        *apiURL,
+		ScannerID:      *scannerID,
+		KeyPath:        *keyPath,
+		LeasePoll:      *leasePoll,
+		Hostname:       hostname,
+		Version:        Version,
+		TikaURL:        resolvedTikaURL,
+		ExtractWorkers: resolvedExtractWorkers,
 	}
 	if err := agent.Run(ctx, cfg); err != nil {
 		log.Fatalf("agent: %v", err)

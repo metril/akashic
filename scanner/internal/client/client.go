@@ -65,24 +65,24 @@ func New(baseURL, apiKey string) *Client {
 // the walker had already done all the work. Idempotency: the api's
 // ingest path dedups by (source_id, path), so a retried batch is safe
 // even if the first attempt actually committed.
-func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) error {
+func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) (*models.BatchResponse, error) {
 	body, err := json.Marshal(batch)
 	if err != nil {
-		return fmt.Errorf("marshal batch: %w", err)
+		return nil, fmt.Errorf("marshal batch: %w", err)
 	}
 
 	var lastErr error
 	for attempt := 0; attempt < c.maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		err := c.sendOnce(ctx, body)
+		resp, err := c.sendOnce(ctx, body)
 		if err == nil {
-			return nil
+			return resp, nil
 		}
 		lastErr = err
 		if !isRetryable(err) {
-			return err
+			return nil, err
 		}
 		// Exponential backoff with ±25% jitter. Sleeps are
 		// context-cancellable so a SIGTERM during a backoff doesn't
@@ -92,12 +92,12 @@ func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) error {
 			jitter := time.Duration(rand.Int63n(int64(d / 4)))
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil, ctx.Err()
 			case <-time.After(d + jitter):
 			}
 		}
 	}
-	return fmt.Errorf("send batch: %d attempts failed: %w", c.maxAttempts, lastErr)
+	return nil, fmt.Errorf("send batch: %d attempts failed: %w", c.maxAttempts, lastErr)
 }
 
 // sendOnce performs one POST. Returned errors are wrapped with one of
@@ -109,7 +109,7 @@ func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) error {
 // scan batches compress 80–90% (JSON is mostly repeated keys + paths
 // + ASCII strings), so this typically cuts wire size by ~5–10× — a
 // big win for remote scanners on slow uplinks.
-func (c *Client) sendOnce(ctx context.Context, body []byte) error {
+func (c *Client) sendOnce(ctx context.Context, body []byte) (*models.BatchResponse, error) {
 	reqBody := body
 	contentEncoding := ""
 	if len(body) >= _gzipMinBodyBytes {
@@ -129,7 +129,7 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/ingest/batch", bytes.NewReader(reqBody))
 	if err != nil {
-		return terminalError{fmt.Errorf("create request: %w", err)}
+		return nil, terminalError{fmt.Errorf("create request: %w", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if contentEncoding != "" {
@@ -141,7 +141,7 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) error {
 	if err != nil {
 		// Network-level errors are always retryable: TCP RST, DNS
 		// blip, TLS handshake timeout, server-half-closed mid-request.
-		return retryableError{fmt.Errorf("send batch: %w", err)}
+		return nil, retryableError{fmt.Errorf("send batch: %w", err)}
 	}
 	defer resp.Body.Close()
 
@@ -149,7 +149,7 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) error {
 		// Drain a few bytes so the body can be reused and the error
 		// surface includes the server's hint when there is one.
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return retryableError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
+		return nil, retryableError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
 	}
 	if resp.StatusCode == http.StatusRequestEntityTooLarge {
 		// v0.29.6 — 413 is a "your batch is too big" signal, which
@@ -158,13 +158,21 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) error {
 		// surface it to AdaptiveBatcher.Observe while still treating
 		// it as terminal for retry purposes.
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return payloadTooLargeError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
+		return nil, payloadTooLargeError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return terminalError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
+		return nil, terminalError{fmt.Errorf("batch rejected: status %d: %s", resp.StatusCode, string(raw))}
 	}
-	return nil
+	// v0.30.0 — decode the response body for extract_candidates. A
+	// decode failure on a 200 is non-fatal: the batch WAS accepted;
+	// the worst case is this batch's new/changed files don't get
+	// extracted until the next scan.
+	var br models.BatchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&br); err != nil {
+		return &models.BatchResponse{}, nil
+	}
+	return &br, nil
 }
 
 // retryableError marks an error that SendBatch should back off and

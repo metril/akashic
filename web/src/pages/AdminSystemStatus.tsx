@@ -101,7 +101,7 @@ export default function AdminSystemStatus() {
       <Card padding="md" className="mb-5">
         <CardHeader
           title="Tika — text extraction"
-          description="Per-document text extraction; jobs land here after every ingest batch."
+          description="File text extraction. Performed by the scanner (co-located with Tika) and posted back to the search index."
         />
         {activity.isError ? (
           <EmptyState title="Activity unavailable" description={String(activity.error)} />
@@ -113,42 +113,21 @@ export default function AdminSystemStatus() {
             description={activity.data.tika.error ?? "Redis connection failed"}
           />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-            <StatCard
-              label="Queue depth"
-              value={formatNumber(activity.data.tika.queue_depth)}
-              subtext="jobs waiting"
-            />
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
             <StatCard
               label="Last 5 min"
               value={formatNumber(activity.data.tika.extracted_last_5min)}
-              subtext="documents extracted"
+              subtext="files extracted"
             />
             <StatCard
-              label="Failed"
-              value={formatNumber(activity.data.tika.failed_count)}
-              subtext={
-                (activity.data.tika.failed_count ?? 0) > 0 ? (
-                  <span className="flex items-center gap-1">
-                    <span>last {formatRelative(activity.data.tika.last_failed_at)}</span>
-                    <a
-                      className="text-accent hover:underline"
-                      href="/api/health/services/extraction/failed"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      view
-                    </a>
-                  </span>
-                ) : (
-                  "no failures"
-                )
-              }
+              label="Total"
+              value={formatNumber(activity.data.tika.extracted_total)}
+              subtext="files extracted, lifetime"
             />
             <StatCard
               label="Last extraction"
               value={formatRelative(activity.data.tika.last_extracted_at)}
-              subtext={`${formatNumber(activity.data.tika.extracted_total)} total`}
+              subtext="most recent"
             />
           </div>
         )}
