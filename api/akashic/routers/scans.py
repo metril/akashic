@@ -258,6 +258,9 @@ async def cancel_scan(
         # regardless of scanner state.
         if source is not None:
             from akashic.services import scan_broadcast, scan_pubsub
+            scanner_name = await scan_broadcast.resolve_scanner_name(
+                db, scan.assigned_scanner_id,
+            )
             await scan_pubsub.publish_source_event({
                 "kind": "scan.state",
                 "source_id": str(source.id),
@@ -268,7 +271,7 @@ async def cancel_scan(
                     str(scan.assigned_scanner_id)
                     if scan.assigned_scanner_id else None
                 ),
-                "scanner_name": None,
+                "scanner_name": scanner_name,
                 "scan_type": scan.scan_type,
                 "files_found": scan.files_found or 0,
                 "current_path": None,

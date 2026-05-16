@@ -172,6 +172,9 @@ async def post_heartbeat(
         files_found=files_found,
         total_estimated=scan.total_estimated,
     ):
+        scanner_name = await scan_broadcast.resolve_scanner_name(
+            db, scan.assigned_scanner_id,
+        )
         await scan_pubsub.publish_source_event({
             "kind": "scan.state",
             "source_id": str(scan.source_id),
@@ -181,7 +184,7 @@ async def post_heartbeat(
             "scanner_id": (
                 str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
             ),
-            "scanner_name": None,
+            "scanner_name": scanner_name,
             "scan_type": scan.scan_type,
             "files_found": files_found,
             "current_path": scan.current_path,
@@ -247,14 +250,9 @@ async def _scanner_name(
     """Single lookup per batch so each fanned-out line in the WS
     payload carries a human-readable scanner pill without the
     frontend needing a separate cache. None for legacy/no-attribution
-    rows."""
-    if scanner_id is None:
-        return None
-    from akashic.models.scanner import Scanner as _Scanner
-    res = await db.execute(
-        select(_Scanner.name).where(_Scanner.id == scanner_id)
-    )
-    return res.scalar_one_or_none()
+    rows. Delegates to the shared resolver so the scanner-name lookup
+    lives in exactly one place (v0.30.1)."""
+    return await scan_broadcast.resolve_scanner_name(db, scanner_id)
 
 
 @router.post("/{scan_id}/log", status_code=204)

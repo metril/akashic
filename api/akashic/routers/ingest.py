@@ -643,6 +643,9 @@ async def ingest_batch(
     live = await scan_counters.overlay(scan)
     files_found = live["files_found"]
     from akashic.services import scan_broadcast, scan_pubsub
+    scanner_name = await scan_broadcast.resolve_scanner_name(
+        db, scan.assigned_scanner_id,
+    )
     await scan_pubsub.publish_source_event({
         "kind": "scan.state",
         "source_id": str(batch.source_id),
@@ -652,7 +655,7 @@ async def ingest_batch(
         "scanner_id": (
             str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
         ),
-        "scanner_name": None,
+        "scanner_name": scanner_name,
         "scan_type": scan.scan_type,
         "files_found": files_found,
         "current_path": scan.current_path,

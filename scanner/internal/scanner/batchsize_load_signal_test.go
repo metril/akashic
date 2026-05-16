@@ -2,10 +2,15 @@
 //
 // AIMD's multiplicative-decrease on error was previously triggered by
 // ANY non-nil error. v0.29.6 narrows that to "this error indicates
-// real load" — 5xx, network failure, or 413. The Observe contract
-// hasn't changed; the SENDER passes nil for non-load errors so the
-// AIMD primitive itself stays simple (it still halves on any non-nil
-// err it sees; the policy lives one layer up).
+// real load" — 5xx or network failure. The Observe contract hasn't
+// changed; the SENDER passes nil for non-load errors so the AIMD
+// primitive itself stays simple (it still halves on any non-nil err
+// it sees; the policy lives one layer up).
+//
+// A 413 is no longer in scope here: as of v0.30.1 SendBatch recovers
+// from a 413 by splitting the batch, so it never surfaces as an error
+// to the sender — the shrink is driven by NotePayloadTooLarge
+// instead (covered in batchsize_test.go).
 //
 // These tests verify the layer-up policy via the same client.IsLoadSignal
 // helper the sender uses.
@@ -32,7 +37,6 @@ func TestAdaptiveBatcher_HalvesOnly_OnLoadSignal(t *testing.T) {
 	}{
 		{"500 halves", 500, true},
 		{"503 halves", 503, true},
-		{"413 halves", 413, true},
 		{"422 stays", 422, false},
 		{"400 stays", 400, false},
 		{"401 stays", 401, false},

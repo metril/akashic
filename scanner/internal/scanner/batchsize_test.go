@@ -97,6 +97,41 @@ func TestAdaptiveBatchSize_OnAdjustHook(t *testing.T) {
 	}
 }
 
+// v0.30.1 — a 413 the client recovered from by splitting must lower
+// the CEILING, not just the working size, so AIMD can't grow back
+// into the same wall.
+func TestAdaptiveBatchSize_NotePayloadTooLarge_LowersCeiling(t *testing.T) {
+	a := NewAdaptiveBatchSize(4000, 250, 5000, 100, 400)
+	if !a.NotePayloadTooLarge() {
+		t.Fatal("expected the working size to change")
+	}
+	if got := a.Current(); got != 2000 {
+		t.Errorf("after 413 from 4000: current=%d, want 2000", got)
+	}
+	if _, ceiling := a.Range(); ceiling != 2000 {
+		t.Errorf("ceiling should be pinned to 2000, got %d", ceiling)
+	}
+	// AIMD can no longer grow past the new ceiling, even on fast batches.
+	for i := 0; i < 100; i++ {
+		a.Observe(10*time.Millisecond, nil)
+	}
+	if got := a.Current(); got != 2000 {
+		t.Errorf("size grew past the lowered ceiling: got %d, want 2000", got)
+	}
+}
+
+func TestAdaptiveBatchSize_NotePayloadTooLarge_ClampsToFloor(t *testing.T) {
+	a := NewAdaptiveBatchSize(300, 250, 5000, 100, 400)
+	// 300/2 = 150, below floor 250 → clamp to 250.
+	a.NotePayloadTooLarge()
+	if got := a.Current(); got != 250 {
+		t.Errorf("after 413 from 300: current=%d, want floor 250", got)
+	}
+	if _, ceiling := a.Range(); ceiling != 250 {
+		t.Errorf("ceiling should be pinned to floor 250, got %d", ceiling)
+	}
+}
+
 func TestAdaptiveBatchSize_NormalizesBadInputs(t *testing.T) {
 	a := NewAdaptiveBatchSize(0, 0, 0, 0, 0)
 	if got, want := a.Current(), 1; got != want {

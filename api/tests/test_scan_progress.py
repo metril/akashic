@@ -239,6 +239,62 @@ async def test_heartbeat_publishes_scan_state_to_sources_channel(
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_scan_state_carries_scanner_name(
+    client: AsyncClient, fixture_scan: Scan, setup_db, request,
+):
+    """v0.30.1 — the live heartbeat scan.state broadcast must resolve
+    the assigned scanner's name. Pre-fix it hardcoded
+    `scanner_name: None`, which blanked the name in the UI right after
+    the (correctly-populated) WS snapshot frame."""
+    from sqlalchemy import select
+
+    from akashic.models.scanner import Scanner
+
+    scanner_id = uuid.uuid4()
+    async with setup_db() as session:
+        session.add(Scanner(
+            id=scanner_id, name="hb-attribution", pool="default",
+            public_key_pem="x", key_fingerprint=f"fp-{scanner_id}",
+        ))
+        scan = (
+            await session.execute(select(Scan).where(Scan.id == fixture_scan.id))
+        ).scalar_one()
+        scan.assigned_scanner_id = scanner_id
+        await session.commit()
+
+    r = await client.post(
+        f"/api/scans/{fixture_scan.id}/heartbeat",
+        json={"files_scanned": 1, "bytes_scanned": 1, "files_skipped": 0,
+              "dirs_walked": 0, "dirs_queued": 0},
+    )
+    assert r.status_code == 204
+
+    captured = request.node._captured_source_events
+    assert len(captured) == 1
+    event = captured[0]
+    assert event["scanner_id"] == str(scanner_id)
+    assert event["scanner_name"] == "hb-attribution"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_scan_state_scanner_name_none_when_unassigned(
+    client: AsyncClient, fixture_scan: Scan, request,
+):
+    """An unassigned scan (no scanner has leased it yet) broadcasts
+    `scanner_name: None` — correct, not the v0.30.1 bug."""
+    r = await client.post(
+        f"/api/scans/{fixture_scan.id}/heartbeat",
+        json={"files_scanned": 1, "bytes_scanned": 1, "files_skipped": 0,
+              "dirs_walked": 0, "dirs_queued": 0},
+    )
+    assert r.status_code == 204
+    captured = request.node._captured_source_events
+    assert len(captured) == 1
+    assert captured[0]["scanner_id"] is None
+    assert captured[0]["scanner_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_404_unknown_scan(client: AsyncClient):
     r = await client.post(
         f"/api/scans/{uuid.uuid4()}/heartbeat",

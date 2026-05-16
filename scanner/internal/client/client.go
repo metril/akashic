@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"time"
@@ -81,6 +82,14 @@ func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) (*models
 			return resp, nil
 		}
 		lastErr = err
+		// v0.30.1 — a 413 means the batch is too big for some proxy or
+		// server in the request path. Retrying it unchanged can't help;
+		// split it into halves and send those (recursively). This
+		// recovers the scan instead of failing it after the walker has
+		// already done all the work.
+		if isPayloadTooLarge(err) {
+			return c.sendSplit(ctx, batch, err)
+		}
 		if !isRetryable(err) {
 			return nil, err
 		}
@@ -98,6 +107,88 @@ func (c *Client) SendBatch(ctx context.Context, batch models.ScanBatch) (*models
 		}
 	}
 	return nil, fmt.Errorf("send batch: %d attempts failed: %w", c.maxAttempts, lastErr)
+}
+
+// sendSplit handles a 413 by halving batch.Entries and sending each
+// half through SendBatch — so a half that's still too big splits
+// again. The left half carries the source-security metadata; the
+// right half carries IsFinal + the inaccessible counts, so the
+// is_final batch stays last (the API requires the terminal batch be
+// last). The two BatchResponses are merged, and PayloadSplit is set so
+// the sender can feed AIMD a shrink signal even though the send
+// ultimately succeeded.
+//
+// Base case: a single entry that still 413s is dropped with a warning
+// — one pathological file (megabytes of ACLs/xattrs) must never fail
+// an entire scan. A dropped *final* batch still ships an empty
+// is_final batch so the scan terminates cleanly rather than hanging
+// until the watchdog.
+func (c *Client) sendSplit(ctx context.Context, batch models.ScanBatch, cause error) (*models.BatchResponse, error) {
+	if len(batch.Entries) <= 1 {
+		if len(batch.Entries) == 1 {
+			log.Printf("scanner: dropping oversized entry %q — exceeds the ingest body limit even on its own: %v",
+				batch.Entries[0].Path, cause)
+		}
+		if !batch.IsFinal {
+			return &models.BatchResponse{PayloadSplit: true}, nil
+		}
+		// The final batch must still deliver the is_final marker (and
+		// the inaccessible counts) or the scan never terminates. An
+		// empty final batch is a few hundred bytes — it always fits.
+		empty := batch
+		empty.Entries = []models.EntryRecord{}
+		empty.SourceSecurityMetadata = nil
+		resp, err := c.SendBatch(ctx, empty)
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil {
+			resp = &models.BatchResponse{}
+		}
+		resp.PayloadSplit = true
+		return resp, nil
+	}
+
+	mid := len(batch.Entries) / 2
+	left := models.ScanBatch{
+		SourceID:               batch.SourceID,
+		ScanID:                 batch.ScanID,
+		Entries:                batch.Entries[:mid],
+		IsFinal:                false,
+		SourceSecurityMetadata: batch.SourceSecurityMetadata,
+	}
+	right := models.ScanBatch{
+		SourceID:          batch.SourceID,
+		ScanID:            batch.ScanID,
+		Entries:           batch.Entries[mid:],
+		IsFinal:           batch.IsFinal,
+		InaccessibleDirs:  batch.InaccessibleDirs,
+		InaccessibleFiles: batch.InaccessibleFiles,
+	}
+
+	lresp, err := c.SendBatch(ctx, left)
+	if err != nil {
+		return nil, err
+	}
+	rresp, err := c.SendBatch(ctx, right)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := &models.BatchResponse{PayloadSplit: true}
+	if lresp != nil {
+		merged.ExtractCandidates = append(merged.ExtractCandidates, lresp.ExtractCandidates...)
+	}
+	if rresp != nil {
+		merged.ExtractCandidates = append(merged.ExtractCandidates, rresp.ExtractCandidates...)
+	}
+	return merged, nil
+}
+
+// isPayloadTooLarge reports whether err is (or wraps) a 413.
+func isPayloadTooLarge(err error) bool {
+	var pt payloadTooLargeError
+	return errors.As(err, &pt)
 }
 
 // sendOnce performs one POST. Returned errors are wrapped with one of
@@ -186,10 +277,10 @@ type retryableError struct{ error }
 // overloaded").
 type terminalError struct{ error }
 
-// payloadTooLargeError marks a 413 specifically. It's a terminal-
-// for-retry error (the batch as-shipped won't fit, retrying it won't
-// help) but IS a load signal for AIMD — exactly the case AIMD's
-// multiplicative-decrease was designed for.
+// payloadTooLargeError marks a 413 specifically. As of v0.30.1
+// SendBatch (and SendContent) handle it by splitting the batch and
+// re-sending the halves rather than failing — see sendSplit /
+// sendContentSplit and isPayloadTooLarge.
 type payloadTooLargeError struct{ error }
 
 func isRetryable(err error) bool {
@@ -201,27 +292,26 @@ func isRetryable(err error) bool {
 }
 
 // IsLoadSignal reports whether the error indicates that the batch
-// triggered a real load condition on the API path (overloaded,
-// timeout, or payload-too-large). AdaptiveBatcher's multiplicative-
-// decrease should only run on these — 4xx-other-than-413 is misuse,
-// not overload, and halving the batch makes no sense.
+// triggered a real load condition on the API path (server overloaded,
+// timeout, network failure). AdaptiveBatcher's latency-driven
+// multiplicative-decrease (Observe) should only run on these — a 4xx
+// is misuse, not overload, so halving the batch makes no sense.
+//
+// A 413 is deliberately NOT a load signal here: as of v0.30.1
+// SendBatch recovers from a 413 by splitting the batch itself, and
+// the sender drives AIMD's shrink via NotePayloadTooLarge instead
+// (keyed off resp.PayloadSplit). A 413 therefore never reaches this
+// predicate as an error.
 //
 // Walks the error chain (errors.As) so it correctly identifies the
 // wrapped form SendBatch returns after retry exhaustion ("send
 // batch: 4 attempts failed: %w").
 //
-// v0.29.6.
+// v0.29.6; 413 handling revised v0.30.1.
 func IsLoadSignal(err error) bool {
 	if err == nil {
 		return false
 	}
 	var rt retryableError
-	if errors.As(err, &rt) {
-		return true
-	}
-	var pt payloadTooLargeError
-	if errors.As(err, &pt) {
-		return true
-	}
-	return false
+	return errors.As(err, &rt)
 }

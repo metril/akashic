@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestIsEligible(t *testing.T) {
@@ -122,5 +123,42 @@ func TestExtract_Dispatch(t *testing.T) {
 	got, err = ex.Extract(context.Background(), []byte("data"), "image/png")
 	if err != nil || got != "" {
 		t.Errorf("ineligible dispatch: got (%q, %v)", got, err)
+	}
+}
+
+// v0.30.1 — extracted text is capped so a single huge file can't blow
+// past the API's request-body limit. The cut must land on a UTF-8
+// rune boundary so the result is never a half-decoded rune.
+func TestExtract_CapsContentText(t *testing.T) {
+	ex := NewExtractor("")
+
+	// A plain-text file far over the cap.
+	big := strings.Repeat("a", MaxContentTextBytes+5000)
+	got, err := ex.Extract(context.Background(), []byte(big), "text/plain")
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if len(got) > MaxContentTextBytes {
+		t.Errorf("text not capped: got %d bytes, want <= %d", len(got), MaxContentTextBytes)
+	}
+
+	// Multibyte content: the truncation point must not split a rune.
+	multi := strings.Repeat("é", MaxContentTextBytes) // 2 bytes per rune
+	got, err = ex.Extract(context.Background(), []byte(multi), "text/plain")
+	if err != nil {
+		t.Fatalf("Extract multibyte: %v", err)
+	}
+	if len(got) > MaxContentTextBytes {
+		t.Errorf("multibyte text not capped: got %d bytes", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Error("capped text is not valid UTF-8 — truncation split a rune")
+	}
+
+	// Under the cap — returned untouched.
+	small := "just a little text"
+	got, _ = ex.Extract(context.Background(), []byte(small), "text/plain")
+	if got != small {
+		t.Errorf("small text altered: got %q", got)
 	}
 }

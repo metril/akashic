@@ -19,11 +19,16 @@
 package scanner
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// errPayloadTooLarge is handed to OnAdjust when NotePayloadTooLarge
+// fires, so the adjustment log line names the real cause (a 413).
+var errPayloadTooLarge = errors.New("ingest body limit hit (413)")
 
 // AdaptiveBatchSize implements AIMD against a target latency window.
 //
@@ -137,6 +142,34 @@ func (a *AdaptiveBatchSize) Observe(latency time.Duration, err error) bool {
 	atomic.StoreInt64(&a.current, int64(next))
 	if a.OnAdjust != nil {
 		a.OnAdjust(prev, next, latencyMs, err)
+	}
+	return true
+}
+
+// NotePayloadTooLarge records that the batch at the current size hit a
+// hard request-body limit — a 413 the SendBatch client recovered from
+// by splitting the batch (v0.30.1). Unlike Observe's latency-driven
+// ÷2, this also lowers the *ceiling* below the offending size, so AIMD
+// can never grow back into the same wall. Without it, every large
+// batch would oscillate into a 413 and pay the split cost forever.
+// Returns true when the working size changed (for logging).
+func (a *AdaptiveBatchSize) NotePayloadTooLarge() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	prev := int(a.current)
+	next := prev / 2
+	if next < a.floor {
+		next = a.floor
+	}
+	// Pin the ceiling below the size that just 413'd, even if the
+	// working size was already at the floor.
+	a.ceiling = next
+	if next == prev {
+		return false
+	}
+	atomic.StoreInt64(&a.current, int64(next))
+	if a.OnAdjust != nil {
+		a.OnAdjust(prev, next, 0, errPayloadTooLarge)
 	}
 	return true
 }

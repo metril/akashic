@@ -208,14 +208,25 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			resp, err := s.client.SendBatch(scanCtx, scanBatch)
 			elapsed := time.Since(start)
 			if s.opts.AdaptiveBatcher != nil {
+				// v0.30.1 — a 413 the client recovered from by
+				// splitting the batch (resp.PayloadSplit) is a hard
+				// body-limit signal: shrink the working size AND lower
+				// the ceiling so AIMD can't grow back into the wall.
+				//
 				// v0.29.6 — non-load errors (422 / 400 / 401 / 403)
 				// are misuse signals, not overload. Skip Observe
 				// entirely so AIMD neither halves (would be wrong
 				// for a 422) nor grows (which would happen if we
 				// passed nil + the fast retry/short latency of a
 				// terminal-error round trip). Real load signals
-				// (5xx, network failure, 413) DO feed Observe.
-				if err == nil || client.IsLoadSignal(err) {
+				// (5xx, network failure) DO feed Observe.
+				switch {
+				case err == nil && resp != nil && resp.PayloadSplit:
+					s.opts.AdaptiveBatcher.NotePayloadTooLarge()
+					if s.opts.State != nil {
+						s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())
+					}
+				case err == nil || client.IsLoadSignal(err):
 					s.opts.AdaptiveBatcher.Observe(elapsed, err)
 					if s.opts.State != nil {
 						s.opts.State.SetCurrentBatchSize(s.opts.AdaptiveBatcher.Current())

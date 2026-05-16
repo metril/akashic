@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import timedelta
 from typing import Any
 
 from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.config import settings
 
@@ -158,6 +161,27 @@ async def record_broadcast(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("scan_broadcast.record_broadcast redis write failed: %s", exc)
+
+
+async def resolve_scanner_name(
+    db: AsyncSession, scanner_id: uuid.UUID | None,
+) -> str | None:
+    """Look up a scanner's human-readable name for a scan.state
+    broadcast payload. Returns None when no scanner is assigned
+    (pending scans, or a scan no scanner has leased).
+
+    v0.30.1 — the live heartbeat / batch-ingest / cancel broadcasts
+    previously hardcoded ``scanner_name: None`` here, which blanked the
+    scanner name in the UI the moment the first live event arrived
+    after the (correctly-populated) WS snapshot frame.
+    """
+    if scanner_id is None:
+        return None
+    from akashic.models.scanner import Scanner
+    res = await db.execute(
+        select(Scanner.name).where(Scanner.id == scanner_id)
+    )
+    return res.scalar_one_or_none()
 
 
 async def clear_broadcast(scan_id: str) -> None:

@@ -139,6 +139,15 @@ Agents can run anywhere with HTTP reach to the api, so:
   claimed by any registered agent; sources with a pool tag are
   pinned to that pool.
 
+> **Reverse proxy note.** A scanner POSTs file metadata in ingest
+> batches of several MB. The bundled `web` proxy already allows this
+> (`client_max_body_size 32m`), but if you front the API with your own
+> proxy, raise its request-body limit to **≥ 32m** (nginx default is
+> 1 MB; use the equivalent directive for other proxies). As of
+> v0.30.1 the scanner auto-recovers from an HTTP 413 by splitting the
+> batch, so a too-small limit only slows ingest rather than failing
+> the scan — but a correct limit avoids the extra round-trips.
+
 ### Provisioning a scanner
 
 Three onboarding paths, in order of recommendation. The first two

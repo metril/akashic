@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"time"
@@ -37,6 +38,12 @@ func (c *Client) SendContent(ctx context.Context, batch models.ContentBatch) err
 			return nil
 		}
 		lastErr = err
+		// v0.30.1 — a 413 means the content batch is too big for a
+		// proxy in the path. Split it and send the halves rather than
+		// giving up on the whole batch.
+		if isPayloadTooLarge(err) {
+			return c.sendContentSplit(ctx, batch, err)
+		}
 		if !isRetryable(err) {
 			return err
 		}
@@ -51,6 +58,33 @@ func (c *Client) SendContent(ctx context.Context, batch models.ContentBatch) err
 		}
 	}
 	return fmt.Errorf("send content: %d attempts failed: %w", c.maxAttempts, lastErr)
+}
+
+// sendContentSplit handles a 413 on a content batch by halving its
+// items and sending each half through SendContent (recursively, so a
+// half that's still too big splits again). A single item that still
+// 413s is dropped with a warning — content extraction is best-effort,
+// so one un-shippable file's text is an acceptable loss, never a scan
+// failure. v0.30.1.
+func (c *Client) sendContentSplit(ctx context.Context, batch models.ContentBatch, cause error) error {
+	if len(batch.Items) <= 1 {
+		if len(batch.Items) == 1 {
+			log.Printf("scanner: dropping content for %q — extracted text exceeds the ingest body limit even on its own: %v",
+				batch.Items[0].Path, cause)
+		}
+		return nil
+	}
+	mid := len(batch.Items) / 2
+	left := models.ContentBatch{
+		SourceID: batch.SourceID, ScanID: batch.ScanID, Items: batch.Items[:mid],
+	}
+	right := models.ContentBatch{
+		SourceID: batch.SourceID, ScanID: batch.ScanID, Items: batch.Items[mid:],
+	}
+	if err := c.SendContent(ctx, left); err != nil {
+		return err
+	}
+	return c.SendContent(ctx, right)
 }
 
 func (c *Client) sendContentOnce(ctx context.Context, body []byte) error {
@@ -86,6 +120,11 @@ func (c *Client) sendContentOnce(ctx context.Context, body []byte) error {
 	if resp.StatusCode >= 500 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return retryableError{fmt.Errorf("content rejected: status %d: %s", resp.StatusCode, string(raw))}
+	}
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		// v0.30.1 — 413 drives SendContent's split-and-retry.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return payloadTooLargeError{fmt.Errorf("content rejected: status %d: %s", resp.StatusCode, string(raw))}
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

@@ -24,6 +24,14 @@ import (
 // anything larger costs more than the search value it yields.
 const MaxExtractionSize int64 = 50 * 1024 * 1024
 
+// MaxContentTextBytes caps the extracted text kept per file (v0.30.1).
+// A 50 MB file can yield ~50 MB of text, which alone exceeds the API's
+// request-body limit — so its content batch is rejected and the text
+// never indexes. Capping at 1 MiB keeps every single-file content
+// batch comfortably under any sane proxy limit; 1 MiB of text is also
+// far more than full-text search relevance needs.
+const MaxContentTextBytes = 1 << 20
+
 // PlainTextTypes are MIME types decoded natively (UTF-8 / latin-1) —
 // no Tika round-trip needed. Exact copy of the Python
 // PLAIN_TEXT_TYPES set.
@@ -171,13 +179,28 @@ func (e *Extractor) ExtractTika(ctx context.Context, content []byte, mimeType st
 }
 
 // Extract dispatches content to native plain-text decoding or Tika
-// based on the MIME type. Returns "" for ineligible types.
+// based on the MIME type. Returns "" for ineligible types. The
+// extracted text is capped at MaxContentTextBytes (v0.30.1).
 func (e *Extractor) Extract(ctx context.Context, content []byte, mimeType string) (string, error) {
 	if needsTika(mimeType) {
-		return e.ExtractTika(ctx, content, mimeType)
+		text, err := e.ExtractTika(ctx, content, mimeType)
+		return capText(text), err
 	}
 	if _, ok := PlainTextTypes[mimeType]; ok || strings.HasPrefix(mimeType, "text/") {
-		return ExtractPlain(content), nil
+		return capText(ExtractPlain(content)), nil
 	}
 	return "", nil
+}
+
+// capText truncates s to at most MaxContentTextBytes, backing up to a
+// UTF-8 rune boundary so the result never ends mid-rune.
+func capText(s string) string {
+	if len(s) <= MaxContentTextBytes {
+		return s
+	}
+	cut := MaxContentTextBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

@@ -1,9 +1,10 @@
 // Load-signal classifier for the AdaptiveBatcher.Observe path
-// (v0.29.6).
+// (v0.29.6; 413 handling revised v0.30.1).
 //
-// AIMD should only halve on real overload signals. 4xx-other-than-413
-// is misuse / wrong-shape / config — halving the batch makes no sense
-// and muddies the diagnostic.
+// AIMD's latency-driven shrink should only run on real overload
+// signals — 5xx and network failures. A 4xx is misuse / wrong-shape /
+// config, and a 413 has its own split-retry path (v0.30.1), so
+// neither is a load signal here.
 package client
 
 import (
@@ -35,10 +36,18 @@ func TestIsLoadSignal_TerminalNo(t *testing.T) {
 	}
 }
 
-func TestIsLoadSignal_PayloadTooLargeYes(t *testing.T) {
+func TestIsLoadSignal_PayloadTooLargeNo(t *testing.T) {
+	// v0.30.1 — a 413 is NOT a load signal: SendBatch recovers from it
+	// by splitting the batch, and the sender shrinks AIMD via
+	// NotePayloadTooLarge (keyed off resp.PayloadSplit), never via
+	// Observe. But isPayloadTooLarge must still recognise it so the
+	// split-retry path triggers.
 	err := payloadTooLargeError{fmt.Errorf("status 413: too big")}
-	if !IsLoadSignal(err) {
-		t.Error("payloadTooLargeError (413) should report as load signal")
+	if IsLoadSignal(err) {
+		t.Error("payloadTooLargeError (413) must NOT report as a load signal")
+	}
+	if !isPayloadTooLarge(err) {
+		t.Error("payloadTooLargeError must be recognised by isPayloadTooLarge")
 	}
 }
 
@@ -79,7 +88,8 @@ func TestSendOnce_StatusCodeClassification(t *testing.T) {
 		{500, true, "retryableError"},
 		{502, true, "retryableError"},
 		{503, true, "retryableError"},
-		{413, true, "payloadTooLargeError"},
+		// v0.30.1 — a 413 is not a load signal; it drives split-retry.
+		{413, false, "payloadTooLargeError"},
 		{422, false, "terminalError"},
 		{400, false, "terminalError"},
 		{401, false, "terminalError"},
@@ -100,6 +110,11 @@ func TestSendOnce_StatusCodeClassification(t *testing.T) {
 			if got != tc.wantLoad {
 				t.Errorf("status %d: IsLoadSignal=%v, want=%v; err=%v",
 					tc.status, got, tc.wantLoad, err)
+			}
+			// A 413 must still be classified as payload-too-large so
+			// SendBatch's split-retry path triggers on it.
+			if tc.status == http.StatusRequestEntityTooLarge && !isPayloadTooLarge(err) {
+				t.Errorf("status 413 not classified as payloadTooLargeError: %v", err)
 			}
 		})
 	}

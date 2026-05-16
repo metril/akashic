@@ -5,6 +5,41 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.30.1 — 2026-05-16
+
+**A scan no longer fails when a reverse proxy rejects an oversized
+ingest batch, and the scanner name no longer vanishes from a running
+scan.** Two unrelated bug fixes a v0.30.0 user hit in the field.
+
+### Bug fixes
+
+- **An HTTP 413 from a reverse proxy no longer kills the scan.** The
+  scanner ships file metadata in adaptively-sized batches; if a proxy
+  in front of the API has a request-body limit smaller than the batch
+  grew to, it returns `413 Request Entity Too Large` — and until now
+  the whole scan failed, after the walk had already done all the work.
+  The scanner now recovers: on a 413 it splits the batch in half and
+  re-sends the halves (recursively, down to a single entry), so every
+  entry still reaches the API whatever the proxy's limit. The adaptive
+  batcher also lowers its ceiling after a 413 so it stops growing back
+  into the same wall. The bundled `web` proxy already allows 32 MB
+  bodies; if you front the API with your own proxy, raise its
+  `client_max_body_size` (nginx default is 1 MB) — see the README.
+
+- **The scanner name no longer disappears from a running scan.** The
+  live scan-state broadcasts (heartbeat, batch-ingest, cancel)
+  hardcoded `scanner_name: null`, so the name shown on connect — from
+  the correctly-populated WebSocket snapshot — was blanked the moment
+  the first live event arrived. The broadcasts now resolve the
+  assigned scanner's name.
+
+- **Content extraction no longer silently fails on very large files.**
+  A 50 MB file could yield ~50 MB of extracted text, over the API's
+  request-body limit, so its content batch was rejected and the text
+  never indexed. Extracted text is now capped at 1 MiB per file (far
+  more than full-text search needs), and the content-ingest path
+  splits oversized batches the same way metadata ingest does.
+
 ## v0.30.0 — 2026-05-16
 
 **Text extraction moved into the scanner — search now sees the

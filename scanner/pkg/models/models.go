@@ -234,6 +234,11 @@ type ExtractCandidate struct {
 // extract_candidates to drive scanner-side text extraction.
 type BatchResponse struct {
 	ExtractCandidates []ExtractCandidate `json:"extract_candidates"`
+	// PayloadSplit is set by the scanner's HTTP client (not the API)
+	// when a 413 forced the batch to be split into smaller sub-batches
+	// to get past a reverse-proxy body limit. Never serialised — it's
+	// a signal for the sender to tell AIMD to shrink. v0.30.1.
+	PayloadSplit bool `json:"-"`
 }
 
 // ContentItem is one file's extracted text, posted to
