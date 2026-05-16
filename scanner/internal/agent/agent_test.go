@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -230,4 +232,53 @@ func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 
 func newCancelCtx() (ctxlike, func()) {
 	return newContextHelper()
+}
+
+// v0.29.10 — terminalDisposition must NOT post /complete when the API
+// already reported the scan terminal via a heartbeat 409. Pre-fix the
+// agent always posted "cancelled" on that path, clobbering a watchdog
+// "failed" or a sibling scanner's "completed".
+func TestTerminalDisposition(t *testing.T) {
+	cases := []struct {
+		name        string
+		runErr      error
+		wantStatus  string
+		wantPost    bool
+	}{
+		{
+			name:       "clean finish completes the scan",
+			runErr:     nil,
+			wantStatus: "completed",
+			wantPost:   true,
+		},
+		{
+			name:       "API-terminated scan posts nothing",
+			runErr:     errAPITerminated,
+			wantStatus: "",
+			wantPost:   false,
+		},
+		{
+			name:       "wrapped API-terminated still posts nothing",
+			runErr:     fmt.Errorf("run aborted: %w", errAPITerminated),
+			wantStatus: "",
+			wantPost:   false,
+		},
+		{
+			name:       "genuine error fails the scan",
+			runErr:     errors.New("connector dial timeout"),
+			wantStatus: "failed",
+			wantPost:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, post := terminalDisposition(tc.runErr)
+			if status != tc.wantStatus {
+				t.Errorf("status = %q, want %q", status, tc.wantStatus)
+			}
+			if post != tc.wantPost {
+				t.Errorf("postComplete = %v, want %v", post, tc.wantPost)
+			}
+		})
+	}
 }

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.models.scan import Scan
 from akashic.models.source import Source
-from akashic.scheduler import _check_stale_scans
+from akashic.scheduler import _check_stale_scans, _requeue_orphan_leases
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +58,9 @@ async def _make_scan(
     status: str = "running",
     started_at: datetime | None = None,
     last_heartbeat_at: datetime | None = None,
+    lease_expires_at: datetime | None = None,
+    assigned_scanner_id: uuid.UUID | None = None,
+    pool: str | None = None,
 ) -> Scan:
     scan = Scan(
         id=uuid.uuid4(),
@@ -66,11 +69,34 @@ async def _make_scan(
         status=status,
         started_at=started_at,
         last_heartbeat_at=last_heartbeat_at,
+        lease_expires_at=lease_expires_at,
+        assigned_scanner_id=assigned_scanner_id,
+        pool=pool,
     )
     db.add(scan)
     await db.commit()
     await db.refresh(scan)
     return scan
+
+
+async def _make_online_scanner(db: AsyncSession, *, pool: str = "default"):
+    from akashic.models.scanner import Scanner
+    from akashic.services.scanner_keys import generate_keypair
+
+    kp = generate_keypair()
+    scanner = Scanner(
+        id=uuid.uuid4(),
+        name=f"sc-{uuid.uuid4().hex[:6]}",
+        pool=pool,
+        public_key_pem=kp.public_pem,
+        key_fingerprint=kp.fingerprint,
+        enabled=True,
+        last_seen_at=datetime.now(timezone.utc),
+    )
+    db.add(scanner)
+    await db.commit()
+    await db.refresh(scanner)
+    return scanner
 
 
 @pytest.mark.asyncio
@@ -162,3 +188,61 @@ async def test_path2_doesnt_touch_source_with_recent_scan(
     await db_session.refresh(scan)
     assert src.status == "scanning"
     assert scan.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_requeue_skips_scan_with_a_fresh_lease(
+    setup_db, db_session: AsyncSession,
+):
+    """v0.29.10 regression guard: a scan whose lease is still in the
+    future (kept fresh by heartbeats, post-fix) must NOT be re-queued,
+    even with an online scanner available to steal it. Pre-fix the
+    lease expired 60 s after claim regardless of heartbeats, so
+    `_requeue_orphan_leases` reset the healthy scan to `pending` and a
+    second scanner double-leased it."""
+    src = await _make_source(db_session, status="scanning")
+    scanner = await _make_online_scanner(db_session, pool="default")
+    just_now = datetime.now(timezone.utc) - timedelta(seconds=5)
+    holder = scanner.id
+    scan = await _make_scan(
+        db_session, source_id=src.id, status="running",
+        started_at=just_now, last_heartbeat_at=just_now,
+        # Lease renewed by a recent heartbeat — still 55 s in the future.
+        lease_expires_at=datetime.now(timezone.utc) + timedelta(seconds=55),
+        assigned_scanner_id=holder, pool=None,
+    )
+
+    await _requeue_orphan_leases()
+
+    await db_session.refresh(scan)
+    assert scan.status == "running", (
+        "_requeue_orphan_leases stole a scan with a fresh (renewed) lease"
+    )
+    assert scan.assigned_scanner_id == holder
+    assert scan.lease_expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_requeue_reclaims_scan_with_an_expired_lease(
+    setup_db, db_session: AsyncSession,
+):
+    """The genuine-failure path stays intact: a scan whose lease has
+    actually expired (scanner died — no heartbeats renewing it) IS
+    re-queued to `pending` so another scanner can pick it up, as long
+    as an online scanner exists."""
+    src = await _make_source(db_session, status="scanning")
+    scanner = await _make_online_scanner(db_session, pool="default")
+    long_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+    scan = await _make_scan(
+        db_session, source_id=src.id, status="running",
+        started_at=long_ago, last_heartbeat_at=long_ago,
+        lease_expires_at=long_ago,  # expired — no renewing heartbeats
+        assigned_scanner_id=scanner.id, pool=None,
+    )
+
+    await _requeue_orphan_leases()
+
+    await db_session.refresh(scan)
+    assert scan.status == "pending"
+    assert scan.assigned_scanner_id is None
+    assert scan.lease_expires_at is None

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -111,6 +111,16 @@ async def post_heartbeat(
     # state and `files_found`/`files_new`/`files_changed` for completed
     # scans.
     scan.last_heartbeat_at = now
+    # v0.29.10 — renew the scan lease on every heartbeat. The lease has a
+    # 60 s expiry set at claim time and nothing ever extended it, so
+    # *every* scan running longer than ~60 s had an expired lease while
+    # still heartbeating once a second. `_requeue_orphan_leases` then
+    # reset the healthy scan to `pending` with no assignee, a second
+    # scanner re-leased it, and the terminal-status race surfaced to the
+    # user as a phantom "cancelled by api". A heartbeat IS the liveness
+    # signal, so it must extend the lease.
+    from akashic.routers.scanners import _LEASE_DURATION_SECONDS
+    scan.lease_expires_at = now + timedelta(seconds=_LEASE_DURATION_SECONDS)
     if scan.status == "pending":
         # First heartbeat marks the scan as running even if no batch has
         # arrived yet (e.g., during the prewalk phase, no batches at all).

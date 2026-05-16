@@ -147,6 +147,55 @@ async def test_heartbeat_updates_scan_fields(
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_renews_the_scan_lease(
+    client: AsyncClient, fixture_scan: Scan, setup_db
+):
+    """v0.29.10 — every heartbeat must extend `lease_expires_at`.
+    Pre-fix the lease was set once at claim time and never renewed,
+    so any scan running >60 s had an expired lease while still
+    heartbeating; `_requeue_orphan_leases` then re-queued the healthy
+    scan and a second scanner double-leased it."""
+    from sqlalchemy import select
+    from akashic.routers.scanners import _LEASE_DURATION_SECONDS
+
+    # Simulate a scan whose lease already expired (the pre-fix steady
+    # state for any long-running scan).
+    async with setup_db() as session:
+        scan = (
+            await session.execute(select(Scan).where(Scan.id == fixture_scan.id))
+        ).scalar_one()
+        scan.status = "running"
+        scan.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        await session.commit()
+
+    before = datetime.now(timezone.utc)
+    r = await client.post(
+        f"/api/scans/{fixture_scan.id}/heartbeat",
+        json={
+            "files_scanned": 1,
+            "bytes_scanned": 1,
+            "files_skipped": 0,
+            "dirs_walked": 0,
+            "dirs_queued": 0,
+        },
+    )
+    assert r.status_code == 204
+
+    async with setup_db() as session:
+        scan = (
+            await session.execute(select(Scan).where(Scan.id == fixture_scan.id))
+        ).scalar_one()
+        # Lease pushed back into the future, ≈ now + _LEASE_DURATION_SECONDS.
+        assert scan.lease_expires_at is not None
+        assert scan.lease_expires_at > before, (
+            "heartbeat did not renew an expired lease"
+        )
+        expected = before + timedelta(seconds=_LEASE_DURATION_SECONDS)
+        # Generous window — the heartbeat handler stamps `now` itself.
+        assert abs((scan.lease_expires_at - expected).total_seconds()) < 30
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_publishes_scan_state_to_sources_channel(
     client: AsyncClient, fixture_scan: Scan, fixture_source, request,
 ):

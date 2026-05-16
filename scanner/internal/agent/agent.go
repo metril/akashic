@@ -107,20 +107,22 @@ func Run(ctx context.Context, cfg Config) error {
 			}
 			continue
 		}
-		if err := runLeasedScan(ctx, cfg, priv, leased); err != nil {
-			// User-cancelled scans surface via the errCancelled sentinel
-			// (the API returns 409 on the heartbeat when the user clicks
-			// Stop). Report `cancelled` rather than `failed` so the UI
-			// distinguishes "I asked for this" from "the scan crashed."
-			if errors.Is(err, errCancelled) {
-				log.Printf("scan %s cancelled by api", leased.ScanID)
-				_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "cancelled", "")
-			} else {
-				log.Printf("scan %s failed: %v", leased.ScanID, err)
-				_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
-			}
+		runErr := runLeasedScan(ctx, cfg, priv, leased)
+		status, postComplete := terminalDisposition(runErr)
+		if !postComplete {
+			// errAPITerminated: a heartbeat got a 409, so the API has
+			// ALREADY written the authoritative terminal status (user
+			// cancel, watchdog reap, or a sibling completed it). Posting
+			// our own /complete here would clobber it — pre-v0.29.10 the
+			// agent always posted "cancelled", overwriting watchdog
+			// "failed" / sibling "completed". The accurate reason was
+			// already logged by the heartbeat poster's decodeCancelMessage.
+			log.Printf("scan %s stopped (API reported it terminal)", leased.ScanID)
+		} else if runErr != nil {
+			log.Printf("scan %s failed: %v", leased.ScanID, runErr)
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, status, runErr.Error())
 		} else {
-			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, status, "")
 		}
 	}
 }
@@ -450,17 +452,35 @@ func runLeasedScan(
 	})
 	_, err = s.Run(scanCtx)
 	if err != nil && (errors.Is(err, context.Canceled) || scanCtx.Err() != nil) {
-		// The api signalled cancel via a 409 on heartbeat. Not an error
-		// from our perspective — the api already marked the scan
-		// cancelled, so report `cancelled` rather than `failed`.
-		return errCancelled
+		// The api signalled a terminal state via a 409 on heartbeat.
+		// Not an error from our perspective — the api already wrote the
+		// authoritative status, so surface the sentinel and let the
+		// caller skip /complete entirely.
+		return errAPITerminated
 	}
 	return err
 }
 
-// errCancelled is a sentinel — the agent treats it as "report status=
-// cancelled to /complete" rather than failed.
-var errCancelled = errors.New("scan cancelled by api")
+// errAPITerminated is a sentinel: a heartbeat received HTTP 409, so the
+// API has already written the scan's terminal status. The agent must
+// NOT post its own /complete — doing so would overwrite the real
+// status (watchdog "failed", a sibling's "completed") with "cancelled".
+var errAPITerminated = errors.New("scan reported terminal by api")
+
+// terminalDisposition decides what the agent posts after runLeasedScan
+// returns. When the API already reported the scan terminal (409 →
+// errAPITerminated), the server status is authoritative — the agent
+// must NOT post its own /complete (postComplete=false).
+func terminalDisposition(runErr error) (status string, postComplete bool) {
+	switch {
+	case runErr == nil:
+		return "completed", true
+	case errors.Is(runErr, errAPITerminated):
+		return "", false
+	default:
+		return "failed", true
+	}
+}
 
 func connectorFromLeased(src leasedSource) (connector.Connector, error) {
 	cfg := src.ConnectionConfig

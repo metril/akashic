@@ -5,6 +5,68 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.29.10 — 2026-05-15
+
+**Phantom "cancelled by api" — scans were re-queued out from under
+the scanner running them.** User report: a scanner logged
+`scan 7b695464-… cancelled by api` for a scan the user never
+cancelled. This is the unfinished half of the v0.29.8 cancel-reason
+bug — v0.29.8 fixed the heartbeat poster's *log line* but not the
+mechanism that *caused* the phantom cancellation.
+
+### Bug fixes
+
+- **Heartbeats now renew the scan lease**
+  ([routers/scan_progress.py](api/akashic/routers/scan_progress.py)).
+  The scan-claim lease has a 60 s expiry and **nothing ever extended
+  it** — the heartbeat handler updated `last_heartbeat_at` but never
+  `lease_expires_at`. So every scan running longer than ~60 s had an
+  expired lease while still heartbeating once a second. The
+  scheduler's `_requeue_orphan_leases` then reset the perfectly
+  healthy scan to `pending` with no assignee, a second scanner
+  re-leased it, both scanned the same source, and whichever finished
+  first sent the other a 409 — surfacing as `cancelled by api`. The
+  heartbeat — which *is* the liveness signal — now extends the lease
+  by `_LEASE_DURATION_SECONDS`, so a live scan is never mistaken for
+  an orphan. A genuinely dead scanner still loses its lease after
+  60 s and the work is correctly re-queued.
+
+- **Scanner no longer overwrites the API's terminal status**
+  ([scanner/internal/agent/agent.go](scanner/internal/agent/agent.go)).
+  When a heartbeat got a 409, the agent logged `cancelled by api`
+  and POSTed `/complete` with status `"cancelled"` — clobbering
+  whatever terminal status the API had already written (a watchdog
+  `"failed"`, a sibling scanner's `"completed"`). A 409 means the
+  API *already* set the authoritative status; the scanner has
+  nothing to write. The `errCancelled` sentinel is renamed
+  `errAPITerminated`, and a new `terminalDisposition` helper makes
+  the agent post `/complete` only when the scanner itself decided
+  the outcome (clean finish → `completed`, scan error → `failed`),
+  never on a 409. The accurate human-readable reason is still logged
+  by the heartbeat poster's `decodeCancelMessage` (v0.29.8).
+
+### Tests
+
+- New [tests/test_scan_progress.py](api/tests/test_scan_progress.py)
+  case: a heartbeat renews `lease_expires_at` to ≈ now + 60 s, even
+  from an already-expired lease.
+- New [tests/test_stale_scan_watchdog.py](api/tests/test_stale_scan_watchdog.py)
+  cases: `_requeue_orphan_leases` leaves a scan with a fresh
+  (renewed) lease alone, and still re-queues one whose lease has
+  genuinely expired.
+- New [internal/agent/agent_test.go](scanner/internal/agent/agent_test.go)
+  table test for `terminalDisposition`: `nil → completed`,
+  `errAPITerminated → post nothing`, other error → `failed`.
+- Fixed the v0.29.8 [tests/test_extraction_retry_cap.py](api/tests/test_extraction_retry_cap.py)
+  to use an isolated Redis db (15) — a running `extraction-worker`
+  drained the test's jobs from db 0 before it could assert.
+
+### Verification
+
+- `pytest` — 751 passed.
+- `go test ./...` from `scanner/` — all packages pass.
+- `npx tsc --noEmit && npx vitest run` — clean (139 passed).
+
 ## v0.29.9 — 2026-05-15
 
 **Production compose file gets the v0.29.8 Tika worker.** The

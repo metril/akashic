@@ -6,8 +6,10 @@ PDF) would re-queue forever and `rq:queue:extraction` LLEN grew
 without bound. After three attempts the job now lands in
 `rq:failed`, surfacing under the System Status "Failed" card.
 
-Uses the compose Redis (same as test_scan_join_queue.py); the test
-namespaces its jobs by clearing rq:queue:extraction before + after.
+Uses the compose Redis but on an ISOLATED db index (15) so a live
+`extraction-worker` container watching db 0 can't drain the test's
+jobs before the assertions run — the test only inspects what
+`_enqueue_extraction_jobs` produced, it never wants them executed.
 """
 from __future__ import annotations
 
@@ -16,16 +18,22 @@ import pytest
 from akashic.config import settings
 
 
+def _isolated_redis_url() -> str:
+    """settings.redis_url with the db index swapped to 15. The
+    extraction-worker only watches db 0, so jobs enqueued here are
+    never consumed mid-test."""
+    base = settings.redis_url.rsplit("/", 1)[0]
+    return f"{base}/15"
+
+
 @pytest.fixture
 def clean_extraction_queue():
     from redis import Redis
-    sync = Redis.from_url(settings.redis_url)
+    url = _isolated_redis_url()
+    sync = Redis.from_url(url)
     # Clear any stragglers before the test, then tear down after.
     sync.delete("rq:queue:extraction")
-    yield sync
-    # Reach into RQ's job-hash keyspace as well so a re-run starts
-    # from a clean slate (each enqueued job has its own rq:job:<id>
-    # hash that we don't want bleeding into the next test run).
+    yield url, sync
     job_ids = sync.lrange("rq:queue:extraction", 0, -1) or []
     sync.delete("rq:queue:extraction")
     for jid in job_ids:
@@ -40,8 +48,8 @@ def test_enqueue_extraction_jobs_sets_retry_policy(clean_extraction_queue):
     from rq import Queue
     from rq.job import Job
 
-    sync = clean_extraction_queue
-    _enqueue_extraction_jobs(["entry-1"], settings.redis_url)
+    url, sync = clean_extraction_queue
+    _enqueue_extraction_jobs(["entry-1"], url)
 
     q = Queue("extraction", connection=sync)
     assert q.count == 1
@@ -59,8 +67,8 @@ def test_enqueue_handles_multiple_entries(clean_extraction_queue):
     from rq import Queue
     from rq.job import Job
 
-    sync = clean_extraction_queue
-    _enqueue_extraction_jobs(["e1", "e2", "e3"], settings.redis_url)
+    url, sync = clean_extraction_queue
+    _enqueue_extraction_jobs(["e1", "e2", "e3"], url)
 
     q = Queue("extraction", connection=sync)
     assert q.count == 3
