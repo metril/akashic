@@ -182,46 +182,37 @@ async def test_ws_includes_recent_log_lines_in_snapshot(
 async def test_ws_snapshot_carries_scanner_attribution(
     app, admin_user, fixture_scan, setup_db, monkeypatch,
 ):
-    """v0.29.8 — pre-fix the WS snapshot's `recent_lines` dropped
-    `scanner_id` and `scanner_name`. When the user closed and reopened
-    the log panel, the per-line scanner badge silently disappeared
-    even though the column was populated on the DB row. This asserts
-    both fields ride the snapshot wire shape now."""
+    """v0.29.8 added scanner_id + scanner_name to the WS snapshot's
+    `recent_lines`. v0.30.2 — the name is now read straight off the
+    denormalized `scan_log_entries.scanner_name` column (stamped at
+    write time), so the per-line badge survives a panel reopen even
+    after the scanner row is deleted. The prior read-time JOIN dropped
+    it. This inserts a row, deletes its scanner, and asserts the name
+    still rides the snapshot."""
     from akashic.models.scanner import Scanner
     from akashic.services.scanner_keys import generate_keypair
     monkeypatch.setattr(scan_pubsub, "subscribe", _empty_subscribe)
 
+    scanner_id = uuid.uuid4()
     async with setup_db() as session:
-        kp_a = generate_keypair()
-        kp_b = generate_keypair()
-        scanner_a = Scanner(
-            id=uuid.uuid4(),
+        kp = generate_keypair()
+        session.add(Scanner(
+            id=scanner_id,
             name="scanner-A",
-            public_key_pem=kp_a.public_pem,
-            key_fingerprint=kp_a.fingerprint,
-        )
-        scanner_b = Scanner(
-            id=uuid.uuid4(),
-            name="scanner-B",
-            public_key_pem=kp_b.public_pem,
-            key_fingerprint=kp_b.fingerprint,
-        )
-        session.add_all([scanner_a, scanner_b])
+            public_key_pem=kp.public_pem,
+            key_fingerprint=kp.fingerprint,
+        ))
         await session.flush()
         session.add_all([
+            # scanner_name is denormalized onto the row, as _persist_lines
+            # writes it. scanner_id still satisfies the FK at insert time.
             ScanLogEntry(
                 scan_id=fixture_scan.id,
                 ts=datetime.now(timezone.utc),
                 level="info",
                 message="from A",
-                scanner_id=scanner_a.id,
-            ),
-            ScanLogEntry(
-                scan_id=fixture_scan.id,
-                ts=datetime.now(timezone.utc),
-                level="info",
-                message="from B",
-                scanner_id=scanner_b.id,
+                scanner_id=scanner_id,
+                scanner_name="scanner-A",
             ),
             ScanLogEntry(
                 scan_id=fixture_scan.id,
@@ -229,11 +220,17 @@ async def test_ws_snapshot_carries_scanner_attribution(
                 level="info",
                 message="from unknown",
                 scanner_id=None,
+                scanner_name=None,
             ),
         ])
         await session.commit()
-        scanner_a_id = str(scanner_a.id)
-        scanner_b_id = str(scanner_b.id)
+
+    # Delete the scanner — FK SET NULL clears scanner_id on the log row,
+    # but the denormalized scanner_name must survive.
+    async with setup_db() as session:
+        sc = await session.get(Scanner, scanner_id)
+        await session.delete(sc)
+        await session.commit()
 
     token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role})
     with TestClient(app) as client:
@@ -242,11 +239,11 @@ async def test_ws_snapshot_carries_scanner_attribution(
         ) as ws:
             snapshot = ws.receive_json()
             lines = {r["message"]: r for r in snapshot["recent_lines"]}
-            assert lines["from A"]["scanner_id"] == scanner_a_id
+            # The name rides the snapshot off the column even though the
+            # scanner row is gone (a read-time JOIN would have nulled it).
             assert lines["from A"]["scanner_name"] == "scanner-A"
-            assert lines["from B"]["scanner_id"] == scanner_b_id
-            assert lines["from B"]["scanner_name"] == "scanner-B"
-            # Legacy rows / pre-v0.28.2 scans with no scanner_id stay
+            assert lines["from A"]["scanner_id"] is None  # FK SET NULL fired
+            # Legacy rows / pre-v0.28.2 scans with no attribution stay
             # representable — both fields null, no badge rendered.
             assert lines["from unknown"]["scanner_id"] is None
             assert lines["from unknown"]["scanner_name"] is None

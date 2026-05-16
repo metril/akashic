@@ -229,10 +229,16 @@ async def _persist_lines(
     v0.28.2 — `scanner_id` is the claim baked into the ingest JWT at
     lease time. When set it's persisted on every row so the Live Log
     panel can attribute lines to the right scanner; None for tokens
-    predating the claim."""
+    predating the claim.
+
+    v0.30.2 — resolve the scanner's display name once and snapshot it
+    onto every row. A log line is immutable history; storing the name
+    here means the reopen/backfill path serves it directly instead of
+    re-deriving it with a JOIN that silently dropped the name."""
+    scanner_name = await _scanner_name(db, scanner_id)
     objs = [
         ScanLogEntry(
-            scan_id=scan.id, scanner_id=scanner_id,
+            scan_id=scan.id, scanner_id=scanner_id, scanner_name=scanner_name,
             ts=_now_or(ts), level=level, message=message,
         )
         for (ts, level, message) in rows
@@ -269,7 +275,6 @@ async def post_log_batch(
     scan = await _load_scan_with_write(scan_id, user, db)
     rows = [(line.ts, line.level, line.message) for line in body.lines]
     saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
-    scanner_name = await _scanner_name(db, scanner_id)
     await scan_pubsub.publish(
         scan_id,
         {
@@ -284,7 +289,7 @@ async def post_log_batch(
                     "scanner_id": (
                         str(s.scanner_id) if s.scanner_id else None
                     ),
-                    "scanner_name": scanner_name,
+                    "scanner_name": s.scanner_name,
                 }
                 for s in saved
             ],
@@ -306,7 +311,6 @@ async def post_stderr_batch(
     scan = await _load_scan_with_write(scan_id, user, db)
     rows = [(c.ts, "stderr", c.chunk) for c in body.chunks]
     saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
-    scanner_name = await _scanner_name(db, scanner_id)
     await scan_pubsub.publish(
         scan_id,
         {
@@ -321,7 +325,7 @@ async def post_stderr_batch(
                     "scanner_id": (
                         str(s.scanner_id) if s.scanner_id else None
                     ),
-                    "scanner_name": scanner_name,
+                    "scanner_name": s.scanner_name,
                 }
                 for s in saved
             ],
@@ -342,20 +346,15 @@ async def get_log(
     GET handles the gap on reconnect (`since=<last_ts>`) and the initial
     drawer mount before WS is ready.
 
-    v0.28.2 — LEFT JOINs scanners to populate scanner_name so the
-    Live Log panel renders the per-row scanner pill without a follow-
-    up GET."""
+    v0.30.2 — scanner_name is read straight off the row (snapshotted at
+    write time by _persist_lines), so the backfill renders the per-row
+    scanner pill without a read-time JOIN that could drop the name."""
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
     await check_source_access(scan.source_id, user, db, required_level="read")
 
-    from akashic.models.scanner import Scanner as _Scanner
-    stmt = (
-        select(ScanLogEntry, _Scanner.name)
-        .outerjoin(_Scanner, _Scanner.id == ScanLogEntry.scanner_id)
-        .where(ScanLogEntry.scan_id == scan_id)
-    )
+    stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:
         stmt = stmt.where(ScanLogEntry.ts > _now_or(since))
     if kind == "structured":
@@ -364,7 +363,7 @@ async def get_log(
         stmt = stmt.where(ScanLogEntry.level == "stderr")
     stmt = stmt.order_by(ScanLogEntry.ts).limit(limit)
 
-    rows = (await db.execute(stmt)).all()
+    rows = (await db.execute(stmt)).scalars().all()
     return [
         LogEntryOut(
             id=entry.id,
@@ -372,7 +371,7 @@ async def get_log(
             level=entry.level,
             message=entry.message,
             scanner_id=entry.scanner_id,
-            scanner_name=scanner_name,
+            scanner_name=entry.scanner_name,
         )
-        for (entry, scanner_name) in rows
+        for entry in rows
     ]

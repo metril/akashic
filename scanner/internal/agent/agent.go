@@ -344,6 +344,13 @@ func heartbeatLoop(
 	}
 }
 
+// leaseReq is the POST body for /api/scans/lease. v0.30.2 — carries
+// the running build version so the API keeps scanners.version fresh
+// after an in-place upgrade (it's otherwise only set at claim time).
+type leaseReq struct {
+	AgentVersion string `json:"agent_version"`
+}
+
 func lease(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 ) (*leasedScan, error) {
@@ -352,7 +359,7 @@ func lease(
 		return nil, err
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
-		cfg.APIBase+"/api/scans/lease", auth, struct{}{})
+		cfg.APIBase+"/api/scans/lease", auth, leaseReq{AgentVersion: cfg.Version})
 	if err != nil {
 		return nil, err
 	}

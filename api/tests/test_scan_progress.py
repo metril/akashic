@@ -492,3 +492,81 @@ async def test_log_post_persists_scanner_id_from_ingest_jwt(
         )).scalars().all()
     assert len(rows) == 1
     assert rows[0].scanner_id == scanner_id
+
+
+@pytest.mark.asyncio
+async def test_log_scanner_name_snapshotted_and_survives_deletion(
+    setup_db, admin_user, fixture_scan: Scan,
+):
+    """v0.30.2 — the scanner's name is snapshotted onto each log row at
+    write time. The backfill / reopen path then serves it straight off
+    the row, so a log line keeps its scanner attribution even after the
+    scanner row is deleted. Pre-fix the read path re-derived the name
+    with a JOIN, which dropped it on reopen."""
+    import uuid as _uuid
+
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy import select
+
+    from akashic.auth.dependencies import get_current_user
+    from akashic.auth.jwt import create_ingest_token
+    from akashic.database import get_db
+    from akashic.main import create_app
+    from akashic.models.scanner import Scanner
+
+    scanner_id = _uuid.uuid4()
+    async with setup_db() as session:
+        session.add(Scanner(
+            id=scanner_id, name="attrib-survivor", pool="default",
+            public_key_pem="x", key_fingerprint=f"fp-{scanner_id}",
+        ))
+        await session.commit()
+
+    tok = create_ingest_token(str(admin_user.id), scanner_id=str(scanner_id))
+
+    async def _override_get_db():
+        async with setup_db() as session:
+            yield session
+
+    async def _override_get_current_user():
+        return admin_user
+
+    app = create_app()
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = _override_get_current_user
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test",
+    ) as ac:
+        r = await ac.post(
+            f"/api/scans/{fixture_scan.id}/log",
+            json={"lines": [
+                {"ts": datetime.now(timezone.utc).isoformat(),
+                 "level": "info", "message": "attributed line"},
+            ]},
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r.status_code == 204, r.text
+
+        # The name is snapshotted on the row at write time.
+        async with setup_db() as session:
+            row = (await session.execute(
+                select(ScanLogEntry).where(
+                    ScanLogEntry.scan_id == fixture_scan.id,
+                )
+            )).scalar_one()
+            assert row.scanner_name == "attrib-survivor"
+
+        # Delete the scanner — the FK SET NULL clears scanner_id on the
+        # log row, but the denormalized scanner_name must survive.
+        async with setup_db() as session:
+            sc = await session.get(Scanner, scanner_id)
+            await session.delete(sc)
+            await session.commit()
+
+        # The backfill endpoint still serves the name from the column.
+        r = await ac.get(f"/api/scans/{fixture_scan.id}/log")
+        assert r.status_code == 200, r.text
+        lines = r.json()
+        assert len(lines) == 1
+        assert lines[0]["scanner_name"] == "attrib-survivor"
+        assert lines[0]["scanner_id"] is None  # FK SET NULL fired

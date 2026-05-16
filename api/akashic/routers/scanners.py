@@ -784,17 +784,35 @@ async def _mint_ingest_jwt(
     )
 
 
+class LeaseRequest(BaseModel):
+    """Optional lease-poll body. v0.30.2 — the agent reports its
+    running build version so `scanners.version` reflects the live
+    binary even after an in-place image upgrade (the claim-time
+    version otherwise goes stale). Older agents post an empty object;
+    the field stays None and nothing changes."""
+    agent_version: str | None = Field(default=None, max_length=32)
+
+
 @router.post("/api/scans/lease")
 async def lease_scan(
     response: Response,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
+    body: LeaseRequest | None = None,
 ):
     """Atomically claim one pending scan whose pool matches the
     leasing scanner's pool (or whose pool is NULL). Returns 204 with
     no body when there's nothing to do — agents back off and retry."""
     if not scanner.enabled:
         raise HTTPException(status_code=403, detail="scanner is disabled")
+
+    # v0.30.2 — refresh the scanner's reported build version on every
+    # lease poll (~5 s) so Settings → Scanners reflects the running
+    # binary even after an in-place `docker compose pull` (the version
+    # is otherwise only written at claim time and goes stale). Applies
+    # on both the no-op and the successful-lease commit paths below.
+    if body is not None and body.agent_version:
+        scanner.version = body.agent_version
 
     # SKIP LOCKED makes parallel leases serialise without blocking.
     # The CTE picks one row, locks it, and the outer UPDATE flips its

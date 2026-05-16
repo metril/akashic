@@ -193,6 +193,36 @@ async def test_concurrent_leases_serialise_via_skip_locked(setup_db, admin_user)
 
 
 @pytest.mark.asyncio
+async def test_lease_refreshes_scanner_version_on_noop_poll(setup_db, admin_user):
+    """v0.30.2 — the agent reports its build version on every lease
+    poll, including the common no-work case (204). An idle scanner's
+    `scanners.version` must therefore reflect the running binary, not
+    the stale claim-time value."""
+    from sqlalchemy import select
+
+    from akashic.models.scanner import Scanner
+
+    async with _admin_client(setup_db, admin_user) as ac:
+        scn = (await ac.post(
+            "/api/scanners", json={"name": "ver-scanner", "pool": "default"},
+        )).json()
+    token = _scanner_token(scn["id"], scn["private_key_pem"])
+
+    async with _bearer_client(setup_db) as ac:
+        r = await ac.post(
+            "/api/scans/lease", json={"agent_version": "v9.9.9-idle"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 204
+
+    async with setup_db() as db:
+        scanner = (await db.execute(
+            select(Scanner).where(Scanner.id == uuid.UUID(scn["id"]))
+        )).scalar_one()
+        assert scanner.version == "v9.9.9-idle"
+
+
+@pytest.mark.asyncio
 async def test_complete_releases_lease(setup_db, admin_user):
     scan_id, _src, scn = await _seed(setup_db, admin_user, source_pool=None)
     token = _scanner_token(scn["id"], scn["private_key_pem"])

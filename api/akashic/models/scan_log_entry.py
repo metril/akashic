@@ -34,6 +34,12 @@ class ScanLogEntry(Base):
         ForeignKey("scanners.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # v0.30.2 — the scanner's display name, snapshotted at write time.
+    # A log line is immutable history; resolving the name by JOIN at
+    # read time meant the per-line pill vanished on log-panel reopen.
+    # Stored here so the backfill/snapshot path replays exactly what
+    # the live stream showed. Nullable for legacy rows.
+    scanner_name: Mapped[str | None] = mapped_column(String, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

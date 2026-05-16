@@ -52,6 +52,12 @@ func runAgent(args []string) {
 
 	hostname, _ := os.Hostname()
 
+	// v0.30.2 — announce the running build up front so `docker logs`
+	// makes the deployed version verifiable on every scanner host
+	// (in-place image upgrades otherwise leave no startup trace).
+	log.Printf("akashic-scanner %s starting (scanner-id=%s, host=%s, api=%s)",
+		Version, *scannerID, hostname, *apiURL)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

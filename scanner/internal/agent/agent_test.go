@@ -90,6 +90,7 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	keyPath := writePEMKey(t, priv)
 
 	leases := 0
+	var sawAgentVersion string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/scanners/handshake" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -100,6 +101,15 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 		}
 		if r.URL.Path == "/api/scans/lease" {
 			leases++
+			// v0.30.2 — the lease body reports the running build so
+			// the API can keep scanners.version fresh.
+			var body struct {
+				AgentVersion string `json:"agent_version"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.AgentVersion != "" {
+				sawAgentVersion = body.AgentVersion
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -130,6 +140,10 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	}
 	if leases == 0 {
 		t.Error("expected at least one /lease call before cancel")
+	}
+	if sawAgentVersion != "test" {
+		t.Errorf("lease request agent_version = %q, want %q (cfg.Version)",
+			sawAgentVersion, "test")
 	}
 }
 

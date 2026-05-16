@@ -5,6 +5,45 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.30.2 — 2026-05-16
+
+**The scanner name no longer vanishes from the Live Log when the panel
+is reopened, and a scanner's running version is now visible per host.**
+
+### Bug fixes
+
+- **Live Log scanner attribution is now durable.** A log line's
+  scanner name showed while the scan streamed live but disappeared
+  once the log panel was closed and reopened — the reopen/backfill
+  path re-derived the name with a read-time JOIN to the `scanners`
+  table, which is the wrong design for an immutable log. The scanner
+  name is now snapshotted onto each `scan_log_entries` row when the
+  line is written (migration `0036`); the backfill and WebSocket-
+  snapshot paths read it straight off the row. Attribution now
+  survives anything that happens to the `scanners` table afterward,
+  and a reopened panel shows exactly what the live stream showed.
+  Migration `0036` backfills existing rows whose scanner still exists.
+
+### New behaviour
+
+- **A scanner's running version is visible and kept fresh.** The
+  scanner logs `akashic-scanner <version> starting` at startup, so
+  `docker logs` shows the deployed build on every host. It also
+  reports its version on every lease poll, so Settings → Scanners
+  reflects the live binary — previously the version was recorded only
+  at claim/registration time and went stale after an in-place image
+  upgrade.
+
+### Note — HTTP 413 ingest failures
+
+A scan that fails with `send batch failed: … status 413` is fixed by
+**v0.30.1**, not this release: the v0.30.1 scanner splits an
+over-limit batch and re-sends the halves, so the scan survives any
+reverse-proxy body limit. A *fatal* 413 in the logs means the scanner
+that produced it predates v0.30.1 — in a multi-host deployment, every
+scanner host must be updated. The new startup version log makes a
+stale host easy to spot.
+
 ## v0.30.1 — 2026-05-16
 
 **A scan no longer fails when a reverse proxy rejects an oversized
