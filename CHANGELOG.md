@@ -5,6 +5,33 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.4 — 2026-05-17
+
+**A source that gets its credentials from its host now says so plainly,
+and a finished multi-scanner scan no longer logs a false "cancelled by
+user" warning.**
+
+### Bug fixes
+
+- **The source panel no longer claims "Inline credentials" for a source
+  that inherits credentials from its host.** A source attached to a host
+  picks up the host's credential profile at scan time — by design, the
+  source carries no profile of its own. The panel only read the
+  source-level field, so it showed "Inline credentials" and a credential
+  selector with no password field, making it look like the profile was
+  lost. The panel now shows a "Credentials" line spelling out where the
+  credentials come from (e.g. *Inherited from host "nas-1" — profile
+  "nas-creds"*), and the edit form's selector reads "Inherit from
+  host …" instead of "Inline credentials".
+
+- **Multi-scanner scans no longer log "scan cancelled by user" when they
+  finish normally.** When the last work unit of a scan run by several
+  scanners completed, the scan was marked done but the *reason* it ended
+  was left blank. A scanner still sending heartbeats then received a
+  blank reason and logged it as a user cancellation in the Live Log. The
+  finalize step now records the reason ("completed" / "failed"), so the
+  log reflects what actually happened. No scanner update is required.
+
 ## v0.31.3 — 2026-05-17
 
 **SMB sources that authenticate with a credential profile can be

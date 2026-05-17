@@ -11,6 +11,10 @@ import {
 import type { Scan } from "../../types";
 import { AllowedScannersPanel } from "./AllowedScannersPanel";
 import { ProfilePicker } from "../credentials/ProfilePicker";
+import {
+  useCredentialProfiles,
+  type CredentialProfileSummary,
+} from "../../hooks/useCredentialProfiles";
 import { DeleteSourceModal } from "./DeleteSourceModal";
 import { ReachabilityBadge } from "./ReachabilityBadge";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
@@ -166,6 +170,45 @@ function TabButton({
   );
 }
 
+/**
+ * Describe where a source's scan credentials come from, for the
+ * credential UI. A host-backed source whose own `credential_profile_id`
+ * is null inherits the host's credentials at scan time — leaving the
+ * picker on its null option means "inherit from the host", not "define
+ * them here". Returns the read-only summary plus the host-aware label
+ * for the picker's null option (undefined for hostless sources, which
+ * keep the default "Inline credentials" label). v0.31.4.
+ */
+function credentialSummary(
+  source: Source,
+  profiles: CredentialProfileSummary[] | undefined,
+): { display: string; inheritLabel: string | undefined } {
+  const nameOf = (id: string | null | undefined): string | null =>
+    (id ? profiles?.find((p) => p.id === id)?.name : null) ?? null;
+
+  const hostProfile = source.host
+    ? nameOf(source.host.credential_profile_id)
+    : null;
+  const inheritLabel = source.host
+    ? hostProfile
+      ? `Inherit from host "${source.host.name}" — profile "${hostProfile}"`
+      : `Inherit from host "${source.host.name}"`
+    : undefined;
+
+  const ownProfile = nameOf(source.credential_profile_id);
+  let display: string;
+  if (ownProfile) {
+    display = `Profile "${ownProfile}"`;
+  } else if (source.host) {
+    display = hostProfile
+      ? `Inherited from host "${source.host.name}" — profile "${hostProfile}"`
+      : `Inherited from host "${source.host.name}"`;
+  } else {
+    display = "Inline (defined on this source)";
+  }
+  return { display, inheritLabel };
+}
+
 interface DetailsTabProps {
   source: Source;
   onClose: () => void;
@@ -183,6 +226,13 @@ const DetailsTab = memo(function DetailsTab({
   const updateSource = useUpdateSource();
   const deleteSource = useDeleteSource();
   const testSource = useTestSource();
+  // v0.31.4 — resolve where this source's credentials come from so the
+  // credential UI is honest about host inheritance (a host-backed
+  // source's own credential_profile_id stays null by design).
+  const credentialProfiles = useCredentialProfiles(
+    source.type as CredentialProfileSummary["type"],
+  );
+  const credInfo = credentialSummary(source, credentialProfiles.data);
 
 
   const [editing, setEditing] = useState(false);
@@ -374,7 +424,7 @@ const DetailsTab = memo(function DetailsTab({
   return (
     <div className="space-y-4">
       {!editing ? (
-        <DisplayRows source={source} />
+        <DisplayRows source={source} credentialDisplay={credInfo.display} />
       ) : (
         <EditRows
           type={source.type as SourceType}
@@ -391,6 +441,7 @@ const DetailsTab = memo(function DetailsTab({
           onMaxParallelScannersChange={setDraftMaxParallelScanners}
           credentialProfileId={draftCredentialProfileId}
           onCredentialProfileIdChange={setDraftCredentialProfileId}
+          inheritLabel={credInfo.inheritLabel}
         />
       )}
 
@@ -527,7 +578,12 @@ interface DisplayFieldRow {
   display: string;
 }
 
-const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
+const DisplayRows = memo(function DisplayRows({
+  source, credentialDisplay,
+}: {
+  source: Source;
+  credentialDisplay: string;
+}) {
   // v0.4.5: lift expensive derivations into useMemo so a parent
   // re-render that doesn't actually mutate `source` (e.g. anything
   // up the React tree commits) doesn't pay JSON.stringify per
@@ -583,6 +639,14 @@ const DisplayRows = memo(function DisplayRows({ source }: { source: Source }) {
           <span className="text-xs text-fg-muted ml-2">
             (edit credentials on the Hosts page)
           </span>
+        </Row>
+      )}
+      {/* v0.31.4 — effective credential source. A host-backed source
+          with no source-level profile inherits the host's credentials;
+          show that plainly rather than implying inline credentials. */}
+      {source.type !== "local" && (
+        <Row label="Credentials">
+          <span className="text-fg-muted">{credentialDisplay}</span>
         </Row>
       )}
       <Row label="Reachability">
@@ -668,6 +732,10 @@ interface EditRowsProps {
   onMaxParallelScannersChange: (v: number) => void;
   credentialProfileId: string | null;
   onCredentialProfileIdChange: (id: string | null) => void;
+  // Host-aware label for the credential picker's null option — set
+  // when the source belongs to a host, so "Inline" reads as "Inherit
+  // from host …" instead. Undefined for hostless sources. v0.31.4.
+  inheritLabel?: string;
 }
 
 function EditRows({
@@ -685,6 +753,7 @@ function EditRows({
   onMaxParallelScannersChange,
   credentialProfileId,
   onCredentialProfileIdChange,
+  inheritLabel,
 }: EditRowsProps) {
   return (
     <div className="space-y-3">
@@ -717,10 +786,13 @@ function EditRows({
           value={credentialProfileId}
           onChange={onCredentialProfileIdChange}
           label="Credentials"
+          inheritLabel={inheritLabel}
           hint={
             credentialProfileId
               ? "Using credentials from this profile. Inline keys on this share still override."
-              : "Pick a saved profile to switch credentials without retyping. Leave on Inline to keep the host's defaults."
+              : inheritLabel
+                ? "This source inherits its credentials from the host. Pick a profile to override them for this source only."
+                : "Pick a saved profile, or leave on Inline to use the credentials defined in this form."
           }
         />
       )}

@@ -30,6 +30,11 @@ export interface HostInline {
   id: string;
   name: string;
   type: string;
+  // v0.31.4 — the host's credential profile, if any. A host-backed
+  // source inherits these credentials at scan time; its own
+  // `credential_profile_id` stays null. Lets the source panel show
+  // "inherited from host" honestly instead of "Inline credentials".
+  credential_profile_id?: string | null;
 }
 
 export interface SourceSecurityMetadata {

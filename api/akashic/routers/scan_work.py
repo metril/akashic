@@ -143,6 +143,14 @@ async def _maybe_finalize_scan(
 
     now = datetime.now(timezone.utc)
     scan.status = new_status
+    # v0.31.4 — record why the scan ended. The legacy single-scanner
+    # /api/scans/{id}/complete endpoint sets cancellation_reason; this
+    # multi-scanner finalize path didn't, leaving it NULL. A scanner
+    # still heartbeating after finalize then gets a 409 with reason=null,
+    # which the Go decoder maps to "scan cancelled by user" — a false
+    # cancellation warning in the Live Log. Set it to match the status
+    # ("completed" / "failed") so the 409 carries an accurate reason.
+    scan.cancellation_reason = new_status
     scan.completed_at = now
     scan.lease_expires_at = None
 

@@ -276,6 +276,11 @@ async def test_complete_unit_finalizes_scan_when_last(
         )).scalar_one()
     assert scan.status == "completed"
     assert scan.completed_at is not None
+    # v0.31.4 — the finalize path must record cancellation_reason to
+    # match the terminal status. Left NULL, a scanner still heartbeating
+    # after finalize gets a 409 with reason=null, which the Go decoder
+    # mislabels "scan cancelled by user" in the Live Log.
+    assert scan.cancellation_reason == "completed"
     assert src.status == "online"
     assert src.last_scan_at is not None
     # v0.28.0: cached source.is_reachable + last_reachable_at columns
@@ -353,6 +358,8 @@ async def test_fail_unit_with_no_others_marks_scan_failed(setup_db, admin_user):
             select(Source).where(Source.id == source_id)
         )).scalar_one()
     assert scan.status == "failed"
+    # v0.31.4 — finalize records the reason for the failed path too.
+    assert scan.cancellation_reason == "failed"
     assert src.status == "failed"
 
 

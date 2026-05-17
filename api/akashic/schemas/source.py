@@ -63,11 +63,18 @@ class _HostInline(BaseModel):
     Full host details (including masked credentials) live behind
     GET /api/hosts/{id}. Inlining the credentials on every source
     response would be both heavy and a needless surface area.
+
+    `credential_profile_id` is included (v0.31.4) so the source detail
+    panel can show that a host-backed source inherits its credentials
+    from the host's profile — the source's own `credential_profile_id`
+    stays NULL by design. It is an id, not a secret, so it is safe to
+    inline.
     """
 
     id: uuid.UUID
     name: str
     type: str
+    credential_profile_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

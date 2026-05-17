@@ -12,6 +12,15 @@ interface Props {
   onChange: (id: string | null) => void;
   label?: string;
   hint?: string;
+  /**
+   * Label for the `null` option. Defaults to "Inline credentials
+   * (defined here)". For a host-backed source, where leaving the
+   * picker on `null` means "inherit the host's credentials" rather
+   * than "define them here", pass a host-aware label so the option
+   * is honest about where the credentials actually come from.
+   * v0.31.4.
+   */
+  inheritLabel?: string;
 }
 
 const INLINE = "__inline__" as const;
@@ -24,11 +33,11 @@ const INLINE = "__inline__" as const;
  * leaving the form context.
  */
 export function ProfilePicker({
-  type, value, onChange, label = "Credentials", hint,
+  type, value, onChange, label = "Credentials", hint, inheritLabel,
 }: Props) {
   const profiles = useCredentialProfiles(type);
   const options = [
-    { value: INLINE, label: "Inline credentials (defined here)" },
+    { value: INLINE, label: inheritLabel ?? "Inline credentials (defined here)" },
     ...(profiles.data ?? []).map((p) => ({
       value: p.id,
       label: p.name + (p.description ? ` — ${p.description}` : ""),

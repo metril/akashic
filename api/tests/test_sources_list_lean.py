@@ -18,8 +18,11 @@ from httpx import ASGITransport, AsyncClient
 from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.main import create_app
+from akashic.models.credential_profile import CredentialProfile
+from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.services.credential_crypto import encrypt_credentials
 
 
 @pytest_asyncio.fixture
@@ -96,6 +99,48 @@ async def test_detail_endpoint_returns_full_config(setup_db, admin_user):
     # Secrets are scrubbed at the schema layer.
     assert body["connection_config"]["password"] == "***"
     assert body["connection_config"]["host"] == "rack3.example.net"
+
+
+@pytest.mark.asyncio
+async def test_detail_host_carries_credential_profile_id(setup_db, admin_user):
+    """v0.31.4 — a host-backed source inherits its credentials from the
+    host's credential profile; the source's own `credential_profile_id`
+    stays NULL by design. The inlined `host` on the source response must
+    expose the host's `credential_profile_id` so the detail panel can
+    show "inherited from host" honestly instead of "Inline credentials".
+    """
+    async with setup_db() as db:
+        profile = CredentialProfile(
+            id=uuid.uuid4(), name="nas-creds", type="smb",
+            credentials_encrypted=encrypt_credentials(
+                {"username": "svc", "password": "pw"}
+            ),
+        )
+        db.add(profile)
+        host = Host(
+            id=uuid.uuid4(), name="nas-1", type="smb",
+            connection_config={"host": "nas-1.example.net"},
+            credential_profile_id=profile.id,
+        )
+        db.add(host)
+        await db.flush()
+        src = Source(
+            id=uuid.uuid4(), name="nas-share", type="smb",
+            connection_config={"share": "Public"},
+            host_id=host.id,
+        )
+        db.add(src)
+        await db.commit()
+        src_id, profile_id = src.id, profile.id
+
+    async with _admin_client(setup_db, admin_user) as ac:
+        r = await ac.get(f"/api/sources/{src_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # The source itself carries no profile — it inherits the host's.
+    assert body["credential_profile_id"] is None
+    assert body["host"] is not None
+    assert body["host"]["credential_profile_id"] == str(profile_id)
 
 
 @pytest.mark.asyncio
