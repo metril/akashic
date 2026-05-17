@@ -5,6 +5,35 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.5 — 2026-05-17
+
+**Multi-scanner scans no longer stop after their first chunk finishes.**
+
+### Bug fixes
+
+- **A scan run by several cooperating scanners now completes in full.**
+  A multi-scanner scan is split into work units, one per subtree. Each
+  unit's walk reported its last batch of files as "final" — and the
+  server treated the *first* such batch as the whole scan finishing. So
+  the moment one scanner finished its chunk, the scan was marked
+  complete, the other scanners were told to stop ("scan cancelled by
+  user" in the Live Log — which nobody triggered), and every file the
+  unfinished chunks hadn't re-scanned yet was wrongly flagged as
+  deleted from the index. The scan now finalizes exactly once, after
+  every chunk is done: scanners run to completion, the Live Log shows
+  "scan completed", and the index keeps every file. Earlier patches
+  (v0.31.1/.2/.4) addressed adjacent symptoms but not this cause.
+
+  The server-side fix takes effect for existing scanners as soon as the
+  API is updated — no scanner redeploy required; the v0.31.5 scanner
+  build additionally stops sending the misleading "final" marker per
+  chunk.
+
+- **A single-scanner scan records why it ended.** Its completion path
+  left the reason blank, which the scanner's log decoder rendered as a
+  false "scan cancelled by user". It now records "completed", so the
+  Live Log's closing line is accurate.
+
 ## v0.31.4 — 2026-05-17
 
 **A source that gets its credentials from its host now says so plainly,

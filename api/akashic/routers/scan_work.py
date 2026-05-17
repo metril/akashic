@@ -154,6 +154,18 @@ async def _maybe_finalize_scan(
     scan.completed_at = now
     scan.lease_expires_at = None
 
+    # v0.31.5 — reap entries the scan didn't see, here at true
+    # completion. The ingest `is_final` path defers to this for
+    # unit-coordinated scans (a per-unit is_final batch must not sweep —
+    # it would delete the subtrees other units haven't walked yet).
+    # Only on a clean, fully-walked scan: `failed > 0` means a unit's
+    # subtree was never covered, so its entries are not stale and must
+    # not be swept. Runs before the counter flush so the files_deleted
+    # delta lands on the row.
+    if new_status == "completed" and failed == 0:
+        from akashic.routers.ingest import _sweep_stale_entries
+        await _sweep_stale_entries(db, scan, now)
+
     # v0.29.2 — flush per-scan Redis counter hash back to scan.*
     # before terminal commit. Single round-trip; safe to call even
     # when the scan never had a hash (no-op).

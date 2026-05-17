@@ -21,6 +21,7 @@ from sqlalchemy import select
 from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.main import create_app
+from akashic.models.entry import Entry
 from akashic.models.scan import Scan
 from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.source import Source
@@ -441,3 +442,118 @@ async def test_lease_after_expiry_reclaimable(setup_db, admin_user):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["id"] == leased["id"]  # same unit, new holder
+
+
+@pytest.mark.asyncio
+async def test_finalize_sweeps_stale_entries_only_after_last_unit(
+    setup_db, admin_user,
+):
+    """v0.31.5 — the stale-entry sweep moved into _maybe_finalize_scan.
+    An entry from a prior scan that this scan never re-ingests must
+    survive until the LAST unit completes — never be reaped mid-scan
+    (which the old ingest-is_final path did, on the first unit)."""
+    scan_id, source_id = await _seed_scan(setup_db)
+    scn = await _mint_scanner(setup_db, admin_user)
+
+    # A pre-existing entry with last_seen_at well in the past — once
+    # this scan starts (started_at set at first lease) it is stale.
+    stale_id = uuid.uuid4()
+    async with setup_db() as db:
+        db.add(Entry(
+            id=stale_id, source_id=source_id, kind="file",
+            path="/old/gone.txt", parent_path="/old", name="gone.txt",
+            size_bytes=1,
+            last_seen_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        ))
+        await db.commit()
+
+    async with _bearer_client(setup_db) as ac:
+        await ac.post(
+            f"/api/scans/{scan_id}/work/split",
+            json={"child_paths": ["a", "b"]},
+            headers=_auth(scn),
+        )
+        u1 = (await ac.post(
+            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+        )).json()
+        await ac.post(
+            f"/api/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
+        )
+
+    # First unit done, second still pending — scan not finalized — the
+    # stale entry must NOT be swept yet.
+    async with setup_db() as db:
+        e = (await db.execute(
+            select(Entry).where(Entry.id == stale_id)
+        )).scalar_one()
+    assert e.is_deleted is False, "stale entry swept mid-scan — premature finalize"
+
+    async with _bearer_client(setup_db) as ac:
+        u2 = (await ac.post(
+            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+        )).json()
+        await ac.post(
+            f"/api/scans/{scan_id}/work/{u2['id']}/complete", headers=_auth(scn),
+        )
+
+    # Last unit done — scan finalized — the sweep ran exactly once.
+    async with setup_db() as db:
+        scan = (await db.execute(
+            select(Scan).where(Scan.id == scan_id)
+        )).scalar_one()
+        e = (await db.execute(
+            select(Entry).where(Entry.id == stale_id)
+        )).scalar_one()
+    assert scan.status == "completed"
+    assert e.is_deleted is True, "stale entry not swept at finalize"
+
+
+@pytest.mark.asyncio
+async def test_finalize_does_not_sweep_when_a_unit_failed(
+    setup_db, admin_user,
+):
+    """v0.31.5 — a scan with a failed unit walked the source only
+    partially, so a not-seen entry is not necessarily stale. The sweep
+    is skipped even though the mixed scan finalizes as 'completed'."""
+    scan_id, source_id = await _seed_scan(setup_db)
+    scn = await _mint_scanner(setup_db, admin_user)
+
+    stale_id = uuid.uuid4()
+    async with setup_db() as db:
+        db.add(Entry(
+            id=stale_id, source_id=source_id, kind="file",
+            path="/old/gone.txt", parent_path="/old", name="gone.txt",
+            size_bytes=1,
+            last_seen_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        ))
+        await db.commit()
+
+    async with _bearer_client(setup_db) as ac:
+        await ac.post(
+            f"/api/scans/{scan_id}/work/split",
+            json={"child_paths": ["a", "b"]},
+            headers=_auth(scn),
+        )
+        u1 = (await ac.post(
+            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+        )).json()
+        await ac.post(
+            f"/api/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
+        )
+        u2 = (await ac.post(
+            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+        )).json()
+        await ac.post(
+            f"/api/scans/{scan_id}/work/{u2['id']}/fail",
+            json={"error_message": "synthetic"}, headers=_auth(scn),
+        )
+
+    async with setup_db() as db:
+        scan = (await db.execute(
+            select(Scan).where(Scan.id == scan_id)
+        )).scalar_one()
+        e = (await db.execute(
+            select(Entry).where(Entry.id == stale_id)
+        )).scalar_one()
+    assert scan.status == "completed"  # mixed: one unit ok, one failed
+    assert e.is_deleted is False, "stale entry swept on a partial (mixed) scan"

@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import exists, select
+from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from akashic.auth.dependencies import check_source_access, get_ingest_user
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryEvent, EntryVersion
 from akashic.models.scan import Scan
+from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.ingest_content import ContentBatchIn, ContentBatchResponse
@@ -160,6 +162,92 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
                 })
     except Exception as exc:
         logger.warning("Webhook dispatch failed: %s", exc)
+
+
+async def _sweep_stale_entries(
+    db: AsyncSession, scan: Scan, now: datetime,
+) -> None:
+    """Mark entries the scan didn't see as deleted, and emit `moved`
+    events where a stale file's content_hash reappears at a new path.
+
+    Runs exactly once at scan finalization: for a single-scanner scan
+    from the ingest `is_final` batch, for a unit-coordinated scan from
+    `_maybe_finalize_scan` after the last unit completes.
+
+    The caller must guarantee the scan walked the source in full —
+    sweeping after a partial walk would mark un-visited entries deleted.
+
+    v0.31.5 — extracted from the ingest `is_final` handler so the
+    work-unit finalize path can run the identical sweep.
+    """
+    if scan.started_at is None:
+        return
+    from akashic.services import scan_counters
+
+    # Bulk UPDATE … RETURNING (review D-I6). Pre-fix this loaded every
+    # stale row into the ORM, looped in Python to set is_deleted/
+    # deleted_at, and let dirty-tracking emit one UPDATE per row. On a
+    # 1M-stale rescan that was multi-GB Python memory + millions of
+    # SQLAlchemy attr writes. Now: one UPDATE that sets the columns,
+    # returns the slim columns we need for stats + move detection, and
+    # never materialises ORM objects.
+    stale_returning = (await db.execute(
+        sql_update(Entry)
+        .where(
+            Entry.source_id == scan.source_id,
+            Entry.is_deleted == False,  # noqa: E712
+            Entry.last_seen_at < scan.started_at,
+        )
+        .values(is_deleted=True, deleted_at=now)
+        .returning(
+            Entry.id, Entry.kind, Entry.content_hash,
+            Entry.source_id, Entry.path,
+        )
+    )).all()
+    stale_file_count = sum(1 for r in stale_returning if r.kind == "file")
+    if stale_file_count:
+        await scan_counters.add(scan.id, files_deleted=stale_file_count)
+
+    # Move detection (review I13): pre-fix this ran one SELECT per
+    # stale file with a content_hash, an N+1 that dominated end-of-scan
+    # latency on sources with thousands of mass-deleted files. Single
+    # bulk query instead — pull every still-alive entry whose hash
+    # matches any stale hash, build a hash → first-match map, then emit
+    # EntryEvents from the in-memory map.
+    stale_files_with_hash = [
+        r for r in stale_returning
+        if r.kind == "file" and r.content_hash
+    ]
+    if stale_files_with_hash:
+        stale_hashes = {r.content_hash for r in stale_files_with_hash}
+        stale_ids = {r.id for r in stale_files_with_hash}
+        # Order by id for deterministic picking when more than one
+        # candidate exists for a given hash — without it the test
+        # suite could see flapping move targets.
+        candidates = (await db.execute(
+            select(Entry).where(
+                Entry.content_hash.in_(stale_hashes),
+                Entry.kind == "file",
+                Entry.is_deleted == False,  # noqa: E712
+                Entry.last_seen_at >= scan.started_at,
+                Entry.id.notin_(stale_ids),
+            ).order_by(Entry.id)
+        )).scalars().all()
+        first_by_hash: dict[str, Entry] = {}
+        for c in candidates:
+            first_by_hash.setdefault(c.content_hash, c)
+        for stale in stale_files_with_hash:
+            moved_to = first_by_hash.get(stale.content_hash)
+            if moved_to:
+                db.add(EntryEvent(
+                    event_type="moved",
+                    content_hash=stale.content_hash,
+                    old_source_id=stale.source_id,
+                    old_path=stale.path,
+                    new_source_id=moved_to.source_id,
+                    new_path=moved_to.path,
+                    scan_id=scan.id,
+                ))
 
 
 def _apply_entry_fields(target: Entry, src):
@@ -539,9 +627,31 @@ async def ingest_batch(
             inaccessible_files=batch.inaccessible_files or 0,
         )
 
+    # v0.31.5 — `is_final` is set per work unit on a unit-coordinated
+    # (multi-scanner) scan: each non-root unit's walk posts its own
+    # final batch. Treating any one of them as *scan*-final would
+    # complete the whole scan after its first unit — truncating it and
+    # sweeping not-yet-scanned entries as stale, then aborting the
+    # sibling scanners. A scan that uses work units is finalized solely
+    # by the work-unit path (_maybe_finalize_scan, once every unit
+    # completes), which also fires the post-scan tasks; ingest defers
+    # entirely. A scan with no work units is single-scanner — ingest
+    # owns its completion, as before.
+    scan_finalized_here = False
     if batch.is_final:
+        has_work_units = await db.scalar(
+            select(exists().where(ScanWorkUnit.scan_id == scan.id))
+        )
+        scan_finalized_here = not has_work_units
+
+    if scan_finalized_here:
         scan.status = "completed"
         scan.completed_at = now
+        # Set the reason so the scanner's heartbeat decoder logs an
+        # accurate terminal message — a NULL reason is decoded as a
+        # false "scan cancelled by user". Mirrors _maybe_finalize_scan
+        # and the /api/scans/{id}/complete endpoint.
+        scan.cancellation_reason = "completed"
 
         source_result = await db.execute(
             select(Source).where(Source.id == batch.source_id)
@@ -551,81 +661,14 @@ async def ingest_batch(
             source.last_scan_at = now
             source.status = "online"
 
-        if scan.started_at:
-            # Bulk UPDATE … RETURNING (review D-I6). Pre-fix this
-            # loaded every stale row into the ORM, looped in Python
-            # to set is_deleted/deleted_at, and let dirty-tracking
-            # emit one UPDATE per row. On a 1M-stale rescan that was
-            # multi-GB Python memory + millions of SQLAlchemy attr
-            # writes. Now: one UPDATE that sets the columns, returns
-            # the slim columns we need for stats + move detection,
-            # and never materialises ORM objects.
-            from sqlalchemy import update as sql_update
-            stale_returning = (await db.execute(
-                sql_update(Entry)
-                .where(
-                    Entry.source_id == batch.source_id,
-                    Entry.is_deleted == False,  # noqa: E712
-                    Entry.last_seen_at < scan.started_at,
-                )
-                .values(is_deleted=True, deleted_at=now)
-                .returning(
-                    Entry.id, Entry.kind, Entry.content_hash,
-                    Entry.source_id, Entry.path,
-                )
-            )).all()
-            stale_file_count = sum(1 for r in stale_returning if r.kind == "file")
-            if stale_file_count:
-                await scan_counters.add(batch.scan_id, files_deleted=stale_file_count)
+        # Reap entries the scan didn't see + emit `moved` events.
+        await _sweep_stale_entries(db, scan, now)
 
-            # Move detection (review I13): pre-fix this ran one
-            # SELECT per stale file with a content_hash, an N+1 that
-            # dominated end-of-scan latency on sources with thousands
-            # of mass-deleted files. Single bulk query per batch
-            # instead — pull every still-alive entry whose hash
-            # matches any stale hash, build a hash → first-match map,
-            # then emit EntryEvents from the in-memory map.
-            stale_files_with_hash = [
-                r for r in stale_returning
-                if r.kind == "file" and r.content_hash
-            ]
-            if stale_files_with_hash:
-                stale_hashes = {r.content_hash for r in stale_files_with_hash}
-                stale_ids = {r.id for r in stale_files_with_hash}
-                # Order by id for deterministic picking when more than one
-                # candidate exists for a given hash — without it the test
-                # suite could see flapping move targets.
-                candidates = (await db.execute(
-                    select(Entry).where(
-                        Entry.content_hash.in_(stale_hashes),
-                        Entry.kind == "file",
-                        Entry.is_deleted == False,  # noqa: E712
-                        Entry.last_seen_at >= scan.started_at,
-                        Entry.id.notin_(stale_ids),
-                    ).order_by(Entry.id)
-                )).scalars().all()
-                first_by_hash: dict[str, Entry] = {}
-                for c in candidates:
-                    first_by_hash.setdefault(c.content_hash, c)
-                for stale in stale_files_with_hash:
-                    moved_to = first_by_hash.get(stale.content_hash)
-                    if moved_to:
-                        db.add(EntryEvent(
-                            event_type="moved",
-                            content_hash=stale.content_hash,
-                            old_source_id=stale.source_id,
-                            old_path=stale.path,
-                            new_source_id=moved_to.source_id,
-                            new_path=moved_to.path,
-                            scan_id=batch.scan_id,
-                        ))
-
-    # v0.29.2 — on terminal batch, flush the Redis hash back onto
-    # scan.* columns so the row is authoritative post-scan. Same
-    # transaction as the status flip, so a crash between flush and
-    # commit leaves the row pre-flush (the hash survives 7 days and
-    # the watchdog or a re-scan picks up where we left off).
-    if batch.is_final:
+        # Flush the Redis counter hash back onto scan.* columns so the
+        # row is authoritative post-scan. Same transaction as the
+        # status flip, so a crash between flush and commit leaves the
+        # row pre-flush (the hash survives 7 days and the watchdog or a
+        # re-scan picks up where we left off).
         await scan_counters.flush_to_db(db, scan)
 
     await db.commit()
@@ -651,7 +694,11 @@ async def ingest_batch(
         "source_id": str(batch.source_id),
         "scan_id": str(batch.scan_id),
         "scan_status": scan.status,
-        "source_status": "online" if batch.is_final else "scanning",
+        # v0.31.5 — only flip the source to "online" when this batch
+        # actually finalized the scan; a per-unit is_final batch on a
+        # unit-coordinated scan leaves it "scanning" until the work-unit
+        # path finalizes.
+        "source_status": "online" if scan_finalized_here else "scanning",
         "scanner_id": (
             str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
         ),
@@ -697,7 +744,12 @@ async def ingest_batch(
         from akashic.services import meili_indexer
         await meili_indexer.mark_dirty(batch.source_id, indexed_ids)
 
-    if batch.is_final:
+    if scan_finalized_here:
+        # v0.31.5 — gated on scan_finalized_here, not raw is_final: a
+        # per-unit is_final batch on a unit-coordinated scan must not
+        # fire the post-scan tasks. complete_unit (the work-unit
+        # finalize path) fires the identical rollup / snapshot / webhook
+        # tasks once, when the scan truly completes.
         # v0.29.2 — drain the pending Meili set immediately on
         # terminal so search reflects scan-final state without waiting
         # for the 5 s debounce window.

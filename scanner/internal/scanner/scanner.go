@@ -48,6 +48,15 @@ type Options struct {
 	Extractor               *extract.Extractor
 	ExtractConnectorFactory func() (connector.Connector, error)
 	ExtractWorkers          int
+	// v0.31.5 — when true, the final batch is sent with IsFinal=false.
+	// Set by the unit-coordinated runner for a per-unit walk: that
+	// walk's last batch is final only for its *unit*, not the scan. A
+	// unit-coordinated scan is finalized by the work-unit /complete
+	// path; a batch claiming scan-finality would make the API complete
+	// the whole scan after its first unit. The inaccessible-count
+	// totals still ride the last batch (they're per-walk totals, read
+	// by the API independent of IsFinal).
+	SuppressScanFinal bool
 }
 
 type Result struct {
@@ -282,7 +291,10 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			SourceID: s.opts.SourceID,
 			ScanID:   s.opts.ScanID,
 			Entries:  batch,
-			IsFinal:  final,
+			// v0.31.5 — a unit-coordinated walk suppresses the wire
+			// IsFinal flag: "last batch of this walk" must not read as
+			// "scan complete" when sibling units are still running.
+			IsFinal: final && !s.opts.SuppressScanFinal,
 		}
 		if firstBatch {
 			scanBatch.SourceSecurityMetadata = bucketSecurity

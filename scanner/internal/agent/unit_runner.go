@@ -292,6 +292,13 @@ func runUnitWalk(
 		Extractor:               extractor,
 		ExtractConnectorFactory: extractFactory,
 		ExtractWorkers:          extractWorkers,
+		// v0.31.5 — this is one unit of a unit-coordinated scan, not a
+		// whole scan. Suppress the wire IsFinal flag so this unit's
+		// last batch doesn't make the API complete (and stale-sweep)
+		// the entire scan while sibling units are still running. The
+		// scan is finalized by the work-unit /complete path. Consistent
+		// with runRootFilesUnit, which already sends IsFinal=false.
+		SuppressScanFinal: true,
 	})
 	_, err := s.Run(ctx)
 	return err
@@ -333,6 +340,9 @@ func runRootFilesUnit(
 		// finalization and double-trigger the post-scan rollup +
 		// snapshot + webhook tasks. (Review notable — confirmed: api
 		// path is canonical, not the batch flag.)
+		// v0.31.5 — the non-root units enforce the same invariant via
+		// scanner.Options.SuppressScanFinal; runRootFilesUnit sets it
+		// directly here because it builds its batch without scanner.Run.
 		Entries: batch, IsFinal: false,
 	}
 	resp, err := apiClient.SendBatch(ctx, scanBatch)
