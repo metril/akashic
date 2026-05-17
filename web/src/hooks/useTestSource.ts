@@ -18,6 +18,11 @@ export function useTestSource() {
     mutationFn: (data: {
       type: SourceType;
       connection_config: Record<string, unknown>;
+      // v0.31.3 — let the probe resolve a credential profile / host the
+      // same way a scan does, so profile-backed SMB sources test with
+      // their real password instead of an empty inline config.
+      credential_profile_id?: string | null;
+      host_id?: string | null;
     }) => api.post<TestSourceResult>("/sources/test", data),
   });
 }

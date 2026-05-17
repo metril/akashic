@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
-import { Badge, Button, Drawer } from "../ui";
+import { Badge, Button, Drawer, Spinner } from "../ui";
 import { api } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
 import {
@@ -43,12 +43,18 @@ interface SourceDetailProps {
    *  the scan completing so the Scan log tab can keep showing the log
    *  after the scan finishes. v0.29.7. */
   latestScanId?: string | null;
+  /** True once the full source (GET /sources/{id}) has loaded. The
+   *  list payload `source` is lean — it omits connection_config and
+   *  credential_profile_id — so the edit form must wait for this
+   *  before seeding its drafts, or it edits a phantom-empty config and
+   *  a Save would wipe the source's credential profile. v0.31.3. */
+  detailLoaded?: boolean;
 }
 
 type Tab = "details" | "history" | "live";
 
 export const SourceDetail = memo(function SourceDetail({
-  source, open, onClose, activeScanId, latestScanId,
+  source, open, onClose, activeScanId, latestScanId, detailLoaded = false,
 }: SourceDetailProps) {
   const [tab, setTab] = useState<Tab>("details");
   // v0.29.7 — drive the Scan log tab off the terminal-inclusive
@@ -107,11 +113,20 @@ export const SourceDetail = memo(function SourceDetail({
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-1">
           {tab === "details" && (
-            <DetailsTab
-              source={source}
-              onClose={onClose}
-              activeScanId={activeScanId ?? null}
-            />
+            detailLoaded ? (
+              // DetailsTab mounts only once the full source has loaded,
+              // so its draft state seeds from connection_config +
+              // credential_profile_id rather than the lean list row.
+              <DetailsTab
+                source={source}
+                onClose={onClose}
+                activeScanId={activeScanId ?? null}
+              />
+            ) : (
+              <div className="flex items-center justify-center py-16 text-fg-subtle">
+                <Spinner />
+              </div>
+            )
           )}
           {tab === "history" && (
             <SourceAuditTab sourceId={source.id} visible={tab === "history"} />
@@ -290,6 +305,11 @@ const DetailsTab = memo(function DetailsTab({
       const r = await testSource.mutateAsync({
         type: source.type as SourceType,
         connection_config: cleaned,
+        // Test with the same credentials a scan would use — the
+        // profile's password / the host's config, not just the
+        // (often password-less) inline share config.
+        credential_profile_id: draftCredentialProfileId,
+        host_id: source.host_id ?? null,
       });
       setTestResult(r);
     } catch (e) {

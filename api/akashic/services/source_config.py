@@ -26,8 +26,8 @@ from __future__ import annotations
 from typing import Any
 
 
-def _profile_credentials(holder: Any | None) -> dict:
-    """Read a model row's credential_profile.credentials, or {}.
+def credentials_from_profile(profile: Any | None) -> dict:
+    """Read a CredentialProfile row's credentials dict, or {}.
 
     v0.29.5 — prefers the encrypted ``credentials_encrypted`` column,
     falls back to the legacy plaintext ``credentials`` JSONB column
@@ -37,10 +37,12 @@ def _profile_credentials(holder: Any | None) -> dict:
     WARNING — the merged config will then be missing the credentials
     and downstream code surfaces a clearer auth failure than "valid
     plaintext that decrypted to nonsense".
+
+    Takes the profile row directly so callers that hold a profile by
+    id (e.g. the SMB-password validator) decrypt it the same way the
+    scan-time merge does — `_profile_credentials` is the wrapper for
+    callers that hold the owning Host/Source row instead.
     """
-    if holder is None:
-        return {}
-    profile = getattr(holder, "credential_profile", None)
     if profile is None:
         return {}
     encrypted = getattr(profile, "credentials_encrypted", None)
@@ -60,6 +62,14 @@ def _profile_credentials(holder: Any | None) -> dict:
             )
             return {}
     return dict(getattr(profile, "credentials", None) or {})
+
+
+def _profile_credentials(holder: Any | None) -> dict:
+    """Credentials of the CredentialProfile attached to a Host/Source
+    row, or {}. The `credential_profile` relationship must be loaded."""
+    if holder is None:
+        return {}
+    return credentials_from_profile(getattr(holder, "credential_profile", None))
 
 
 def merge_host_and_source(

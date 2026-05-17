@@ -609,6 +609,11 @@ export default function Sources() {
         onClose={handleClose}
         activeScanId={openScanForOpen?.id ?? null}
         latestScanId={latestScanForOpen?.id ?? null}
+        // The edit form needs the FULL source (connection_config +
+        // credential_profile_id) — the lean list row omits both. Tell
+        // the panel whether the GET /sources/{id} fetch has landed so
+        // it doesn't seed the editor from the lean placeholder.
+        detailLoaded={openSourceDetailQ.data != null}
       />
 
       <ScanLogPanel

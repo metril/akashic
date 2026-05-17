@@ -5,6 +5,8 @@ Runs the same probe before save that the user gets when they click
 with the test result. Never logs or echoes back credentials in the
 response payload.
 """
+import uuid
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,13 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 class TestSourceRequest(BaseModel):
     type: str
     connection_config: dict
+    # v0.31.3 — credential-profile-backed / host-attached sources. The
+    # probe must be run with the profile's (encrypted) credentials and
+    # the host's connection-level config merged in, exactly as a real
+    # scan resolves them — otherwise an SMB source whose password lives
+    # in a profile is always tested with no password and fails.
+    credential_profile_id: uuid.UUID | None = None
+    host_id: uuid.UUID | None = None
 
 
 # Allow-list of connection_config keys that are safe to record in the audit
@@ -96,6 +105,28 @@ async def post_test(
                     request=request,
                 )
                 return result
+
+    # v0.31.3 — layer credential-profile + host config UNDER the inline
+    # config, same precedence as the scan-time merge_host_and_source:
+    # host_profile < host_inline < source_profile < source_inline.
+    if body.host_id is not None or body.credential_profile_id is not None:
+        from akashic.models.credential_profile import CredentialProfile
+        from akashic.models.host import Host
+        from akashic.services.source_config import (
+            _profile_credentials,
+            credentials_from_profile,
+        )
+        merged: dict = {}
+        if body.host_id is not None:
+            host = await db.get(Host, body.host_id)
+            if host is not None:
+                merged.update(_profile_credentials(host))
+                merged.update(host.connection_config or {})
+        if body.credential_profile_id is not None:
+            profile = await db.get(CredentialProfile, body.credential_profile_id)
+            merged.update(credentials_from_profile(profile))
+        merged.update(cfg)
+        cfg = merged
 
     result = test_connection(body.type, cfg)
     await record_event(

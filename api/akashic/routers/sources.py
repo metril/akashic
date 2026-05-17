@@ -81,6 +81,7 @@ async def _validate_smb_password_requirement(
     # scan-time `merge_host_and_source` helper uses (last write wins):
     # host_profile < host_inline < source_profile < source_inline.
     from akashic.models.credential_profile import CredentialProfile
+    from akashic.services.source_config import credentials_from_profile
     merged: dict = {}
 
     if host_id is not None:
@@ -94,8 +95,11 @@ async def _validate_smb_password_requirement(
                         CredentialProfile.id == host.credential_profile_id
                     )
                 )).scalar_one_or_none()
-                if hp is not None:
-                    merged.update(hp.credentials or {})
+                # credentials_from_profile decrypts the v0.29.5
+                # `credentials_encrypted` column — reading the raw
+                # `.credentials` JSONB would be NULL for every modern
+                # profile and wrongly fail the password check below.
+                merged.update(credentials_from_profile(hp))
             merged.update(host.connection_config or {})
 
     if credential_profile_id is not None:
@@ -104,8 +108,7 @@ async def _validate_smb_password_requirement(
                 CredentialProfile.id == credential_profile_id
             )
         )).scalar_one_or_none()
-        if sp is not None:
-            merged.update(sp.credentials or {})
+        merged.update(credentials_from_profile(sp))
 
     merged.update(cfg)
 

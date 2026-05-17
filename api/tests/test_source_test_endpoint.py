@@ -495,3 +495,45 @@ async def test_endpoint_unsupported_type_returns_200_with_ok_false(client: Async
     body = r.json()
     assert body["ok"] is False
     assert body["step"] == "config"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_merges_credential_profile_password(
+    client: AsyncClient, setup_db, monkeypatch
+):
+    """v0.31.3 — Test connection for a credential-profile-backed SMB
+    source runs the probe with the profile's *decrypted* password
+    merged under the inline config, not the (password-less) inline
+    config alone."""
+    from akashic.models.credential_profile import CredentialProfile
+    from akashic.services.credential_crypto import encrypt_credentials
+
+    pid = uuid.uuid4()
+    async with setup_db() as db:
+        db.add(CredentialProfile(
+            id=pid, name="smb-test-prof", type="smb",
+            credentials_encrypted=encrypt_credentials(
+                {"username": "svc", "password": "prof-secret-9"},
+            ),
+        ))
+        await db.commit()
+
+    captured: dict = {}
+
+    def _fake(stype, cfg):
+        captured["type"] = stype
+        captured["cfg"] = cfg
+        return source_tester.TestResult(ok=True, step=None, error=None)
+
+    monkeypatch.setattr("akashic.routers.source_test.test_connection", _fake)
+
+    r = await client.post("/api/sources/test", json={
+        "type": "smb",
+        "connection_config": {"host": "fs", "share": "media"},
+        "credential_profile_id": str(pid),
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    # The profile's decrypted password is layered under the inline cfg.
+    assert captured["cfg"]["password"] == "prof-secret-9"
+    assert captured["cfg"]["host"] == "fs"

@@ -5,6 +5,36 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.3 — 2026-05-17
+
+**SMB sources that authenticate with a credential profile can be
+edited, saved and tested again — the edit panel keeps the attached
+profile, and the password the profile carries is actually used.**
+
+### Bug fixes
+
+- **Saving an SMB source with a credential profile no longer fails
+  with "no non-empty password".** The SMB password check read a
+  profile's *legacy plaintext* credentials column, which is empty for
+  every profile created since v0.29.5 (credentials are encrypted at
+  rest). It now decrypts the profile the same way a scan does, so a
+  profile that carries a password satisfies the check. A profile that
+  genuinely has no password is still rejected.
+
+- **The source edit panel no longer "reverts to inline credentials".**
+  The panel seeded its form from the lean source-list row — which omits
+  `connection_config` and `credential_profile_id` — and never re-seeded
+  once the full source loaded. So it showed "Inline credentials" for a
+  profile-backed source, and saving from that state wiped the source's
+  credential profile and connection config. The edit form now waits for
+  the full source to load before it opens.
+
+- **"Test connection" works for credential-profile and host-attached
+  sources.** The test probe previously ran with only the inline
+  connection config, so an SMB source whose password lives in a profile
+  was always tested with no password. The test now resolves the
+  credential profile and host the same way a real scan does.
+
 ## v0.31.2 — 2026-05-17
 
 **A scanner polling a fully-leased scan for more work now gets a clean
