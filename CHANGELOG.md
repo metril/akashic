@@ -5,7 +5,24 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
-## v0.31.1 — 2026-05-17
+## v0.31.2 — 2026-05-17
+
+**A scanner polling a fully-leased scan for more work now gets a clean
+"no work" answer instead of a misleading "cap reached" error.**
+
+### Bug fixes
+
+- **Work-unit lease no longer reports "cap reached" when there is simply
+  no work.** On a multi-scanner scan, `POST /api/scans/{id}/work/lease`
+  checked the `max_parallel_scanners` cap *before* checking whether any
+  unit was actually available — so a scanner that arrived after every
+  unit was already leased could get a `409` ("cap reached") instead of
+  `204` ("no work"), depending purely on timing. The endpoint now looks
+  for a claimable unit first: no unit ⇒ `204`; a unit is free but the
+  cap blocks this scanner ⇒ `409`. This also removes a race that
+  intermittently failed the release test suite.
+
+
 
 **Three scan-UI bug fixes: the Live Log no longer mislabels a
 successful scan as "failed", the "Stop scan" button is gone once a scan

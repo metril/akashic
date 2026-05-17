@@ -194,6 +194,34 @@ async def test_lease_serialises_via_skip_locked(setup_db, admin_user):
 
 
 @pytest.mark.asyncio
+async def test_lease_returns_204_not_409_when_capped_but_no_units_left(
+    setup_db, admin_user,
+):
+    """A scanner that finds no claimable unit gets 204 — even when the
+    parallel-scanner cap is already full. 409 is reserved for the case
+    where a unit IS free but the cap blocks this scanner. This pins the
+    ordering that made test_lease_serialises_via_skip_locked flake
+    between [200, 204] and [200, 409]."""
+    scan_id, _ = await _seed_scan(setup_db, max_parallel=1)
+    scn1 = await _mint_scanner(setup_db, admin_user, name="a")
+    scn2 = await _mint_scanner(setup_db, admin_user, name="b")
+
+    async with _bearer_client(setup_db) as ac:
+        await ac.post(
+            f"/api/scans/{scan_id}/work/split",
+            json={"child_paths": ["only"]},
+            headers=_auth(scn1),
+        )
+        # scn1 takes the one unit — the scan is now at its cap of 1.
+        r1 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1))
+        assert r1.status_code == 200, r1.text
+        # scn2 polls with no unit free. Must be 204 ("nothing for me"),
+        # never 409 ("cap reached") — there is simply no work.
+        r2 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn2))
+    assert r2.status_code == 204, r2.text
+
+
+@pytest.mark.asyncio
 async def test_max_parallel_scanners_cap(setup_db, admin_user):
     scan_id, _ = await _seed_scan(setup_db, max_parallel=2)
     scn1 = await _mint_scanner(setup_db, admin_user, name="a")

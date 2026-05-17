@@ -225,8 +225,10 @@ async def lease_unit(
 
     Returns 204 (no content) when no work is available — the scanner
     treats that as "this scan is done for me, move on". Refuses with
-    409 when leasing would push the distinct-scanner count past the
-    source's max_parallel_scanners cap.
+    409 *only* when a unit IS available but leasing it would push the
+    distinct-scanner count past the source's max_parallel_scanners cap.
+    A scanner with simply no work left always gets 204, never 409 —
+    "no work" is not "capped".
     """
     scan, source = await _load_scan_and_source(db, scan_id)
     if scan.status not in {"pending", "running"}:
@@ -234,15 +236,45 @@ async def lease_unit(
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
 
-    cap = (
-        source.max_parallel_scanners if source is not None
-        else 1
-    )
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=_LEASE_SECONDS)
+
+    # Step 1 — lock a claimable unit (oldest pending, or a running unit
+    # whose lease expired) WITHOUT mutating it yet. SKIP LOCKED so two
+    # concurrent leases pick different rows (or the loser picks none);
+    # the row lock is held until this transaction commits/rolls back.
+    candidate = (await db.execute(text(
+        """
+        SELECT id, path FROM scan_work_units
+        WHERE scan_id = :scan_id
+          AND (
+            status = 'pending'
+            OR (status = 'running' AND lease_expires_at < :now)
+          )
+        ORDER BY created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+        """
+    ), {"scan_id": scan_id, "now": now})).first()
+
+    if candidate is None:
+        # Nothing claimable — a clean 204. The cap is deliberately NOT
+        # consulted here: with no work to hand out, "capped" would be a
+        # misleading answer (and made a concurrent re-lease race between
+        # 204 and 409, depending on commit ordering).
+        await db.commit()
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+
+    # Step 2 — a unit IS available; only now does the cap apply. A
+    # scanner already holding a unit doesn't expand the active set, so
+    # it's exempt; a new scanner may claim only if there's headroom.
+    cap = source.max_parallel_scanners if source is not None else 1
     active = await _distinct_active_scanners(db, scan_id)
-    # If the caller already holds a unit, leasing another one of theirs
-    # doesn't expand the active set — no cap check needed for them. If
-    # they're new, allow only if there's headroom.
     if scanner.id not in active and len(active) >= cap:
+        # Leave the candidate pending — the rollback triggered by this
+        # raised error releases the SKIP LOCKED row lock so another
+        # (already-active) scanner can claim it.
         raise HTTPException(
             status_code=409,
             detail=(
@@ -251,49 +283,23 @@ async def lease_unit(
             ),
         )
 
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(seconds=_LEASE_SECONDS)
-
-    # Atomic claim: grab the oldest pending (or expired-running) unit
-    # and flip it to running with our scanner_id. SKIP LOCKED so two
-    # concurrent leases serialise without blocking.
-    sql = text(
+    # Step 3 — claim the unit we locked in step 1.
+    unit_id, unit_path = candidate[0], candidate[1]
+    await db.execute(text(
         """
-        WITH cte AS (
-            SELECT id FROM scan_work_units
-            WHERE scan_id = :scan_id
-              AND (
-                status = 'pending'
-                OR (status = 'running' AND lease_expires_at < :now)
-              )
-            ORDER BY created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        UPDATE scan_work_units u
+        UPDATE scan_work_units
         SET status = 'running',
             assigned_scanner_id = :scanner_id,
             lease_expires_at = :expires_at,
-            started_at = COALESCE(u.started_at, :now)
-        FROM cte
-        WHERE u.id = cte.id
-        RETURNING u.id, u.path
+            started_at = COALESCE(started_at, :now)
+        WHERE id = :unit_id
         """
-    )
-    row = (await db.execute(sql, {
-        "scan_id": scan_id,
-        "now": now,
-        "expires_at": expires_at,
+    ), {
         "scanner_id": scanner.id,
-    })).first()
-
-    if row is None:
-        # No pending or expired-running rows. If the scan itself is
-        # already in a terminal state via _maybe_finalize_scan elsewhere,
-        # the caller will see it on next lease. For now: 204.
-        await db.commit()
-        response.status_code = status.HTTP_204_NO_CONTENT
-        return None
+        "expires_at": expires_at,
+        "now": now,
+        "unit_id": unit_id,
+    })
 
     # First unit-claim of the scan: bump the scan to 'running' so the
     # legacy /api/scans/{id}/complete contract (only the scan's own
@@ -304,7 +310,7 @@ async def lease_unit(
             scan.started_at = now
     await db.commit()
     return WorkUnitOut(
-        id=row[0], scan_id=scan_id, path=row[1],
+        id=unit_id, scan_id=scan_id, path=unit_path,
         status="running", lease_expires_at=expires_at,
     )
 
