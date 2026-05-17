@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { terminalBadgeVariantFor } from "./ScanLogPanel";
+import { scanIsStoppable, terminalBadgeVariantFor } from "./ScanLogPanel";
 
 describe("terminalBadgeVariantFor", () => {
   it("returns null for in-flight states", () => {
@@ -37,5 +37,25 @@ describe("terminalBadgeVariantFor", () => {
 
   it("returns null for unknown statuses (defensive)", () => {
     expect(terminalBadgeVariantFor("frobbed")).toBeNull();
+  });
+});
+
+describe("scanIsStoppable", () => {
+  it("is true only while the scan can still be cancelled", () => {
+    expect(scanIsStoppable("running")).toBe(true);
+    expect(scanIsStoppable("pending")).toBe(true);
+  });
+
+  it("is false for terminal scans — the WS staying open must not matter", () => {
+    expect(scanIsStoppable("completed")).toBe(false);
+    expect(scanIsStoppable("failed")).toBe(false);
+    expect(scanIsStoppable("cancelled")).toBe(false);
+  });
+
+  it("is false for unknown / nullish status", () => {
+    expect(scanIsStoppable(null)).toBe(false);
+    expect(scanIsStoppable(undefined)).toBe(false);
+    expect(scanIsStoppable("")).toBe(false);
+    expect(scanIsStoppable("frobbed")).toBe(false);
   });
 });

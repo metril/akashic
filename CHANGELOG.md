@@ -5,6 +5,39 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.1 — 2026-05-17
+
+**Three scan-UI bug fixes: the Live Log no longer mislabels a
+successful scan as "failed", the "Stop scan" button is gone once a scan
+has ended, and a source's parallel-scanner count can be saved again.**
+
+### Bug fixes
+
+- **The Live Log no longer shows "failed" after a successful scan.**
+  Opening the Live Log from a source card used the *latest* scan for
+  that source — which, in the moment just after a re-scan was triggered,
+  was still the *previous, failed* run. The panel now always opens on
+  the in-flight scan, and its status badge tracks the live scan state
+  (so a scan that finishes while you're watching flips to "completed"
+  on its own instead of going stale).
+
+- **The "Stop scan" button no longer lingers after a scan ends.** It
+  was shown whenever the log's WebSocket was connected — but that
+  connection stays open after the scan finishes, leaving a clickable
+  Stop button for a scan that was no longer running. It is now gated on
+  the scan actually being in progress.
+
+- **A source's "max parallel scanners" can be saved again.** The
+  source-edit Save button was disabled whenever the connection-config
+  validator objected — and it was re-validating the *masked* saved
+  config (secrets shown as `***`), which the form can't fully validate.
+  Editing an unrelated field like the parallel-scanner cap was blocked
+  by that false objection. The connection-config check now applies only
+  when the connection config was actually edited. Source-update audit
+  entries also now record changes to `max_parallel_scanners`,
+  `preferred_pool`, `is_removable`, the host link and the credential
+  profile, which the audit diff previously omitted.
+
 ## v0.31.0 — 2026-05-17
 
 **A new admin Maintenance page bundles the operational tooling that

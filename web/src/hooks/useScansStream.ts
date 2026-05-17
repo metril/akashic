@@ -396,6 +396,22 @@ export function useOpenScanForSource(
   });
 }
 
+/**
+ * One scan by its id, as tracked by the list-level stream. Unlike the
+ * per-scan WebSocket snapshot (captured once at connect and never
+ * corrected), `byScan` receives live `scan.state` events including the
+ * terminal transition — so a consumer reading status from here always
+ * sees the *current* status. Returns undefined when the id isn't in
+ * the live map (e.g. an old scan past the snapshot window).
+ */
+export function useScanById(
+  scanId: string | null | undefined,
+): Scan | undefined {
+  return useScansStreamSelect((s) =>
+    scanId ? s.byScan[scanId] : undefined,
+  );
+}
+
 /** True when any scan is in the live map. Used by the Sources
  *  page's "no scanner" banner gate. */
 export function useHasActiveScans(): boolean {

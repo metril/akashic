@@ -217,10 +217,21 @@ const DetailsTab = memo(function DetailsTab({
     ? validateShareConfig(source.type as SourceType, draftConfig as ShareConfig)
     : validateSourceConfig(source.type as SourceType, draftConfig);
 
+  // The connection-config validator must only gate saving when the
+  // config was actually edited. `draftConfig` is seeded from the API's
+  // response, which masks secrets as "***" — re-validating that
+  // untouched, un-validatable config would (e.g. for OAuth sources)
+  // return a false error and freeze the Save button, blocking edits to
+  // unrelated fields like max_parallel_scanners. v0.31.1.
+  const configChanged =
+    JSON.stringify(draftConfig) !==
+    JSON.stringify((source.connection_config ?? {}) as Partial<AnyConfig>);
+  const blockingError = configChanged ? validationError : null;
+
   async function handleSave() {
     setError(null);
-    if (validationError) {
-      setError(validationError);
+    if (blockingError) {
+      setError(blockingError);
       return;
     }
     // Strip any `"***"` values still present in secret-named fields —
@@ -438,7 +449,7 @@ const DetailsTab = memo(function DetailsTab({
               size="sm"
               onClick={handleSave}
               loading={updateSource.isPending}
-              disabled={!!validationError}
+              disabled={!!blockingError}
             >
               Save
             </Button>

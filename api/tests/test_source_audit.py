@@ -146,6 +146,35 @@ async def test_update_with_real_new_password_records_state_transition(
 
 
 @pytest.mark.asyncio
+async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: AsyncClient):
+    """v0.31.1 — a change to max_parallel_scanners must persist AND appear
+    in the source-update audit diff. The before/after snapshot used to
+    omit the field entirely, so bumping the parallel-scanner cap left no
+    audit trail."""
+    create = await client.post(
+        "/api/sources",
+        json={"name": "mps-src", "type": "local", "connection_config": {"path": "/tmp"}},
+    )
+    sid = create.json()["id"]
+    assert create.json()["max_parallel_scanners"] == 1
+
+    patch = await client.patch(
+        f"/api/sources/{sid}",
+        json={"max_parallel_scanners": 4},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["max_parallel_scanners"] == 4  # the value persisted
+
+    audit = await client.get(f"/api/sources/{sid}/audit")
+    update_evt = next(
+        e for e in audit.json()["items"] if e["event_type"] == "source_updated"
+    )
+    assert update_evt["payload"]["diff"]["max_parallel_scanners"] == {
+        "before": 1, "after": 4,
+    }
+
+
+@pytest.mark.asyncio
 async def test_update_no_real_change_does_not_emit(client: AsyncClient):
     create = await client.post(
         "/api/sources",

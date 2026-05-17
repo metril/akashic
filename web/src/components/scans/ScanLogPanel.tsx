@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Drawer } from "../ui";
 import type { BadgeVariant } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
+import { useScanById } from "../../hooks/useScansStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ScanLogLine } from "../../types";
@@ -79,6 +80,15 @@ function terminalBadge(scanStatus: string | null | undefined): React.ReactNode {
   return <Badge variant={variant}>{scanStatus}</Badge>;
 }
 
+// scanIsStoppable — true only while a scan can still be cancelled
+// (pending or running). The Stop button must gate on this, NOT on the
+// WebSocket connection state: the WS stays open after the scan ends,
+// which previously left the button live for an already-finished scan.
+// Pure + exported so vitest (node env, no jsdom) can cover it.
+export function scanIsStoppable(scanStatus: string | null | undefined): boolean {
+  return scanStatus === "running" || scanStatus === "pending";
+}
+
 // Drawer width: "xl" = max-w-4xl. Live log lines are dense and
 // path-heavy (see "current: <SMB share path/Season/Episode>" lines);
 // cramming them into the default 672 px caused user-reported cutoff
@@ -93,11 +103,18 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   const queryClient = useQueryClient();
   const [stopping, setStopping] = useState(false);
 
+  // Scan status, preferring the list-level stream (`byScan`, which gets
+  // live `scan.state` events including the terminal transition) over the
+  // per-scan WS snapshot (captured once at connect, never corrected).
+  // This is what makes the badge accurate and the Stop button gate right.
+  const liveScan = useScanById(scanId);
+  const scanStatus = liveScan?.status ?? stream.snapshot?.status ?? null;
+
   // Cancel from inside the drawer. The same handler logic lives on the
   // source card; duplicated here so the user doesn't have to dismiss
   // the drawer to find a Stop button.
   async function handleStop() {
-    if (!scanId || stopping) return;
+    if (!scanId || stopping || !scanIsStoppable(scanStatus)) return;
     setStopping(true);
     try {
       await api.cancelScan(scanId);
@@ -213,7 +230,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                 user the panel isn't frozen — the scan just ended.
                 Hidden for in-flight scans (running/pending); the
                 existing status pill already conveys that. */}
-            {terminalBadge(stream.snapshot?.status)}
+            {terminalBadge(scanStatus)}
             {/* v0.29.2 — adaptive batch size, surfaced when the scanner
                 reports it. Hidden on legacy / pre-v0.29.2 agents and on
                 terminal scans where the value is no longer moving. */}
@@ -230,10 +247,11 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
             )}
           </div>
           <div className="flex items-center gap-3">
-            {/* Stop button shows whenever the stream is open — i.e., the
-                scan is still being heartbeated. Once cancelled, the
-                stream closes shortly after and the button vanishes. */}
-            {stream.status === "open" && (
+            {/* Stop shows only while the scan itself is non-terminal —
+                NOT while the WebSocket is merely open (it stays open
+                after the scan ends, which used to leave this button
+                live for an already-finished scan). */}
+            {scanIsStoppable(scanStatus) && (
               <Button
                 size="sm"
                 variant="danger"

@@ -71,21 +71,29 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
   // Per-source slice subscription (v0.4.5) — re-renders ONLY when
   // this source's scan changes. A scan.state event for a different
   // source flips no listeners on this card.
+  // `activeScan` is the latest scan INCLUDING terminal ones — used only
+  // for surfacing a failed scan's error_message. `openScan` is the
+  // pending/running scan — everything that acts on an in-flight scan
+  // (Stop, live-log, progress) must use this one. Opening the Live Log
+  // off `activeScan` was the v0.31.0 bug where, in the gap before a new
+  // run's scan.state arrived, the panel opened on the *previous failed*
+  // scan and showed "failed" after a successful re-scan.
   const activeScan = useActiveScanForSource(source.id);
+  const openScan = useOpenScanForSource(source.id);
 
   const summary = useMemo(() => formatSourceSummary(source), [source]);
   const isScanning = source.status === "scanning";
   // Phase-2 multi-scanner: a source can have a queued scan that no
   // agent has claimed yet. Distinct from "scanning" (agent in flight)
   // so the user can tell why nothing's happening.
-  const isQueued = !isScanning && activeScan?.status === "pending";
+  const isQueued = !isScanning && openScan?.status === "pending";
   const [stopping, setStopping] = useState(false);
 
   const handleStop = useCallback(async () => {
-    if (!activeScan) return;
+    if (!openScan) return;
     if (stopping) return;
     setStopping(true);
-    const p = api.cancelScan(activeScan.id);
+    const p = api.cancelScan(openScan.id);
     toast.promise(p, {
       loading: "Stopping scan…",
       success: "Scan stopped.",
@@ -104,22 +112,22 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
     } finally {
       setStopping(false);
     }
-  }, [activeScan, stopping]);
+  }, [openScan, stopping]);
 
   // Compose progress subtitle for in-flight scans. Memoized on the
   // fields that drive the visible string so identical-shape events
   // don't recompute it.
   const progressLine = useMemo<ProgressLine | null>(
-    () => (isScanning && activeScan ? buildProgressLine(activeScan) : null),
+    () => (isScanning && openScan ? buildProgressLine(openScan) : null),
     [
       isScanning,
-      activeScan?.id,
-      activeScan?.files_found,
-      activeScan?.current_path,
-      activeScan?.phase,
-      activeScan?.total_estimated,
-      activeScan?.previous_scan_files,
-      activeScan?.started_at,
+      openScan?.id,
+      openScan?.files_found,
+      openScan?.current_path,
+      openScan?.phase,
+      openScan?.total_estimated,
+      openScan?.previous_scan_files,
+      openScan?.started_at,
     ],
   );
 
@@ -199,14 +207,14 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
           open the drawer just to peek at progress. Other actions
           (edit, scan now, delete) live inside the drawer to keep the
           card minimal. */}
-      {isScanning && activeScan && (
+      {isScanning && openScan && (
         <div className="mt-3 pt-2 border-t border-line-subtle flex items-center gap-2">
           <Button
             size="sm"
             variant="secondary"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenLog(activeScan.id);
+              onOpenLog(openScan.id);
             }}
             aria-label="View live scan log"
           >

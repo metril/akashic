@@ -371,6 +371,14 @@ async def update_source(
         "connection_config": dict(source.connection_config or {}),
         "scan_schedule": source.scan_schedule,
         "exclude_patterns": list(source.exclude_patterns or []),
+        "preferred_pool": source.preferred_pool,
+        "max_parallel_scanners": source.max_parallel_scanners,
+        "is_removable": source.is_removable,
+        "host_id": str(source.host_id) if source.host_id else None,
+        "credential_profile_id": (
+            str(source.credential_profile_id)
+            if source.credential_profile_id else None
+        ),
     }
 
     incoming = data.model_dump(exclude_unset=True)
@@ -469,6 +477,14 @@ async def update_source(
         "connection_config": dict(source.connection_config or {}),
         "scan_schedule": source.scan_schedule,
         "exclude_patterns": list(source.exclude_patterns or []),
+        "preferred_pool": source.preferred_pool,
+        "max_parallel_scanners": source.max_parallel_scanners,
+        "is_removable": source.is_removable,
+        "host_id": str(source.host_id) if source.host_id else None,
+        "credential_profile_id": (
+            str(source.credential_profile_id)
+            if source.credential_profile_id else None
+        ),
     }
     diff_payload: dict = {}
     for field, after_val in after.items():
