@@ -5,6 +5,22 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.6 — 2026-05-17
+
+**The Live Log shows output again for multi-scanner scans.**
+
+### Bug fixes
+
+- **A scan run with more than one scanner now streams its log to the
+  Live Log.** A multi-scanner scan walks each subtree as a separate
+  work unit, but the unit walks were never wired to the log reporter —
+  so their progress lines went to the scanner's local stdout instead of
+  the API, and the Live Log panel sat stuck on "waiting for output" for
+  the whole scan. Each unit walk now streams its log (connecting, walk
+  progress, current path, per-unit completion) the same way a
+  single-scanner scan always has. Scanner-side fix — update the scanner
+  build to pick it up.
+
 ## v0.31.5 — 2026-05-17
 
 **Multi-scanner scans no longer stop after their first chunk finishes.**

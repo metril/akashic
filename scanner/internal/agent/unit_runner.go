@@ -126,7 +126,7 @@ func runUnitCoordinated(
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
 		go heartbeatUnitLoop(hbCtx, httpc, cfg, priv, leased.ScanID, unit.ID)
 
-		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, leased.Source.ExcludePatterns, extractor, extractFactory, cfg.ExtractWorkers)
+		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, reporter, leased.Source.ExcludePatterns, extractor, extractFactory, cfg.ExtractWorkers)
 		hbCancel()
 
 		// Terminal-status delivery uses a fresh, short-lived context
@@ -260,6 +260,7 @@ func runUnitWalk(
 	root string,
 	unit *workUnit,
 	state *observe.State,
+	reporter *observe.Reporter,
 	excludes []string,
 	extractor *extract.Extractor,
 	extractFactory func() (connector.Connector, error),
@@ -267,7 +268,7 @@ func runUnitWalk(
 ) error {
 	if unit.Path == "" {
 		return runRootFilesUnit(
-			ctx, apiClient, shallow,
+			ctx, apiClient, shallow, reporter,
 			leased.Source.ID, leased.ScanID,
 			root, excludes,
 			extractor, extractFactory, extractWorkers,
@@ -288,6 +289,12 @@ func runUnitWalk(
 		Hash:            leased.ScanType == "full",
 		ExcludePatterns: excludes,
 		State:           state,
+		// v0.31.6 — wire the shared Reporter so this unit's walk streams
+		// its log lines (connecting / walk progress / per-file current
+		// path) to /api/scans/{id}/log and on into the Live Log. Without
+		// it scanner.Run falls back to local stdout and a multi-scanner
+		// scan's Live Log shows nothing — stuck "waiting for output".
+		Reporter: reporter,
 		// v0.30.0 — content extraction for this unit's subtree.
 		Extractor:               extractor,
 		ExtractConnectorFactory: extractFactory,
@@ -314,11 +321,15 @@ func runUnitWalk(
 func runRootFilesUnit(
 	ctx context.Context, apiClient *client.Client,
 	shallow connector.ShallowWalker,
+	reporter *observe.Reporter,
 	sourceID, scanID, root string, excludePatterns []string,
 	extractor *extract.Extractor,
 	extractFactory func() (connector.Connector, error),
 	extractWorkers int,
 ) error {
+	// v0.31.6 — stream a line to the Live Log so even a source whose
+	// only unit is the root-files unit isn't stuck "waiting for output".
+	reporter.LogSink().Info("root-files unit: scanning root-level files")
 	var batch []models.EntryRecord
 	_, err := shallow.WalkShallow(ctx, root, excludePatterns, false,
 		func(entry *models.EntryRecord) error {
@@ -329,8 +340,10 @@ func runRootFilesUnit(
 		return err
 	}
 	if len(batch) == 0 {
+		reporter.LogSink().Info("root-files unit: no root-level files")
 		return nil
 	}
+	reporter.LogSink().Info("root-files unit: %d root-level file(s)", len(batch))
 	scanBatch := models.ScanBatch{
 		SourceID: sourceID, ScanID: scanID,
 		// IsFinal=false intentionally — on the unit-coordinated path
