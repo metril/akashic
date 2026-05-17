@@ -10,6 +10,14 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
   loading?: boolean;
   leftIcon?: React.ReactNode;
+  /**
+   * Reserve width for the longest label a stateful button can show, so
+   * the button does not resize (and reflow its toolbar) when `children`
+   * swaps — e.g. a "Pause"/"Resume" toggle, or a "Tag (N)" counter.
+   * Pass the widest string the button will ever render; the visible
+   * `children` are then laid over an invisible sizer of that width.
+   */
+  reserveLabel?: string;
 }
 
 const variantMap: Record<Variant, string> = {
@@ -24,9 +32,15 @@ const variantMap: Record<Variant, string> = {
 };
 
 const sizeMap: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm gap-1.5",
-  md: "h-10 px-4 text-sm gap-2",
-  lg: "h-11 px-5 text-[15px] gap-2",
+  sm: "h-8 px-3 text-sm",
+  md: "h-10 px-4 text-sm",
+  lg: "h-11 px-5 text-[15px]",
+};
+
+const gapMap: Record<Size, string> = {
+  sm: "gap-1.5",
+  md: "gap-2",
+  lg: "gap-2",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -35,6 +49,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     size = "md",
     loading,
     leftIcon,
+    reserveLabel,
     children,
     className,
     disabled,
@@ -42,13 +57,32 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
+  // The visible content: leftIcon + label. Hidden (but still occupying
+  // space) while loading so the spinner overlay doesn't change width.
+  const content = (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center whitespace-nowrap",
+        gapMap[size],
+        loading && "invisible",
+        // With a reserveLabel sizer in flow, the real content is laid
+        // over it so it contributes no width of its own.
+        reserveLabel && "absolute inset-0",
+      )}
+    >
+      {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
+      {children}
+    </span>
+  );
+
   return (
     <button
       ref={ref}
       {...rest}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center font-medium rounded-lg",
+        "relative inline-flex items-center justify-center font-medium rounded-lg",
         // whitespace-nowrap + shrink-0 by default: buttons inside tight
         // flex parents (e.g. `flex justify-between` toolbars) used to
         // squish or wrap their label across two lines. Callers that
@@ -63,12 +97,19 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         className,
       )}
     >
-      {loading ? (
-        <Spinner size={size === "lg" ? "md" : "sm"} />
-      ) : (
-        leftIcon && <span className="flex-shrink-0">{leftIcon}</span>
+      {/* Invisible sizer — fixes the button's width to the longest label
+          it can show, so a `children` swap never reflows the toolbar. */}
+      {reserveLabel && (
+        <span aria-hidden="true" className="invisible whitespace-nowrap">
+          {reserveLabel}
+        </span>
       )}
-      {children}
+      {content}
+      {loading && (
+        <span className="absolute inset-0 inline-flex items-center justify-center">
+          <Spinner size={size === "lg" ? "md" : "sm"} />
+        </span>
+      )}
     </button>
   );
 });

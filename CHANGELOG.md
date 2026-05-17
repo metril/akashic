@@ -5,6 +5,51 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.31.0 — 2026-05-17
+
+**A new admin Maintenance page bundles the operational tooling that
+previously needed shell access — and stateful buttons no longer resize
+and shove the layout around when their label changes.**
+
+### New features
+
+- **Admin → Maintenance page.** A new admin-only page (alongside
+  Access / Audit log / System status) gathers tooling that until now
+  meant `docker compose exec … psql` or running
+  `python -m akashic.tools.*` by hand:
+  - **System overview** — scan, entry, source, scanner and scan-log
+    counts at a glance, including how many log rows are past the
+    retention window.
+  - **Scan & log hygiene** — cancel scans left stuck `pending` or
+    `running` after a scanner crash, run the stale-scan watchdog on
+    demand, and purge old scan-log entries (the sweep the scheduler
+    does every 7 days, now available immediately and tunable).
+  - **Search & index jobs** — kick off a Meilisearch reindex or the
+    subtree-size / viewable-flag / group-cache backfills as background
+    jobs and watch each run through to completion.
+  - **Scanner diagnostics** — every scanner's build version and
+    liveness, flagging any host a version behind the newest — the
+    usual cause of the v0.30.x HTTP 413 scan failures.
+
+  Ships migration `0037` (a `maintenance_jobs` table) — run
+  `alembic upgrade head` when deploying.
+
+- **`akashic-scanner version` subcommand.** Running
+  `docker compose exec <scanner> akashic-scanner version` now prints
+  the exact build, so you can confirm which version a scanner host
+  runs without scrolling back through its startup log.
+
+### Bug fixes
+
+- **Buttons no longer resize when their state changes.** A button
+  whose label swaps with state — the Live Log auto-scroll toggle,
+  "Save" / "Saving…", "Enable" / "Disable", counters like
+  "Tag selected (N)" — changed width as its text changed, nudging the
+  neighbouring controls around the toolbar. Buttons now reserve a
+  stable width and render the loading spinner as a fixed-width
+  overlay, so a toggle or a count update never reflows the surrounding
+  layout. Fixed across ~20 buttons app-wide.
+
 ## v0.30.2 — 2026-05-16
 
 **The scanner name no longer vanishes from the Live Log when the panel

@@ -55,6 +55,12 @@ func main() {
 		case "auto":
 			runAuto(os.Args[2:])
 			return
+		case "version", "--version", "-version":
+			// Print the ldflags-injected build and exit — the fast way
+			// to confirm which version a scanner host actually runs
+			// (`docker compose exec <scanner> akashic-scanner version`).
+			fmt.Println("akashic-scanner", Version)
+			return
 		}
 	}
 

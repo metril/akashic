@@ -296,6 +296,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       variant="secondary"
                       onClick={() => setDiscovering((d) => !d)}
                       title="Enumerate shares using this host's credentials and add the ones you want as Source rows."
+                      reserveLabel="Discover shares"
                     >
                       {discovering ? "Hide shares" : "Discover shares"}
                     </Button>

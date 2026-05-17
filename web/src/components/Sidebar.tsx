@@ -49,6 +49,7 @@ const sections: NavSection[] = [
       { to: "/admin/access", label: "Access", iconName: "shield" },
       { to: "/admin/audit", label: "Audit log", iconName: "audit-log" },
       { to: "/admin/system-status", label: "System status", iconName: "database" },
+      { to: "/admin/maintenance", label: "Maintenance", iconName: "wrench" },
     ],
   },
 ];

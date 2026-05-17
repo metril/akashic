@@ -398,6 +398,7 @@ const DetailsTab = memo(function DetailsTab({
               // assuming the first click did nothing. The api now
               // dedups on the server side too — both belt-and-braces.
               disabled={source.status === "scanning" || activeScanId != null}
+              reserveLabel="Scanning…"
             >
               {source.status === "scanning"
                 ? "Scanning…"

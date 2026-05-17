@@ -62,7 +62,7 @@ export function SnippetTabs({ snippets }: Props) {
         {snippets[active]}
       </pre>
       <div className="flex justify-end mt-2">
-        <Button size="sm" variant="ghost" onClick={copy}>
+        <Button size="sm" variant="ghost" onClick={copy} reserveLabel="📋 Copy">
           {copied ? "Copied!" : "📋 Copy"}
         </Button>
       </div>

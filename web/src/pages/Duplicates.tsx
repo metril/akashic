@@ -347,6 +347,8 @@ function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps)
                       onClick={() => setConfirming(true)}
                       disabled={!canSubmit || busy}
                       loading={busy}
+                      reserveLabel="Delete 999 copies"
+                      className="tabular-nums"
                     >
                       Delete {deleteIds.length}{" "}
                       {deleteIds.length === 1 ? "copy" : "copies"}

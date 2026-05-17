@@ -29,6 +29,7 @@ const SettingsOAuth      = lazy(() => import("./pages/SettingsOAuth"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 const AdminSystemStatus  = lazy(() => import("./pages/AdminSystemStatus"));
+const AdminMaintenance   = lazy(() => import("./pages/AdminMaintenance"));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated()) {
@@ -275,6 +276,16 @@ export default function App() {
             <AdminRoute>
               <Suspense fallback={<PageLoader />}>
                 <AdminSystemStatus />
+              </Suspense>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="admin/maintenance"
+          element={
+            <AdminRoute>
+              <Suspense fallback={<PageLoader />}>
+                <AdminMaintenance />
               </Suspense>
             </AdminRoute>
           }

@@ -323,36 +323,61 @@ async def _scheduler_loop():
         await asyncio.sleep(60)
 
 
-async def _scan_log_cleanup_loop():
-    """Hourly: drop scan_log_entries whose parent scan completed >7 days ago.
+async def purge_scan_logs(db: AsyncSession, older_than_days: int) -> int:
+    """Delete scan_log_entries whose parent scan is terminal and completed
+    more than `older_than_days` ago. Returns the number of rows deleted.
 
     Scoping by parent-scan completion time (rather than the row's own ts)
-    means a long-running scan keeps its full log history; we only sweep
-    scans the user is no longer actively investigating."""
+    means a long-running scan keeps its full log history; only scans the
+    user is no longer actively investigating are swept. `older_than_days=0`
+    sweeps every terminal scan's logs.
+
+    Shared by the hourly retention loop (`_scan_log_cleanup_loop`) and the
+    admin Maintenance page's log-purge action."""
     from sqlalchemy import delete
     from akashic.models.scan_log_entry import ScanLogEntry
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    # Subquery: terminal scans whose completion is past the cutoff.
+    stale_scan_ids = (
+        select(Scan.id)
+        .where(
+            Scan.status.in_(["completed", "failed", "cancelled"]),
+            Scan.completed_at.isnot(None),
+            Scan.completed_at < cutoff,
+        )
+    ).subquery()
+    result = await db.execute(
+        delete(ScanLogEntry).where(ScanLogEntry.scan_id.in_(select(stale_scan_ids)))
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
+async def purge_scan_logs_for_scan(db: AsyncSession, scan_id) -> int:
+    """Delete every scan_log_entry for one scan, regardless of its status.
+    Used by the Maintenance page to clear a specific stuck scan's logs."""
+    from sqlalchemy import delete
+    from akashic.models.scan_log_entry import ScanLogEntry
+
+    result = await db.execute(
+        delete(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
+async def _scan_log_cleanup_loop():
+    """Hourly: drop scan_log_entries whose parent scan completed >7 days ago."""
     while True:
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=_LOG_RETENTION_DAYS)
             async with async_session() as db:
-                # Subquery: scan IDs whose terminal completion is past the
-                # cutoff. Failed scans count too — they won't be re-opened
-                # for inspection after a week.
-                stale_scan_ids = (
-                    select(Scan.id)
-                    .where(
-                        Scan.status.in_(["completed", "failed"]),
-                        Scan.completed_at.isnot(None),
-                        Scan.completed_at < cutoff,
-                    )
-                ).subquery()
-                result = await db.execute(
-                    delete(ScanLogEntry).where(ScanLogEntry.scan_id.in_(select(stale_scan_ids)))
+                deleted = await purge_scan_logs(db, _LOG_RETENTION_DAYS)
+            if deleted:
+                logger.info(
+                    "Pruned %d scan_log_entries (retention %dd)",
+                    deleted, _LOG_RETENTION_DAYS,
                 )
-                await db.commit()
-                if result.rowcount:
-                    logger.info("Pruned %d scan_log_entries older than %s", result.rowcount, cutoff)
         except Exception as exc:  # noqa: BLE001
             logger.warning("scan log cleanup pass failed: %s", exc)
         await asyncio.sleep(3600)  # hourly

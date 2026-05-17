@@ -62,8 +62,8 @@ export function PrincipalLookup({ onLookup, pending }: Props) {
           />
         </div>
       )}
-      <Button type="submit" disabled={!canSubmit || pending}>
-        {pending ? "Looking up…" : "Look up"}
+      <Button type="submit" disabled={!canSubmit} loading={pending}>
+        Look up
       </Button>
     </form>
   );

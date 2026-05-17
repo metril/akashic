@@ -646,6 +646,8 @@ function SelectionBar({
             size="sm"
             variant="ghost"
             onClick={toggleAllVisible}
+            reserveLabel="Select all 9,999 visible"
+            className="tabular-nums"
           >
             {allVisibleSelected ? "Deselect all visible" : `Select all ${results.length.toLocaleString()} visible`}
           </Button>
@@ -657,7 +659,12 @@ function SelectionBar({
             Clear
           </Button>
           <div className="flex-1" />
-          <Button size="sm" onClick={onTagSelected}>
+          <Button
+            size="sm"
+            onClick={onTagSelected}
+            reserveLabel="Tag selected (9,999)"
+            className="tabular-nums"
+          >
             Tag selected ({selectedIds.size})
           </Button>
         </>

@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from akashic.config import settings
 
-from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services
+from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
 from akashic.services import metrics as metrics_svc
 
 logger = logging.getLogger(__name__)
@@ -193,6 +193,15 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Scan scheduler started")
 
+    # A maintenance job runs as an in-process task that does not survive
+    # a restart — flip any row left `running` by the previous process to
+    # `failed` so the Maintenance page doesn't show a phantom job.
+    try:
+        from akashic.services.maintenance_jobs import reconcile_orphans
+        await reconcile_orphans()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("maintenance job reconcile failed: %s", exc)
+
     # v0.4.11 Phase 8e — streaming top_children worker. No-op when
     # the feature flag (settings.streaming_topchildren) is False.
     from akashic.services import top_children_worker
@@ -312,6 +321,7 @@ def create_app() -> FastAPI:
     app.include_router(server_settings.router)
     app.include_router(source_oauth.router)
     app.include_router(health_services.router)
+    app.include_router(maintenance.router)
     return app
 
 

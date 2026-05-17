@@ -279,7 +279,7 @@ function Step2({
         <code className="font-mono text-xs flex-1 break-all text-fg">
           {issued.token}
         </code>
-        <Button size="sm" variant="ghost" onClick={copyToken}>
+        <Button size="sm" variant="ghost" onClick={copyToken} reserveLabel="Copied!">
           {tokenCopied ? "Copied!" : "📋"}
         </Button>
       </div>

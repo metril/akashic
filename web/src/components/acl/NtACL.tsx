@@ -213,6 +213,7 @@ export function NtACL({ acl, sourceId }: { acl: NtACLType; sourceId?: string }) 
             size="sm"
             variant="ghost"
             onClick={() => setShowInherited(!showInherited)}
+            reserveLabel={`Hide ${inheritedGroups.length} inherited entries`}
           >
             {showInherited ? "Hide" : "Show"} {inheritedGroups.length} inherited entr{inheritedGroups.length === 1 ? "y" : "ies"}
           </Button>

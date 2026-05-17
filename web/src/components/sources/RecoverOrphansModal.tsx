@@ -128,6 +128,8 @@ export function RecoverOrphansModal({
           onClick={handleConfirm}
           loading={commit.isPending}
           disabled={!summary || summary.matched === 0}
+          reserveLabel="Recover 9,999"
+          className="tabular-nums"
         >
           Recover {summary?.matched ?? 0}
         </Button>

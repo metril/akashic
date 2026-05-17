@@ -238,10 +238,9 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                 size="sm"
                 variant="danger"
                 onClick={handleStop}
-                disabled={stopping}
                 loading={stopping}
               >
-                {stopping ? "Stopping…" : "Stop scan"}
+                Stop scan
               </Button>
             )}
             <Button
@@ -254,6 +253,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
                 }
               }}
               disabled={autoScroll}
+              reserveLabel="Auto-scrolling"
             >
               {autoScroll ? "Auto-scrolling" : "Resume tail"}
             </Button>

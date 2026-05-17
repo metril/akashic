@@ -104,8 +104,8 @@ export function OneDriveFields({
             Connect a Microsoft account to grant Akashic read-only OneDrive
             access.
           </p>
-          <Button onClick={handleSignIn} disabled={busy || start.isPending}>
-            {busy || start.isPending ? "Opening…" : "Sign in with Microsoft"}
+          <Button onClick={handleSignIn} loading={busy || start.isPending}>
+            Sign in with Microsoft
           </Button>
           <p className="text-[11px] text-fg-muted mt-2">
             Requires a Microsoft OAuth client configured under Settings →

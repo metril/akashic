@@ -100,8 +100,8 @@ export function DropboxFields({ value, onChange }: FieldsProps<DropboxConfig>) {
           <p className="text-sm text-fg mb-2">
             Connect a Dropbox account to grant Akashic read-only access.
           </p>
-          <Button onClick={handleSignIn} disabled={busy || start.isPending}>
-            {busy || start.isPending ? "Opening…" : "Sign in with Dropbox"}
+          <Button onClick={handleSignIn} loading={busy || start.isPending}>
+            Sign in with Dropbox
           </Button>
           <p className="text-[11px] text-fg-muted mt-2">
             Requires a Dropbox OAuth client configured under Settings →

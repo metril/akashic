@@ -371,7 +371,7 @@ function ScannerRow({
         <Button size="sm" variant="ghost" onClick={onRotate} title="Rotate keys">
           Rotate
         </Button>
-        <Button size="sm" variant="ghost" onClick={onToggle}>
+        <Button size="sm" variant="ghost" onClick={onToggle} reserveLabel="Disable">
           {s.enabled ? "Disable" : "Enable"}
         </Button>
         <Button

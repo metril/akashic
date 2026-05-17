@@ -232,6 +232,8 @@ export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props)
           onClick={handleApply}
           loading={update.isPending}
           disabled={!dirty}
+          reserveLabel="Apply to 999 sources"
+          className="tabular-nums"
         >
           Apply to {attachedSourceCount} source{attachedSourceCount === 1 ? "" : "s"}
         </Button>

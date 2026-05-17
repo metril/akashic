@@ -261,6 +261,8 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
             onClick={handleAdd}
             loading={addShares.isPending}
             disabled={selectedCount === 0}
+            reserveLabel="Add 999 sources"
+            className="tabular-nums"
           >
             Add{selectedCount > 0 ? ` ${selectedCount}` : ""}{" "}
             source{selectedCount === 1 ? "" : "s"}

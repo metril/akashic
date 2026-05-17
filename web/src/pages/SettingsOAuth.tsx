@@ -265,9 +265,9 @@ function ProviderRow({
             size="sm"
             variant="ghost"
             onClick={handleTest}
-            disabled={start.isPending}
+            loading={start.isPending}
           >
-            {start.isPending ? "Opening…" : "Test"}
+            Test
           </Button>
           <Button size="sm" variant="ghost" onClick={onDelete}>
             Forget
@@ -401,9 +401,9 @@ function CredentialRow({
           size="sm"
           variant="ghost"
           onClick={handleRefresh}
-          disabled={refresh.isPending}
+          loading={refresh.isPending}
         >
-          {refresh.isPending ? "Refreshing…" : "Refresh"}
+          Refresh
         </Button>
         <Button size="sm" variant="ghost" onClick={onDelete}>
           Disconnect

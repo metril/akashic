@@ -206,6 +206,72 @@ class CancelResponse(BaseModel):
     status: str
 
 
+async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
+    """Transition a pending/running scan to `cancelled` and broadcast it.
+
+    Idempotent — a scan already terminal is returned unchanged. `reason`
+    is recorded as `cancellation_reason` ("user" or "admin") so the
+    scanner's next-heartbeat 409 body stays disambiguated. The source
+    flips back to 'online' so a retrigger works without waiting for the
+    watchdog. The scanner process learns of the cancellation on its next
+    heartbeat tick (≤1 s).
+
+    Authorization is the caller's responsibility — this function does no
+    access check (the maintenance router calls it admin-wide)."""
+    from datetime import datetime, timezone
+
+    if scan.status not in {"pending", "running"}:
+        return scan.status
+
+    scan.status = "cancelled"
+    if scan.completed_at is None:
+        scan.completed_at = datetime.now(timezone.utc)
+    scan.error_message = (
+        "Cancelled by user" if reason == "user" else "Cancelled by administrator"
+    )
+    # v0.29.8 — write cancellation_reason so the scanner's next heartbeat
+    # receives the disambiguated 409 body.
+    scan.cancellation_reason = reason
+
+    source_result = await db.execute(select(Source).where(Source.id == scan.source_id))
+    source = source_result.scalar_one_or_none()
+    if source is not None and source.status == "scanning":
+        source.status = "online"
+
+    await db.commit()
+
+    # v0.4.11: broadcast the cancellation directly. Previously this
+    # relied on the scanner POSTing /complete after seeing 409 on its
+    # next heartbeat — which works for in-flight scans but not for
+    # pending scans that no scanner ever leased. Direct publish makes
+    # the SourceCard reflect the cancel within one WS frame.
+    if source is not None:
+        from akashic.services import scan_broadcast, scan_pubsub
+        scanner_name = await scan_broadcast.resolve_scanner_name(
+            db, scan.assigned_scanner_id,
+        )
+        await scan_pubsub.publish_source_event({
+            "kind": "scan.state",
+            "source_id": str(source.id),
+            "scan_id": str(scan.id),
+            "scan_status": "cancelled",
+            "source_status": source.status,
+            "scanner_id": (
+                str(scan.assigned_scanner_id)
+                if scan.assigned_scanner_id else None
+            ),
+            "scanner_name": scanner_name,
+            "scan_type": scan.scan_type,
+            "files_found": scan.files_found or 0,
+            "current_path": None,
+            "started_at": (
+                scan.started_at.isoformat() if scan.started_at else None
+            ),
+        })
+        await scan_broadcast.clear_broadcast(str(scan.id))
+    return scan.status
+
+
 @router.post("/{scan_id}/cancel", response_model=CancelResponse)
 async def cancel_scan(
     scan_id: uuid.UUID,
@@ -215,69 +281,11 @@ async def cancel_scan(
     """Mark a running scan as cancelled. The next heartbeat from the
     scanner will receive HTTP 409 and exit cleanly. Idempotent: calling
     cancel on an already-terminal scan returns the current status
-    without raising.
-
-    The source's status flips back to 'online' so subsequent triggers
-    work without waiting for the watchdog. The actual scanner process
-    won't terminate instantly — it learns about the cancellation on its
-    next heartbeat tick (≤1 s)."""
-    from datetime import datetime, timezone
-
+    without raising."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     await check_source_access(scan.source_id, user, db, required_level="write")
-
-    if scan.status in {"pending", "running"}:
-        scan.status = "cancelled"
-        if scan.completed_at is None:
-            scan.completed_at = datetime.now(timezone.utc)
-        scan.error_message = "Cancelled by user"
-        # v0.29.8 — write cancellation_reason so the scanner's next
-        # heartbeat receives the disambiguated 409 body and logs
-        # "scan cancelled by user" only when it was actually the user.
-        scan.cancellation_reason = "user"
-
-        # Flip the source back to online so the user can immediately
-        # retrigger. If the scanner is mid-flight it'll keep posting
-        # heartbeats for a few seconds — the heartbeat endpoint refuses
-        # those (409) and the scanner exits.
-        source_result = await db.execute(select(Source).where(Source.id == scan.source_id))
-        source = source_result.scalar_one_or_none()
-        if source is not None and source.status == "scanning":
-            source.status = "online"
-
-        await db.commit()
-
-        # v0.4.11: broadcast the cancellation directly. Previously this
-        # relied on the scanner POSTing /complete after seeing 409 on
-        # its next heartbeat — which works for in-flight scans but not
-        # for pending scans that no scanner ever leased. Direct publish
-        # makes the SourceCard reflect the cancel within one WS frame
-        # regardless of scanner state.
-        if source is not None:
-            from akashic.services import scan_broadcast, scan_pubsub
-            scanner_name = await scan_broadcast.resolve_scanner_name(
-                db, scan.assigned_scanner_id,
-            )
-            await scan_pubsub.publish_source_event({
-                "kind": "scan.state",
-                "source_id": str(source.id),
-                "scan_id": str(scan.id),
-                "scan_status": "cancelled",
-                "source_status": source.status,
-                "scanner_id": (
-                    str(scan.assigned_scanner_id)
-                    if scan.assigned_scanner_id else None
-                ),
-                "scanner_name": scanner_name,
-                "scan_type": scan.scan_type,
-                "files_found": scan.files_found or 0,
-                "current_path": None,
-                "started_at": (
-                    scan.started_at.isoformat() if scan.started_at else None
-                ),
-            })
-            await scan_broadcast.clear_broadcast(str(scan.id))
-    return CancelResponse(scan_id=scan.id, status=scan.status)
+    status = await cancel_scan_core(db, scan, reason="user")
+    return CancelResponse(scan_id=scan.id, status=status)

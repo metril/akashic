@@ -114,8 +114,8 @@ export function GDriveFields({ value, onChange }: FieldsProps<GDriveConfig>) {
           <p className="text-sm text-fg mb-2">
             Connect a Google account to grant Akashic read-only Drive access.
           </p>
-          <Button onClick={handleSignIn} disabled={busy || start.isPending}>
-            {busy || start.isPending ? "Opening…" : "Sign in with Google"}
+          <Button onClick={handleSignIn} loading={busy || start.isPending}>
+            Sign in with Google
           </Button>
           <p className="text-[11px] text-fg-muted mt-2">
             Requires a Google OAuth client configured under Settings →

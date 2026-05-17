@@ -219,10 +219,9 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
               e.stopPropagation();
               handleStop();
             }}
-            disabled={stopping}
             loading={stopping}
           >
-            {stopping ? "Stopping…" : "Stop scan"}
+            Stop scan
           </Button>
         </div>
       )}

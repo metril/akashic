@@ -7,6 +7,7 @@ from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.reachability_result import ReachabilityResult
 from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.models.scan_snapshot import ScanSnapshot
+from akashic.models.maintenance_job import MaintenanceJob
 from akashic.models.tag import Tag, EntryTag
 from akashic.models.user import User, SourcePermission, APIKey
 from akashic.models.webhook import Webhook, PurgeLog
@@ -35,6 +36,7 @@ __all__ = [
     "ReachabilityResult",
     "ScanLogEntry",
     "ScanSnapshot",
+    "MaintenanceJob",
     "Tag",
     "EntryTag",
     "User",
