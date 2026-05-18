@@ -51,7 +51,7 @@ func OpenLsaPipe(host string, port int, username, password string) (io.ReadWrite
 		port = 445
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	conn, err := net.Dial("tcp", addr)
+	conn, err := net.DialTimeout("tcp", addr, smbDialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("smb dial %s: %w", addr, err)
 	}

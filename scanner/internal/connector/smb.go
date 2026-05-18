@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/hirochachacha/go-smb2"
 
@@ -47,6 +49,11 @@ type SMBConnector struct {
 	// sdSource provides raw security descriptor bytes for each path.
 	// Populated from smbShare after Connect(); can be overridden in tests.
 	sdSource  sdFetcher
+	// v0.32.2 — guard support. ctx is the connect-time (scan) context
+	// every guard() bounds its SMB op against; stalled latches once an
+	// SMB op was force-aborted because the server stopped responding.
+	ctx     context.Context
+	stalled atomic.Bool
 }
 
 func NewSMBConnector(host string, port int, username, password, share string) *SMBConnector {
@@ -56,7 +63,87 @@ func NewSMBConnector(host string, port int, username, password, share string) *S
 		username: username,
 		password: password,
 		share:    share,
+		ctx:      context.Background(),
 	}
+}
+
+// smbOpTimeout bounds a single SMB operation. A healthy server answers
+// in milliseconds; one that has stalled — the host slept, the share
+// went offline, a network blip left a half-open TCP connection — would
+// otherwise park the scan goroutine in a deadline-less socket read
+// forever, since Go context cancellation cannot interrupt a syscall.
+// Five minutes is far longer than any real round trip yet bounds a
+// genuine stall. A var, not a const, so tests can shorten it. v0.32.2.
+var smbOpTimeout = 300 * time.Second
+
+// smbDialTimeout bounds the bare TCP dial in the LSA / SAMR RPC paths
+// (smb_lsa.go, smb_samr.go) so a black-holed host can't wedge SID
+// resolution before a connection is even established. v0.32.2.
+const smbDialTimeout = 30 * time.Second
+
+// guard runs one blocking SMB call with a timeout and context
+// awareness. On timeout or context cancellation it force-closes the
+// underlying TCP connection — that unblocks the wedged go-smb2 call
+// (its socket read returns an error), so fn returns and its goroutine
+// exits with no leak. The walk then unwinds normally instead of
+// hanging until the scanner process is restarted.
+//
+// A socket-level deadline can't be used instead: go-smb2's receive
+// loop sits permanently blocked reading the socket and tears the whole
+// connection down on any read error, so a deadline would kill a
+// healthy connection that merely idled. Bounding per-operation only
+// trips when an SMB call is genuinely in flight.
+func (c *SMBConnector) guard(name string, fn func() error) error {
+	// ctx is set by Connect / NewSMBConnector; fall back to Background
+	// for connectors built as a bare struct literal (e.g. unit tests).
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+		return ctx.Err()
+	case <-time.After(smbOpTimeout):
+		c.stalled.Store(true)
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+		return fmt.Errorf(
+			"smb %s: server stalled — no response in %s; connection closed",
+			name, smbOpTimeout,
+		)
+	}
+}
+
+// guardedReader wraps an SMB file handle so each Read/Close runs under
+// guard. File-content reads stream chunk-by-chunk and may legitimately
+// run long, so they can't be bounded as one fixed-timeout operation —
+// per-Read guarding makes it an inactivity bound: a healthy stream
+// refreshes the timer every chunk, a stalled one trips it.
+type guardedReader struct {
+	c  *SMBConnector
+	rc io.ReadCloser
+}
+
+func (g *guardedReader) Read(p []byte) (int, error) {
+	var n int
+	err := g.c.guard("file read", func() error {
+		var e error
+		n, e = g.rc.Read(p)
+		return e
+	})
+	return n, err
+}
+
+func (g *guardedReader) Close() error {
+	return g.c.guard("file close", func() error { return g.rc.Close() })
 }
 
 // SetAllowEmptyPassword opts the connector into empty-password sessions
@@ -71,6 +158,8 @@ func (c *SMBConnector) SetAllowEmptyPassword(v bool) {
 }
 
 func (c *SMBConnector) Connect(ctx context.Context) error {
+	// v0.32.2 — every guard() call bounds its SMB op against this context.
+	c.ctx = ctx
 	// v0.29.5 — defense in depth against the empty-password bypass
 	// (see scanner/internal/probe/probe.go:runSMB for the full
 	// rationale). The probe rejects this case for reachability tests;
@@ -106,8 +195,12 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 		},
 	}
 
-	session, err := d.Dial(conn)
-	if err != nil {
+	var session *smb2.Session
+	if err := c.guard("session setup", func() error {
+		var e error
+		session, e = d.Dial(conn)
+		return e
+	}); err != nil {
 		conn.Close()
 		return fmt.Errorf("smb session: %w", err)
 	}
@@ -143,8 +236,12 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 	}
 	c.session = session
 
-	share, err := session.Mount(c.share)
-	if err != nil {
+	var share *smb2.Share
+	if err := c.guard("mount", func() error {
+		var e error
+		share, e = session.Mount(c.share)
+		return e
+	}); err != nil {
 		session.Logoff()
 		conn.Close()
 		return fmt.Errorf("smb mount %s: %w", c.share, err)
@@ -166,7 +263,10 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 	// legit pass (mountable + readable + empty share is a real
 	// configuration). go-smb2's Share.ReadDir reads relative to the
 	// mount; "." is the share root.
-	if _, rerr := share.ReadDir("."); rerr != nil {
+	if rerr := c.guard("readdir smoke test", func() error {
+		_, e := share.ReadDir(".")
+		return e
+	}); rerr != nil {
 		share.Umount()
 		session.Logoff()
 		conn.Close()
@@ -183,7 +283,14 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 	// capture continues with raw SIDs (well-known table still resolves what it can).
 	// go-smb2 requires a separate IPC$ mount to access named pipes; keep ipcShare
 	// alive for the duration so the underlying tree connection stays open.
-	if ipcShare, ipcErr := c.session.Mount(fmt.Sprintf(`\\%s\IPC$`, c.host)); ipcErr == nil {
+	// Wrapped in one guard: a server that stalls during this best-effort
+	// LSA setup must not wedge Connect. On timeout guard closes the
+	// connection; the first walk op then fails fast and the scan unwinds.
+	_ = c.guard("lsa setup", func() error {
+		ipcShare, ipcErr := c.session.Mount(fmt.Sprintf(`\\%s\IPC$`, c.host))
+		if ipcErr != nil {
+			return nil
+		}
 		c.ipcShare = ipcShare
 		if pipe, perr := ipcShare.OpenFile("lsarpc", os.O_RDWR, 0); perr == nil {
 			client := lsarpc.NewClient(pipe)
@@ -197,7 +304,8 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 				_ = client.Close()
 			}
 		}
-	}
+		return nil
+	})
 	c.resolver = metadata.NewSIDResolver(lsaAdapter{c.lsaClient})
 
 	return nil
@@ -221,8 +329,20 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	entries, err := c.smbShare.ReadDir(dir)
+	var entries []os.FileInfo
+	err := c.guard("readdir "+dir, func() error {
+		var e error
+		entries, e = c.smbShare.ReadDir(dir)
+		return e
+	})
 	if err != nil {
+		// A stalled connection (guard force-closed it) means the rest of
+		// this subtree can't be walked — abort instead of silently
+		// shipping a partial scan. A non-stall error is a per-directory
+		// permission/transient issue: count it and move on.
+		if c.stalled.Load() {
+			return fmt.Errorf("smb walk aborted at %q: %w", dir, err)
+		}
 		stats.InaccessibleDirs++
 		return nil
 	}
@@ -281,8 +401,12 @@ func (c *SMBConnector) WalkShallow(
 	for _, p := range excludePatterns {
 		excludeSet[strings.ToLower(p)] = true
 	}
-	infos, err := c.smbShare.ReadDir(root)
-	if err != nil {
+	var infos []os.FileInfo
+	if err := c.guard("readdir "+root, func() error {
+		var e error
+		infos, e = c.smbShare.ReadDir(root)
+		return e
+	}); err != nil {
 		// Propagate so the unit runner sees a real failure. Returning
 		// (nil, nil) here used to silently mask permission/connectivity
 		// failures at the share root and ship a zero-subdirectory plan,
@@ -319,12 +443,17 @@ func (c *SMBConnector) WalkShallow(
 }
 
 func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
-	f, err := c.smbShare.Open(path)
-	if err != nil {
+	var f *smb2.File
+	if err := c.guard("open "+path, func() error {
+		var e error
+		f, e = c.smbShare.Open(path)
+		return e
+	}); err != nil {
 		return "", err
 	}
-	defer f.Close()
-	return metadata.HashReader(f)
+	gr := &guardedReader{c: c, rc: f}
+	defer gr.Close()
+	return metadata.HashReader(gr)
 }
 
 // querySecurityDescriptor returns the raw NT security descriptor bytes for
@@ -351,14 +480,28 @@ func (c *SMBConnector) querySecurityDescriptor(path string) ([]byte, error) {
 	if c.sdSource == nil {
 		return nil, fmt.Errorf("not connected")
 	}
-	return c.sdSource.GetSecurityDescriptorBytes(path)
+	var sd []byte
+	err := c.guard("security descriptor "+path, func() error {
+		var e error
+		sd, e = c.sdSource.GetSecurityDescriptorBytes(path)
+		return e
+	})
+	return sd, err
 }
 
 func (c *SMBConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {
 	if c.smbShare == nil {
 		return nil, fmt.Errorf("not connected")
 	}
-	return c.smbShare.Open(path)
+	var f *smb2.File
+	if err := c.guard("open "+path, func() error {
+		var e error
+		f, e = c.smbShare.Open(path)
+		return e
+	}); err != nil {
+		return nil, err
+	}
+	return &guardedReader{c: c, rc: f}, nil
 }
 
 // Delete removes a file from the SMB share. The bound user needs the
@@ -369,28 +512,38 @@ func (c *SMBConnector) Delete(_ context.Context, path string) error {
 	if c.smbShare == nil {
 		return fmt.Errorf("not connected")
 	}
-	st, err := c.smbShare.Stat(path)
-	if err != nil {
+	var st os.FileInfo
+	if err := c.guard("stat "+path, func() error {
+		var e error
+		st, e = c.smbShare.Stat(path)
+		return e
+	}); err != nil {
 		return err
 	}
 	if st.IsDir() {
 		return fmt.Errorf("refusing to delete directory %q", path)
 	}
-	return c.smbShare.Remove(path)
+	return c.guard("remove "+path, func() error {
+		return c.smbShare.Remove(path)
+	})
 }
 
 func (c *SMBConnector) Close() error {
 	if c.lsaClient != nil {
 		_ = c.lsaClient.Close()
 	}
+	// Bound the teardown: Umount/Logoff are SMB round trips, so a server
+	// that has gone away would otherwise wedge Close — the same hang as
+	// the walk path. guard force-closes c.conn on timeout (or at once if
+	// the scan context is already cancelled), so Close always returns.
 	if c.ipcShare != nil {
-		c.ipcShare.Umount()
+		_ = c.guard("ipc umount", func() error { return c.ipcShare.Umount() })
 	}
 	if c.smbShare != nil {
-		c.smbShare.Umount()
+		_ = c.guard("umount", func() error { return c.smbShare.Umount() })
 	}
 	if c.session != nil {
-		c.session.Logoff()
+		_ = c.guard("logoff", func() error { return c.session.Logoff() })
 	}
 	if c.conn != nil {
 		c.conn.Close()

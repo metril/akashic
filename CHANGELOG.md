@@ -5,6 +5,26 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.32.2 — 2026-05-18
+
+**An SMB share that stalls mid-scan no longer freezes the scanner.**
+
+### Bug fixes
+
+- **A scanner no longer wedges when an SMB server stops responding.**
+  If a Windows / SMB share stalled during a scan — the host slept, the
+  share went offline, or a network blip left a half-open connection —
+  the scanner froze mid-scan: it stopped logging, took no further work,
+  and only a container restart recovered it. Only the initial TCP dial
+  was time-bounded; every SMB operation after it (directory listings,
+  file reads, security-descriptor queries, connection teardown) could
+  block forever in a socket read that scan cancellation cannot
+  interrupt. Each SMB operation now runs under a timeout: a stalled
+  server surfaces as an error, the affected unit fails cleanly, and the
+  scanner stays alive to pick up the next scan. The LSA/SAMR
+  SID-resolution dials also gained a connect timeout. Scanner-side fix
+  — rebuild the scanner image to pick it up.
+
 ## v0.32.1 — 2026-05-17
 
 **Multi-scanner scans report "done" when they finish — and the Live
