@@ -97,29 +97,40 @@ func runUnitCoordinated(
 
 	// Up-front enumeration: if no units exist yet for this scan, the
 	// first scanner to arrive splits the source into a "root files" unit
-	// (path "") plus one unit per top-level subdirectory. Subsequent
-	// scanners arriving here will already see units in the queue and
-	// skip the enumeration step.
-	if err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanID, root, shallow, leased.Source.ExcludePatterns); err != nil {
+	// (path "") plus one unit per top-level subdirectory. A scanner that
+	// arrives once the queue already exists gets a unit leased to it by
+	// the enumeration probe; that unit is returned here and MUST be
+	// processed below — abandoning it used to orphan the unit and stall
+	// the whole scan (v0.32.1).
+	probeUnit, err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanID, root, shallow, leased.Source.ExcludePatterns)
+	if err != nil {
 		return fmt.Errorf("enumerate units: %w", err)
 	}
 
 	// Lease loop. Stops when /work/lease returns 204 (no work for me).
+	// `pending` carries the probe-leased unit (if any) so the first
+	// iteration processes it instead of leasing a fresh one.
+	pending := probeUnit
 	for {
 		if err := scanCtx.Err(); err != nil {
 			return err
 		}
-		unit, err := leaseUnit(scanCtx, httpc, cfg, priv, leased.ScanID)
-		if errors.Is(err, errNoWork) {
-			log.Printf("scan %s: no more work units; exiting unit loop", leased.ScanID)
-			return nil
-		}
-		if err != nil {
-			// Cap-reached or transient: jitter and try again. The cap
-			// case clears as siblings finish their units.
-			log.Printf("scan %s: lease unit: %v (sleeping)", leased.ScanID, err)
-			sleepWithJitter(scanCtx, cfg.LeasePoll)
-			continue
+		unit := pending
+		pending = nil
+		if unit == nil {
+			u, lErr := leaseUnit(scanCtx, httpc, cfg, priv, leased.ScanID)
+			if errors.Is(lErr, errNoWork) {
+				log.Printf("scan %s: no more work units; exiting unit loop", leased.ScanID)
+				return nil
+			}
+			if lErr != nil {
+				// Cap-reached or transient: jitter and try again. The cap
+				// case clears as siblings finish their units.
+				log.Printf("scan %s: lease unit: %v (sleeping)", leased.ScanID, lErr)
+				sleepWithJitter(scanCtx, cfg.LeasePoll)
+				continue
+			}
+			unit = u
 		}
 
 		// Heartbeat in the background; cancelled when the unit's walk returns.
@@ -150,31 +161,45 @@ func runUnitCoordinated(
 }
 
 // ensureUnitsEnumerated calls /work/lease once to probe for existing
-// units. On 204 (no units) it lists the source root via the
-// connector's WalkShallow (subdirs only — files are emitted later by
-// the "" unit), splits off subdirs + a root-files unit, then returns
-// so the caller's lease loop picks up the freshly-enqueued work.
+// units and makes sure the scan's work queue exists:
 //
-// A leased unit returned here is immediately RELEASED (we don't act on
-// it) by NOT calling complete — the lease will expire after 60s and
-// another scanner can pick it up. This is deliberate: the enumerator
-// scanner doesn't want to monopolize the first leased unit; it just
-// wants to confirm whether enumeration has happened.
+//   - probe leases a unit  → the queue is already enumerated, and that
+//     unit is returned for the CALLER to process. It must NOT be
+//     abandoned: an abandoned leased unit sits "running" until its 60 s
+//     lease expires, and if every scanner has drained the rest of the
+//     queue by then nothing re-leases it and the scan never finalizes
+//     (the v0.32.1 stall — the probe used to deliberately drop it).
+//   - probe gets 204       → this scanner is the first to arrive; it
+//     shallow-walks the source root (subdirs only — files are emitted
+//     later by the "" unit) and splits off a "root files" unit plus one
+//     unit per top-level subdirectory, then returns (nil, nil) so the
+//     caller's lease loop drains the freshly-enqueued work.
+//   - probe gets 409 (cap) → units already exist but there is no slot
+//     for us yet; return (nil, nil) and let the caller's lease loop
+//     retry past the cap with backoff.
 func ensureUnitsEnumerated(
 	ctx context.Context, httpc *http.Client, cfg Config,
 	priv ed25519.PrivateKey, scanID, root string,
 	shallow connector.ShallowWalker, excludes []string,
-) error {
+) (*workUnit, error) {
 	probe, err := leaseUnit(ctx, httpc, cfg, priv, scanID)
 	if err == nil && probe != nil {
 		log.Printf(
-			"scan %s: enumeration already done by a sibling; "+
-				"releasing probe unit %s", scanID, probe.ID,
+			"scan %s: queue already enumerated; processing probe-leased "+
+				"unit %s", scanID, probe.ID,
 		)
-		return nil
+		return probe, nil
 	}
 	if err != nil && !errors.Is(err, errNoWork) {
-		return fmt.Errorf("probe lease: %w", err)
+		if errors.Is(err, errLeaseCap) {
+			// Units exist (the cap is only enforced when a unit IS
+			// available); we just have no slot yet. Skip enumeration —
+			// the caller's lease loop retries past the cap.
+			log.Printf("scan %s: queue already enumerated, lease capped; "+
+				"entering lease loop", scanID)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("probe lease: %w", err)
 	}
 
 	// 204 from probe → we're the first scanner; enumerate via the
@@ -184,7 +209,7 @@ func ensureUnitsEnumerated(
 	subdirs, err := shallow.WalkShallow(ctx, root, excludes, false,
 		func(*models.EntryRecord) error { return nil })
 	if err != nil {
-		return fmt.Errorf("enumerate root: %w", err)
+		return nil, fmt.Errorf("enumerate root: %w", err)
 	}
 
 	paths := make([]string, 0, len(subdirs)+1)
@@ -192,11 +217,11 @@ func ensureUnitsEnumerated(
 	paths = append(paths, subdirs...)
 	res, err := splitUnits(ctx, httpc, cfg, priv, scanID, nil, paths)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	log.Printf("scan %s: enumerated %d units (created=%d, skipped=%d)",
 		scanID, len(paths), res.Created, res.Skipped)
-	return nil
+	return nil, nil
 }
 
 // sourceRoot returns the per-type "root path" for a leased source.

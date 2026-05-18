@@ -50,13 +50,15 @@ async def notify_eligible_joiners(
     db: AsyncSession,
     scan,
     source,
-    exclude_scanner_id: uuid.UUID,
+    exclude_scanner_id: uuid.UUID | None,
 ) -> int:
     """LPUSH a join-payload onto each eligible scanner's queue.
 
     ``exclude_scanner_id`` is the scanner that already holds the scan
-    lease — they don't need to be told about their own scan. Returns
-    the count of scanners notified (for logging).
+    lease — they don't need to be told about their own scan. Pass
+    ``None`` when there is no holder to exclude (the watchdog's
+    orphan-unit re-notify path), and every eligible scanner is notified.
+    Returns the count of scanners notified (for logging).
 
     Eligibility mirrors ``_eligible_scanners_for`` in routers/sources.py:
     enabled + pool match + allowed_source_ids match + currently online.

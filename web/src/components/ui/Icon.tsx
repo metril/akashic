@@ -22,6 +22,7 @@ const iconPaths = {
   // Actions
   "download": "M12 3v12m0 0l-4-4m4 4l4-4M5 21h14",
   "arrow-left": "M19 12H5M12 19l-7-7 7-7",
+  "copy": "M10 8h10a2 2 0 012 2v10a2 2 0 01-2 2H10a2 2 0 01-2-2V10a2 2 0 012-2zM4 16a2 2 0 01-2-2V4a2 2 0 012-2h10a2 2 0 012 2",
 
   // Dashboard stat icons
   "file": "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6",

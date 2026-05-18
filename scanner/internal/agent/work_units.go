@@ -42,6 +42,13 @@ type failReq struct {
 // Caller treats it as "this scan is drained for me, exit the loop".
 var errNoWork = errors.New("no work units available")
 
+// errLeaseCap is wrapped into the error leaseUnit returns on a 409
+// (max_parallel_scanners reached). A 409 means units DO exist — there's
+// just no slot for this scanner yet — so callers that probe for
+// enumeration can tell "capped" apart from a transient failure via
+// errors.Is and skip re-enumerating.
+var errLeaseCap = errors.New("lease cap reached")
+
 func leaseUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
 	priv ed25519.PrivateKey, scanID string,
@@ -63,7 +70,7 @@ func leaseUnit(
 		// max_parallel_scanners cap reached. Caller should sleep and
 		// retry — eventually a holder finishes a unit and frees a slot.
 		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("lease cap: %s", string(raw))
+		return nil, fmt.Errorf("%w: %s", errLeaseCap, string(raw))
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)

@@ -198,6 +198,114 @@ async def _requeue_orphan_leases():
         await db.commit()
 
 
+async def _requeue_orphan_unit_leases():
+    """Phase-2 multi-scanner watchdog — work-unit level (v0.32.1).
+
+    `_requeue_orphan_leases` reaps scan-LEVEL leases, but unit-
+    coordinated scans never set `Scan.lease_expires_at` — it is blind to
+    them. A `ScanWorkUnit` can be left in `running` with an expired
+    lease when its scanner crashed or exited mid-unit; nothing reaps it,
+    and `_maybe_finalize_scan` (only ever called from
+    /work/{id}/complete|fail) counts the orphan as pending, so the whole
+    scan stalls in `running` until `_check_stale_scans` fails it an hour
+    later — wrongly, as `failed`, even though the work succeeded.
+
+    Reset such units to `pending` so a scanner re-leases them — gated,
+    like the scan-level reaper, on an online scanner being available for
+    the scan's pool — then re-notify eligible joiners so an idle scanner
+    rejoins the scan and drains the re-queued work.
+    """
+    from akashic.routers.scanners import ONLINE_WINDOW_SECONDS
+    from akashic.models.scan_work_unit import ScanWorkUnit
+
+    now = datetime.now(timezone.utc)
+    online_cutoff = now - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+
+    async with async_session() as db:
+        # Orphaned units: `running` with an expired lease, whose parent
+        # scan is itself still `running` (don't resurrect units of a
+        # scan that already finished / failed / was cancelled).
+        rows = (await db.execute(
+            select(ScanWorkUnit, Scan)
+            .join(Scan, ScanWorkUnit.scan_id == Scan.id)
+            .where(
+                ScanWorkUnit.status == "running",
+                ScanWorkUnit.lease_expires_at.isnot(None),
+                ScanWorkUnit.lease_expires_at < now,
+                Scan.status == "running",
+            )
+        )).all()
+        if not rows:
+            return
+
+        from sqlalchemy import distinct
+        from akashic.models.scanner import Scanner
+
+        any_online = (await db.execute(
+            select(Scanner.id).where(
+                Scanner.enabled.is_(True),
+                Scanner.last_seen_at.isnot(None),
+                Scanner.last_seen_at >= online_cutoff,
+            ).limit(1)
+        )).scalar_one_or_none() is not None
+        online_pools = {
+            row[0] for row in (await db.execute(
+                select(distinct(Scanner.pool)).where(
+                    Scanner.enabled.is_(True),
+                    Scanner.last_seen_at.isnot(None),
+                    Scanner.last_seen_at >= online_cutoff,
+                )
+            )).all()
+        }
+
+        requeued_scans: dict = {}
+        for unit, scan in rows:
+            can_requeue = (
+                # Permissive null pool needs *any* online scanner.
+                (scan.pool is None and any_online)
+                # Pool-tagged scan needs an online scanner in that pool.
+                or (scan.pool is not None and scan.pool in online_pools)
+            )
+            if not can_requeue:
+                # Nothing could pick it up — leave it; _check_stale_scans
+                # fails the scan after the kill threshold.
+                continue
+            unit.status = "pending"
+            unit.assigned_scanner_id = None
+            unit.lease_expires_at = None
+            requeued_scans[scan.id] = scan
+            logger.info(
+                "Watchdog: re-queued orphan work unit %s (scan=%s, pool=%s)",
+                unit.id, scan.id, scan.pool,
+            )
+        await db.commit()
+
+        # Wake an idle scanner so the re-queued work actually gets
+        # drained — best-effort, mirrors split_units' notify. Without it
+        # an orphan whose every sibling scanner has exited the scan would
+        # sit `pending` with no one to lease it.
+        if requeued_scans:
+            from akashic.services import scan_join
+            for scan in requeued_scans.values():
+                source = None
+                if scan.source_id is not None:
+                    source = (await db.execute(
+                        select(Source).where(Source.id == scan.source_id)
+                    )).scalar_one_or_none()
+                if source is None:
+                    continue
+                try:
+                    await scan_join.notify_eligible_joiners(
+                        db=db, scan=scan, source=source,
+                        exclude_scanner_id=None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Watchdog: orphan-unit re-notify failed scan=%s: %s",
+                        scan.id, exc,
+                    )
+
+
 async def _check_stale_scans():
     """Mark scans/sources stuck in pending|running|scanning past the threshold as failed.
 
@@ -208,16 +316,22 @@ async def _check_stale_scans():
        the source state never returned to online/offline.
     """
     threshold_minutes = settings.stale_scan_threshold_minutes
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=threshold_minutes)
     message = f"Watchdog: exceeded {threshold_minutes} min"
 
     # Quick pass: re-queue any expired-but-recoverable lease before
     # the slow kill-cutoff path runs. Recoverable means there's an
-    # online scanner that could pick it up.
+    # online scanner that could pick it up. Two levels: scan-level
+    # leases, then work-unit leases (unit-coordinated scans only).
     try:
         await _requeue_orphan_leases()
     except Exception as exc:
         logger.warning("orphan lease re-queue failed: %s", exc)
+    try:
+        await _requeue_orphan_unit_leases()
+    except Exception as exc:
+        logger.warning("orphan work-unit re-queue failed: %s", exc)
 
     async with async_session() as db:
         # 1) Active scans past the threshold. Prefer the heartbeat timestamp
@@ -225,7 +339,21 @@ async def _check_stale_scans():
         # heartbeating shouldn't be killed even if started_at is old (e.g.,
         # a multi-hour scan that's still progressing). Fall back to
         # started_at for legacy / pre-heartbeat scans.
-        from sqlalchemy import or_, and_
+        from sqlalchemy import or_, and_, exists as sa_exists
+        from akashic.models.scan_work_unit import ScanWorkUnit
+        # A unit-coordinated scan with a `running` work unit whose lease
+        # is still in the future has a scanner actively heartbeating
+        # that unit — it is alive. Spare it, the same way a heartbeating
+        # single-scanner scan is spared: unit-coordinated scans never
+        # set Scan.last_heartbeat_at, so without this guard a healthy
+        # multi-scanner scan would be killed at `started_at < cutoff`
+        # while still progressing normally. (v0.32.1)
+        live_unit_lease = sa_exists().where(
+            ScanWorkUnit.scan_id == Scan.id,
+            ScanWorkUnit.status == "running",
+            ScanWorkUnit.lease_expires_at.isnot(None),
+            ScanWorkUnit.lease_expires_at > now,
+        )
         result = await db.execute(
             select(Scan).where(
                 Scan.status.in_(["pending", "running"]),
@@ -234,6 +362,7 @@ async def _check_stale_scans():
                     and_(Scan.last_heartbeat_at.is_(None), Scan.started_at < cutoff),
                     and_(Scan.last_heartbeat_at.isnot(None), Scan.last_heartbeat_at < cutoff),
                 ),
+                ~live_unit_lease,
             )
         )
         for scan in result.scalars().all():

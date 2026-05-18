@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Drawer } from "../ui";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Badge, Button, Drawer, Icon } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { useScanById } from "../../hooks/useScansStream";
 import { api } from "../../api/client";
@@ -32,6 +32,13 @@ const DISPLAY_LINE_CAP = 256;
 // of the *filtered* stream. Capping the rendered count is what keeps
 // the layout engine responsive under a heavy log stream.
 const MAX_VISIBLE_ROWS = 300;
+
+// Auto-follow thresholds. A scroll that lands within BOTTOM_THRESHOLD px
+// of the bottom (re-)engages tailing; an upward move larger than
+// SCROLL_UP_TOLERANCE px (a real scroll, not sub-pixel trackpad jitter)
+// pauses it.
+const BOTTOM_THRESHOLD = 28;
+const SCROLL_UP_TOLERANCE = 2;
 
 function truncateForDisplay(s: string): { text: string; truncated: boolean } {
   if (s.length <= DISPLAY_LINE_CAP) return { text: s, truncated: false };
@@ -175,46 +182,48 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   }
 
   // ── Auto-follow ──────────────────────────────────────────────────
-  // The follow model is intent-based: only a genuine *user* scroll
-  // changes it. A programmatic scroll-to-bottom also fires `onScroll`;
-  // we stamp the time of our own scroll and ignore the event it
-  // produces, so a line appended mid-scroll can't flip follow off by
-  // itself (the old auto-scroll bug).
+  // Direction-based tailing. A programmatic tail-scroll only ever moves
+  // *down* (toward the bottom); only the user ever scrolls *up*. So we
+  // never need to know whether a scroll event was ours or the user's —
+  // an upward move pauses follow, reaching the bottom (re-)engages it,
+  // a downward move not yet at the bottom changes nothing. No timer, no
+  // timestamp guard: the v0.32.0 throttle's effect cleanup cancelled its
+  // own pending scroll on every WS flush, which is what made tailing
+  // lurch and "stop following" after a manual scroll.
   const followingRef = useRef(following);
   followingRef.current = following;
-  const programmaticAtRef = useRef(0);
-  const lastScrolledLenRef = useRef(0);
-  const scrollTimerRef = useRef<number | null>(null);
+  const lastScrollTopRef = useRef(0);
 
-  useEffect(() => {
-    if (!following || !scrollRef.current) return;
-    if (visibleLines.length === lastScrolledLenRef.current) return;
-    lastScrolledLenRef.current = visibleLines.length;
-    if (scrollTimerRef.current != null) return;
-    // Throttle the scroll-to-bottom to ≤4 Hz — below the perception
-    // threshold for "instant", well above the layout-cost danger zone.
-    scrollTimerRef.current = window.setTimeout(() => {
-      scrollTimerRef.current = null;
-      const el = scrollRef.current;
-      if (!el || !followingRef.current) return;
-      programmaticAtRef.current = Date.now();
-      el.scrollTop = el.scrollHeight;
-    }, 250);
-    return () => {
-      if (scrollTimerRef.current != null) {
-        window.clearTimeout(scrollTimerRef.current);
-        scrollTimerRef.current = null;
-      }
-    };
+  // Scroll to the bottom after the DOM commits the new lines (before
+  // paint — no flash of un-scrolled content). useScanStream coalesces
+  // WS frames to one render per animation frame, so this runs at most
+  // once per frame: a plain scrollTop write, no throttle needed.
+  useLayoutEffect(() => {
+    if (!following) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    lastScrollTopRef.current = el.scrollTop;
   }, [visibleLines, following]);
 
   function onScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    // Ignore the scroll event our own programmatic scroll produced.
-    if (Date.now() - programmaticAtRef.current < 150) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    setFollowing((prev) => (prev === atBottom ? prev : atBottom));
+    const top = el.scrollTop;
+    const prev = lastScrollTopRef.current;
+    lastScrollTopRef.current = top;
+    // Scrolled up → the user is taking control; pause follow.
+    if (top < prev - SCROLL_UP_TOLERANCE) {
+      if (followingRef.current) setFollowing(false);
+      return;
+    }
+    // At (or snapped to) the bottom → (re-)engage follow. A downward
+    // move that isn't at the bottom yet (e.g. our own tail-scroll mid-
+    // flight) leaves the state untouched.
+    const distance = el.scrollHeight - top - el.clientHeight;
+    if (distance <= BOTTOM_THRESHOLD && !followingRef.current) {
+      setFollowing(true);
+    }
   }
 
   // Lines that have arrived since follow was paused — drives the
@@ -228,12 +237,9 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
     : Math.max(0, stream.lines.length - pausedAtRef.current);
 
   function jumpToLatest() {
+    // Re-engaging follow triggers the layout effect, which scrolls to
+    // the bottom on the next commit.
     setFollowing(true);
-    const el = scrollRef.current;
-    if (el) {
-      programmaticAtRef.current = Date.now();
-      el.scrollTop = el.scrollHeight;
-    }
   }
 
   function handleCopy() {
@@ -340,15 +346,24 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               />
             ))}
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
+          <button
+            type="button"
             onClick={handleCopy}
             disabled={filtered.length === 0}
-            reserveLabel="Copied"
+            title="Copy the visible log lines to the clipboard"
+            aria-label="Copy the visible log lines to the clipboard"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line bg-surface text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
           >
-            {copied ? "Copied" : "Copy"}
-          </Button>
+            {copied ? (
+              <Icon
+                path="M20 6L9 17l-5-5"
+                aria-label="Copied"
+                className="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+              />
+            ) : (
+              <Icon name="copy" aria-label="Copy log" className="h-3.5 w-3.5" />
+            )}
+          </button>
         </div>
 
         {/* Scanner filter — multi-scanner scans only */}

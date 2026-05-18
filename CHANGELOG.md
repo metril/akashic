@@ -5,6 +5,42 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.32.1 — 2026-05-17
+
+**Multi-scanner scans report "done" when they finish — and the Live
+Log tails smoothly without losing follow.**
+
+### Bug fixes
+
+- **A multi-scanner scan no longer stalls in "running" after the
+  scanners finish.** When a second scanner joined a scan it leased a
+  work unit purely to probe whether the queue existed, then abandoned
+  it — relying on the lease to expire so another scanner would pick it
+  up. For a scan that finished inside that 60-second window, every
+  scanner exited first: the abandoned unit was left orphaned, the scan
+  never finalized, and it sat "running" until the hour-long watchdog
+  timeout failed it (wrongly, as *failed*). The probe-leased unit is
+  now processed normally, so the scan finalizes the moment its last
+  unit completes. This also fixes that unit's subtree — often the
+  source's root-level files — being silently skipped from the index.
+  Rebuild the scanner to pick this up.
+
+- **The watchdog now recovers an orphaned work unit.** If a scanner
+  genuinely crashes mid-unit, the watchdog re-queues that unit (and
+  wakes an idle scanner to take it) instead of letting the scan stall
+  for an hour — and it no longer mis-fails a healthy long-running
+  multi-scanner scan that is still actively progressing.
+
+- **Live Log auto-follow survives a manual scroll.** After you scrolled,
+  tailing would stop for good and never re-engage, and it lurched
+  instead of scrolling smoothly. Following now re-engages on its own as
+  soon as you scroll back to the bottom, and the log tails smoothly.
+
+### Changed
+
+- **The Live Log "Copy" button is now an icon** with a tooltip
+  explaining it copies the visible log lines to the clipboard.
+
 ## v0.32.0 — 2026-05-17
 
 **The scan Live Log is one searchable, filterable stream — and it no
