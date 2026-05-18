@@ -8,11 +8,16 @@ import (
 // v0.29.8 — decodeCancelMessage routes the 409 body's reason field to
 // the right log line so we stop mis-attributing watchdog reaps and
 // terminal-complete races as "cancelled by user".
+//
+// v0.33.0 — it also reports whether the scan ended by normal completion,
+// which the caller uses to log at INFO (completed) vs. WARN (anything
+// else). Only `reason == "completed"` is a normal completion.
 func TestDecodeCancelMessage(t *testing.T) {
 	cases := []struct {
-		name     string
-		body     string
-		wantSub  string
+		name          string
+		body          string
+		wantSub       string
+		wantCompleted bool
 	}{
 		{
 			name:    "user reason",
@@ -25,9 +30,10 @@ func TestDecodeCancelMessage(t *testing.T) {
 			wantSub: "watchdog",
 		},
 		{
-			name:    "completed reason",
-			body:    `{"detail": {"status": "completed", "reason": "completed", "message": "scan is completed"}}`,
-			wantSub: "scan completed",
+			name:          "completed reason",
+			body:          `{"detail": {"status": "completed", "reason": "completed", "message": "scan is completed"}}`,
+			wantSub:       "scan completed",
+			wantCompleted: true,
 		},
 		{
 			name:    "failed reason with cause",
@@ -62,7 +68,7 @@ func TestDecodeCancelMessage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := decodeCancelMessage(strings.NewReader(tc.body))
+			got, completed := decodeCancelMessage(strings.NewReader(tc.body))
 			if !strings.Contains(got, tc.wantSub) {
 				t.Errorf("decodeCancelMessage(%q) = %q; want substring %q",
 					tc.body, got, tc.wantSub)
@@ -70,6 +76,10 @@ func TestDecodeCancelMessage(t *testing.T) {
 			if !strings.HasSuffix(got, "exiting") {
 				t.Errorf("decodeCancelMessage(%q) = %q; want suffix 'exiting'",
 					tc.body, got)
+			}
+			if completed != tc.wantCompleted {
+				t.Errorf("decodeCancelMessage(%q) completed = %v; want %v",
+					tc.body, completed, tc.wantCompleted)
 			}
 		})
 	}

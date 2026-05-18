@@ -42,6 +42,17 @@ export function useDashboardLiveRefresh() {
     const invalidateNow = () =>
       qc.invalidateQueries({ queryKey: ["dashboard", "summary"] });
 
+    // A `snapshot` frame means the socket just (re)connected — the
+    // tab was hidden, the network blipped, or this is the first
+    // connect. Terminal events that fired while the socket was down
+    // were lost, so re-sync the tiles unconditionally. Without this
+    // the dashboard sits stale until a manual reload (v0.33.0).
+    if (event.kind === "snapshot") {
+      lastFiredAt.current = Date.now();
+      invalidateNow();
+      return;
+    }
+
     // Material changes — invalidate immediately and reset the
     // throttle window so a subsequent running heartbeat doesn't
     // double-fire 50ms later.

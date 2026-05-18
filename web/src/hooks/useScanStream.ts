@@ -8,27 +8,30 @@ import type {
   ScanWsEvent,
 } from "../types";
 
-const MAX_BUFFERED_LINES = 1000;
+// v0.33.0 — the viewer loads the *entire* persisted log so its client-side
+// level / search / scanner filters operate on the whole history, not just a
+// tail. History is paged forward with a (ts, id) keyset; 2000 matches the
+// GET /api/scans/{id}/log page cap. There is no in-memory line cap any more
+// — ScanLogPanel virtualizes the render, so an unbounded list is cheap.
+const HISTORY_PAGE_SIZE = 2000;
 
 // Half-open-socket watchdog. The server pings every 30 s; if no frame
-// (incl. ping) has arrived for STALE_MS the socket is dead even though
-// the browser never fired `close`/`error` — force a reconnect. 45 s is
-// 1.5 ping intervals of grace. WATCHDOG_MS is how often we check.
+// (incl. ping) has arrived for STALE_MS the socket is dead even though the
+// browser never fired `close`/`error` — force a reconnect. 45 s is 1.5 ping
+// intervals of grace. WATCHDOG_MS is how often we check.
 const STALE_MS = 45_000;
 const WATCHDOG_MS = 15_000;
 
 export interface ScanStreamState {
   snapshot: ScanSnapshot | null;
   progress: ScanProgressEvent | null;
-  // Combined log+stderr buffer — the panel filters it client-side
-  // (by level, scanner and search query) into the unified stream view.
+  // The full log: persisted history (page-loaded on mount) + live WS lines.
   lines: ScanLogLine[];
-  // "connecting" = first connect; "reconnecting" = re-establishing
-  // after a drop (incl. a watchdog-forced reconnect).
+  // "connecting" = first connect; "reconnecting" = re-establishing after a
+  // drop (incl. a watchdog-forced reconnect).
   status: "connecting" | "open" | "reconnecting" | "closed" | "error";
-  // Helps debugging: the last ts we successfully received, useful as
-  // the `since` cursor on reconnect backfill (HTTP path).
-  lastEventTs: string | null;
+  // True while the initial full-history page-loop is still running.
+  historyLoading: boolean;
 }
 
 const initialState: ScanStreamState = {
@@ -36,48 +39,109 @@ const initialState: ScanStreamState = {
   progress: null,
   lines: [],
   status: "connecting",
-  lastEventTs: null,
+  historyLoading: false,
 };
 
+// mergeLines — dedupe `incoming` against `existing` by id, then return one
+// (ts, id)-ordered array. Used for the history page-loop and the reconnect
+// backfill, where fresh rows can sort anywhere relative to what's loaded.
+// Exported for unit tests.
+export function mergeLines(
+  existing: ScanLogLine[],
+  incoming: ScanLogLine[],
+): ScanLogLine[] {
+  const seen = new Set(existing.map((l) => l.id));
+  const fresh = incoming.filter((l) => !seen.has(l.id));
+  if (fresh.length === 0) return existing;
+  // Decorate with a numeric ts so the comparator doesn't re-parse the ISO
+  // string O(n log n) times — fractional seconds make a lexical string
+  // compare unreliable, so a numeric key is also the correct one.
+  const decorated = [...existing, ...fresh].map((l) => ({
+    l,
+    t: Date.parse(l.ts),
+  }));
+  decorated.sort(
+    (a, b) =>
+      a.t - b.t ||
+      (a.l.id < b.l.id ? -1 : a.l.id > b.l.id ? 1 : 0),
+  );
+  return decorated.map((d) => d.l);
+}
+
+// appendLines — dedupe `incoming` by id and append in arrival order. Used
+// for live WS log/stderr events, which arrive newest-last. Exported for
+// unit tests.
+export function appendLines(
+  existing: ScanLogLine[],
+  incoming: ScanLogLine[],
+): ScanLogLine[] {
+  const seen = new Set(existing.map((l) => l.id));
+  const fresh = incoming.filter((l) => !seen.has(l.id));
+  return fresh.length === 0 ? existing : [...existing, ...fresh];
+}
+
+// fetchLogPage — one keyset page of GET /api/scans/{id}/log. `cursor` is
+// the last row of the previous page (null for the first page). `(ts, id)`
+// is exact: a pure-ts cursor would drop lines when a batch shares a ts.
+async function fetchLogPage(
+  scanId: string,
+  token: string,
+  cursor: { ts: string; id: string } | null,
+): Promise<ScanLogLine[]> {
+  let url = `/api/scans/${scanId}/log?kind=all&limit=${HISTORY_PAGE_SIZE}`;
+  if (cursor) {
+    url +=
+      `&since=${encodeURIComponent(cursor.ts)}` +
+      `&after_id=${encodeURIComponent(cursor.id)}`;
+  }
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`log page ${resp.status}`);
+  return (await resp.json()) as ScanLogLine[];
+}
+
 /**
- * useScanStream — opens a WebSocket to /ws/scans/{id}, parses the snapshot
- * and live events, and exposes a single state object the consumer can
- * render from. Reconnects with exponential backoff on close. Backfills
- * any missed log lines via GET /api/scans/{id}/log on reconnect.
+ * useScanStream — exposes a scan's full log plus live progress.
  *
- * Set `enabled=false` to suspend the connection (e.g., when the panel is
- * unmounted or the scan has finished).
+ * On mount it page-loops GET /api/scans/{id}/log to load the *entire*
+ * persisted history, then (for a still-running scan) a WebSocket to
+ * /ws/scans/{id} streams new lines on top. Reconnects with exponential
+ * backoff; backfills the gap via the same keyset GET.
+ *
+ * Set `enabled=false` to suspend everything (panel closed / unmounted).
  */
 export function useScanStream(scanId: string | null, enabled: boolean = true) {
   const [state, setState] = useState<ScanStreamState>(initialState);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const attemptRef = useRef(0);
-  // Epoch-ms of the last frame received from the server (any kind,
-  // including `ping`). The watchdog reads this to detect a half-open
-  // socket the browser never reported as closed.
+  // Epoch-ms of the last frame received (any kind, incl. `ping`). The
+  // watchdog reads this to detect a half-open socket.
   const lastActivityRef = useRef<number | null>(null);
+  // Mounted-flag — a rAF callback or an awaited fetch can resolve after
+  // unmount; guards bail before touching state.
+  const mountedRef = useRef(true);
 
-  // Inbound-event coalescing buffer. A burst of WS messages (common with
-  // a chatty stderr relay or a fast scan) used to trigger one setState
-  // per message — each rebuilding a 1000-line array and forcing a full
-  // re-render of the log panel. With per-message setState that's a
-  // layout-thrash death spiral. We instead batch: append events to a
-  // pending ref and flush once per animation frame (≤16 ms cadence).
-  // The DOM gets updated at most once per paint regardless of how many
-  // messages arrived in between.
+  // Mirror of state.lines so connect()'s onopen can read the newest row as
+  // the reconnect-backfill cursor without re-creating the callback.
+  const linesRef = useRef<ScanLogLine[]>([]);
+  useEffect(() => {
+    linesRef.current = state.lines;
+  }, [state.lines]);
+
+  // Generation token for the history page-loop: bumping it makes an
+  // in-flight loop bail when scanId/enabled changes or the hook unmounts.
+  const historyGenRef = useRef(0);
+
+  // Inbound live-event coalescing buffer. A burst of WS frames becomes one
+  // setState per animation frame rather than one per message.
   const pendingRef = useRef<{
     progress: ScanProgressEvent | null;
     snapshot: ScanSnapshot | null;
     appendLines: ScanLogLine[];
-    replaceLines: ScanLogLine[] | null; // set by snapshot — replaces buffer
-  }>({ progress: null, snapshot: null, appendLines: [], replaceLines: null });
+  }>({ progress: null, snapshot: null, appendLines: [] });
   const flushScheduledRef = useRef(false);
-  // Mounted-flag (review W-I2): a rAF callback scheduled in
-  // ws.onmessage can fire after unmount, calling setState on an
-  // unmounted component. Cleanup of the outer useEffect flips this
-  // to false and the rAF callback bails before touching state.
-  const mountedRef = useRef(true);
 
   const scheduleFlush = useCallback(() => {
     if (flushScheduledRef.current) return;
@@ -86,58 +150,32 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       flushScheduledRef.current = false;
       if (!mountedRef.current) return;
       const pending = pendingRef.current;
-      pendingRef.current = {
-        progress: null,
-        snapshot: null,
-        appendLines: [],
-        replaceLines: null,
-      };
+      pendingRef.current = { progress: null, snapshot: null, appendLines: [] };
       if (
         !pending.progress &&
         !pending.snapshot &&
-        pending.appendLines.length === 0 &&
-        pending.replaceLines === null
+        pending.appendLines.length === 0
       ) {
         return;
       }
-      setState((s) => {
-        let lines = s.lines;
-        let lastEventTs = s.lastEventTs;
-        if (pending.replaceLines !== null) {
-          lines = capLines(pending.replaceLines);
-          if (lines.length > 0) lastEventTs = lines[lines.length - 1].ts;
-        }
-        if (pending.appendLines.length > 0) {
-          lines = capLines([...lines, ...pending.appendLines]);
-          lastEventTs =
-            pending.appendLines[pending.appendLines.length - 1].ts ?? lastEventTs;
-        }
-        if (pending.progress) {
-          lastEventTs = pending.progress.ts ?? lastEventTs;
-        }
-        return {
-          ...s,
-          snapshot: pending.snapshot ?? s.snapshot,
-          progress: pending.progress ?? s.progress,
-          lines,
-          lastEventTs,
-        };
-      });
+      setState((s) => ({
+        ...s,
+        // v0.33.0 — the WS snapshot contributes metadata only. Its
+        // `recent_lines` (last 100) is deliberately ignored: the history
+        // page-loop owns `lines`, and letting the snapshot replace the
+        // buffer would clobber the full log we loaded.
+        snapshot: pending.snapshot ?? s.snapshot,
+        progress: pending.progress ?? s.progress,
+        lines:
+          pending.appendLines.length > 0
+            ? appendLines(s.lines, pending.appendLines)
+            : s.lines,
+      }));
     });
   }, []);
 
-  // Latest line ts for reconnect backfill. Stored in a ref so `connect`
-  // can read it without re-creating itself on every state update.
-  const sinceRef = useRef<string | null>(null);
-  useEffect(() => {
-    sinceRef.current = state.lastEventTs;
-  }, [state.lastEventTs]);
-
   // `enabled` mirrored into a ref so the WS `onclose` handler reads the
-  // current value rather than the value captured when the closure was
-  // created. Without this, a hook whose `enabled` flips false right
-  // before the socket closes would schedule a reconnect that fires
-  // post-unmount, leaking a connection.
+  // current value rather than the value captured at connect() time.
   const enabledRef = useRef(enabled);
   useEffect(() => {
     enabledRef.current = enabled;
@@ -151,16 +189,11 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       return;
     }
 
-    // Build ws:// or wss:// from the page origin so we work in dev (Vite
-    // proxy) and prod (same-origin behind nginx).
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${proto}://${window.location.host}/ws/scans/${scanId}?token=${encodeURIComponent(token)}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
-    // A non-zero attempt count means this is a reconnect, not the
-    // first connect — surface that distinctly so the UI can say
-    // "Reconnecting…" rather than the cold-start "Connecting…".
     setState((s) => ({
       ...s,
       status: attemptRef.current > 0 ? "reconnecting" : "connecting",
@@ -170,31 +203,27 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       attemptRef.current = 0;
       lastActivityRef.current = Date.now();
       setState((s) => ({ ...s, status: "open" }));
-      // Backfill anything that landed between drop and reconnect.
-      const since = sinceRef.current;
-      if (since) {
+      // Backfill anything that landed between drop and reconnect, keyed off
+      // the newest line currently held (exact (ts, id) keyset).
+      const newest = linesRef.current[linesRef.current.length - 1];
+      if (newest) {
         try {
-          const resp = await fetch(
-            `/api/scans/${scanId}/log?since=${encodeURIComponent(since)}&kind=all`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          if (resp.ok) {
-            const lines: ScanLogLine[] = await resp.json();
-            if (lines.length) {
-              pendingRef.current.appendLines.push(...lines);
-              scheduleFlush();
-            }
+          const lines = await fetchLogPage(scanId, token, {
+            ts: newest.ts,
+            id: newest.id,
+          });
+          if (lines.length && mountedRef.current) {
+            setState((s) => ({ ...s, lines: mergeLines(s.lines, lines) }));
           }
         } catch {
-          // Backfill failure is non-fatal — live stream takes over.
+          // Backfill failure is non-fatal — the live stream takes over.
         }
       }
     };
 
     ws.onmessage = (ev) => {
-      // Mark the socket alive on EVERY frame, before anything else —
-      // a `ping` carries no data but is proof of liveness, which is
-      // exactly what the half-open watchdog needs.
+      // Mark the socket alive on EVERY frame — a `ping` is proof of
+      // liveness, which is what the half-open watchdog needs.
       lastActivityRef.current = Date.now();
       let event: ScanWsEvent;
       try {
@@ -203,17 +232,8 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
         return;
       }
       if (event.kind === "ping") return;
-
-      // Accumulate into the per-frame buffer rather than calling
-      // setState directly. A burst of 50 stderr messages becomes ONE
-      // re-render at the next animation frame, not 50.
       if (event.kind === "snapshot") {
         pendingRef.current.snapshot = event;
-        pendingRef.current.replaceLines = event.recent_lines ?? [];
-        // Snapshot replaces the buffer, so any pre-snapshot appends
-        // queued in the same frame would just get overwritten. Drop them
-        // to make that explicit.
-        pendingRef.current.appendLines = [];
       } else if (event.kind === "progress") {
         pendingRef.current.progress = event;
       } else if (event.kind === "log" || event.kind === "stderr") {
@@ -228,13 +248,10 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
 
     ws.onclose = () => {
       wsRef.current = null;
-      // Read enabled via ref — closure-captured value would be stale if
-      // the consumer toggled enabled between connect() and onclose.
       if (!enabledRef.current) {
         setState((s) => ({ ...s, status: "closed" }));
         return;
       }
-      // Exponential backoff capped at 10 s.
       attemptRef.current += 1;
       const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 10_000);
       setState((s) => ({ ...s, status: "reconnecting" }));
@@ -243,14 +260,55 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
 
     ws.onerror = () => {
       setState((s) => ({ ...s, status: "error" }));
-      // The browser fires `error` THEN `close` — reconnect logic lives
-      // in onclose to avoid double-scheduling.
+      // The browser fires `error` THEN `close`; reconnect lives in onclose.
+    };
+  }, [scanId, enabled, scheduleFlush]);
+
+  // ── Full-history page-loop ───────────────────────────────────────────
+  // Runs on mount and whenever the scan / enabled flag changes. Loads the
+  // entire persisted log so the panel's filters see all of it.
+  useEffect(() => {
+    if (!enabled || !scanId) return;
+    const gen = ++historyGenRef.current;
+    const token = getToken();
+    if (!token) return;
+
+    let cancelled = false;
+    setState((s) => ({ ...s, historyLoading: true }));
+
+    (async () => {
+      let cursor: { ts: string; id: string } | null = null;
+      try {
+        for (;;) {
+          const page = await fetchLogPage(scanId, token, cursor);
+          // Bail if this effect was cleaned up (unmount / scanId flip) or
+          // a newer history load superseded it.
+          if (cancelled || gen !== historyGenRef.current) return;
+          if (page.length > 0) {
+            setState((s) => ({ ...s, lines: mergeLines(s.lines, page) }));
+            const last = page[page.length - 1];
+            cursor = { ts: last.ts, id: last.id };
+          }
+          if (page.length < HISTORY_PAGE_SIZE) break; // short page → done
+        }
+      } catch {
+        // History load failed — the live WS still fills new lines; leave
+        // whatever pages did land in place.
+      } finally {
+        if (!cancelled && gen === historyGenRef.current) {
+          setState((s) => ({ ...s, historyLoading: false }));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
   }, [scanId, enabled]);
 
+  // ── WebSocket lifecycle ──────────────────────────────────────────────
   useEffect(() => {
     if (!enabled || !scanId) {
-      // Tear down any existing socket when disabled.
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -259,18 +317,16 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;
       }
+      // Drop the history-loop generation so an in-flight loop bails.
+      historyGenRef.current++;
       setState(initialState);
       return;
     }
     mountedRef.current = true;
     connect();
 
-    // Half-open-socket watchdog. A WebSocket can stop delivering frames
-    // without the browser ever firing `close`/`error` — the socket sits
-    // in readyState OPEN forever and the panel silently stops updating
-    // until it's reopened. If no frame (incl. the server's 30 s ping)
-    // has arrived for STALE_MS, force-close it; `onclose` then runs the
-    // normal backoff reconnect.
+    // Half-open-socket watchdog — force a reconnect if no frame (incl. the
+    // server's 30 s ping) has arrived for STALE_MS.
     const watchdog = window.setInterval(() => {
       const ws = wsRef.current;
       if (
@@ -297,9 +353,4 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
   }, [scanId, enabled, connect]);
 
   return state;
-}
-
-function capLines(lines: ScanLogLine[]): ScanLogLine[] {
-  if (lines.length <= MAX_BUFFERED_LINES) return lines;
-  return lines.slice(lines.length - MAX_BUFFERED_LINES);
 }

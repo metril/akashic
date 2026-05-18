@@ -140,23 +140,62 @@ func runUnitCoordinated(
 		walkErr := runUnitWalk(scanCtx, apiClient, conn, shallow, leased, root, unit, state, reporter, leased.Source.ExcludePatterns, extractor, extractFactory, cfg.ExtractWorkers)
 		hbCancel()
 
-		// Terminal-status delivery uses a fresh, short-lived context
-		// rooted in Background so a cancelled scanCtx (Stop pressed,
-		// SIGTERM, heartbeat 409) doesn't prevent us from telling the
-		// api the unit is done. Without this the unit stays "leased"
-		// and only releases when the api-side lease TTL expires
-		// (review S-C1).
-		termCtx, termCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Deliver the unit's terminal state, retrying on failure — see
+		// deliverUnitTerminal. A dropped /complete leaves the unit
+		// "running" until its lease expires and the API watchdog reaps
+		// it, stalling scan finalization for ~2 min (v0.33.0).
 		if walkErr != nil {
 			log.Printf("scan %s unit %s: walk failed: %v", leased.ScanID, unit.ID, walkErr)
-			_ = failUnit(termCtx, httpc, cfg, priv, leased.ScanID, unit.ID, walkErr.Error())
-			termCancel()
+			deliverUnitTerminal("fail", leased.ScanID, unit.ID,
+				func(ctx context.Context) error {
+					return failUnit(ctx, httpc, cfg, priv, leased.ScanID, unit.ID, walkErr.Error())
+				})
 			continue
 		}
-		if err := completeUnit(termCtx, httpc, cfg, priv, leased.ScanID, unit.ID); err != nil {
-			log.Printf("scan %s unit %s: complete failed: %v", leased.ScanID, unit.ID, err)
+		deliverUnitTerminal("complete", leased.ScanID, unit.ID,
+			func(ctx context.Context) error {
+				return completeUnit(ctx, httpc, cfg, priv, leased.ScanID, unit.ID)
+			})
+	}
+}
+
+// terminalDeliveryAttempts bounds how hard a finished unit tries to tell
+// the API it is done. A unit's terminal state MUST land: an undelivered
+// /complete leaves the unit "running" until its lease expires and the API
+// watchdog re-queues it, stalling scan finalization for ~2 min (v0.33.0).
+const terminalDeliveryAttempts = 5
+
+// terminalDeliveryBackoff is the first inter-attempt wait, doubled on each
+// retry (1→2→4→8 s). A package var so tests can shrink it.
+var terminalDeliveryBackoff = 1 * time.Second
+
+// deliverUnitTerminal POSTs a unit's terminal state (`post` is completeUnit
+// or failUnit pre-bound to its args), retrying with 1→2→4→8 s backoff.
+//
+// Each attempt gets its own fresh 5 s context rooted in Background — never
+// the scanCtx — so a cancellation (Stop pressed, SIGTERM, heartbeat 409)
+// can't abort delivery; if anything, a cancelled scan makes landing the
+// unit's terminal state more urgent. After the budget is spent it gives
+// up and logs: the API watchdog is the last-resort recovery.
+func deliverUnitTerminal(name, scanID, unitID string, post func(context.Context) error) {
+	backoff := terminalDeliveryBackoff
+	for attempt := 1; attempt <= terminalDeliveryAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := post(ctx)
+		cancel()
+		if err == nil {
+			return
 		}
-		termCancel()
+		if attempt == terminalDeliveryAttempts {
+			log.Printf("scan %s unit %s: %s failed after %d attempts: %v "+
+				"(API watchdog will recover the unit)",
+				scanID, unitID, name, terminalDeliveryAttempts, err)
+			return
+		}
+		log.Printf("scan %s unit %s: %s failed: %v (retry %d/%d in %s)",
+			scanID, unitID, name, err, attempt, terminalDeliveryAttempts, backoff)
+		time.Sleep(backoff)
+		backoff *= 2
 	}
 }
 

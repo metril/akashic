@@ -77,11 +77,21 @@ class CompleteUnitRequest(BaseModel):
 
 
 async def _load_scan_and_source(
-    db: AsyncSession, scan_id: uuid.UUID,
+    db: AsyncSession, scan_id: uuid.UUID, *, lock_scan: bool = False,
 ) -> tuple[Scan, Source | None]:
-    scan = (await db.execute(
-        select(Scan).where(Scan.id == scan_id)
-    )).scalar_one_or_none()
+    """Resolve the Scan + its Source.
+
+    `lock_scan=True` takes a `SELECT … FOR UPDATE` row lock on the scan —
+    used by /work/{id}/complete|fail so concurrent unit completions for one
+    scan serialize. Without it, two sibling scanners finishing their last
+    units near-simultaneously each run `_maybe_finalize_scan`'s status count
+    under READ COMMITTED, each misses the other's not-yet-committed unit,
+    both see pending>0, and the scan never finalizes via /complete (v0.33.0).
+    """
+    scan_stmt = select(Scan).where(Scan.id == scan_id)
+    if lock_scan:
+        scan_stmt = scan_stmt.with_for_update()
+    scan = (await db.execute(scan_stmt)).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
     source = None
@@ -394,7 +404,9 @@ async def complete_unit(
     these only ran on the legacy ingest path; unit-coordinated scans
     finalized correctly but skipped the post-scan rollup.
     """
-    scan, source = await _load_scan_and_source(db, scan_id)
+    # lock_scan: serialize concurrent unit completions for this scan so
+    # the last one's _maybe_finalize_scan sees every sibling unit (v0.33.0).
+    scan, source = await _load_scan_and_source(db, scan_id, lock_scan=True)
     unit = (await db.execute(
         select(ScanWorkUnit).where(
             ScanWorkUnit.id == unit_id,
@@ -447,7 +459,8 @@ async def fail_unit(
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
 ):
-    scan, source = await _load_scan_and_source(db, scan_id)
+    # lock_scan — see complete_unit: serialize the finalize check.
+    scan, source = await _load_scan_and_source(db, scan_id, lock_scan=True)
     unit = (await db.execute(
         select(ScanWorkUnit).where(
             ScanWorkUnit.id == unit_id,

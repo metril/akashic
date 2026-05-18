@@ -89,6 +89,15 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
   const isQueued = !isScanning && openScan?.status === "pending";
   const [stopping, setStopping] = useState(false);
 
+  // The scan whose log the card's "View … log" button opens. Prefer the
+  // in-flight scan; once a source is idle, fall back to the latest
+  // terminal scan so a finished scan's log stays reachable (v0.33.0).
+  // The `!isScanning` guard keeps the v0.31.0 footgun shut: in the brief
+  // gap after a re-scan is triggered (source already "scanning" but the
+  // new openScan event not yet in) `activeScan` still points at the
+  // PREVIOUS run — don't surface it then.
+  const logScan = openScan ?? (!isScanning ? activeScan : null);
+
   const handleStop = useCallback(async () => {
     if (!openScan) return;
     if (stopping) return;
@@ -203,34 +212,36 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
         </dl>
       </button>
 
-      {/* Live-log shortcut stays on the card so users don't have to
-          open the drawer just to peek at progress. Other actions
-          (edit, scan now, delete) live inside the drawer to keep the
-          card minimal. */}
-      {isScanning && openScan && (
+      {/* Log shortcut stays on the card so users don't have to open the
+          drawer just to peek at progress — or to review a finished scan.
+          Other actions (edit, scan now, delete) live inside the drawer to
+          keep the card minimal. */}
+      {logScan && (
         <div className="mt-3 pt-2 border-t border-line-subtle flex items-center gap-2">
           <Button
             size="sm"
             variant="secondary"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenLog(openScan.id);
+              onOpenLog(logScan.id);
             }}
-            aria-label="View live scan log"
+            aria-label={openScan ? "View live scan log" : "View scan log"}
           >
-            View live log
+            {openScan ? "View live log" : "View scan log"}
           </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStop();
-            }}
-            loading={stopping}
-          >
-            Stop scan
-          </Button>
+          {isScanning && openScan && (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleStop();
+              }}
+              loading={stopping}
+            >
+              Stop scan
+            </Button>
+          )}
         </div>
       )}
 

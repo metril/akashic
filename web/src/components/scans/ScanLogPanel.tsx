@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge, Button, Drawer, Icon } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { useScanById } from "../../hooks/useScansStream";
@@ -27,11 +28,11 @@ interface ScanLogPanelProps {
 // bounded.
 const DISPLAY_LINE_CAP = 256;
 
-// Maximum rows rendered to the DOM. The buffer in useScanStream holds
-// up to 1000; the DOM only ever holds the most recent MAX_VISIBLE_ROWS
-// of the *filtered* stream. Capping the rendered count is what keeps
-// the layout engine responsive under a heavy log stream.
-const MAX_VISIBLE_ROWS = 300;
+// v0.33.0 — the panel virtualizes the log, so the whole history (loaded
+// up front by useScanStream) stays in memory while only on-screen rows hit
+// the DOM. No row cap any more. ESTIMATED_ROW_HEIGHT seeds the virtualizer's
+// layout before each row measures its true (wrapped) height.
+const ESTIMATED_ROW_HEIGHT = 20;
 
 // Auto-follow thresholds. A scroll that lands within BOTTOM_THRESHOLD px
 // of the bottom (re-)engages tailing; an upward move larger than
@@ -147,21 +148,25 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
     return [...m.entries()].map(([id, name]) => ({ id, name }));
   }, [stream.lines]);
 
-  // The filtered stream + its capped, rendered tail.
+  // The filtered stream — level / search / scanner filters run client-side
+  // over the whole loaded history.
   const filtered = useMemo(
     () => filterLogLines(stream.lines, { levels, query, scanners: activeScanners }),
     [stream.lines, levels, query, activeScanners],
   );
-  const visibleLines = useMemo(
-    () =>
-      filtered.length <= MAX_VISIBLE_ROWS
-        ? filtered
-        : filtered.slice(filtered.length - MAX_VISIBLE_ROWS),
-    [filtered],
-  );
   const total = stream.lines.length;
-  const hiddenOlder = filtered.length - visibleLines.length;
   const filtersNarrow = filtered.length !== total;
+
+  // Virtualized render — only on-screen rows are in the DOM, so the entire
+  // log scrolls smoothly at any size. Rows wrap (long paths), so each one's
+  // height is measured via measureElement rather than assumed.
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 16,
+  });
+  const totalSize = rowVirtualizer.getTotalSize();
 
   function toggleLevel(level: string) {
     setLevels((prev) => {
@@ -195,16 +200,17 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   const lastScrollTopRef = useRef(0);
 
   // Scroll to the bottom after the DOM commits the new lines (before
-  // paint — no flash of un-scrolled content). useScanStream coalesces
-  // WS frames to one render per animation frame, so this runs at most
-  // once per frame: a plain scrollTop write, no throttle needed.
+  // paint — no flash of un-scrolled content). `totalSize` is in the deps
+  // so a re-pin also fires when the virtualizer measures a freshly-
+  // appended row and its real height grows the scrollable area — without
+  // it, following would settle a row-height short of the true bottom.
   useLayoutEffect(() => {
     if (!following) return;
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     lastScrollTopRef.current = el.scrollTop;
-  }, [visibleLines, following]);
+  }, [filtered, following, totalSize]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -267,12 +273,20 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
 
   const emptyMessage =
     total === 0
-      ? stream.status === "open"
-        ? "Waiting for scanner output…"
-        : stream.status === "reconnecting"
-          ? "Reconnecting to the live stream…"
-          : "No log lines yet."
+      ? stream.historyLoading
+        ? "Loading log…"
+        : stream.status === "open"
+          ? "Waiting for scanner output…"
+          : stream.status === "reconnecting"
+            ? "Reconnecting to the live stream…"
+            : "No log lines yet."
       : "No lines match the current filters.";
+
+  // Terminal scans show a finished log; running scans a live one.
+  const isTerminal =
+    scanStatus === "completed" ||
+    scanStatus === "failed" ||
+    scanStatus === "cancelled";
 
   return (
     <Drawer
@@ -280,7 +294,7 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
       onClose={onClose}
       title={
         <div className="flex items-center gap-2">
-          <span>Live scan log</span>
+          <span>{isTerminal ? "Scan log" : "Live scan log"}</span>
           {sourceName && (
             <span className="text-sm font-normal text-fg-muted">· {sourceName}</span>
           )}
@@ -392,22 +406,40 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
               ? `${filtered.length.toLocaleString()} of ${total.toLocaleString()} lines`
               : `${total.toLocaleString()} line${total === 1 ? "" : "s"}`}
           </span>
-          {hiddenOlder > 0 && (
-            <span>showing the most recent {visibleLines.length.toLocaleString()}</span>
-          )}
+          {stream.historyLoading && <span>loading full log…</span>}
         </div>
 
-        {/* Log tail + floating "jump to latest" pill */}
+        {/* Virtualized log + floating "jump to latest" pill */}
         <div className="relative flex-1 min-h-[400px] max-h-[70vh]">
           <div
             ref={scrollRef}
             onScroll={onScroll}
             className="h-full overflow-y-auto bg-app rounded-md font-mono text-xs leading-snug px-4 py-3 border border-line"
           >
-            {visibleLines.length === 0 ? (
+            {filtered.length === 0 ? (
               <p className="text-fg-subtle italic">{emptyMessage}</p>
             ) : (
-              visibleLines.map((line) => <LogRow key={line.id} line={line} />)
+              <div style={{ height: totalSize, position: "relative" }}>
+                {rowVirtualizer.getVirtualItems().map((vi) => {
+                  const line = filtered[vi.index];
+                  return (
+                    <div
+                      key={line.id}
+                      data-index={vi.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        transform: `translateY(${vi.start}px)`,
+                      }}
+                    >
+                      <LogRow line={line} />
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
           {!following && (

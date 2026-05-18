@@ -5,6 +5,53 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.33.0 — 2026-05-18
+
+**See a scan's whole log — finished or live — and the dashboard keeps
+itself current.**
+
+### New features
+
+- **A finished scan's log stays reachable.** Once the Live Log panel was
+  closed there was no way back to a completed scan's log. The source
+  card now keeps a **View scan log** action after a scan ends (it reads
+  *View live log* while one is running), so you can reopen and review
+  any just-finished scan's output.
+
+- **The log viewer shows the *entire* log.** It previously rendered only
+  the most recent ~300 lines (and as few as ~100 for a reopened scan).
+  The viewer now loads the full persisted history and virtualizes the
+  render, so a log of any length scrolls smoothly — and the level,
+  search and scanner filters now match against the whole log, not just
+  a tail.
+
+### Bug fixes
+
+- **The dashboard updates itself when a scan finishes.** Its tiles
+  refreshed only on live WebSocket events and ignored the reconnect
+  snapshot, so a scan that completed while the tab was hidden — or any
+  event lost to a socket blip — left the dashboard stale until a manual
+  page reload. The dashboard now re-syncs on every reconnect and polls
+  as a backstop, so "Active scans" and "Recent scans" reflect a
+  completed scan within seconds.
+
+- **A completed scan finalizes immediately instead of ~2 minutes
+  later.** When sibling scanners finished their last work units at
+  nearly the same moment, each scan-completion check ran without a lock
+  and could miss the other's just-committed unit — so neither finalized
+  the scan, and it limped to "completed" only via a later watchdog pass.
+  Unit completions now serialize on the scan row, so the scan finalizes
+  the instant its last unit lands. The watchdog also now finalizes any
+  scan whose units are all done, and a scanner retries delivery of a
+  unit's completion instead of dropping it on a transient error.
+  Rebuild the scanner to pick up the retry.
+
+- **A completed scan logs "scan completed; exiting" once, as info.** It
+  was logged at *warn* — wrong for a normal success — and repeated
+  (twice per scanner) because the heartbeat kept pinging the finished
+  scan. It is now a single info line per scanner. Rebuild the scanner to
+  pick this up.
+
 ## v0.32.2 — 2026-05-18
 
 **An SMB share that stalls mid-scan no longer freezes the scanner.**

@@ -36,6 +36,18 @@ _reachability_self_worker_task: asyncio.Task | None = None  # retained name for 
 # scans contribute to the cleanup pass.
 _LOG_RETENTION_DAYS = 7
 
+# Strong references to fire-and-forget post-scan tasks the watchdog spawns
+# when it finalizes a straggler scan — without this an in-flight task can be
+# garbage-collected mid-run (see asyncio.create_task docs).
+_watchdog_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro) -> None:
+    """Fire-and-forget a coroutine, keeping a live reference until it ends."""
+    task = asyncio.create_task(coro)
+    _watchdog_bg_tasks.add(task)
+    task.add_done_callback(_watchdog_bg_tasks.discard)
+
 
 async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
     """Attempt to trigger a scan for a single source. Uses conditional UPDATE to avoid races."""
@@ -306,6 +318,99 @@ async def _requeue_orphan_unit_leases():
                     )
 
 
+async def _finalize_orphaned_complete_scans():
+    """Phase-2 multi-scanner watchdog — finalize stragglers (v0.33.0).
+
+    A scan finalizes via `_maybe_finalize_scan`, called only from
+    /work/{id}/complete|fail. If the `/complete` that should have
+    finalized a scan never lands its finalize transition — a lost POST,
+    or a crashed scanner whose orphan unit was just re-queued and re-
+    completed — the scan can sit `pending`/`running` with every work
+    unit already terminal and nothing left to flip it. Re-run the
+    finalize check for each such scan so it terminates within one
+    scheduler tick instead of waiting for the hour-later kill path
+    (which would also wrongly mark a fully-walked scan `failed`).
+
+    Runs after the orphan-lease re-queue so a unit that just went
+    `running`→`pending` correctly keeps its scan out of this pass.
+    """
+    from sqlalchemy import exists as sa_exists
+    from akashic.models.scan_work_unit import ScanWorkUnit
+    from akashic.routers.scan_work import _maybe_finalize_scan
+
+    async with async_session() as db:
+        has_unit = sa_exists().where(ScanWorkUnit.scan_id == Scan.id)
+        has_open_unit = sa_exists().where(
+            ScanWorkUnit.scan_id == Scan.id,
+            ScanWorkUnit.status.in_(["pending", "running"]),
+        )
+        scan_ids = (await db.execute(
+            select(Scan.id).where(
+                Scan.status.in_(["pending", "running"]),
+                has_unit,
+                ~has_open_unit,
+            )
+        )).scalars().all()
+
+    for scan_id in scan_ids:
+        async with async_session() as db:
+            # FOR UPDATE — mirrors /work/complete so we never race a
+            # genuine in-flight finalize.
+            scan = (await db.execute(
+                select(Scan).where(Scan.id == scan_id).with_for_update()
+            )).scalar_one_or_none()
+            if scan is None or scan.status not in ("pending", "running"):
+                continue
+            source = None
+            if scan.source_id is not None:
+                source = (await db.execute(
+                    select(Source).where(Source.id == scan.source_id)
+                )).scalar_one_or_none()
+            new_status = await _maybe_finalize_scan(db, scan, source)
+            await db.commit()
+            if new_status is None:
+                # A unit was split/re-queued between the scan-out and the
+                # lock — leave it for the lease loop. Not an error.
+                continue
+            logger.warning(
+                "Watchdog: finalized straggler scan %s as %s — all units "
+                "terminal but no /complete finalized it",
+                scan.id, new_status,
+            )
+            if source is None:
+                continue
+            # Broadcast so the Sources page + Dashboard reflect it live,
+            # and run the post-scan tasks /work/complete would have.
+            from akashic.services import scan_broadcast, scan_pubsub
+            from akashic.routers.ingest import (
+                _dispatch_scan_webhooks,
+                _rollup_subtree_aggregates,
+                _write_scan_snapshot,
+            )
+            await scan_pubsub.publish_source_event({
+                "kind": "scan.state",
+                "source_id": str(source.id),
+                "scan_id": str(scan.id),
+                "scan_status": new_status,
+                "source_status": source.status,
+                "scanner_id": None,
+                "scanner_name": None,
+                "scan_type": scan.scan_type,
+                "files_found": scan.files_found or 0,
+                "current_path": None,
+                "started_at": (
+                    scan.started_at.isoformat() if scan.started_at else None
+                ),
+            })
+            await scan_broadcast.clear_broadcast(str(scan.id))
+            _spawn_bg(_rollup_subtree_aggregates(
+                str(source.id), settings.database_url))
+            _spawn_bg(_write_scan_snapshot(
+                str(scan.id), str(source.id), settings.database_url))
+            _spawn_bg(_dispatch_scan_webhooks(
+                str(scan.id), str(source.id), new_status, settings.database_url))
+
+
 async def _check_stale_scans():
     """Mark scans/sources stuck in pending|running|scanning past the threshold as failed.
 
@@ -332,6 +437,13 @@ async def _check_stale_scans():
         await _requeue_orphan_unit_leases()
     except Exception as exc:
         logger.warning("orphan work-unit re-queue failed: %s", exc)
+    # Finalize any scan whose units are all terminal but whose /complete
+    # never flipped it — before the kill-cutoff path below would wrongly
+    # fail it. Runs after the re-queue so a just-recovered unit counts.
+    try:
+        await _finalize_orphaned_complete_scans()
+    except Exception as exc:
+        logger.warning("straggler-scan finalize failed: %s", exc)
 
     async with async_session() as db:
         # 1) Active scans past the threshold. Prefer the heartbeat timestamp

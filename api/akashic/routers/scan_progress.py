@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import (
@@ -337,14 +337,27 @@ async def post_stderr_batch(
 async def get_log(
     scan_id: uuid.UUID,
     since: datetime | None = Query(None, description="Return entries strictly after this timestamp"),
+    after_id: uuid.UUID | None = Query(
+        None,
+        description=(
+            "Keyset tiebreak — paired with `since`, returns entries strictly "
+            "after the (ts, id) cursor. Lossless when many lines share a ts."
+        ),
+    ),
     kind: str = Query("all", pattern="^(structured|stderr|all)$"),
-    limit: int = Query(500, ge=1, le=500),
+    limit: int = Query(2000, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[LogEntryOut]:
     """Backfill / catch-up endpoint. The WS path streams new events live;
-    GET handles the gap on reconnect (`since=<last_ts>`) and the initial
-    drawer mount before WS is ready.
+    GET handles the gap on reconnect and the full-history load the log
+    viewer page-loops on mount.
+
+    v0.33.0 — the viewer pages the entire log forward with a `(ts, id)`
+    keyset: `since` alone is lossy because a scanner writes a whole batch
+    under one `ts`, so a page boundary landing mid-batch would drop lines.
+    Pass `since` + `after_id` together (the last row of the previous page)
+    and the cursor is exact.
 
     v0.30.2 — scanner_name is read straight off the row (snapshotted at
     write time by _persist_lines), so the backfill renders the per-row
@@ -356,12 +369,20 @@ async def get_log(
 
     stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:
-        stmt = stmt.where(ScanLogEntry.ts > _now_or(since))
+        cursor_ts = _now_or(since)
+        if after_id is not None:
+            # Exact keyset: (ts, id) strictly after the cursor row.
+            stmt = stmt.where(
+                tuple_(ScanLogEntry.ts, ScanLogEntry.id) > (cursor_ts, after_id)
+            )
+        else:
+            # Legacy ts-only cursor (live reconnect backfill).
+            stmt = stmt.where(ScanLogEntry.ts > cursor_ts)
     if kind == "structured":
         stmt = stmt.where(ScanLogEntry.level != "stderr")
     elif kind == "stderr":
         stmt = stmt.where(ScanLogEntry.level == "stderr")
-    stmt = stmt.order_by(ScanLogEntry.ts).limit(limit)
+    stmt = stmt.order_by(ScanLogEntry.ts, ScanLogEntry.id).limit(limit)
 
     rows = (await db.execute(stmt)).scalars().all()
     return [

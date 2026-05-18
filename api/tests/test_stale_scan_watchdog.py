@@ -29,6 +29,7 @@ from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.source import Source
 from akashic.scheduler import (
     _check_stale_scans,
+    _finalize_orphaned_complete_scans,
     _requeue_orphan_leases,
     _requeue_orphan_unit_leases,
 )
@@ -38,6 +39,10 @@ from akashic.scheduler import (
 def _patch_async_session(monkeypatch, setup_db):
     import akashic.scheduler as scheduler
     monkeypatch.setattr(scheduler, "async_session", setup_db)
+    # The straggler-finalize path fire-and-forgets the post-scan rollup /
+    # snapshot / webhook tasks. In a test just close the coroutine so
+    # there's no dangling task or "never awaited" warning.
+    monkeypatch.setattr(scheduler, "_spawn_bg", lambda coro: coro.close())
 
 
 async def _make_source(
@@ -435,3 +440,70 @@ async def test_check_stale_scans_kills_unit_scan_with_no_live_lease(
     await db_session.refresh(scan)
     assert scan.status == "failed"
     assert "60 min" in (scan.error_message or "")
+
+
+# ── Straggler-scan finalize (v0.33.0) ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_finalize_straggler_scan_with_all_units_terminal(
+    setup_db, db_session: AsyncSession,
+):
+    """A scan whose every work unit is terminal but whose row is still
+    `running` — a lost /complete, or the pre-v0.33.0 unlocked finalize
+    race — must be finalized by the watchdog within one tick, not left
+    to the hour-later kill path that would wrongly mark it `failed`."""
+    src = await _make_source(db_session, status="scanning")
+    just_now = datetime.now(timezone.utc) - timedelta(seconds=5)
+    scan = await _make_scan(
+        db_session, source_id=src.id, status="running",
+        started_at=just_now, last_heartbeat_at=just_now,
+    )
+    await _make_unit(db_session, scan_id=scan.id, path="a", status="completed")
+    await _make_unit(db_session, scan_id=scan.id, path="b", status="completed")
+
+    await _finalize_orphaned_complete_scans()
+
+    await db_session.refresh(scan)
+    await db_session.refresh(src)
+    assert scan.status == "completed"
+    assert scan.completed_at is not None
+    assert src.status == "online"
+
+
+@pytest.mark.asyncio
+async def test_finalize_straggler_skips_scan_with_an_open_unit(
+    setup_db, db_session: AsyncSession,
+):
+    """A scan that still has a pending/running unit is genuinely in
+    progress — the finalize pass must leave it alone."""
+    src = await _make_source(db_session, status="scanning")
+    scan = await _make_scan(
+        db_session, source_id=src.id, status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=5),
+    )
+    await _make_unit(db_session, scan_id=scan.id, path="a", status="completed")
+    await _make_unit(db_session, scan_id=scan.id, path="b", status="running")
+
+    await _finalize_orphaned_complete_scans()
+
+    await db_session.refresh(scan)
+    assert scan.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_finalize_straggler_ignores_scan_with_no_units(
+    setup_db, db_session: AsyncSession,
+):
+    """A scan with no work units at all (e.g. never enumerated) is not a
+    straggler — the finalize pass requires at least one unit."""
+    src = await _make_source(db_session, status="scanning")
+    scan = await _make_scan(
+        db_session, source_id=src.id, status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=5),
+    )
+
+    await _finalize_orphaned_complete_scans()
+
+    await db_session.refresh(scan)
+    assert scan.status == "running"

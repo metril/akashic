@@ -403,6 +403,53 @@ async def test_get_log_filters_by_kind_and_since(
 
 
 @pytest.mark.asyncio
+async def test_get_log_keyset_pagination_is_lossless(
+    client: AsyncClient, fixture_scan: Scan, setup_db
+):
+    """The (ts, id) keyset must page the whole log without dropping or
+    duplicating a line at a page boundary — even when every row shares
+    one timestamp, the case a pure-`ts` cursor is lossy on (v0.33.0)."""
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    async with setup_db() as session:
+        # All five rows share `base` — a `ts > base` cursor would skip
+        # whichever rows didn't make the first page.
+        session.add_all([
+            ScanLogEntry(
+                scan_id=fixture_scan.id, ts=base, level="info",
+                message=f"line {i}",
+            )
+            for i in range(5)
+        ])
+        await session.commit()
+
+    # Ground truth: one unpaged read.
+    r = await client.get(f"/api/scans/{fixture_scan.id}/log?limit=2000")
+    assert r.status_code == 200
+    full = r.json()
+    assert len(full) == 5
+
+    # Page it two at a time with the (ts, id) keyset.
+    from urllib.parse import quote
+    collected: list[dict] = []
+    cursor: tuple[str, str] | None = None
+    for _ in range(10):  # generous bound — must terminate well before
+        url = f"/api/scans/{fixture_scan.id}/log?limit=2"
+        if cursor is not None:
+            url += f"&since={quote(cursor[0])}&after_id={cursor[1]}"
+        r = await client.get(url)
+        assert r.status_code == 200
+        page = r.json()
+        collected.extend(page)
+        if len(page) < 2:
+            break
+        cursor = (page[-1]["ts"], page[-1]["id"])
+
+    # The paged walk reproduces the unpaged read exactly — same rows,
+    # same order, nothing lost at a boundary.
+    assert [row["id"] for row in collected] == [row["id"] for row in full]
+
+
+@pytest.mark.asyncio
 async def test_log_batch_size_capped(
     client: AsyncClient, fixture_scan: Scan
 ):

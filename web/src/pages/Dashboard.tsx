@@ -97,6 +97,11 @@ export default function Dashboard() {
     // throttle (5s) never causes back-to-back refetches.
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    // v0.33.0: poll as a backstop. useDashboardLiveRefresh covers the
+    // instant case via /ws/scans events + snapshot re-sync, but a
+    // genuinely-lost event (scan_pubsub publishes are fire-and-forget)
+    // would otherwise leave the tiles stale until a manual reload.
+    refetchInterval: 30_000,
   });
 
   // v0.4.4: access_risks split off into its own lazy fetch — the
