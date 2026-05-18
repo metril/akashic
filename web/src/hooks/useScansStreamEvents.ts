@@ -57,6 +57,16 @@ const listeners = new Set<Listener>();
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let visibilityBound = false;
+
+// Half-open-socket watchdog. A WebSocket can stop delivering frames
+// without ever firing `close`/`error` — it just sits in readyState
+// OPEN. The server pings every 30 s, so if no frame (incl. ping) has
+// arrived for STALE_MS the socket is dead: force-close it and let
+// onclose run the normal backoff reconnect. v0.32.0.
+let watchdogTimer: number | null = null;
+let lastFrameAt = 0;
+const STALE_MS = 45_000;
+const WATCHDOG_MS = 15_000;
 // Capped exponential backoff (v0.4.3). Resets to 0 on any
 // successful frame from the server, so a transient blip doesn't
 // poison subsequent reconnects for the rest of the session.
@@ -83,11 +93,18 @@ function open() {
   if (typeof document !== "undefined" && document.hidden) return;
   const sock = new WebSocket(url);
   ws = sock;
+  lastFrameAt = Date.now();
+  startWatchdog();
+  sock.onopen = () => {
+    lastFrameAt = Date.now();
+  };
   sock.onmessage = (msg) => {
     // Any successful frame from the server means the connection is
     // healthy — reset backoff so a future transient blip starts
-    // from 1s again, not from wherever we'd escalated to.
+    // from 1s again, not from wherever we'd escalated to. The
+    // timestamp also feeds the half-open watchdog (a `ping` counts).
     retryCount = 0;
+    lastFrameAt = Date.now();
     try {
       const event = JSON.parse(msg.data) as ScansStreamEvent;
       dispatch(event);
@@ -122,7 +139,29 @@ function scheduleReconnect() {
   }, delay);
 }
 
+function startWatchdog() {
+  if (watchdogTimer != null) return;
+  watchdogTimer = window.setInterval(() => {
+    if (
+      ws &&
+      ws.readyState === WebSocket.OPEN &&
+      Date.now() - lastFrameAt > STALE_MS
+    ) {
+      // Dead-but-OPEN socket — force the close so onclose reconnects.
+      try { ws.close(); } catch { /* noop */ }
+    }
+  }, WATCHDOG_MS);
+}
+
+function stopWatchdog() {
+  if (watchdogTimer != null) {
+    window.clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
+}
+
 function close() {
+  stopWatchdog();
   if (reconnectTimer != null) {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = null;

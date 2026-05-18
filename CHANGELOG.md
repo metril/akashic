@@ -5,6 +5,41 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.32.0 — 2026-05-17
+
+**The scan Live Log is one searchable, filterable stream — and it no
+longer silently stops updating.**
+
+### Changed
+
+- **One unified log stream replaces the "Activity" / "Raw stderr"
+  tabs.** Instead of switching tabs, you choose what to show: toggle
+  the **Info / Warn / Error / stderr** filter chips, search the log
+  with a live search box, and — on multi-scanner scans — filter to a
+  specific scanner. `stderr` is off by default (it's raw, noisy
+  passthrough output); turn its chip on when you want it. A **Copy**
+  button copies the currently-filtered lines.
+
+- **The follow control is clear and prominent.** The faint "Resume
+  tail" button is gone. The log tails new output automatically; when
+  you scroll up to read, following pauses and an obvious **"↓ Jump to
+  latest"** pill appears (showing the count of new lines that have
+  arrived). Click it — or scroll back to the bottom — to resume.
+
+### Bug fixes
+
+- **The Live Log no longer randomly freezes until you reopen it.** A
+  WebSocket can go half-open — the browser never reports it closed, so
+  the panel sat "Live" but received nothing. A watchdog now notices
+  when no frame (the server pings every 30 s) has arrived for 45 s and
+  reconnects automatically; the status shows "Reconnecting…" while it
+  does. (The same watchdog covers the dashboard's scan-status stream.)
+
+- **Auto-scroll no longer turns itself off after you scroll.** The
+  panel's own scroll-to-bottom could race an incoming line and flip
+  following off by itself. Following is now driven only by genuine user
+  scrolling.
+
 ## v0.31.6 — 2026-05-17
 
 **The Live Log shows output again for multi-scanner scans.**

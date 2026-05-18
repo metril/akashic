@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getToken } from "../api/client";
+import { isStreamStale } from "../components/scans/scanLog";
 import type {
   ScanLogLine,
   ScanProgressEvent,
@@ -9,13 +10,22 @@ import type {
 
 const MAX_BUFFERED_LINES = 1000;
 
+// Half-open-socket watchdog. The server pings every 30 s; if no frame
+// (incl. ping) has arrived for STALE_MS the socket is dead even though
+// the browser never fired `close`/`error` — force a reconnect. 45 s is
+// 1.5 ping intervals of grace. WATCHDOG_MS is how often we check.
+const STALE_MS = 45_000;
+const WATCHDOG_MS = 15_000;
+
 export interface ScanStreamState {
   snapshot: ScanSnapshot | null;
   progress: ScanProgressEvent | null;
-  // Combined log+stderr buffer — components filter by `level !== "stderr"`
-  // for the Activity tab and `level === "stderr"` for the Raw stderr tab.
+  // Combined log+stderr buffer — the panel filters it client-side
+  // (by level, scanner and search query) into the unified stream view.
   lines: ScanLogLine[];
-  status: "connecting" | "open" | "closed" | "error";
+  // "connecting" = first connect; "reconnecting" = re-establishing
+  // after a drop (incl. a watchdog-forced reconnect).
+  status: "connecting" | "open" | "reconnecting" | "closed" | "error";
   // Helps debugging: the last ts we successfully received, useful as
   // the `since` cursor on reconnect backfill (HTTP path).
   lastEventTs: string | null;
@@ -43,6 +53,10 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const attemptRef = useRef(0);
+  // Epoch-ms of the last frame received from the server (any kind,
+  // including `ping`). The watchdog reads this to detect a half-open
+  // socket the browser never reported as closed.
+  const lastActivityRef = useRef<number | null>(null);
 
   // Inbound-event coalescing buffer. A burst of WS messages (common with
   // a chatty stderr relay or a fast scan) used to trigger one setState
@@ -144,10 +158,17 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
-    setState((s) => ({ ...s, status: "connecting" }));
+    // A non-zero attempt count means this is a reconnect, not the
+    // first connect — surface that distinctly so the UI can say
+    // "Reconnecting…" rather than the cold-start "Connecting…".
+    setState((s) => ({
+      ...s,
+      status: attemptRef.current > 0 ? "reconnecting" : "connecting",
+    }));
 
     ws.onopen = async () => {
       attemptRef.current = 0;
+      lastActivityRef.current = Date.now();
       setState((s) => ({ ...s, status: "open" }));
       // Backfill anything that landed between drop and reconnect.
       const since = sinceRef.current;
@@ -171,6 +192,10 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
     };
 
     ws.onmessage = (ev) => {
+      // Mark the socket alive on EVERY frame, before anything else —
+      // a `ping` carries no data but is proof of liveness, which is
+      // exactly what the half-open watchdog needs.
+      lastActivityRef.current = Date.now();
       let event: ScanWsEvent;
       try {
         event = JSON.parse(ev.data);
@@ -212,7 +237,7 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       // Exponential backoff capped at 10 s.
       attemptRef.current += 1;
       const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 10_000);
-      setState((s) => ({ ...s, status: "connecting" }));
+      setState((s) => ({ ...s, status: "reconnecting" }));
       reconnectTimer.current = window.setTimeout(connect, delay);
     };
 
@@ -237,9 +262,29 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       setState(initialState);
       return;
     }
+    mountedRef.current = true;
     connect();
+
+    // Half-open-socket watchdog. A WebSocket can stop delivering frames
+    // without the browser ever firing `close`/`error` — the socket sits
+    // in readyState OPEN forever and the panel silently stops updating
+    // until it's reopened. If no frame (incl. the server's 30 s ping)
+    // has arrived for STALE_MS, force-close it; `onclose` then runs the
+    // normal backoff reconnect.
+    const watchdog = window.setInterval(() => {
+      const ws = wsRef.current;
+      if (
+        ws &&
+        ws.readyState === WebSocket.OPEN &&
+        isStreamStale(lastActivityRef.current, Date.now(), STALE_MS)
+      ) {
+        ws.close();
+      }
+    }, WATCHDOG_MS);
+
     return () => {
       mountedRef.current = false;
+      window.clearInterval(watchdog);
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;

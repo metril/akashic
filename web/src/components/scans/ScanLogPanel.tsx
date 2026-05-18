@@ -1,11 +1,17 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Drawer } from "../ui";
-import type { BadgeVariant } from "../ui";
 import { useScanStream } from "../../hooks/useScanStream";
 import { useScanById } from "../../hooks/useScansStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ScanLogLine } from "../../types";
+import {
+  LOG_LEVELS,
+  DEFAULT_LEVELS,
+  filterLogLines,
+  scanIsStoppable,
+  terminalBadgeVariantFor,
+} from "./scanLog";
 
 interface ScanLogPanelProps {
   open: boolean;
@@ -14,21 +20,17 @@ interface ScanLogPanelProps {
   sourceName?: string;
 }
 
-type Tab = "activity" | "stderr";
-
-// Per-line display cap. The scanner's stderr relay batches up to 4 KB per
-// chunk, and a single such chunk rendered with `whitespace-pre-wrap
-// break-all` is enough to lock up the layout engine when 50 of them
-// arrive at once. The full message stays in memory; only the rendered
-// node is bounded. Users who need the full text can copy/expand later.
+// Per-line display cap. The scanner's stderr relay batches up to 4 KB
+// per chunk; one such chunk rendered with `whitespace-pre-wrap
+// break-all` is enough to lock the layout engine when 50 arrive at
+// once. The full message stays in memory — only the rendered node is
+// bounded.
 const DISPLAY_LINE_CAP = 256;
 
-// Maximum rows rendered to the DOM. The buffer in useScanStream goes up
-// to 1000 (kept for `since` reconstruction on reconnect), but the DOM
-// only ever holds the most recent `MAX_VISIBLE_ROWS` of the active tab.
-// Capping the rendered count is what actually keeps the layout engine
-// out of the danger zone — DOM-node count dominates the cost more than
-// any individual row's content.
+// Maximum rows rendered to the DOM. The buffer in useScanStream holds
+// up to 1000; the DOM only ever holds the most recent MAX_VISIBLE_ROWS
+// of the *filtered* stream. Capping the rendered count is what keeps
+// the layout engine responsive under a heavy log stream.
 const MAX_VISIBLE_ROWS = 300;
 
 function truncateForDisplay(s: string): { text: string; truncated: boolean } {
@@ -43,9 +45,25 @@ const LEVEL_COLOR: Record<string, string> = {
   stderr: "text-fg-muted",
 };
 
+// Dot colour shown on each level filter chip — doubles as a legend.
+const LEVEL_DOT: Record<string, string> = {
+  info: "bg-sky-500",
+  warn: "bg-amber-500",
+  error: "bg-rose-500",
+  stderr: "bg-gray-400",
+};
+
+const LEVEL_LABEL: Record<string, string> = {
+  info: "Info",
+  warn: "Warn",
+  error: "Error",
+  stderr: "stderr",
+};
+
 const STATUS_LABEL: Record<string, string> = {
   connecting: "Connecting…",
   open: "Live",
+  reconnecting: "Reconnecting…",
   closed: "Closed",
   error: "Connection error",
 };
@@ -53,66 +71,50 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   connecting: "bg-amber-500",
   open: "bg-emerald-500",
+  reconnecting: "bg-amber-500",
   closed: "bg-gray-400",
   error: "bg-rose-500",
 };
 
-// v0.29.7 — variant-selection helper for the terminal-status badge.
-// Returns null for in-flight states (running/pending) so the badge
-// doesn't double-label scans the existing WS status pill already
-// describes. Extracted as a pure function so vitest (in node env,
-// no jsdom) can cover it.
-export function terminalBadgeVariantFor(
-  scanStatus: string | null | undefined,
-): BadgeVariant | null {
-  if (!scanStatus) return null;
-  if (scanStatus === "completed") return "online";
-  if (scanStatus === "failed")    return "failed";
-  if (scanStatus === "cancelled") return "neutral";
-  return null;
-}
-
-// terminalBadge renders the v0.29.7 post-completion status hint
-// next to the WS state pill. Hidden for in-flight scans.
+// terminalBadge renders the post-completion status hint next to the
+// live status pill. Hidden for in-flight scans.
 function terminalBadge(scanStatus: string | null | undefined): React.ReactNode {
   const variant = terminalBadgeVariantFor(scanStatus);
   if (variant === null) return null;
   return <Badge variant={variant}>{scanStatus}</Badge>;
 }
 
-// scanIsStoppable — true only while a scan can still be cancelled
-// (pending or running). The Stop button must gate on this, NOT on the
-// WebSocket connection state: the WS stays open after the scan ends,
-// which previously left the button live for an already-finished scan.
-// Pure + exported so vitest (node env, no jsdom) can cover it.
-export function scanIsStoppable(scanStatus: string | null | undefined): boolean {
-  return scanStatus === "running" || scanStatus === "pending";
-}
-
 // Drawer width: "xl" = max-w-4xl. Live log lines are dense and
-// path-heavy (see "current: <SMB share path/Season/Episode>" lines);
-// cramming them into the default 672 px caused user-reported cutoff
-// where text jammed against the right edge with no breathing room.
+// path-heavy; the default 672 px jammed long paths against the edge.
 const DRAWER_WIDTH = "xl";
 
 export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanelProps) {
   const stream = useScanStream(scanId, open);
-  const [tab, setTab] = useState<Tab>("activity");
-  const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const [stopping, setStopping] = useState(false);
 
-  // Scan status, preferring the list-level stream (`byScan`, which gets
-  // live `scan.state` events including the terminal transition) over the
-  // per-scan WS snapshot (captured once at connect, never corrected).
-  // This is what makes the badge accurate and the Stop button gate right.
+  // ── Filters: one unified stream, filtered client-side ────────────
+  // Levels: Info/Warn/Error on by default; stderr is raw, noisy
+  // passthrough output — opt in via its chip.
+  const [levels, setLevels] = useState<Set<string>>(
+    () => new Set<string>(DEFAULT_LEVELS),
+  );
+  const [query, setQuery] = useState("");
+  // Scanner filter: empty = every scanner. Only surfaced for
+  // multi-scanner scans (more than one scanner has logged).
+  const [activeScanners, setActiveScanners] = useState<Set<string>>(() => new Set());
+  const [copied, setCopied] = useState(false);
+
+  // ── Follow (tail) state ──────────────────────────────────────────
+  const [following, setFollowing] = useState(true);
+
+  // Scan status, preferring the list-level stream (live `scan.state`
+  // events incl. the terminal transition) over the per-scan WS
+  // snapshot (captured once at connect, never corrected).
   const liveScan = useScanById(scanId);
   const scanStatus = liveScan?.status ?? stream.snapshot?.status ?? null;
 
-  // Cancel from inside the drawer. The same handler logic lives on the
-  // source card; duplicated here so the user doesn't have to dismiss
-  // the drawer to find a Stop button.
   async function handleStop() {
     if (!scanId || stopping || !scanIsStoppable(scanStatus)) return;
     setStopping(true);
@@ -121,63 +123,81 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
       await queryClient.invalidateQueries({ queryKey: ["scans", "active"] });
     } catch {
-      // Same fallback as the card: leave the button enabled for retry.
+      // Leave the button enabled for retry.
     } finally {
       setStopping(false);
     }
   }
 
-  // Single pass over the buffer to compute both filtered subsets AND
-  // their counts. The previous impl called .filter() three times per
-  // render (twice for the count badges, once for the visible list);
-  // with a chatty stream that adds up.
-  const { activityLines, stderrLines } = useMemo(() => {
-    const activity: typeof stream.lines = [];
-    const stderr: typeof stream.lines = [];
-    for (const line of stream.lines) {
-      if (line.level === "stderr") stderr.push(line);
-      else activity.push(line);
+  // Distinct scanners that have logged on this scan.
+  const scannersPresent = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of stream.lines) {
+      if (l.scanner_id) {
+        m.set(l.scanner_id, l.scanner_name ?? l.scanner_id.slice(0, 8));
+      }
     }
-    return { activityLines: activity, stderrLines: stderr };
+    return [...m.entries()].map(([id, name]) => ({ id, name }));
   }, [stream.lines]);
 
-  // Render only the tail. With 1000 buffered lines and the prior
-  // `whitespace-pre-wrap break-all` per row, even a moderate browser
-  // would chug; capping the DOM to 300 rows is the single biggest
-  // win for keeping the panel responsive under heavy log streams.
-  const tabLines = tab === "activity" ? activityLines : stderrLines;
-  // useMemo so the slice's identity is stable when tabLines didn't
-  // change (e.g., autoScroll toggle, hover state). Without this,
-  // every render produced a fresh array reference even when the
-  // underlying buffer was unchanged, defeating LogRow memo identity
-  // checks and forcing React to walk all 300 children per render.
+  // The filtered stream + its capped, rendered tail.
+  const filtered = useMemo(
+    () => filterLogLines(stream.lines, { levels, query, scanners: activeScanners }),
+    [stream.lines, levels, query, activeScanners],
+  );
   const visibleLines = useMemo(
     () =>
-      tabLines.length <= MAX_VISIBLE_ROWS
-        ? tabLines
-        : tabLines.slice(tabLines.length - MAX_VISIBLE_ROWS),
-    [tabLines],
+      filtered.length <= MAX_VISIBLE_ROWS
+        ? filtered
+        : filtered.slice(filtered.length - MAX_VISIBLE_ROWS),
+    [filtered],
   );
-  const hiddenOlder = tabLines.length - visibleLines.length;
+  const total = stream.lines.length;
+  const hiddenOlder = filtered.length - visibleLines.length;
+  const filtersNarrow = filtered.length !== total;
 
-  // Auto-scroll. The previous version ran on every render via rAF,
-  // which forced a scrollHeight read on a 300-row word-broken
-  // container at ~60 Hz under burst streams — top-3 layout-cost op
-  // in the engine and the root cause of the v0.4.10 panel lag.
-  // Now: short-circuit when length didn't change, and throttle the
-  // actual read+set to ≤4 Hz. 250ms is below the human perception
-  // threshold for "instant" so the user still sees the tail follow.
+  function toggleLevel(level: string) {
+    setLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) next.delete(level);
+      else next.add(level);
+      return next;
+    });
+  }
+
+  function toggleScanner(id: string) {
+    setActiveScanners((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // ── Auto-follow ──────────────────────────────────────────────────
+  // The follow model is intent-based: only a genuine *user* scroll
+  // changes it. A programmatic scroll-to-bottom also fires `onScroll`;
+  // we stamp the time of our own scroll and ignore the event it
+  // produces, so a line appended mid-scroll can't flip follow off by
+  // itself (the old auto-scroll bug).
+  const followingRef = useRef(following);
+  followingRef.current = following;
+  const programmaticAtRef = useRef(0);
   const lastScrolledLenRef = useRef(0);
   const scrollTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (!autoScroll || !scrollRef.current) return;
+    if (!following || !scrollRef.current) return;
     if (visibleLines.length === lastScrolledLenRef.current) return;
     lastScrolledLenRef.current = visibleLines.length;
     if (scrollTimerRef.current != null) return;
+    // Throttle the scroll-to-bottom to ≤4 Hz — below the perception
+    // threshold for "instant", well above the layout-cost danger zone.
     scrollTimerRef.current = window.setTimeout(() => {
       scrollTimerRef.current = null;
       const el = scrollRef.current;
-      if (!el || !autoScroll) return;
+      if (!el || !followingRef.current) return;
+      programmaticAtRef.current = Date.now();
       el.scrollTop = el.scrollHeight;
     }, 250);
     return () => {
@@ -186,16 +206,67 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
         scrollTimerRef.current = null;
       }
     };
-  }, [visibleLines, autoScroll]);
+  }, [visibleLines, following]);
 
   function onScroll() {
-    if (!scrollRef.current) return;
     const el = scrollRef.current;
+    if (!el) return;
+    // Ignore the scroll event our own programmatic scroll produced.
+    if (Date.now() - programmaticAtRef.current < 150) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    // Re-engage auto-scroll once the user manually scrolls back to
-    // the bottom; pause it as soon as they scroll up.
-    setAutoScroll(atBottom);
+    setFollowing((prev) => (prev === atBottom ? prev : atBottom));
   }
+
+  // Lines that have arrived since follow was paused — drives the
+  // floating pill's "N new lines" label.
+  const pausedAtRef = useRef(0);
+  useEffect(() => {
+    if (!following) pausedAtRef.current = stream.lines.length;
+  }, [following]);
+  const newSincePause = following
+    ? 0
+    : Math.max(0, stream.lines.length - pausedAtRef.current);
+
+  function jumpToLatest() {
+    setFollowing(true);
+    const el = scrollRef.current;
+    if (el) {
+      programmaticAtRef.current = Date.now();
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  function handleCopy() {
+    const text = filtered
+      .map((l) => {
+        const t = new Date(l.ts).toLocaleTimeString();
+        const who = l.scanner_name ? ` [${l.scanner_name}]` : "";
+        return `${t}  ${l.level.toUpperCase()}${who}  ${l.message}`;
+      })
+      .join("\n");
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => {
+        /* clipboard blocked — no-op */
+      },
+    );
+  }
+
+  const batchSize =
+    stream.progress?.current_batch_size ?? stream.snapshot?.current_batch_size;
+  const pulsing = stream.status === "connecting" || stream.status === "reconnecting";
+
+  const emptyMessage =
+    total === 0
+      ? stream.status === "open"
+        ? "Waiting for scanner output…"
+        : stream.status === "reconnecting"
+          ? "Reconnecting to the live stream…"
+          : "No log lines yet."
+      : "No lines match the current filters.";
 
   return (
     <Drawer
@@ -211,135 +282,130 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
       }
       width={DRAWER_WIDTH}
     >
-      {/* px-5 py-4 gives the entire panel — status pill, tabs, log
-          tail — consistent breathing room from the drawer edges.
-          Without this, status / tab elements sat flush against the
-          left edge while only the log container had its own p-3,
-          producing the lopsided "stuck to the right edge" look the
-          user was reporting on long path lines. */}
       <div className="flex flex-col h-full px-5 py-4">
-        {/* Status pill + Stop / autoscroll toggle */}
+        {/* Connection status + Stop */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${STATUS_COLOR[stream.status]}`}
-            />
+            <span className="relative inline-flex h-2 w-2">
+              {pulsing && (
+                <span
+                  className={`absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping ${STATUS_COLOR[stream.status]}`}
+                />
+              )}
+              <span
+                className={`relative inline-flex h-2 w-2 rounded-full ${STATUS_COLOR[stream.status]}`}
+              />
+            </span>
             <span className="text-xs text-fg-muted">{STATUS_LABEL[stream.status]}</span>
-            {/* v0.29.7 — terminal-status badge. When viewing a
-                completed/failed/cancelled scan's log, this tells the
-                user the panel isn't frozen — the scan just ended.
-                Hidden for in-flight scans (running/pending); the
-                existing status pill already conveys that. */}
             {terminalBadge(scanStatus)}
-            {/* v0.29.2 — adaptive batch size, surfaced when the scanner
-                reports it. Hidden on legacy / pre-v0.29.2 agents and on
-                terminal scans where the value is no longer moving. */}
-            {(stream.progress?.current_batch_size ??
-              stream.snapshot?.current_batch_size) != null && (
+            {batchSize != null && (
               <span
                 className="text-[10px] font-mono uppercase tracking-wide text-fg-muted bg-surface-muted rounded px-1.5 py-px"
                 title="Adaptive ingest batch size — converges toward what the source + API can sustain."
               >
-                batch{" "}
-                {stream.progress?.current_batch_size ??
-                  stream.snapshot?.current_batch_size}
+                batch {batchSize}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            {/* Stop shows only while the scan itself is non-terminal —
-                NOT while the WebSocket is merely open (it stays open
-                after the scan ends, which used to leave this button
-                live for an already-finished scan). */}
-            {scanIsStoppable(scanStatus) && (
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={handleStop}
-                loading={stopping}
-              >
-                Stop scan
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setAutoScroll(true);
-                if (scrollRef.current) {
-                  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-                }
-              }}
-              disabled={autoScroll}
-              reserveLabel="Auto-scrolling"
-            >
-              {autoScroll ? "Auto-scrolling" : "Resume tail"}
+          {scanIsStoppable(scanStatus) && (
+            <Button size="sm" variant="danger" onClick={handleStop} loading={stopping}>
+              Stop scan
             </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div role="tablist" className="flex border-b border-line mb-2 text-sm">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "activity"}
-            onClick={() => setTab("activity")}
-            className={`px-3 py-1.5 -mb-px border-b-2 transition-colors rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-              tab === "activity"
-                ? "border-fg text-fg font-medium"
-                : "border-transparent text-fg-muted hover:text-fg hover:bg-surface-muted/40"
-            }`}
-          >
-            Activity
-            <span className="ml-1.5 text-xs text-fg-subtle">
-              ({activityLines.length})
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "stderr"}
-            onClick={() => setTab("stderr")}
-            className={`px-3 py-1.5 -mb-px border-b-2 transition-colors rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-              tab === "stderr"
-                ? "border-fg text-fg font-medium"
-                : "border-transparent text-fg-muted hover:text-fg hover:bg-surface-muted/40"
-            }`}
-          >
-            Raw stderr
-            <span className="ml-1.5 text-xs text-fg-subtle">
-              ({stderrLines.length})
-            </span>
-          </button>
-        </div>
-
-        {/* Tail. px-4 py-3 (was p-3) plus a min-w-0 + pr-2 on the
-            message span below = three layers of breathing room from
-            the right edge. Without these, long path lines wrapped
-            via break-all would jam right up against the gray-50 box
-            border with zero gutter, which is what the user was
-            reporting as "text close to the edge, prone to cutoff". */}
-        <div
-          ref={scrollRef}
-          onScroll={onScroll}
-          className="flex-1 min-h-[400px] max-h-[70vh] overflow-y-auto bg-app rounded-md font-mono text-xs leading-snug px-4 py-3 border border-line"
-        >
-          {hiddenOlder > 0 && (
-            <p className="text-[11px] text-fg-subtle italic mb-1">
-              Showing the most recent {visibleLines.length.toLocaleString()} of{" "}
-              {(visibleLines.length + hiddenOlder).toLocaleString()} lines.
-              Older lines are still in memory; refresh narrows nothing.
-            </p>
           )}
-          {visibleLines.length === 0 ? (
-            <p className="text-fg-subtle italic">
-              {stream.status === "open" ? "Waiting for output…" : "No log lines yet."}
-            </p>
-          ) : (
-            visibleLines.map((line) => (
-              <LogRow key={line.id} line={line} showLevel={tab === "activity"} />
-            ))
+        </div>
+
+        {/* Toolbar: search · level filters · copy */}
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search the log…"
+            aria-label="Search the log"
+            className="h-7 min-w-[9rem] flex-1 rounded-md border border-line bg-app px-2.5 text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-400"
+          />
+          <div className="flex items-center gap-1.5">
+            {LOG_LEVELS.map((level) => (
+              <FilterChip
+                key={level}
+                active={levels.has(level)}
+                onClick={() => toggleLevel(level)}
+                dotClass={LEVEL_DOT[level]}
+                label={LEVEL_LABEL[level]}
+                title={
+                  levels.has(level)
+                    ? `Hide ${LEVEL_LABEL[level]} lines`
+                    : `Show ${LEVEL_LABEL[level]} lines`
+                }
+              />
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleCopy}
+            disabled={filtered.length === 0}
+            reserveLabel="Copied"
+          >
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+
+        {/* Scanner filter — multi-scanner scans only */}
+        {scannersPresent.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            <span className="text-[11px] uppercase tracking-wide text-fg-subtle mr-0.5">
+              Scanners
+            </span>
+            {scannersPresent.map((s) => (
+              <FilterChip
+                key={s.id}
+                active={activeScanners.size === 0 || activeScanners.has(s.id)}
+                onClick={() => toggleScanner(s.id)}
+                dotClass={scannerDotColor(s.id)}
+                label={s.name}
+                title={`Show only ${s.name}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Count line */}
+        <div className="flex items-center justify-between text-[11px] text-fg-subtle mb-1">
+          <span>
+            {filtersNarrow
+              ? `${filtered.length.toLocaleString()} of ${total.toLocaleString()} lines`
+              : `${total.toLocaleString()} line${total === 1 ? "" : "s"}`}
+          </span>
+          {hiddenOlder > 0 && (
+            <span>showing the most recent {visibleLines.length.toLocaleString()}</span>
+          )}
+        </div>
+
+        {/* Log tail + floating "jump to latest" pill */}
+        <div className="relative flex-1 min-h-[400px] max-h-[70vh]">
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className="h-full overflow-y-auto bg-app rounded-md font-mono text-xs leading-snug px-4 py-3 border border-line"
+          >
+            {visibleLines.length === 0 ? (
+              <p className="text-fg-subtle italic">{emptyMessage}</p>
+            ) : (
+              visibleLines.map((line) => <LogRow key={line.id} line={line} />)
+            )}
+          </div>
+          {!following && (
+            <button
+              type="button"
+              onClick={jumpToLatest}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1.5 rounded-full bg-accent-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-lg shadow-black/20 hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 focus-visible:ring-offset-app"
+            >
+              <span aria-hidden>↓</span>
+              {newSincePause > 0
+                ? `${newSincePause.toLocaleString()} new line${newSincePause === 1 ? "" : "s"}`
+                : "Jump to latest"}
+            </button>
           )}
         </div>
       </div>
@@ -347,20 +413,47 @@ export function ScanLogPanel({ open, onClose, scanId, sourceName }: ScanLogPanel
   );
 }
 
-/**
- * Per-row React.memo wrapper (v0.4.5). Lines are append-only and
- * immutable once buffered, so the memo with default shallow
- * equality on (line, showLevel) short-circuits every existing row
- * — only the newly-appended row mounts on each WS frame. Previously
- * the inline `visibleLines.map` rendered all 300 rows on every
- * parent commit, with `new Date(line.ts).toLocaleTimeString(...)`
- * (~Intl-formatter-cost) per row per render.
- */
+// FilterChip — a pill toggle for the level / scanner filters. Local to
+// this panel (not a shared `ui` primitive). Active = accent-tinted;
+// the colour dot doubles as a legend.
+function FilterChip({
+  active,
+  onClick,
+  dotClass,
+  label,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  dotClass?: string;
+  label: string;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={title}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+        active
+          ? "border-accent-300 bg-accent-50 text-fg dark:border-accent-500/40 dark:bg-accent-500/15"
+          : "border-line text-fg-muted hover:bg-surface-muted hover:text-fg"
+      }`}
+    >
+      {dotClass && (
+        <span
+          className={`h-2 w-2 rounded-full ${dotClass} ${active ? "" : "opacity-40"}`}
+        />
+      )}
+      {label}
+    </button>
+  );
+}
+
 // v0.28.2 — palette derived from a hash of scanner_id so the same
-// scanner gets the same colour across reloads / browser tabs / pages,
-// without persisting any preference. Eight colours cover most fleets;
-// anything bigger wraps and may collide visually but stays consistent
-// per-id.
+// scanner gets the same colour across reloads / tabs, without
+// persisting any preference.
 const SCANNER_PILL_COLORS = [
   "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300",
   "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -372,23 +465,42 @@ const SCANNER_PILL_COLORS = [
   "bg-lime-100 text-lime-800 dark:bg-lime-500/15 dark:text-lime-300",
 ];
 
-function scannerPillColor(scannerId: string): string {
-  // Simple djb2-ish hash, mod palette length.
+// Solid dot colours, parallel to SCANNER_PILL_COLORS, for the scanner
+// filter chips.
+const SCANNER_DOT_COLORS = [
+  "bg-sky-500",
+  "bg-emerald-500",
+  "bg-violet-500",
+  "bg-amber-500",
+  "bg-rose-500",
+  "bg-cyan-500",
+  "bg-fuchsia-500",
+  "bg-lime-500",
+];
+
+function scannerHash(scannerId: string): number {
+  // Simple djb2-ish hash.
   let h = 5381;
   for (let i = 0; i < scannerId.length; i++) {
     h = ((h << 5) + h + scannerId.charCodeAt(i)) | 0;
   }
-  return SCANNER_PILL_COLORS[Math.abs(h) % SCANNER_PILL_COLORS.length];
+  return Math.abs(h);
 }
 
-const LogRow = memo(function LogRow({
-  line, showLevel,
-}: {
-  line: ScanLogLine;
-  showLevel: boolean;
-}) {
-  // Format once per line.id; the timestamp string never changes
-  // for the lifetime of the row.
+function scannerPillColor(scannerId: string): string {
+  return SCANNER_PILL_COLORS[scannerHash(scannerId) % SCANNER_PILL_COLORS.length];
+}
+
+function scannerDotColor(scannerId: string): string {
+  return SCANNER_DOT_COLORS[scannerHash(scannerId) % SCANNER_DOT_COLORS.length];
+}
+
+/**
+ * Per-row React.memo wrapper. Lines are append-only and immutable once
+ * buffered, so the memo (shallow equality on `line`) short-circuits
+ * every existing row — only newly-appended rows mount on a WS frame.
+ */
+const LogRow = memo(function LogRow({ line }: { line: ScanLogLine }) {
   const ts = useMemo(
     () =>
       new Date(line.ts).toLocaleTimeString(undefined, {
@@ -400,16 +512,15 @@ const LogRow = memo(function LogRow({
   );
   const display = useMemo(() => truncateForDisplay(line.message), [line.message]);
   const colorClass = LEVEL_COLOR[line.level] ?? "text-fg";
-  const scannerLabel = line.scanner_name ?? (line.scanner_id ? line.scanner_id.slice(0, 8) : null);
+  const scannerLabel =
+    line.scanner_name ?? (line.scanner_id ? line.scanner_id.slice(0, 8) : null);
 
   return (
     <div className="flex gap-2">
       <span className="text-fg-subtle shrink-0 w-20">{ts}</span>
-      {showLevel && (
-        <span className={`shrink-0 w-12 uppercase font-semibold ${colorClass}`}>
-          {line.level}
-        </span>
-      )}
+      <span className={`shrink-0 w-12 uppercase font-semibold ${colorClass}`}>
+        {line.level}
+      </span>
       {scannerLabel && line.scanner_id && (
         <span
           className={`shrink-0 px-1.5 py-px rounded text-[10px] font-mono uppercase tracking-wide ${scannerPillColor(line.scanner_id)}`}
@@ -419,10 +530,8 @@ const LogRow = memo(function LogRow({
         </span>
       )}
       <span
-        // min-w-0 lets the flex item shrink below its intrinsic
-        // content width so break-all actually wraps; pr-2 reserves a
-        // small right gutter so wrapped text never lands flush
-        // against the gray-50 container border.
+        // min-w-0 lets the flex item shrink below its intrinsic content
+        // width so break-all wraps; pr-2 reserves a right gutter.
         className={`min-w-0 flex-1 pr-2 whitespace-pre-wrap break-all ${colorClass}`}
       >
         {display.text}
