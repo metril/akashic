@@ -71,6 +71,17 @@ class SplitResponse(BaseModel):
 
 class CompleteUnitRequest(BaseModel):
     error_message: str | None = None
+    # v0.34.0 — when true, /work/{id}/fail requeues the unit (status back
+    # to `pending`) for retry instead of marking it permanently `failed`.
+    # The scanner sets it on a transient SMB stall so a flaky share
+    # doesn't permanently drop the unit's subtree from the index.
+    requeue: bool = False
+
+
+# A unit failed-with-requeue this many times falls back to a permanent
+# `failed` — so a genuinely-unreachable subtree can't requeue forever and
+# the scan can still finalize.
+_MAX_UNIT_ATTEMPTS = 3
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -262,9 +273,19 @@ async def lease_unit(
     """
     scan, source = await _load_scan_and_source(db, scan_id)
     if scan.status not in {"pending", "running"}:
-        # Scan is already terminal — no more work to lease.
-        response.status_code = status.HTTP_204_NO_CONTENT
-        return None
+        # v0.34.0 — the scan itself is terminal. Answer 409 (not 204) so
+        # the scanner can tell "this scan is done, exit" apart from "no
+        # unit available right now, keep polling" (a plain 204). The
+        # detail mirrors the heartbeat 409's {status, reason, message}
+        # shape so the scanner decodes it the same way.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": scan.status,
+                "reason": "scan-terminal",
+                "message": f"scan is in terminal state {scan.status!r}",
+            },
+        )
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=_LEASE_SECONDS)
@@ -474,11 +495,38 @@ async def fail_unit(
             status_code=403, detail="scanner is not the lease holder",
         )
     now = datetime.now(timezone.utc)
+    unit.attempt_count = (unit.attempt_count or 0) + 1
+    if body.error_message is not None:
+        unit.error_message = body.error_message
+
+    # v0.34.0 — a transient-stall failure (body.requeue) puts the unit
+    # back on the queue for retry rather than abandoning its subtree, up
+    # to _MAX_UNIT_ATTEMPTS. Beyond that a genuinely-unreachable subtree
+    # is failed permanently so the scan can still finalize.
+    if body.requeue and unit.attempt_count < _MAX_UNIT_ATTEMPTS:
+        unit.status = "pending"
+        unit.assigned_scanner_id = None
+        unit.lease_expires_at = None
+        await db.commit()
+        # Wake an idle scanner to take the re-queued unit.
+        if source is not None and source.max_parallel_scanners > 1:
+            from akashic.services import scan_join
+            try:
+                await scan_join.notify_eligible_joiners(
+                    db=db, scan=scan, source=source, exclude_scanner_id=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(
+                    "fail_unit re-queue notify failed scan=%s: %s", scan.id, exc,
+                )
+        return
+
+    # Permanent failure — requeue not requested, or the attempt budget
+    # is spent.
     unit.status = "failed"
     unit.completed_at = now
     unit.lease_expires_at = None
-    if body.error_message is not None:
-        unit.error_message = body.error_message
 
     new_status = await _maybe_finalize_scan(db, scan, source)
     await db.commit()

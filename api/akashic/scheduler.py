@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _scheduler_task: asyncio.Task | None = None
 _retention_task: asyncio.Task | None = None
 _log_cleanup_task: asyncio.Task | None = None
+_unit_cleanup_task: asyncio.Task | None = None
 _snapshot_task: asyncio.Task | None = None
 _discovery_expiry_task: asyncio.Task | None = None
 _settings_invalidator_task: asyncio.Task | None = None
@@ -624,6 +625,50 @@ async def _scan_log_cleanup_loop():
         await asyncio.sleep(3600)  # hourly
 
 
+async def purge_scan_work_units(db: AsyncSession, older_than_days: int) -> int:
+    """Delete scan_work_units whose parent scan reached a terminal state
+    more than `older_than_days` ago. Returns the row count deleted.
+
+    v0.34.0 — budget-bounded dynamic units mean a scan accumulates many
+    `scan_work_units` rows; the `scans.id` CASCADE only reclaims them when
+    the scan row itself is deleted. The units serve no purpose once a scan
+    is terminal, so prune them on the same window as scan logs."""
+    from sqlalchemy import delete
+    from akashic.models.scan_work_unit import ScanWorkUnit
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    stale_scan_ids = (
+        select(Scan.id).where(
+            Scan.status.in_(["completed", "failed", "cancelled"]),
+            Scan.completed_at.isnot(None),
+            Scan.completed_at < cutoff,
+        )
+    ).subquery()
+    result = await db.execute(
+        delete(ScanWorkUnit).where(
+            ScanWorkUnit.scan_id.in_(select(stale_scan_ids))
+        )
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
+async def _scan_work_unit_cleanup_loop():
+    """Hourly: drop scan_work_units whose parent scan completed >7 days ago."""
+    while True:
+        try:
+            async with async_session() as db:
+                deleted = await purge_scan_work_units(db, _LOG_RETENTION_DAYS)
+            if deleted:
+                logger.info(
+                    "Pruned %d scan_work_units (retention %dd)",
+                    deleted, _LOG_RETENTION_DAYS,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scan work-unit cleanup pass failed: %s", exc)
+        await asyncio.sleep(3600)  # hourly
+
+
 async def _snapshot_fallback_loop():
     """Daily: write a scan_snapshot for any source whose latest snapshot is
     older than 24 hours.
@@ -775,6 +820,7 @@ def start_scheduler():
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     global _discovery_expiry_task, _settings_invalidator_task
     global _reachability_enqueue_task, _reachability_self_worker_task
+    global _unit_cleanup_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
@@ -784,6 +830,9 @@ def start_scheduler():
     if _log_cleanup_task is None or _log_cleanup_task.done():
         _log_cleanup_task = asyncio.create_task(_scan_log_cleanup_loop())
         logger.info("Scan-log cleanup scheduler started")
+    if _unit_cleanup_task is None or _unit_cleanup_task.done():
+        _unit_cleanup_task = asyncio.create_task(_scan_work_unit_cleanup_loop())
+        logger.info("Scan work-unit cleanup scheduler started")
     if _snapshot_task is None or _snapshot_task.done():
         _snapshot_task = asyncio.create_task(_snapshot_fallback_loop())
         logger.info("Snapshot fallback scheduler started")
@@ -812,12 +861,15 @@ def stop_scheduler():
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     global _discovery_expiry_task, _settings_invalidator_task
     global _reachability_enqueue_task, _reachability_self_worker_task
+    global _unit_cleanup_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
     if _retention_task and not _retention_task.done():
         _retention_task.cancel()
     if _log_cleanup_task and not _log_cleanup_task.done():
         _log_cleanup_task.cancel()
+    if _unit_cleanup_task and not _unit_cleanup_task.done():
+        _unit_cleanup_task.cancel()
     if _snapshot_task and not _snapshot_task.done():
         _snapshot_task.cancel()
     if _discovery_expiry_task and not _discovery_expiry_task.done():

@@ -9,6 +9,8 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,11 +56,12 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	reporter.Start(context.Background())
 
 	var conn connector.Connector = connector.NewLocalConnector()
-	shallow, ok := conn.(connector.ShallowWalker)
-	if !ok {
+	if _, ok := conn.(connector.ShallowWalker); !ok {
 		t.Fatal("local connector should implement ShallowWalker")
 	}
 
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1"}
 	leased := &leasedScan{
 		ScanID:   "scan-1",
 		ScanType: "incremental",
@@ -67,7 +70,8 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	unit := &workUnit{ID: "unit-1", ScanID: "scan-1", Path: "sub"}
 
 	err := runUnitWalk(
-		context.Background(), client.New(srv.URL, "key"), conn, shallow,
+		context.Background(), srv.Client(), cfg, priv,
+		client.New(srv.URL, "key"), conn,
 		leased, dir, unit, state, reporter,
 		nil /*excludes*/, nil /*extractor*/, nil /*extractFactory*/, 0,
 	)

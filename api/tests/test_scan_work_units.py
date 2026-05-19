@@ -557,3 +557,104 @@ async def test_finalize_does_not_sweep_when_a_unit_failed(
         )).scalar_one()
     assert scan.status == "completed"  # mixed: one unit ok, one failed
     assert e.is_deleted is False, "stale entry swept on a partial (mixed) scan"
+
+
+# ── v0.34.0 — sticky-loop terminal signal + transient-stall requeue ──────
+
+
+@pytest.mark.asyncio
+async def test_lease_returns_409_scan_terminal_for_terminal_scan(
+    setup_db, admin_user,
+):
+    """A lease against an already-terminal scan answers 409 with
+    detail.reason == "scan-terminal" — the scanner's sticky loop uses
+    that to tell "this scan is done, exit" apart from a plain 204
+    ("no unit right now, keep polling")."""
+    scan_id, _ = await _seed_scan(setup_db)
+    scn = await _mint_scanner(setup_db, admin_user)
+
+    async with setup_db() as db:
+        scan = (await db.execute(
+            select(Scan).where(Scan.id == scan_id)
+        )).scalar_one()
+        scan.status = "completed"
+        await db.commit()
+
+    async with _bearer_client(setup_db) as ac:
+        r = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn))
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["reason"] == "scan-terminal"
+
+
+@pytest.mark.asyncio
+async def test_fail_unit_requeue_resets_unit_to_pending(setup_db, admin_user):
+    """fail with requeue=true puts the unit back on the queue (status
+    pending, lease cleared) and bumps attempt_count — the scan is NOT
+    failed, so a transient SMB stall doesn't drop the subtree."""
+    scan_id, _ = await _seed_scan(setup_db)
+    scn = await _mint_scanner(setup_db, admin_user)
+
+    async with _bearer_client(setup_db) as ac:
+        await ac.post(
+            f"/api/scans/{scan_id}/work/split",
+            json={"child_paths": ["only"]}, headers=_auth(scn),
+        )
+        leased = (await ac.post(
+            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+        )).json()
+        f = await ac.post(
+            f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+            json={"error_message": "smb stalled", "requeue": True},
+            headers=_auth(scn),
+        )
+    assert f.status_code == 204, f.text
+
+    async with setup_db() as db:
+        unit = (await db.execute(
+            select(ScanWorkUnit).where(ScanWorkUnit.id == leased["id"])
+        )).scalar_one()
+        scan = (await db.execute(
+            select(Scan).where(Scan.id == scan_id)
+        )).scalar_one()
+    assert unit.status == "pending"
+    assert unit.assigned_scanner_id is None
+    assert unit.lease_expires_at is None
+    assert unit.attempt_count == 1
+    assert scan.status != "failed"
+
+
+@pytest.mark.asyncio
+async def test_fail_unit_requeue_falls_back_to_failed_at_attempt_budget(
+    setup_db, admin_user,
+):
+    """After _MAX_UNIT_ATTEMPTS fail-with-requeue cycles the unit is
+    failed permanently — a genuinely-unreachable subtree can't requeue
+    forever and the scan can still finalize."""
+    from akashic.routers.scan_work import _MAX_UNIT_ATTEMPTS
+
+    scan_id, _ = await _seed_scan(setup_db)
+    scn = await _mint_scanner(setup_db, admin_user)
+
+    async with _bearer_client(setup_db) as ac:
+        await ac.post(
+            f"/api/scans/{scan_id}/work/split",
+            json={"child_paths": ["only"]}, headers=_auth(scn),
+        )
+        for _ in range(_MAX_UNIT_ATTEMPTS):
+            leased = (await ac.post(
+                f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            )).json()
+            assert "id" in leased, leased
+            f = await ac.post(
+                f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+                json={"error_message": "smb stalled", "requeue": True},
+                headers=_auth(scn),
+            )
+            assert f.status_code == 204, f.text
+
+    async with setup_db() as db:
+        unit = (await db.execute(
+            select(ScanWorkUnit).where(ScanWorkUnit.scan_id == scan_id)
+        )).scalar_one()
+    assert unit.status == "failed"
+    assert unit.attempt_count == _MAX_UNIT_ATTEMPTS

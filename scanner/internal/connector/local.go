@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
@@ -34,6 +35,13 @@ func (c *LocalConnector) WalkShallow(
 		return nil, err
 	}
 	return res.SubdirNames, nil
+}
+
+// StatRoot implements connector.ShallowWalker — the directory record for
+// `path` itself, which a budgeted shallow walk must emit (the recursive
+// Walk emits each directory post-order, but WalkShallow emits only files).
+func (c *LocalConnector) StatRoot(_ context.Context, path string) (*models.EntryRecord, error) {
+	return metadata.Collect(path, false, metadata.NewOwnerResolver())
 }
 
 func (c *LocalConnector) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {

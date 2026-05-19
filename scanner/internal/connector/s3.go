@@ -295,6 +295,13 @@ func (c *S3Connector) hashObject(ctx context.Context, key string) (string, error
 	return metadata.HashReader(output.Body)
 }
 
+// StatRoot implements connector.ShallowWalker. An S3 "directory" is just
+// a key prefix, not a real object — there is no directory record to
+// emit, so this returns (nil, nil) and the budgeted shallow walk skips it.
+func (c *S3Connector) StatRoot(_ context.Context, _ string) (*models.EntryRecord, error) {
+	return nil, nil
+}
+
 func (c *S3Connector) ReadFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	output, err := c.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),

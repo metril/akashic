@@ -442,6 +442,29 @@ func (c *SMBConnector) WalkShallow(
 	return subdirs, nil
 }
 
+// StatRoot implements connector.ShallowWalker — the directory record for
+// `path` itself, which the budgeted shallow walk emits per directory.
+func (c *SMBConnector) StatRoot(ctx context.Context, path string) (*models.EntryRecord, error) {
+	if c.smbShare == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	var info os.FileInfo
+	if err := c.guard("stat "+path, func() error {
+		var e error
+		info, e = c.smbShare.Stat(path)
+		return e
+	}); err != nil {
+		return nil, fmt.Errorf("smb: stat %q: %w", path, err)
+	}
+	return fileInfoToEntry(ctx, path, info, false, nil), nil
+}
+
+// IsStalled implements connector.TransientStaller — true once the v0.32.2
+// op guard has force-closed the connection because the SMB server stopped
+// responding. The unit runner uses this to requeue the unit for retry
+// instead of permanently failing it.
+func (c *SMBConnector) IsStalled() bool { return c.stalled.Load() }
+
 func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 	var f *smb2.File
 	if err := c.guard("open "+path, func() error {

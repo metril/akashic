@@ -36,10 +36,15 @@ type splitResp struct {
 
 type failReq struct {
 	ErrorMessage string `json:"error_message,omitempty"`
+	// v0.34.0 — requeue the unit (status back to pending) for retry
+	// instead of failing it permanently. Set on a transient SMB stall.
+	Requeue bool `json:"requeue,omitempty"`
 }
 
-// errNoWork is returned by leaseUnit when /work/lease replies 204.
-// Caller treats it as "this scan is drained for me, exit the loop".
+// errNoWork is returned by leaseUnit when /work/lease replies 204 — no
+// unit is available right now. The scan is NOT necessarily over; sibling
+// scanners may still be splitting fresh units, so the caller should
+// poll, not exit. (v0.34.0 — the loop is now "sticky".)
 var errNoWork = errors.New("no work units available")
 
 // errLeaseCap is wrapped into the error leaseUnit returns on a 409
@@ -48,6 +53,11 @@ var errNoWork = errors.New("no work units available")
 // enumeration can tell "capped" apart from a transient failure via
 // errors.Is and skip re-enumerating.
 var errLeaseCap = errors.New("lease cap reached")
+
+// errScanTerminal is returned by leaseUnit when /work/lease replies 409
+// with detail.reason == "scan-terminal" — the scan itself has finished.
+// The caller MUST exit the unit loop; no further work will ever appear.
+var errScanTerminal = errors.New("scan reached a terminal state")
 
 func leaseUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
@@ -67,9 +77,18 @@ func leaseUnit(
 		return nil, errNoWork
 	}
 	if resp.StatusCode == http.StatusConflict {
-		// max_parallel_scanners cap reached. Caller should sleep and
-		// retry — eventually a holder finishes a unit and frees a slot.
 		raw, _ := io.ReadAll(resp.Body)
+		// Two kinds of 409: the scan itself is terminal (detail.reason ==
+		// "scan-terminal" — exit the loop) vs. max_parallel_scanners cap
+		// reached (units exist, no slot yet — sleep and retry).
+		var body struct {
+			Detail struct {
+				Reason string `json:"reason"`
+			} `json:"detail"`
+		}
+		if json.Unmarshal(raw, &body) == nil && body.Detail.Reason == "scan-terminal" {
+			return nil, errScanTerminal
+		}
 		return nil, fmt.Errorf("%w: %s", errLeaseCap, string(raw))
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -154,9 +173,13 @@ func completeUnit(
 	return nil
 }
 
+// failUnit reports a unit's walk failure. When requeue is true the API
+// puts the unit back on the queue for retry (up to a bounded attempt
+// count) instead of marking it permanently failed — used for a transient
+// SMB stall so a flaky share doesn't drop the subtree from the index.
 func failUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, unitID, errMsg string,
+	priv ed25519.PrivateKey, scanID, unitID, errMsg string, requeue bool,
 ) error {
 	auth, err := authHeader(cfg, priv)
 	if err != nil {
@@ -164,7 +187,8 @@ func failUnit(
 	}
 	url := fmt.Sprintf("%s/api/scans/%s/work/%s/fail",
 		cfg.APIBase, scanID, unitID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth, failReq{ErrorMessage: errMsg})
+	resp, err := doJSON(ctx, httpc, "POST", url, auth,
+		failReq{ErrorMessage: errMsg, Requeue: requeue})
 	if err != nil {
 		return err
 	}

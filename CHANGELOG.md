@@ -5,6 +5,49 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.34.0 — 2026-05-19
+
+**Multi-scanner scans now spread work evenly, no scanner abandons a
+scan it hit an error on, and a finished scan always finalizes.**
+
+### Bug fixes
+
+- **Multiple scanners now share a scan's work evenly.** Work was
+  partitioned once, statically, into one unit per top-level directory,
+  and each unit was then walked end-to-end by whichever scanner leased
+  it — so if one top-level folder held most of the files, one scanner
+  did most of the work while the others sat idle. A scan is now
+  decomposed *as it is walked*: each unit walks its subtree up to an
+  entry budget, then hands the un-walked directories back to a shared
+  queue that any idle scanner pulls from. Distribution follows the tree
+  and each scanner's real throughput, with no static partition to get
+  wrong. Rebuild the scanner image to pick this up.
+
+- **A scanner that hits an error no longer abandons the scan.** When a
+  scanner's unit failed — or it simply finished its share early — it
+  exited the scan and typically never rejoined, so its capacity was
+  lost and any remaining work could be left with no one to do it. A
+  scanner now stays attached to a running scan, polling for more work
+  (its own and others'), until the scan itself is genuinely finished.
+
+- **A finished multi-scanner scan reliably reports done.** Left-over or
+  re-queued work units with no scanner to pick them up kept a scan
+  stuck "running" — and the dashboard stuck "scanning" — indefinitely.
+  With scanners now staying attached, that work is always drained and
+  the scan finalizes, so the dashboard updates within seconds.
+
+- **A transient SMB stall retries instead of dropping a subtree.** When
+  the SMB op guard force-closed a stalled connection mid-walk, the work
+  unit was marked failed and its entire subtree was silently dropped
+  from the index. A stall now re-queues the unit for another attempt
+  (up to three); only a genuinely unreachable directory is failed, so
+  the scan can still finalize. Rebuild the scanner to pick this up.
+
+### Housekeeping
+
+- Work-unit rows for scans completed more than 7 days ago are now
+  pruned hourly, matching scan-log retention.
+
 ## v0.33.0 — 2026-05-18
 
 **See a scan's whole log — finished or live — and the dashboard keeps

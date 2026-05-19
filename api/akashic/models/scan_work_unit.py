@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Index, String, DateTime, ForeignKey, UniqueConstraint, func, text
+from sqlalchemy import (
+    Index, Integer, String, DateTime, ForeignKey, UniqueConstraint, func, text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,6 +66,13 @@ class ScanWorkUnit(Base):
         DateTime(timezone=True), nullable=True,
     )
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    # v0.34.0 — how many times this unit has been failed-with-requeue. A
+    # transient stall (SMB server unresponsive) requeues the unit instead
+    # of abandoning its subtree; after _MAX_UNIT_ATTEMPTS the requeue
+    # falls back to a permanent `failed` so the scan can still finalize.
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

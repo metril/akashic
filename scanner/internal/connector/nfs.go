@@ -37,6 +37,11 @@ func (c *NFSConnector) WalkShallow(
 	return res.SubdirNames, nil
 }
 
+// StatRoot implements connector.ShallowWalker.
+func (c *NFSConnector) StatRoot(ctx context.Context, path string) (*models.EntryRecord, error) {
+	return c.local.StatRoot(ctx, path)
+}
+
 func (c *NFSConnector) ReadFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	return c.local.ReadFile(ctx, path)
 }

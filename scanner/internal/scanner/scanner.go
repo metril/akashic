@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -57,7 +58,22 @@ type Options struct {
 	// totals still ride the last batch (they're per-walk totals, read
 	// by the API independent of IsFinal).
 	SuppressScanFinal bool
+	// v0.34.0 — budgeted shallow-split mode. When ShallowSplit is
+	// non-nil, Run walks Root breadth-first over a local frontier queue
+	// (via the connector's WalkShallow), emitting each directory's own
+	// record plus its files, until ShallowBudget entries have been
+	// emitted; the un-walked frontier directories are then handed to
+	// ShallowSplit so the caller can enqueue them as fresh work units.
+	// This is how a multi-scanner scan decomposes a large subtree into
+	// queue-stealable chunks proportional to work. ShallowSplit==nil →
+	// the recursive Walk path, unchanged.
+	ShallowSplit  func(ctx context.Context, frontierPaths []string) error
+	ShallowBudget int // entries walked per unit before splitting; default 2000
 }
+
+// defaultShallowBudget bounds how many entries one unit walks before it
+// splits the rest of its frontier into new units.
+const defaultShallowBudget = 2000
 
 type Result struct {
 	FilesFound  int
@@ -321,7 +337,10 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	walkHash := s.opts.Hash && !incremental
 	fullScan := !incremental
 
-	walkStats, err := s.connector.Walk(scanCtx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, func(entry *models.EntryRecord) error {
+	// walkFn processes one entry — counting, incremental rehash, progress
+	// logging, adaptive batching. Shared verbatim by the recursive Walk
+	// and the budgeted shallow walk.
+	walkFn := func(entry *models.EntryRecord) error {
 		if entry.IsDir() {
 			result.DirsFound++
 			if s.opts.State != nil {
@@ -369,7 +388,18 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			return enqueue(false)
 		}
 		return nil
-	})
+	}
+
+	// v0.34.0 — budgeted shallow walk for the unit-coordinated path;
+	// the recursive Walk otherwise.
+	var walkStats walker.WalkStats
+	var frontier []string
+	var err error
+	if s.opts.ShallowSplit != nil {
+		frontier, walkStats, err = s.runShallowBFS(scanCtx, walkHash, walkFn)
+	} else {
+		walkStats, err = s.connector.Walk(scanCtx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, walkFn)
+	}
 	if err != nil {
 		// Cancel and close the channel so the sender's range loop
 		// exits, then wait for drain — without close(batchCh) the
@@ -388,6 +418,19 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 
 	result.InaccessibleDirs = walkStats.InaccessibleDirs
 	result.InaccessibleFiles = walkStats.InaccessibleFiles
+
+	// v0.34.0 — hand the un-walked frontier back so the caller enqueues
+	// it as fresh work units. Done before the final flush so siblings
+	// can start on it immediately; splitUnits is idempotent, so a later
+	// retry of this unit re-splits harmlessly.
+	if s.opts.ShallowSplit != nil {
+		if serr := s.opts.ShallowSplit(ctx, frontier); serr != nil {
+			cancelScan()
+			close(batchCh)
+			<-senderDone
+			return nil, fmt.Errorf("split frontier: %w", serr)
+		}
+	}
 
 	// v0.29.6 — log walk-finished totals regardless of subsequent
 	// send-batch outcome. The existing "scan complete:" line fires
@@ -446,6 +489,93 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		result.FilesFound, result.DirsFound, result.BatchesSent,
 		result.InaccessibleDirs, result.InaccessibleFiles)
 	return result, nil
+}
+
+// runShallowBFS walks Root breadth-first across a local frontier queue,
+// emitting each directory's own record + its files through walkFn until
+// ShallowBudget entries have been emitted. It returns the un-walked
+// frontier (paths relative to Root) for the caller to split into new
+// units. A per-directory listing failure that is NOT a transient stall
+// is counted as an inaccessible directory and the walk continues; a
+// stall (the connector force-closed itself, v0.32.2) aborts the walk so
+// the unit can be requeued.
+func (s *Scanner) runShallowBFS(
+	ctx context.Context, walkHash bool, walkFn func(*models.EntryRecord) error,
+) ([]string, walker.WalkStats, error) {
+	var stats walker.WalkStats
+	sw, ok := s.connector.(connector.ShallowWalker)
+	if !ok {
+		return nil, stats, fmt.Errorf(
+			"connector %s does not support shallow walking", s.connector.Type())
+	}
+	stalled := func() bool {
+		if ts, ok := s.connector.(connector.TransientStaller); ok {
+			return ts.IsStalled()
+		}
+		return false
+	}
+	budget := s.opts.ShallowBudget
+	if budget <= 0 {
+		budget = defaultShallowBudget
+	}
+
+	queue := []string{""} // paths relative to Root; "" = Root itself
+	emitted := 0
+	for len(queue) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, stats, err
+		}
+		rel := queue[0]
+		queue = queue[1:]
+		absDir := s.opts.Root
+		if rel != "" {
+			absDir = filepath.Join(s.opts.Root, rel)
+		}
+
+		// Emit the directory's own record — the recursive Walk emits it
+		// post-order; a shallow walk must do it explicitly. A nil record
+		// (S3 prefixes have no directory object) is simply skipped. A
+		// StatRoot failure is counted but does NOT skip the directory —
+		// its contents still need walking.
+		dirRec, derr := sw.StatRoot(ctx, absDir)
+		if derr != nil {
+			if stalled() {
+				return nil, stats, derr
+			}
+			stats.InaccessibleDirs++
+		} else if dirRec != nil {
+			if err := walkFn(dirRec); err != nil {
+				return nil, stats, err
+			}
+			emitted++
+		}
+
+		subdirs, werr := sw.WalkShallow(ctx, absDir, s.opts.ExcludePatterns, walkHash,
+			func(e *models.EntryRecord) error {
+				emitted++
+				return walkFn(e)
+			})
+		if werr != nil {
+			if stalled() {
+				return nil, stats, werr
+			}
+			stats.InaccessibleDirs++
+			continue
+		}
+		for _, name := range subdirs {
+			child := name
+			if rel != "" {
+				child = filepath.Join(rel, name)
+			}
+			queue = append(queue, child)
+		}
+		// Budget is checked at the directory boundary — whole directories
+		// stay intact within one unit.
+		if emitted >= budget && len(queue) > 0 {
+			break // the rest of the queue is this unit's frontier
+		}
+	}
+	return queue, stats, nil
 }
 
 // info / warn / error route through the structured log sink when one is
