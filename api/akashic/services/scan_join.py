@@ -32,6 +32,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.services.scan_pubsub import _client as _redis_client
+from akashic.services.source_config import (
+    effective_chunk_size,
+    effective_max_parallel_scanners,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +75,14 @@ async def notify_eligible_joiners(
     if source is None:
         logger.debug("scan_join: scan=%s — no source attached, skipping notify", scan.id)
         return 0
-    if source.max_parallel_scanners <= 1:
+    # v0.35.0 — the cap is resolved through host inheritance, not read
+    # straight off the source row (a NULL on the source means "inherit").
+    cap = effective_max_parallel_scanners(source)
+    if cap <= 1:
         # Nothing to share — don't even enumerate candidates.
         logger.debug(
             "scan_join: scan=%s source=%s max_parallel_scanners=%d — skipping",
-            scan.id, source.id, source.max_parallel_scanners,
+            scan.id, source.id, cap,
         )
         return 0
 
@@ -164,7 +171,8 @@ async def notify_eligible_joiners(
                 "type": source.type,
                 "connection_config": merged,
                 "exclude_patterns": source.exclude_patterns or [],
-                "max_parallel_scanners": source.max_parallel_scanners,
+                "max_parallel_scanners": cap,
+                "scan_chunk_size": effective_chunk_size(source),
             },
             "api_jwt": api_jwt,
         }

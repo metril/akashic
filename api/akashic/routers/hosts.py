@@ -27,7 +27,10 @@ from akashic.schemas.host import (
 )
 from akashic.services import share_enumerator
 from akashic.services.audit import record_event
-from akashic.services.source_config import merge_host_and_source
+from akashic.services.source_config import (
+    merge_host_and_source,
+    validate_scan_controls,
+)
 from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
@@ -58,6 +61,8 @@ def _serialize(host: Host, source_count: int) -> HostResponse:
         "type": host.type,
         "connection_config": dict(host.connection_config or {}),
         "credential_profile_id": host.credential_profile_id,
+        "max_parallel_scanners": host.max_parallel_scanners,
+        "scan_chunk_size": host.scan_chunk_size,
         "source_count": source_count,
         "created_at": host.created_at,
         "updated_at": host.updated_at,
@@ -102,12 +107,20 @@ async def create_host(
     err = reject_sentinel_in_create(data.connection_config)
     if err:
         raise HTTPException(status_code=400, detail=err)
+    ctrl_err = validate_scan_controls(
+        max_parallel_scanners=data.max_parallel_scanners,
+        scan_chunk_size=data.scan_chunk_size,
+    )
+    if ctrl_err:
+        raise HTTPException(status_code=400, detail=ctrl_err)
     await _validate_profile_type(db, data.credential_profile_id, data.type)
     host = Host(
         name=data.name,
         type=data.type,
         connection_config=data.connection_config,
         credential_profile_id=data.credential_profile_id,
+        max_parallel_scanners=data.max_parallel_scanners,
+        scan_chunk_size=data.scan_chunk_size,
     )
     db.add(host)
     try:
@@ -189,6 +202,19 @@ async def update_host(
     if "credential_profile_id" in incoming:
         await _validate_profile_type(db, incoming["credential_profile_id"], host.type)
         host.credential_profile_id = incoming["credential_profile_id"]
+    if "max_parallel_scanners" in incoming or "scan_chunk_size" in incoming:
+        # Only the fields actually present in the patch are range-checked;
+        # an explicit NULL (clear → inherit / built-in default) passes.
+        ctrl_err = validate_scan_controls(
+            max_parallel_scanners=incoming.get("max_parallel_scanners"),
+            scan_chunk_size=incoming.get("scan_chunk_size"),
+        )
+        if ctrl_err:
+            raise HTTPException(status_code=400, detail=ctrl_err)
+        if "max_parallel_scanners" in incoming:
+            host.max_parallel_scanners = incoming["max_parallel_scanners"]
+        if "scan_chunk_size" in incoming:
+            host.scan_chunk_size = incoming["scan_chunk_size"]
     try:
         await db.commit()
     except IntegrityError:
@@ -734,7 +760,7 @@ async def add_host_shares(
             preferred_pool=body.preferred_pool,
             max_parallel_scanners=(
                 int(body.max_parallel_scanners)
-                if body.max_parallel_scanners is not None else 1
+                if body.max_parallel_scanners is not None else None
             ),
             is_removable=(
                 body.is_removable

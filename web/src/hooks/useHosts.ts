@@ -23,6 +23,8 @@ export interface CreateHostInput {
   type: string;
   connection_config: Record<string, unknown>;
   credential_profile_id?: string | null;
+  max_parallel_scanners?: number | null;
+  scan_chunk_size?: number | null;
 }
 
 export function useCreateHost() {
@@ -39,6 +41,8 @@ export interface UpdateHostInput {
   name?: string;
   connection_config?: Record<string, unknown>;
   credential_profile_id?: string | null;
+  max_parallel_scanners?: number | null;
+  scan_chunk_size?: number | null;
 }
 
 export function useUpdateHost() {

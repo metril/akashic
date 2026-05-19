@@ -24,6 +24,7 @@ import {
   validateShareConfig,
   validateShareConfigFields,
 } from "./source-fields/ShareFields";
+import { InheritableNumberField } from "./source-fields/InheritableNumberField";
 import { useFieldValidation } from "../../hooks/useFieldValidation";
 
 const SOURCE_TYPE_OPTIONS = SOURCE_TYPES.map((t) => ({
@@ -54,7 +55,9 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
   const [hostConfig, setHostConfig] = useState<HostConfig>({});
   const [shareConfig, setShareConfig] = useState<ShareConfig>({});
   const [preferredPool, setPreferredPool] = useState("");
-  const [maxParallelScanners, setMaxParallelScanners] = useState(1);
+  // null = inherit (from the host, or the built-in default). v0.35.0.
+  const [maxParallelScanners, setMaxParallelScanners] = useState<number | null>(null);
+  const [scanChunkSize, setScanChunkSize] = useState<number | null>(null);
   const [isRemovable, setIsRemovable] = useState(false);
   // v0.5.9 — optional override of the host's effective credentials.
   // Empty by default; setting this writes credential_profile_id (or
@@ -181,6 +184,7 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
         connection_config: shareConfig as Record<string, unknown>,
         preferred_pool: preferredPool.trim() || null,
         max_parallel_scanners: maxParallelScanners,
+        scan_chunk_size: scanChunkSize,
         is_removable: isRemovable,
         credential_profile_id: overrideCredentials ? credentialProfileId : null,
       });
@@ -188,7 +192,8 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
       setShareConfig({});
       setHostConfig({} as HostConfig);
       setPreferredPool("");
-      setMaxParallelScanners(1);
+      setMaxParallelScanners(null);
+      setScanChunkSize(null);
       setIsRemovable(false);
       removableTouched.current = false;
       setTestResult(null);
@@ -307,17 +312,29 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           placeholder="default"
           hint="Leave blank to let any registered scanner claim this source. Set to a pool tag (e.g. site-amsterdam) to lock it to scanners in that pool."
         />
-        <Input
+        <InheritableNumberField
           label="Max parallel scanners"
-          type="number"
           value={maxParallelScanners}
-          onChange={(e) => {
-            const n = parseInt(e.target.value, 10);
-            if (Number.isFinite(n) && n >= 1 && n <= 16) {
-              setMaxParallelScanners(n);
-            }
-          }}
-          hint="Cap (1–16) on cooperating scanners per scan. Default 1 = one scanner walks the whole tree. Higher values let scanners share work via the work-units queue (scanner-side support lands in a follow-up release)."
+          onChange={setMaxParallelScanners}
+          min={1}
+          max={16}
+          fallback={1}
+          inheritLabel={
+            type === "local" ? "Use the built-in default" : "Inherit from host"
+          }
+          hint="Cap (1–16) on cooperating scanners per scan. Inheriting falls back to the host's setting, or 1 (one scanner walks the whole tree)."
+        />
+        <InheritableNumberField
+          label="Scan chunk size"
+          value={scanChunkSize}
+          onChange={setScanChunkSize}
+          min={100}
+          max={1000000}
+          fallback={2000}
+          inheritLabel={
+            type === "local" ? "Use the built-in default" : "Inherit from host"
+          }
+          hint="Entries one scanner walks before handing the rest of its frontier back to the queue. Inheriting falls back to the host's setting, or 2000."
         />
         <label className="flex items-start gap-2 text-sm text-fg cursor-pointer select-none">
           <input

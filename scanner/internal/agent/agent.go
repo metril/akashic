@@ -33,17 +33,22 @@ import (
 // Config holds the agent's runtime configuration. KeyPath is read at
 // startup; the in-memory ed25519.PrivateKey is reloaded on SIGHUP.
 type Config struct {
-	APIBase    string // e.g. https://api.example.com
-	ScannerID  string // matches scanners.id on the api
-	KeyPath    string
-	LeasePoll  time.Duration // jittered ±20%
-	Hostname   string        // self-reported on handshake
-	Version    string        // build-time version string
+	APIBase   string // e.g. https://api.example.com
+	ScannerID string // matches scanners.id on the api
+	KeyPath   string
+	LeasePoll time.Duration // jittered ±20%
+	Hostname  string        // self-reported on handshake
+	Version   string        // build-time version string
 	// v0.30.0 — co-located Tika for content extraction. Empty disables
 	// document extraction (plain-text extraction still runs).
 	TikaURL string
 	// v0.30.0 — extraction goroutine-pool size; 0 = package default.
 	ExtractWorkers int
+	// v0.35.0 — how many work units this scanner walks in parallel on a
+	// single unit-coordinated scan. 1 (the default) = today's behaviour:
+	// one unit at a time. Raising it spawns that many worker goroutines,
+	// each with its own connector, draining the shared work-unit queue.
+	MaxConcurrentUnits int
 }
 
 // Run is the entry point used by `akashic-scanner agent`. It blocks
@@ -198,11 +203,15 @@ func envInt(key string, dflt int) int {
 // ── Wire types ───────────────────────────────────────────────────────────
 
 type leasedSource struct {
-	ID                   string         `json:"id"`
-	Type                 string         `json:"type"`
-	ConnectionConfig     map[string]any `json:"connection_config"`
-	ExcludePatterns      []string       `json:"exclude_patterns"`
-	MaxParallelScanners  int            `json:"max_parallel_scanners"`
+	ID                  string         `json:"id"`
+	Type                string         `json:"type"`
+	ConnectionConfig    map[string]any `json:"connection_config"`
+	ExcludePatterns     []string       `json:"exclude_patterns"`
+	MaxParallelScanners int            `json:"max_parallel_scanners"`
+	// v0.35.0 — work-unit entry budget, resolved API-side through host
+	// inheritance. 0 (an older API that omits the field) → the scanner
+	// falls back to its own default in scanner.Run.
+	ScanChunkSize int `json:"scan_chunk_size"`
 }
 
 type leasedScan struct {

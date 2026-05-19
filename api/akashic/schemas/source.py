@@ -20,11 +20,14 @@ class SourceCreate(BaseModel):
     # = any registered scanner can claim. Set to a pool tag (e.g.
     # "site-amsterdam") to lock the source to that pool.
     preferred_pool: str | None = None
-    # Multi-scanner cap: max number of distinct scanners that can hold
-    # unit leases on a single scan simultaneously. Default 1 = legacy
-    # one-scanner-per-scan. Bump to N to let N scanners cooperate via
-    # the scan_work_units lease primitive.
+    # Multi-scanner cap: max distinct scanners that can hold unit leases
+    # on a single scan simultaneously. NULL = inherit from the parent
+    # host (or the built-in default 1). Bump to N to let N scanners
+    # cooperate via the scan_work_units lease primitive.
     max_parallel_scanners: int | None = None
+    # v0.35.0 — work-unit entry budget. NULL = inherit from the host
+    # (or the built-in default 2000). See services/source_config.
+    scan_chunk_size: int | None = None
     # External / removable storage hint. None on create → server
     # infers from type/path (USB / network mounts → true; otherwise
     # false). See services/source_defaults.py.
@@ -42,6 +45,7 @@ class SourceUpdate(BaseModel):
     exclude_patterns: list[str] | None = None
     preferred_pool: str | None = None
     max_parallel_scanners: int | None = None
+    scan_chunk_size: int | None = None
     is_removable: bool | None = None
     credential_profile_id: uuid.UUID | None = None
 
@@ -89,7 +93,11 @@ class SourceResponse(BaseModel):
     scan_schedule: str | None
     exclude_patterns: list[str] | None
     preferred_pool: str | None = None
-    max_parallel_scanners: int = 1
+    # NULL = inherit from the host (resolved at scan time). See
+    # services/source_config.effective_max_parallel_scanners /
+    # effective_chunk_size.
+    max_parallel_scanners: int | None = None
+    scan_chunk_size: int | None = None
     last_scan_at: datetime | None
     status: str
     created_at: datetime
@@ -126,7 +134,7 @@ class SourceListResponse(BaseModel):
     host: _HostInline | None = None
     scan_schedule: str | None
     preferred_pool: str | None = None
-    max_parallel_scanners: int = 1
+    max_parallel_scanners: int | None = None
     last_scan_at: datetime | None
     status: str
     summary: str

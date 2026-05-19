@@ -38,12 +38,18 @@ class Source(Base):
     # this source's scans. Set to a pool name (e.g. "site-amsterdam")
     # to lock the source to scanners in that pool.
     preferred_pool: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Multi-scanner cap. Default 1 = legacy behaviour (one scanner walks
-    # the whole tree). Bumping to N lets up to N scanners cooperate on
-    # a single scan via scan_work_units leases.
-    max_parallel_scanners: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1",
+    # Multi-scanner cap — max distinct scanners that may cooperate on
+    # one scan via scan_work_units leases. v0.35.0 made this nullable:
+    # NULL = inherit from the parent Host (or the built-in default 1
+    # when the host is unset / NULL too). A non-NULL value pins the cap
+    # for this source. See services/source_config.
+    max_parallel_scanners: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
     )
+    # v0.35.0 — work-unit entry budget: how many entries a scanner walks
+    # before splitting the rest of its frontier back to the shared queue.
+    # NULL = inherit from the host (or the built-in default 2000).
+    scan_chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # External / removable storage: USB drives, network shares whose host
     # may be offline. Hint only — the scan failure path surfaces "actually
     # offline" at scan time; this column just lets the UI label the

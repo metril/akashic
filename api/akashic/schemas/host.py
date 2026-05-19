@@ -6,17 +6,24 @@ from pydantic import BaseModel
 from akashic.schemas.source import _scrub_config
 
 
+# Scan-distribution controls (v0.35.0). A host value is inherited by
+# every attached source that leaves its own field NULL. None on create
+# = no host-level setting (the built-in default applies).
 class HostCreate(BaseModel):
     name: str
     type: str  # "smb" | "nfs" | "s3" — local has no host
     connection_config: dict
     credential_profile_id: uuid.UUID | None = None
+    max_parallel_scanners: int | None = None
+    scan_chunk_size: int | None = None
 
 
 class HostUpdate(BaseModel):
     name: str | None = None
     connection_config: dict | None = None
     credential_profile_id: uuid.UUID | None = None
+    max_parallel_scanners: int | None = None
+    scan_chunk_size: int | None = None
 
 
 class HostResponse(BaseModel):
@@ -25,6 +32,8 @@ class HostResponse(BaseModel):
     type: str
     connection_config: dict
     credential_profile_id: uuid.UUID | None = None
+    max_parallel_scanners: int | None = None
+    scan_chunk_size: int | None = None
     source_count: int = 0
     created_at: datetime
     updated_at: datetime

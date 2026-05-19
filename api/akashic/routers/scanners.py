@@ -38,6 +38,10 @@ from akashic.protocol import ACCEPTED_MAX, ACCEPTED_MIN, PROTOCOL_VERSION
 from akashic.schemas.reachability import ProbeReport
 from akashic.services.scanner_auth import verify_scanner_jwt
 from akashic.services.scanner_keys import generate_keypair
+from akashic.services.source_config import (
+    effective_chunk_size,
+    effective_max_parallel_scanners,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +124,15 @@ class LeasedSource(BaseModel):
     # Cap on cooperating scanners per scan (default 1). Agents that
     # support unit-coordinated scanning use this to switch between the
     # legacy single-walker path and the work-units lease loop. Older
-    # agents simply ignore the field.
+    # agents simply ignore the field. v0.35.0 — this is the *resolved*
+    # value (source ?? host ?? 1); the agent receives a concrete int and
+    # never has to know about host inheritance.
     max_parallel_scanners: int = 1
+    # v0.35.0 — work-unit entry budget (resolved source ?? host ?? 2000).
+    # The agent passes it to scanner.Run as the shallow-split budget;
+    # an older API that omits the field leaves it 0 and the scanner
+    # falls back to its own default.
+    scan_chunk_size: int = 2000
 
 
 class LeasedScan(BaseModel):
@@ -984,7 +995,7 @@ async def lease_scan(
     # called /scan-work/split_units — commonly 30-60s for an SMB share.
     # Now scanner B receives its LPUSH immediately and starts mounting
     # in parallel. Helper short-circuits when max_parallel_scanners<=1.
-    if source.max_parallel_scanners > 1:
+    if effective_max_parallel_scanners(source) > 1:
         from akashic.services import scan_join
         try:
             scan = (await db.execute(
@@ -1018,7 +1029,8 @@ async def lease_scan(
             type=source.type,
             connection_config=merged_config,
             exclude_patterns=source.exclude_patterns,
-            max_parallel_scanners=source.max_parallel_scanners,
+            max_parallel_scanners=effective_max_parallel_scanners(source),
+            scan_chunk_size=effective_chunk_size(source),
         ),
         api_jwt=api_jwt,
     )

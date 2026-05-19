@@ -5,6 +5,46 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.35.0 — 2026-05-19
+
+**Operator controls over how a multi-scanner scan spreads its work —
+tunable per host, per source, and per scanner.**
+
+### New features
+
+- **Cap cooperating scanners per host, not just per share.** A
+  source's "Max parallel scanners" can now *inherit from its host*:
+  set the cap once on the host and every attached share follows it,
+  or override it on an individual share. A host that pins nothing
+  falls back to the built-in default of 1 (one scanner walks the
+  whole tree). The cap a scan actually uses is resolved
+  source-then-host-then-default at lease time.
+
+- **Tune the work-unit chunk size.** A new "Scan chunk size" control —
+  host-or-source, with the same inheritance — sets how many entries
+  one scanner walks before handing the rest of its frontier back to
+  the shared queue. Smaller chunks spread an unbalanced tree more
+  finely across scanners at the cost of more coordination; larger
+  chunks do the reverse. Defaults to 2000.
+
+- **Run several work units per scanner in parallel.** A scanner host
+  can now walk more than one unit of the same scan at once — set
+  `AKASHIC_MAX_CONCURRENT_UNITS` (or `--max-concurrent-units`) on the
+  scanner. Each worker gets its own connection and drains the shared
+  queue; the default of 1 keeps today's behaviour, so no deployment
+  change is needed unless you raise it.
+
+### Notes
+
+- Pinning a source to specific scanners already exists — per source
+  ("Allowed scanners") and per host ("Allowed scanners", applied to
+  every attached share) — and pairs with the `preferred_pool` /
+  scanner `pool` tags to keep a site's shares on that site's
+  scanners. No new work; this release just rounds out the set.
+- One additive migration (`0039_scan_controls`); existing per-source
+  caps are preserved exactly. Rebuild the scanner image to pick up
+  the chunk-size and per-scanner-concurrency changes.
+
 ## v0.34.0 — 2026-05-19
 
 **Multi-scanner scans now spread work evenly, no scanner abandons a

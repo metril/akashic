@@ -286,9 +286,9 @@ async def test_add_shares_creates_one_source_per_entry(
     by_name = {r.name: r for r in rows}
     assert by_name["fs/Public"].connection_config == {"share": "Public"}
     assert by_name["fs/Eng"].connection_config == {"share": "Engineering"}
-    # Each new source defaults to max_parallel_scanners=1 (legacy)
-    # unless the batch request bumps it.
-    assert all(r.max_parallel_scanners == 1 for r in rows)
+    # v0.35.0 — a batch-added source leaves max_parallel_scanners NULL
+    # (inherit from the host) unless the batch request pins a value.
+    assert all(r.max_parallel_scanners is None for r in rows)
 
 
 @pytest.mark.asyncio

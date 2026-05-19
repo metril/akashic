@@ -17,6 +17,7 @@ import {
   type HostType,
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
+import { InheritableNumberField } from "../sources/source-fields/InheritableNumberField";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import { DiscoverSharesPanel } from "./DiscoverSharesPanel";
 import { HostAllowedScannersPanel } from "./HostAllowedScannersPanel";
@@ -62,6 +63,11 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
   // the masked "***" credentials in the response didn't satisfy the
   // validator.
   const [draftProfileId, setDraftProfileId] = useState<string | null>(null);
+  // Scan-distribution defaults; null = no host-level setting. v0.35.0.
+  const [draftMaxParallelScanners, setDraftMaxParallelScanners] =
+    useState<number | null>(null);
+  const [draftScanChunkSize, setDraftScanChunkSize] =
+    useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -73,6 +79,8 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
       setDraftName(host.name);
       setDraftConfig((host.connection_config ?? {}) as HostConfig);
       setDraftProfileId(host.credential_profile_id ?? null);
+      setDraftMaxParallelScanners(host.max_parallel_scanners ?? null);
+      setDraftScanChunkSize(host.scan_chunk_size ?? null);
       setEditing(false);
       setError(null);
       // Honour the deep-link's autoDiscover only when the host type
@@ -113,6 +121,8 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
         name: draftName,
         connection_config: cleaned,
         credential_profile_id: draftProfileId,
+        max_parallel_scanners: draftMaxParallelScanners,
+        scan_chunk_size: draftScanChunkSize,
       },
     });
     toast.promise(p, {
@@ -257,6 +267,26 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                   onChange={setDraftConfig}
                   omitCredentials={draftProfileId !== null}
                 />
+                <InheritableNumberField
+                  label="Max parallel scanners"
+                  value={draftMaxParallelScanners}
+                  onChange={setDraftMaxParallelScanners}
+                  min={1}
+                  max={16}
+                  fallback={1}
+                  inheritLabel="Use the built-in default"
+                  hint="Default cap (1–16) on cooperating scanners per scan, inherited by every attached share that doesn't set its own. The built-in default is 1."
+                />
+                <InheritableNumberField
+                  label="Scan chunk size"
+                  value={draftScanChunkSize}
+                  onChange={setDraftScanChunkSize}
+                  min={100}
+                  max={1000000}
+                  fallback={2000}
+                  inheritLabel="Use the built-in default"
+                  hint="Default work-unit entry budget inherited by every attached share that doesn't set its own. The built-in default is 2000."
+                />
               </div>
             )}
 
@@ -347,6 +377,8 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       setDraftName(host.name);
                       setDraftConfig((host.connection_config ?? {}) as HostConfig);
                       setDraftProfileId(host.credential_profile_id ?? null);
+                      setDraftMaxParallelScanners(host.max_parallel_scanners ?? null);
+                      setDraftScanChunkSize(host.scan_chunk_size ?? null);
                       setError(null);
                     }}
                   >

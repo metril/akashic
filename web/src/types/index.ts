@@ -19,6 +19,11 @@ export interface Host {
   // Host-only connection config — host/port/credentials. Returned with
   // secrets masked as "***" (same convention as Source.connection_config).
   connection_config: Record<string, unknown>;
+  // v0.35.0 — scan-distribution defaults inherited by every attached
+  // source that leaves its own field NULL. NULL here = no host-level
+  // setting; the built-in default applies (1 / 2000).
+  max_parallel_scanners: number | null;
+  scan_chunk_size: number | null;
   source_count: number;
   // v0.5.9 — optional reusable credential profile reference.
   credential_profile_id: string | null;
@@ -69,11 +74,14 @@ export interface Source {
   scan_schedule: string | null;
   preferred_pool: string | null;
   // Max distinct scanners that may hold work-unit leases on the same
-  // scan simultaneously. 1 = legacy (one scanner walks the whole
-  // tree). Higher values let scanners cooperate via the work-units
-  // queue (Phase 2 of v0.5.x — scanner-side support lands in a
-  // follow-up release).
-  max_parallel_scanners: number;
+  // scan simultaneously. NULL = inherit from the host (or the
+  // built-in default 1); the scanner receives the resolved value at
+  // lease time.
+  max_parallel_scanners: number | null;
+  // v0.35.0 — work-unit entry budget. NULL = inherit from host /
+  // built-in default 2000. Only on the detail (GET /sources/{id})
+  // shape, like connection_config.
+  scan_chunk_size?: number | null;
   last_scan_at: string | null;
   status: string;
   created_at: string;

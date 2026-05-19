@@ -2,8 +2,10 @@
 //
 // When MaxParallelScanners > 1 on a leased scan, the agent enters a
 // lease loop over scan_work_units instead of running a single
-// monolithic walk. Sibling scanners in the same pool cooperate on
-// one source — each claims a different top-level subtree.
+// monolithic walk. Sibling scanners in the same pool — and, when the
+// local AKASHIC_MAX_CONCURRENT_UNITS is raised, several worker
+// goroutines within one scanner — cooperate on one source by draining
+// a shared queue of budget-sized work units.
 //
 // The walk model (v0.34.0 — budget-bounded dynamic units):
 //   - The first scanner to lease /work hits 204 and enqueues a single
@@ -33,6 +35,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/client"
@@ -46,15 +49,16 @@ func runUnitCoordinated(
 	ctx context.Context, httpc *http.Client, cfg Config,
 	priv ed25519.PrivateKey, leased *leasedScan,
 ) error {
-	conn, err := connectorFromLeased(leased.Source)
+	// Capability probe: build one connector solely to check it
+	// implements ShallowWalker. A connector that doesn't (a future
+	// type) falls back to the legacy single-walker path so the scan
+	// still succeeds — just without parallelism. connectorFromLeased
+	// does no I/O, so the throwaway is cheap.
+	probeConn, err := connectorFromLeased(leased.Source)
 	if err != nil {
 		return err
 	}
-
-	// Type-assert ShallowWalker. If a (future) connector doesn't
-	// implement it, fall back to the legacy single-walker path so the
-	// scan still succeeds — just without parallelism.
-	if _, ok := conn.(connector.ShallowWalker); !ok {
+	if _, ok := probeConn.(connector.ShallowWalker); !ok {
 		log.Printf(
 			"scan %s: connector %q does not implement ShallowWalker; "+
 				"falling back to legacy single-walker path",
@@ -71,14 +75,18 @@ func runUnitCoordinated(
 	apiClient := client.New(cfg.APIBase, leased.APIJWT)
 
 	// v0.30.0 — content extraction for the unit-coordinated path.
-	// Built once and shared across this scanner's units; each
-	// extraction pass builds its own connector instance via the
+	// Built once and shared across this scanner's units (and workers);
+	// each extraction pass builds its own connector instance via the
 	// factory so SMB sessions stay isolated from the walk.
 	extractor := extract.NewExtractor(cfg.TikaURL)
 	extractFactory := func() (connector.Connector, error) {
 		return connectorFromLeased(leased.Source)
 	}
 
+	// reporter + state are shared across all workers: State's counters
+	// are atomic and LogSink.emit is a channel send, both safe under
+	// concurrent walks, and one shared State means the per-scan
+	// heartbeat reports the scan's aggregate progress.
 	state := observe.NewState()
 	reporter := observe.New(cfg.APIBase, leased.APIJWT, leased.ScanID, state)
 	scanCtx, cancel := context.WithCancel(ctx)
@@ -87,33 +95,98 @@ func runUnitCoordinated(
 	reporter.Start(scanCtx)
 	defer reporter.Stop()
 
-	// Connect once for the whole unit-loop lifetime. Without this each
-	// per-unit scanner.Run() would dial+auth+disconnect afresh — fine
-	// for local/nfs (no-op), expensive for smb (auth handshake) and
-	// s3 (signed-request handshake amortised across the pool).
-	if err := conn.Connect(scanCtx); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer conn.Close()
-
-	// Up-front enumeration: if no units exist yet for this scan, the
+	// Up-front enumeration runs once, before any worker starts: the
 	// first scanner to arrive enqueues the single root unit. A scanner
 	// that arrives once the queue already exists gets a unit leased to
-	// it by the enumeration probe; that unit is returned here and MUST
-	// be processed below — abandoning it used to orphan the unit and
-	// stall the whole scan (v0.32.1).
+	// it by the enumeration probe; that unit MUST be processed —
+	// abandoning it used to orphan the unit and stall the whole scan
+	// (v0.32.1) — so it is handed to worker 0 below.
 	probeUnit, err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanID)
 	if err != nil {
 		return fmt.Errorf("enumerate units: %w", err)
 	}
 
+	workers := cfg.MaxConcurrentUnits
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > 1 {
+		log.Printf("scan %s: draining work units with %d worker(s) in parallel",
+			leased.ScanID, workers)
+	}
+
+	deps := unitWorkerDeps{
+		httpc: httpc, cfg: cfg, priv: priv, apiClient: apiClient,
+		leased: leased, root: root, state: state, reporter: reporter,
+		extractor: extractor, extractFactory: extractFactory,
+	}
+
+	// Spawn the workers. Each runs the sticky lease loop with its own
+	// connector; worker 0 starts with the probe-leased unit (if any).
+	// runUnitCoordinated returns once every worker has exited — which
+	// they all do on errScanTerminal or a scanCtx cancellation.
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		var initial *workUnit
+		if i == 0 {
+			initial = probeUnit
+		}
+		wg.Add(1)
+		go func(initial *workUnit) {
+			defer wg.Done()
+			if err := runUnitWorker(scanCtx, deps, initial); err != nil {
+				errCh <- err
+			}
+		}(initial)
+	}
+	wg.Wait()
+	close(errCh)
+	// Return the first worker error, if any; a clean drain leaves errCh
+	// empty and the receive yields nil.
+	return <-errCh
+}
+
+// unitWorkerDeps bundles the immutable, shared dependencies a unit
+// worker needs — passed by value so the goroutine closure stays small.
+type unitWorkerDeps struct {
+	httpc          *http.Client
+	cfg            Config
+	priv           ed25519.PrivateKey
+	apiClient      *client.Client
+	leased         *leasedScan
+	root           string
+	state          *observe.State
+	reporter       *observe.Reporter
+	extractor      *extract.Extractor
+	extractFactory func() (connector.Connector, error)
+}
+
+// runUnitWorker drains the scan's work-unit queue with its own
+// connector until the scan goes terminal. K of these run concurrently
+// when MaxConcurrentUnits > 1; with the default of 1 it is exactly the
+// v0.34.0 sticky lease loop.
+func runUnitWorker(
+	scanCtx context.Context, d unitWorkerDeps, pending *workUnit,
+) error {
+	conn, err := connectorFromLeased(d.leased.Source)
+	if err != nil {
+		return err
+	}
+	// Connect once for this worker's lifetime. Without it every per-unit
+	// scanner.Run() would dial+auth+disconnect afresh — fine for
+	// local/nfs (no-op), expensive for smb (auth handshake) and s3
+	// (signed-request handshake amortised across the pool).
+	if err := conn.Connect(scanCtx); err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close()
+
 	// Sticky lease loop. A 204 (errNoWork) means "no unit available
-	// right now" — sibling scanners may still be splitting fresh units —
-	// so the scanner stays attached and polls. It exits only when the
-	// scan itself is terminal (errScanTerminal, a 409 scan-terminal) or
-	// the scan context is cancelled. `pending` carries the probe-leased
-	// unit (if any) so the first iteration processes it.
-	pending := probeUnit
+	// right now" — siblings or other workers may still be splitting
+	// fresh units — so the worker stays attached and polls. It exits
+	// only when the scan itself is terminal (errScanTerminal, a 409
+	// scan-terminal) or the scan context is cancelled.
 	for {
 		if err := scanCtx.Err(); err != nil {
 			return err
@@ -121,22 +194,22 @@ func runUnitCoordinated(
 		unit := pending
 		pending = nil
 		if unit == nil {
-			u, lErr := leaseUnit(scanCtx, httpc, cfg, priv, leased.ScanID)
+			u, lErr := leaseUnit(scanCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID)
 			if errors.Is(lErr, errScanTerminal) {
-				log.Printf("scan %s: scan reached a terminal state; exiting unit loop", leased.ScanID)
+				log.Printf("scan %s: scan reached a terminal state; exiting unit loop", d.leased.ScanID)
 				return nil
 			}
 			if errors.Is(lErr, errNoWork) {
 				// No unit right now — stay attached and poll. The scan
 				// answers 409 scan-terminal once it actually finalizes.
-				sleepWithJitter(scanCtx, cfg.LeasePoll)
+				sleepWithJitter(scanCtx, d.cfg.LeasePoll)
 				continue
 			}
 			if lErr != nil {
 				// Cap-reached or transient: jitter and try again. The cap
 				// case clears as siblings finish their units.
-				log.Printf("scan %s: lease unit: %v (sleeping)", leased.ScanID, lErr)
-				sleepWithJitter(scanCtx, cfg.LeasePoll)
+				log.Printf("scan %s: lease unit: %v (sleeping)", d.leased.ScanID, lErr)
+				sleepWithJitter(scanCtx, d.cfg.LeasePoll)
 				continue
 			}
 			unit = u
@@ -144,9 +217,9 @@ func runUnitCoordinated(
 
 		// Heartbeat in the background; cancelled when the unit's walk returns.
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
-		go heartbeatUnitLoop(hbCtx, httpc, cfg, priv, leased.ScanID, unit.ID)
+		go heartbeatUnitLoop(hbCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID)
 
-		walkErr := runUnitWalk(scanCtx, httpc, cfg, priv, apiClient, conn, leased, root, unit, state, reporter, leased.Source.ExcludePatterns, extractor, extractFactory, cfg.ExtractWorkers)
+		walkErr := runUnitWalk(scanCtx, d.httpc, d.cfg, d.priv, d.apiClient, conn, d.leased, d.root, unit, d.state, d.reporter, d.leased.Source.ExcludePatterns, d.extractor, d.extractFactory, d.cfg.ExtractWorkers)
 		hbCancel()
 
 		// Deliver the unit's terminal state, retrying on failure — see
@@ -162,19 +235,19 @@ func runUnitCoordinated(
 			if ts, ok := conn.(connector.TransientStaller); ok && ts.IsStalled() {
 				requeue = true
 				log.Printf("scan %s unit %s: walk failed on a transient stall: %v (requeuing)",
-					leased.ScanID, unit.ID, walkErr)
+					d.leased.ScanID, unit.ID, walkErr)
 			} else {
-				log.Printf("scan %s unit %s: walk failed: %v", leased.ScanID, unit.ID, walkErr)
+				log.Printf("scan %s unit %s: walk failed: %v", d.leased.ScanID, unit.ID, walkErr)
 			}
-			deliverUnitTerminal("fail", leased.ScanID, unit.ID,
+			deliverUnitTerminal("fail", d.leased.ScanID, unit.ID,
 				func(ctx context.Context) error {
-					return failUnit(ctx, httpc, cfg, priv, leased.ScanID, unit.ID, walkErr.Error(), requeue)
+					return failUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID, walkErr.Error(), requeue)
 				})
 			continue
 		}
-		deliverUnitTerminal("complete", leased.ScanID, unit.ID,
+		deliverUnitTerminal("complete", d.leased.ScanID, unit.ID,
 			func(ctx context.Context) error {
-				return completeUnit(ctx, httpc, cfg, priv, leased.ScanID, unit.ID)
+				return completeUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID)
 			})
 	}
 }
@@ -410,6 +483,10 @@ func runUnitWalk(
 		// v0.34.0 — budgeted shallow-split mode; the closure enqueues the
 		// un-walked frontier as fresh work units.
 		ShallowSplit: shallowSplit,
+		// v0.35.0 — entry budget per unit, resolved API-side from the
+		// source/host scan_chunk_size. 0 (an older API) → scanner.Run
+		// falls back to its own defaultShallowBudget.
+		ShallowBudget: leased.Source.ScanChunkSize,
 	})
 	_, err := s.Run(ctx)
 	return err

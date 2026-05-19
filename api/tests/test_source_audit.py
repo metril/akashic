@@ -156,7 +156,9 @@ async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: Async
         json={"name": "mps-src", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
-    assert create.json()["max_parallel_scanners"] == 1
+    # v0.35.0 — an unspecified cap is NULL (inherit / built-in default),
+    # not a pinned 1.
+    assert create.json()["max_parallel_scanners"] is None
 
     patch = await client.patch(
         f"/api/sources/{sid}",
@@ -170,7 +172,7 @@ async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: Async
         e for e in audit.json()["items"] if e["event_type"] == "source_updated"
     )
     assert update_evt["payload"]["diff"]["max_parallel_scanners"] == {
-        "before": 1, "after": 4,
+        "before": None, "after": 4,
     }
 
 

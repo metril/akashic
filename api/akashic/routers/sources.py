@@ -18,7 +18,10 @@ from akashic.schemas.source import (
     SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
 )
 from akashic.services.audit import record_event
-from akashic.services.source_config import merge_host_and_source
+from akashic.services.source_config import (
+    merge_host_and_source,
+    validate_scan_controls,
+)
 from akashic.services.source_defaults import infer_is_removable
 from akashic.services.source_merge import (
     field_diff,
@@ -189,14 +192,15 @@ async def create_source(
         )
 
     payload = data.model_dump()
-    mps = payload.get("max_parallel_scanners")
-    if mps is None:
-        payload["max_parallel_scanners"] = 1
-    elif not (1 <= int(mps) <= 16):
-        raise HTTPException(
-            status_code=400,
-            detail="max_parallel_scanners must be between 1 and 16",
-        )
+    # v0.35.0 — a NULL max_parallel_scanners / scan_chunk_size now means
+    # "inherit from the host" (or the built-in default), so it is kept
+    # as NULL rather than forced to a concrete value here.
+    ctrl_err = validate_scan_controls(
+        max_parallel_scanners=payload.get("max_parallel_scanners"),
+        scan_chunk_size=payload.get("scan_chunk_size"),
+    )
+    if ctrl_err:
+        raise HTTPException(status_code=400, detail=ctrl_err)
     if payload.get("is_removable") is None:
         # Inference uses the merged config — host fields (e.g. NFS host)
         # contribute too, but for "is removable?" we still only key off
@@ -376,6 +380,7 @@ async def update_source(
         "exclude_patterns": list(source.exclude_patterns or []),
         "preferred_pool": source.preferred_pool,
         "max_parallel_scanners": source.max_parallel_scanners,
+        "scan_chunk_size": source.scan_chunk_size,
         "is_removable": source.is_removable,
         "host_id": str(source.host_id) if source.host_id else None,
         "credential_profile_id": (
@@ -385,12 +390,13 @@ async def update_source(
     }
 
     incoming = data.model_dump(exclude_unset=True)
-    if "max_parallel_scanners" in incoming and incoming["max_parallel_scanners"] is not None:
-        if not (1 <= int(incoming["max_parallel_scanners"]) <= 16):
-            raise HTTPException(
-                status_code=400,
-                detail="max_parallel_scanners must be between 1 and 16",
-            )
+    if "max_parallel_scanners" in incoming or "scan_chunk_size" in incoming:
+        ctrl_err = validate_scan_controls(
+            max_parallel_scanners=incoming.get("max_parallel_scanners"),
+            scan_chunk_size=incoming.get("scan_chunk_size"),
+        )
+        if ctrl_err:
+            raise HTTPException(status_code=400, detail=ctrl_err)
     if "host_id" in incoming:
         new_host_id = incoming["host_id"]
         if new_host_id is None:
@@ -482,6 +488,7 @@ async def update_source(
         "exclude_patterns": list(source.exclude_patterns or []),
         "preferred_pool": source.preferred_pool,
         "max_parallel_scanners": source.max_parallel_scanners,
+        "scan_chunk_size": source.scan_chunk_size,
         "is_removable": source.is_removable,
         "host_id": str(source.host_id) if source.host_id else None,
         "credential_profile_id": (

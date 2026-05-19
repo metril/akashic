@@ -33,6 +33,7 @@ import {
   type ShareConfig,
   validateShareConfig,
 } from "./source-fields/ShareFields";
+import { InheritableNumberField } from "./source-fields/InheritableNumberField";
 import { Link } from "react-router-dom";
 
 interface SourceDetailProps {
@@ -242,9 +243,12 @@ const DetailsTab = memo(function DetailsTab({
   );
   const [draftSchedule, setDraftSchedule] = useState<string>(source.scan_schedule ?? "");
   const [draftIsRemovable, setDraftIsRemovable] = useState<boolean>(source.is_removable);
-  const [draftMaxParallelScanners, setDraftMaxParallelScanners] = useState<number>(
-    source.max_parallel_scanners ?? 1,
-  );
+  // null = inherit from the host (or the built-in default for a
+  // hostless source). v0.35.0.
+  const [draftMaxParallelScanners, setDraftMaxParallelScanners] =
+    useState<number | null>(source.max_parallel_scanners ?? null);
+  const [draftScanChunkSize, setDraftScanChunkSize] =
+    useState<number | null>(source.scan_chunk_size ?? null);
   // v0.5.10 — credential profile is editable post-create. null means
   // "inline" (the existing connection_config carries credentials, or
   // the host's credentials apply if attached).
@@ -268,7 +272,8 @@ const DetailsTab = memo(function DetailsTab({
     setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
     setDraftSchedule(source.scan_schedule ?? "");
     setDraftIsRemovable(source.is_removable);
-    setDraftMaxParallelScanners(source.max_parallel_scanners ?? 1);
+    setDraftMaxParallelScanners(source.max_parallel_scanners ?? null);
+    setDraftScanChunkSize(source.scan_chunk_size ?? null);
     setDraftCredentialProfileId(source.credential_profile_id ?? null);
     setError(null);
     setTestResult(null);
@@ -317,6 +322,7 @@ const DetailsTab = memo(function DetailsTab({
           scan_schedule: draftSchedule || null,
           is_removable: draftIsRemovable,
           max_parallel_scanners: draftMaxParallelScanners,
+          scan_chunk_size: draftScanChunkSize,
           credential_profile_id: draftCredentialProfileId,
         },
       });
@@ -335,7 +341,8 @@ const DetailsTab = memo(function DetailsTab({
       setDraftConfig((updated.connection_config ?? {}) as Partial<AnyConfig>);
       setDraftSchedule(updated.scan_schedule ?? "");
       setDraftIsRemovable(updated.is_removable);
-      setDraftMaxParallelScanners(updated.max_parallel_scanners ?? 1);
+      setDraftMaxParallelScanners(updated.max_parallel_scanners ?? null);
+      setDraftScanChunkSize(updated.scan_chunk_size ?? null);
       setDraftCredentialProfileId(updated.credential_profile_id ?? null);
       queryClient.invalidateQueries({ queryKey: ["sources", source.id, "audit"] });
       setEditing(false);
@@ -439,6 +446,8 @@ const DetailsTab = memo(function DetailsTab({
           onIsRemovableChange={setDraftIsRemovable}
           maxParallelScanners={draftMaxParallelScanners}
           onMaxParallelScannersChange={setDraftMaxParallelScanners}
+          scanChunkSize={draftScanChunkSize}
+          onScanChunkSizeChange={setDraftScanChunkSize}
           credentialProfileId={draftCredentialProfileId}
           onCredentialProfileIdChange={setDraftCredentialProfileId}
           inheritLabel={credInfo.inheritLabel}
@@ -543,7 +552,8 @@ const DetailsTab = memo(function DetailsTab({
                 setDraftConfig((source.connection_config ?? {}) as Partial<AnyConfig>);
                 setDraftSchedule(source.scan_schedule ?? "");
                 setDraftIsRemovable(source.is_removable);
-                setDraftMaxParallelScanners(source.max_parallel_scanners ?? 1);
+                setDraftMaxParallelScanners(source.max_parallel_scanners ?? null);
+                setDraftScanChunkSize(source.scan_chunk_size ?? null);
                 setError(null);
                 setTestResult(null);
               }}
@@ -728,8 +738,10 @@ interface EditRowsProps {
   onScheduleChange: (s: string) => void;
   isRemovable: boolean;
   onIsRemovableChange: (v: boolean) => void;
-  maxParallelScanners: number;
-  onMaxParallelScannersChange: (v: number) => void;
+  maxParallelScanners: number | null;
+  onMaxParallelScannersChange: (v: number | null) => void;
+  scanChunkSize: number | null;
+  onScanChunkSizeChange: (v: number | null) => void;
   credentialProfileId: string | null;
   onCredentialProfileIdChange: (id: string | null) => void;
   // Host-aware label for the credential picker's null option — set
@@ -751,10 +763,18 @@ function EditRows({
   onIsRemovableChange,
   maxParallelScanners,
   onMaxParallelScannersChange,
+  scanChunkSize,
+  onScanChunkSizeChange,
   credentialProfileId,
   onCredentialProfileIdChange,
   inheritLabel,
 }: EditRowsProps) {
+  // A host-backed source inherits an unset control from its host; a
+  // hostless (local) source falls straight through to the built-in
+  // default, so the checkbox copy differs.
+  const scanControlInherit = hasHost
+    ? "Inherit from host"
+    : "Use the built-in default";
   return (
     <div className="space-y-3">
       <div>
@@ -808,28 +828,26 @@ function EditRows({
           className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
         />
       </div>
-      <div>
-        <label className="block text-xs font-medium text-fg mb-1">
-          Max parallel scanners
-        </label>
-        <input
-          type="number"
-          min={1}
-          max={16}
-          value={maxParallelScanners}
-          onChange={(e) => {
-            const n = parseInt(e.target.value, 10);
-            if (Number.isFinite(n) && n >= 1 && n <= 16) {
-              onMaxParallelScannersChange(n);
-            }
-          }}
-          className="w-full rounded-md border border-line px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
-        />
-        <p className="text-[11px] text-fg-muted mt-1">
-          Cap (1–16) on cooperating scanners per scan. Default 1
-          preserves the legacy single-scanner walk.
-        </p>
-      </div>
+      <InheritableNumberField
+        label="Max parallel scanners"
+        value={maxParallelScanners}
+        onChange={onMaxParallelScannersChange}
+        min={1}
+        max={16}
+        fallback={1}
+        inheritLabel={scanControlInherit}
+        hint="Cap (1–16) on cooperating scanners per scan. Inheriting falls back to the host's setting, or 1 (one scanner walks the whole tree)."
+      />
+      <InheritableNumberField
+        label="Scan chunk size"
+        value={scanChunkSize}
+        onChange={onScanChunkSizeChange}
+        min={100}
+        max={1000000}
+        fallback={2000}
+        inheritLabel={scanControlInherit}
+        hint="Entries one scanner walks before handing the rest of its frontier back to the queue. Smaller = finer-grained sharing, more coordination. Inheriting falls back to the host's setting, or 2000."
+      />
       <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
         <input
           type="checkbox"

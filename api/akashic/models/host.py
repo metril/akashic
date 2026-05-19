@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, DateTime, func
+from sqlalchemy import ForeignKey, Integer, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,13 @@ class Host(Base):
     #   nfs: host, port, auth_method, krb5_*, auth_uid, auth_gid, auth_aux_gids
     #   s3:  endpoint, region, access_key_id, secret_access_key
     connection_config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # v0.35.0 — scan-distribution controls inherited by every attached
+    # source. NULL = no host-level setting; the built-in default applies
+    # unless the source pins its own value. See
+    # services/source_config.effective_max_parallel_scanners /
+    # effective_chunk_size for the source ?? host ?? default resolution.
+    max_parallel_scanners: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scan_chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # v0.5.9 — optional reference to a reusable CredentialProfile.
     # NULL = inline credentials only; non-NULL = profile contributes
     # under inline values via resolve_connection_config.

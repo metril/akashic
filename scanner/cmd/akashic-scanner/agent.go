@@ -28,6 +28,7 @@ func runAgent(args []string) {
 	leasePoll := fs.Duration("lease-poll", 5*time.Second, "Lease-poll interval (jittered ±20%%)")
 	tikaURL := fs.String("tika-url", "", "Apache Tika base URL for content extraction (e.g. http://tika:9998); empty disables document extraction")
 	extractWorkers := fs.Int("extract-workers", 0, "Content-extraction worker pool size (0 = default)")
+	maxConcurrentUnits := fs.Int("max-concurrent-units", 0, "Work units walked in parallel on one scan (0 = default 1)")
 	if err := fs.Parse(args); err != nil {
 		log.Fatalf("agent flags: %v", err)
 	}
@@ -48,6 +49,17 @@ func runAgent(args []string) {
 		if n, err := strconv.Atoi(os.Getenv("AKASHIC_EXTRACT_WORKERS")); err == nil && n > 0 {
 			resolvedExtractWorkers = n
 		}
+	}
+	// v0.35.0 — per-scanner unit concurrency. Same flag-or-env pattern;
+	// defaults to 1 (one unit at a time, today's behaviour).
+	resolvedMaxConcurrentUnits := *maxConcurrentUnits
+	if resolvedMaxConcurrentUnits == 0 {
+		if n, err := strconv.Atoi(os.Getenv("AKASHIC_MAX_CONCURRENT_UNITS")); err == nil && n > 0 {
+			resolvedMaxConcurrentUnits = n
+		}
+	}
+	if resolvedMaxConcurrentUnits < 1 {
+		resolvedMaxConcurrentUnits = 1
 	}
 
 	hostname, _ := os.Hostname()
@@ -74,14 +86,15 @@ func runAgent(args []string) {
 	}()
 
 	cfg := agent.Config{
-		APIBase:        *apiURL,
-		ScannerID:      *scannerID,
-		KeyPath:        *keyPath,
-		LeasePoll:      *leasePoll,
-		Hostname:       hostname,
-		Version:        Version,
-		TikaURL:        resolvedTikaURL,
-		ExtractWorkers: resolvedExtractWorkers,
+		APIBase:            *apiURL,
+		ScannerID:          *scannerID,
+		KeyPath:            *keyPath,
+		LeasePoll:          *leasePoll,
+		Hostname:           hostname,
+		Version:            Version,
+		TikaURL:            resolvedTikaURL,
+		ExtractWorkers:     resolvedExtractWorkers,
+		MaxConcurrentUnits: resolvedMaxConcurrentUnits,
 	}
 	if err := agent.Run(ctx, cfg); err != nil {
 		log.Fatalf("agent: %v", err)

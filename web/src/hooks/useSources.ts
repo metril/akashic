@@ -41,6 +41,7 @@ export function useCreateSource() {
       exclude_patterns?: string[] | null;
       preferred_pool?: string | null;
       max_parallel_scanners?: number | null;
+      scan_chunk_size?: number | null;
       is_removable?: boolean | null;
       credential_profile_id?: string | null;
     }) => api.post<Source>("/sources", data),
@@ -54,7 +55,7 @@ export function useUpdateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable" | "max_parallel_scanners" | "credential_profile_id">> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable" | "max_parallel_scanners" | "scan_chunk_size" | "credential_profile_id">> }) =>
       api.patch<Source>(`/sources/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });

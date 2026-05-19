@@ -7,6 +7,7 @@ import {
   type HostType,
   validateHostConfig,
 } from "../sources/source-fields/HostFields";
+import { InheritableNumberField } from "../sources/source-fields/InheritableNumberField";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 
 const HOST_TYPE_OPTIONS: { value: HostType; label: string }[] = [
@@ -26,6 +27,10 @@ export function AddHostForm({ onCreated }: Props) {
   const [type, setType] = useState<HostType>("smb");
   const [config, setConfig] = useState<HostConfig>({});
   const [profileId, setProfileId] = useState<string | null>(null);
+  // Scan-distribution defaults inherited by every attached source.
+  // null = no host-level setting (built-in default applies). v0.35.0.
+  const [maxParallelScanners, setMaxParallelScanners] = useState<number | null>(null);
+  const [scanChunkSize, setScanChunkSize] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,10 +55,14 @@ export function AddHostForm({ onCreated }: Props) {
         type,
         connection_config: config as Record<string, unknown>,
         credential_profile_id: profileId,
+        max_parallel_scanners: maxParallelScanners,
+        scan_chunk_size: scanChunkSize,
       });
       setName("");
       setConfig({} as HostConfig);
       setProfileId(null);
+      setMaxParallelScanners(null);
+      setScanChunkSize(null);
       onCreated?.();
     } catch (err) {
       setFormError(
@@ -97,6 +106,26 @@ export function AddHostForm({ onCreated }: Props) {
           value={config}
           onChange={setConfig}
           omitCredentials={profileId !== null}
+        />
+        <InheritableNumberField
+          label="Max parallel scanners"
+          value={maxParallelScanners}
+          onChange={setMaxParallelScanners}
+          min={1}
+          max={16}
+          fallback={1}
+          inheritLabel="Use the built-in default"
+          hint="Default cap (1–16) on cooperating scanners per scan, inherited by every attached share that doesn't set its own. The built-in default is 1."
+        />
+        <InheritableNumberField
+          label="Scan chunk size"
+          value={scanChunkSize}
+          onChange={setScanChunkSize}
+          min={100}
+          max={1000000}
+          fallback={2000}
+          inheritLabel="Use the built-in default"
+          hint="Default work-unit entry budget inherited by every attached share that doesn't set its own. The built-in default is 2000."
         />
 
         {formError && (

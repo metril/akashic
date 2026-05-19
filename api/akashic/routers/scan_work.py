@@ -36,6 +36,7 @@ from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.scanner import Scanner
 from akashic.models.source import Source
 from akashic.services.scanner_auth import verify_scanner_jwt
+from akashic.services.source_config import effective_max_parallel_scanners
 
 router = APIRouter(tags=["scan_work"])
 
@@ -320,7 +321,7 @@ async def lease_unit(
     # Step 2 — a unit IS available; only now does the cap apply. A
     # scanner already holding a unit doesn't expand the active set, so
     # it's exempt; a new scanner may claim only if there's headroom.
-    cap = source.max_parallel_scanners if source is not None else 1
+    cap = effective_max_parallel_scanners(source) if source is not None else 1
     active = await _distinct_active_scanners(db, scan_id)
     if scanner.id not in active and len(active) >= cap:
         # Leave the candidate pending — the rollback triggered by this
@@ -509,7 +510,7 @@ async def fail_unit(
         unit.lease_expires_at = None
         await db.commit()
         # Wake an idle scanner to take the re-queued unit.
-        if source is not None and source.max_parallel_scanners > 1:
+        if source is not None and effective_max_parallel_scanners(source) > 1:
             from akashic.services import scan_join
             try:
                 await scan_join.notify_eligible_joiners(
@@ -603,7 +604,7 @@ async def split_units(
         source = (await db.execute(
             select(Source).where(Source.id == scan.source_id)
         )).scalar_one_or_none()
-    if source is not None and source.max_parallel_scanners > 1:
+    if source is not None and effective_max_parallel_scanners(source) > 1:
         from akashic.services import scan_join
         import logging as _logging
         _log = _logging.getLogger(__name__)
