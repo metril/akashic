@@ -98,6 +98,11 @@ class ScannerSummary(BaseModel):
     online: bool
     allowed_source_ids: list[uuid.UUID] | None = None
     allowed_scan_types: list[str] | None = None
+    # v0.36.0 — handshake-reported unit concurrency
+    # (AKASHIC_MAX_CONCURRENT_UNITS on the scanner host). Read-only on
+    # the API. NULL = the scanner hasn't handshook since this field
+    # was added.
+    max_concurrent_units: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -106,6 +111,8 @@ class HandshakeRequest(BaseModel):
     protocol_version: int
     version: str | None = None
     hostname: str | None = None
+    # v0.36.0 — see ScannerSummary.max_concurrent_units.
+    max_concurrent_units: int | None = None
 
 
 class HandshakeResponse(BaseModel):
@@ -172,6 +179,7 @@ def _to_summary(s: Scanner) -> ScannerSummary:
         online=_is_online(s),
         allowed_source_ids=s.allowed_source_ids,
         allowed_scan_types=s.allowed_scan_types,
+        max_concurrent_units=s.max_concurrent_units,
     )
 
 
@@ -713,6 +721,9 @@ async def handshake(
     scanner.protocol_version = body.protocol_version
     scanner.version = body.version
     scanner.hostname = body.hostname
+    # v0.36.0 — persist the scanner's reported MaxConcurrentUnits
+    # alongside version/hostname; UI surfaces it next to those.
+    scanner.max_concurrent_units = body.max_concurrent_units
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
 

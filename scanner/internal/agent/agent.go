@@ -225,6 +225,11 @@ type handshakeReq struct {
 	ProtocolVersion int    `json:"protocol_version"`
 	Version         string `json:"version,omitempty"`
 	Hostname        string `json:"hostname,omitempty"`
+	// v0.36.0 — self-report the resolved MaxConcurrentUnits (env/flag,
+	// with the 1-floor applied in cmd/akashic-scanner/agent.go) so the
+	// admin UI can show each scanner's effective concurrency next to
+	// the other handshake-reported fields.
+	MaxConcurrentUnits int `json:"max_concurrent_units,omitempty"`
 }
 
 type handshakeResp struct {
@@ -299,9 +304,10 @@ func handshake(
 		return err
 	}
 	body := handshakeReq{
-		ProtocolVersion: protocol.Version,
-		Version:         cfg.Version,
-		Hostname:        cfg.Hostname,
+		ProtocolVersion:    protocol.Version,
+		Version:            cfg.Version,
+		Hostname:           cfg.Hostname,
+		MaxConcurrentUnits: cfg.MaxConcurrentUnits,
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
 		cfg.APIBase+"/api/scanners/handshake", auth, body)

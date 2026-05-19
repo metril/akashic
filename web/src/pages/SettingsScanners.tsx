@@ -44,6 +44,9 @@ interface Scanner {
   online: boolean;
   allowed_source_ids: string[] | null;
   allowed_scan_types: string[] | null;
+  // v0.36.0 — handshake-reported unit concurrency; null = the scanner
+  // hasn't reported yet (pre-handshake or upgraded from an older agent).
+  max_concurrent_units: number | null;
 }
 
 interface ScannerCreated {
@@ -352,6 +355,16 @@ function ScannerRow({
               sources: {sourceScope == null ? "all" : sourceScope.length}
             </Badge>
           </button>
+          <Badge
+            variant="neutral"
+            title={
+              s.max_concurrent_units == null
+                ? "Scanner hasn't reported yet — restart the agent to refresh"
+                : `Work units this scanner walks in parallel per scan. Set on the scanner host via AKASHIC_MAX_CONCURRENT_UNITS (default 1).`
+            }
+          >
+            concurrency: {s.max_concurrent_units ?? "—"}
+          </Badge>
           {!s.enabled && <Badge variant="neutral">disabled</Badge>}
         </div>
         <div className="mt-1 text-xs text-fg-muted truncate">

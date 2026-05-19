@@ -5,6 +5,31 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.36.0 — 2026-05-19
+
+**Each scanner's unit concurrency is now visible in the dashboard.**
+
+### New features
+
+- **Settings → Scanners shows each scanner's reported concurrency.**
+  After v0.35.0 there was no way to tell at a glance which scanners
+  were running at 1 unit vs 4 without SSH-ing onto each box. A new
+  `concurrency: N` badge sits next to each scanner's pool in Settings
+  → Scanners, populated from a value the agent self-reports at
+  handshake time. Configuration still lives on the scanner host
+  (`AKASHIC_MAX_CONCURRENT_UNITS` / `--max-concurrent-units`) — that's
+  the right home for a per-machine setting; this is purely the
+  read-side surface. A scanner that hasn't handshook since the
+  upgrade shows `concurrency: —`; restart it to refresh.
+
+### Notes
+
+- One additive migration (`0040_scanner_concurrency`); existing
+  scanner rows read NULL until they handshake again. Rebuild the
+  scanner image so the new agents include `max_concurrent_units` in
+  their handshake body; an older agent leaves the column NULL
+  (harmless).
+
 ## v0.35.0 — 2026-05-19
 
 **Operator controls over how a multi-scanner scan spreads its work —

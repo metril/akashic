@@ -47,3 +47,11 @@ class Scanner(Base):
     allowed_scan_types: Mapped[list[str] | None] = mapped_column(
         ARRAY(String(16)), nullable=True,
     )
+    # v0.36.0 — the scanner self-reports its MaxConcurrentUnits on
+    # handshake (set on the scanner host via AKASHIC_MAX_CONCURRENT_UNITS
+    # / --max-concurrent-units). Read-only on the API; admins see it
+    # next to the other handshake-reported fields. NULL = the scanner
+    # hasn't handshook since this column was added.
+    max_concurrent_units: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+    )

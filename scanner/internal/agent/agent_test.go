@@ -254,10 +254,10 @@ func newCancelCtx() (ctxlike, func()) {
 // "failed" or a sibling scanner's "completed".
 func TestTerminalDisposition(t *testing.T) {
 	cases := []struct {
-		name        string
-		runErr      error
-		wantStatus  string
-		wantPost    bool
+		name       string
+		runErr     error
+		wantStatus string
+		wantPost   bool
 	}{
 		{
 			name:       "clean finish completes the scan",
@@ -294,5 +294,31 @@ func TestTerminalDisposition(t *testing.T) {
 				t.Errorf("postComplete = %v, want %v", post, tc.wantPost)
 			}
 		})
+	}
+}
+
+// v0.36.0 — the scanner self-reports its MaxConcurrentUnits on
+// handshake so the admin UI can show each scanner's effective
+// concurrency. omitempty keeps an unset value off the wire so an older
+// API silently ignores it instead of decoding to 0.
+func TestHandshakeReq_EncodesMaxConcurrentUnits(t *testing.T) {
+	body, err := json.Marshal(handshakeReq{
+		ProtocolVersion:    1,
+		Version:            "v",
+		Hostname:           "h",
+		MaxConcurrentUnits: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"max_concurrent_units":3`) {
+		t.Errorf("body=%s, want max_concurrent_units:3", body)
+	}
+	body2, err := json.Marshal(handshakeReq{ProtocolVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body2), "max_concurrent_units") {
+		t.Errorf("body=%s, expected max_concurrent_units omitted when 0", body2)
 	}
 }

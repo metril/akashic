@@ -143,6 +143,54 @@ async def test_handshake_accepts_in_range_protocol(setup_db, admin_client: Async
 
 
 @pytest.mark.asyncio
+async def test_handshake_persists_max_concurrent_units(
+    setup_db, admin_client: AsyncClient,
+):
+    """v0.36.0 — the scanner self-reports its MaxConcurrentUnits on
+    handshake; the admin UI surfaces it. Persistence mirrors how
+    version/hostname are written: whatever the scanner sends becomes
+    the row's value (including back to NULL when an older agent omits
+    the field)."""
+    create = await admin_client.post(
+        "/api/scanners", json={"name": "mcu-scanner", "pool": "default"},
+    )
+    body = create.json()
+    sid = body["id"]
+    token = _scanner_token(sid, body["private_key_pem"])
+
+    async with _build_unauth_client(setup_db) as ac:
+        r = await ac.post(
+            "/api/scanners/handshake",
+            json={
+                "protocol_version": PROTOCOL_VERSION,
+                "version": "0.36.0",
+                "hostname": "scanner-mcu",
+                "max_concurrent_units": 4,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200, r.text
+
+    listing = await admin_client.get("/api/scanners")
+    row = next(s for s in listing.json() if s["id"] == sid)
+    assert row["max_concurrent_units"] == 4
+
+    # An older agent that omits the field clears the value back to
+    # NULL — matches the version/hostname write semantic so the admin
+    # can tell "stopped reporting" apart from "still at 4".
+    async with _build_unauth_client(setup_db) as ac:
+        r2 = await ac.post(
+            "/api/scanners/handshake",
+            json={"protocol_version": PROTOCOL_VERSION},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r2.status_code == 200
+    listing2 = await admin_client.get("/api/scanners")
+    row2 = next(s for s in listing2.json() if s["id"] == sid)
+    assert row2["max_concurrent_units"] is None
+
+
+@pytest.mark.asyncio
 async def test_handshake_rejects_out_of_range_protocol(
     setup_db, admin_client: AsyncClient,
 ):
