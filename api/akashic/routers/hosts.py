@@ -45,6 +45,17 @@ router = APIRouter(prefix="/api/hosts", tags=["hosts"])
 _HOST_TYPES = {"smb", "nfs", "s3"}
 
 
+async def _publish_host_changed(host_id: uuid.UUID) -> None:
+    """Notify /ws/scans subscribers that a host row changed so the Hosts
+    page refreshes without polling. Rides the sources channel (hosts and
+    sources are the same domain) — fire-and-forget like the source events."""
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "host.changed",
+        "host_id": str(host_id),
+    })
+
+
 async def _source_count_for(db: AsyncSession, host_id: uuid.UUID) -> int:
     cnt = (await db.execute(
         select(func.count())
@@ -129,6 +140,7 @@ async def create_host(
         await db.rollback()
         raise HTTPException(status_code=409, detail=f"host name {data.name!r} already in use")
     await db.refresh(host)
+    await _publish_host_changed(host.id)
     await record_event(
         db=db, user=user, event_type="host_created",
         request=request,
@@ -221,6 +233,7 @@ async def update_host(
         await db.rollback()
         raise HTTPException(status_code=409, detail="host name already in use")
     await db.refresh(host)
+    await _publish_host_changed(host.id)
 
     after = {
         "name": host.name,
@@ -263,6 +276,7 @@ async def delete_host(
     snapshot = {"host_id": str(host.id), "name": host.name, "type": host.type}
     await db.delete(host)
     await db.commit()
+    await _publish_host_changed(host_id)
     await record_event(
         db=db, user=user, event_type="host_deleted",
         request=request, payload=snapshot,

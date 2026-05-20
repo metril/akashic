@@ -5,6 +5,35 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.37.0 — 2026-05-19
+
+**The dashboard now updates live when scans finish and when scanners
+change — no more manual refresh to see current state.**
+
+### Bug fixes
+
+- **Sources, Hosts, Dashboard and Scanner views refresh on their own
+  again.** Previously, when a scan completed the row's status badge
+  flipped live but everything else — "last scanned" time, file counts,
+  byte totals — stayed frozen until you reloaded the page, because the
+  live stream only patched the status field and nothing told the
+  underlying data to refetch when a scan finished. Now a single
+  app-wide listener refetches scan- and scanner-derived data on every
+  terminal scan event (completed / failed / cancelled), on reconnect,
+  and on scanner-lifecycle events. Changes another tab, user, or
+  scanner makes show up without a refresh.
+
+### Notes
+
+- Also closes the publish gaps behind the same symptom: editing a
+  source, editing/deleting a scanner, a scanner handshake (online
+  status, version, concurrency), and host create/edit/delete now emit
+  live events instead of only being picked up by a periodic poll.
+  Scanner *offline* is still time-derived, so the scanner summary keeps
+  a 30 s poll as its backstop.
+- Web-only behaviour plus additive API events; no migration, no schema
+  change, no scanner-binary change.
+
 ## v0.36.0 — 2026-05-19
 
 **Each scanner's unit concurrency is now visible in the dashboard.**

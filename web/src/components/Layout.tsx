@@ -5,6 +5,7 @@ import { TopBar } from "./TopBar";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useLiveDataRefresh } from "../hooks/useLiveDataRefresh";
 import { PaletteContext } from "../hooks/usePalette";
 import { EntryDetailProvider } from "../hooks/useEntryDetail";
 import { Drawer } from "./ui";
@@ -18,6 +19,9 @@ export default function Layout() {
   // itself only renders here.
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
   useDocumentTitle();
+  // App-wide: refetch scan/scanner-derived data on terminal scan events
+  // and scanner-lifecycle events so no page needs a manual refresh.
+  useLiveDataRefresh();
 
   return (
     <PaletteContext.Provider value={{ open: paletteOpen, setOpen: setPaletteOpen }}>

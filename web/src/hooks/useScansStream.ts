@@ -201,6 +201,10 @@ export function applyEvent(state: State, event: ScansStreamEvent): State {
       return { ...state, byScan, bySource: recomputeBySource(byScan) };
     }
     case "source.created":
+    case "source.updated":
+    case "host.changed":
+      // Not material to the per-scan store; handled by useLiveDataRefresh
+      // (cache invalidation) instead.
       return state;
     case "ping":
       // Pings aren't material, but they ARE proof of liveness — flip

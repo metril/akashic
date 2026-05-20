@@ -122,6 +122,37 @@ async def test_update_source_emits_diff_event(client: AsyncClient, setup_db):
 
 
 @pytest.mark.asyncio
+async def test_update_source_publishes_source_updated(
+    client: AsyncClient, monkeypatch,
+):
+    """v0.37.0 — PATCH /sources/{id} pushes a `source.updated` event so
+    other tabs/users see the edit without a manual refresh."""
+    from akashic.services import scan_pubsub
+
+    captured: list[dict] = []
+
+    async def _cap(event):
+        captured.append(event)
+
+    monkeypatch.setattr(scan_pubsub, "publish_source_event", _cap)
+
+    create = await client.post(
+        "/api/sources",
+        json={"name": "evented", "type": "smb",
+              "connection_config": {"host": "h", "username": "u", "password": "p"}},
+    )
+    sid = create.json()["id"]
+
+    patch = await client.patch(f"/api/sources/{sid}", json={"name": "evented2"})
+    assert patch.status_code == 200, patch.text
+
+    assert any(
+        e["kind"] == "source.updated" and e["source_id"] == sid
+        for e in captured
+    )
+
+
+@pytest.mark.asyncio
 async def test_update_with_real_new_password_records_state_transition(
     client: AsyncClient,
 ):

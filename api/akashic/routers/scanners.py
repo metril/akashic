@@ -283,6 +283,11 @@ async def patch_scanner(
         scanner.allowed_scan_types = None
     await db.commit()
     await db.refresh(scanner)
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_scanner_event({
+        "kind": "scanner.updated",
+        "scanner_id": str(scanner.id),
+    })
     return _to_summary(scanner)
 
 
@@ -377,6 +382,11 @@ async def delete_scanner(
     )
     await db.delete(scanner)
     await db.commit()
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_scanner_event({
+        "kind": "scanner.deleted",
+        "scanner_id": str(scanner_id),
+    })
 
 
 # ── Join tokens (self-registration) ──────────────────────────────────────
@@ -726,6 +736,13 @@ async def handshake(
     scanner.max_concurrent_units = body.max_concurrent_units
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
+    # Push the freshly-reported metadata (online status, version,
+    # concurrency) so admin views update without waiting for their poll.
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_scanner_event({
+        "kind": "scanner.updated",
+        "scanner_id": str(scanner.id),
+    })
 
     accepted = ACCEPTED_MIN <= body.protocol_version <= ACCEPTED_MAX
     if not accepted:

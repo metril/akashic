@@ -36,6 +36,7 @@ export type ScannersStreamEvent =
       deny_reason: string | null }
   | { kind: "scanner.discovery_expired"; discovery_id: string }
   | { kind: "scanner.registered"; scanner_id: string }
+  | { kind: "scanner.updated"; scanner_id: string }
   | { kind: "scanner.deleted"; scanner_id: string }
   | { kind: "ping" }
   | { kind: "error"; message: string };

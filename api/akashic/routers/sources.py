@@ -479,6 +479,13 @@ async def update_source(
 
     await db.commit()
     await db.refresh(source)
+    # Push to /ws/scans subscribers so other tabs/users see the edit
+    # without polling (mirrors source.created / source.deleted).
+    from akashic.services import scan_pubsub
+    await scan_pubsub.publish_source_event({
+        "kind": "source.updated",
+        "source_id": str(source.id),
+    })
 
     after = {
         "name": source.name,

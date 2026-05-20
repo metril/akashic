@@ -209,6 +209,41 @@ async def test_create_host_and_get(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_host_crud_publishes_host_changed(client: AsyncClient, monkeypatch):
+    """v0.37.0 — host create/patch/delete push a `host.changed` event so
+    the Hosts page refreshes live instead of waiting for a manual reload."""
+    from akashic.services import scan_pubsub
+
+    captured: list[dict] = []
+
+    async def _cap(event):
+        captured.append(event)
+
+    monkeypatch.setattr(scan_pubsub, "publish_source_event", _cap)
+
+    create = await client.post(
+        "/api/hosts",
+        json={"name": "evented", "type": "smb",
+              "connection_config": {"host": "fs", "username": "u", "password": "p"}},
+    )
+    assert create.status_code == 201, create.text
+    host_id = create.json()["id"]
+
+    patch = await client.patch(f"/api/hosts/{host_id}", json={"name": "evented2"})
+    assert patch.status_code == 200, patch.text
+
+    delete = await client.delete(f"/api/hosts/{host_id}")
+    assert delete.status_code == 204, delete.text
+
+    kinds = [(e["kind"], e["host_id"]) for e in captured]
+    assert kinds == [
+        ("host.changed", host_id),
+        ("host.changed", host_id),
+        ("host.changed", host_id),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_list_hosts_includes_source_count(client: AsyncClient, setup_db):
     h = await client.post(
         "/api/hosts",

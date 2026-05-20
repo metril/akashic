@@ -191,6 +191,73 @@ async def test_handshake_persists_max_concurrent_units(
 
 
 @pytest.mark.asyncio
+async def test_handshake_publishes_scanner_updated(
+    setup_db, admin_client: AsyncClient, monkeypatch,
+):
+    """v0.37.0 — handshake pushes a `scanner.updated` event so admin views
+    refresh the scanner's online status / version / concurrency without
+    waiting for their poll."""
+    from akashic.services import scan_pubsub
+
+    captured: list[dict] = []
+
+    async def _cap(event):
+        captured.append(event)
+
+    monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
+
+    create = await admin_client.post(
+        "/api/scanners", json={"name": "evented", "pool": "default"},
+    )
+    body = create.json()
+    sid = body["id"]
+    token = _scanner_token(sid, body["private_key_pem"])
+
+    async with _build_unauth_client(setup_db) as ac:
+        r = await ac.post(
+            "/api/scanners/handshake",
+            json={"protocol_version": PROTOCOL_VERSION, "version": "0.37.0",
+                  "hostname": "h", "max_concurrent_units": 4},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200, r.text
+    assert any(
+        e["kind"] == "scanner.updated" and e["scanner_id"] == sid
+        for e in captured
+    )
+
+
+@pytest.mark.asyncio
+async def test_patch_and_delete_publish_scanner_events(
+    admin_client: AsyncClient, monkeypatch,
+):
+    """v0.37.0 — PATCH publishes `scanner.updated`, DELETE publishes
+    `scanner.deleted`, so the scanner list updates live."""
+    from akashic.services import scan_pubsub
+
+    captured: list[dict] = []
+
+    async def _cap(event):
+        captured.append(event)
+
+    monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
+
+    create = await admin_client.post(
+        "/api/scanners", json={"name": "mutated", "pool": "default"},
+    )
+    sid = create.json()["id"]
+
+    patch = await admin_client.patch(f"/api/scanners/{sid}", json={"pool": "site-b"})
+    assert patch.status_code == 200, patch.text
+
+    delete = await admin_client.delete(f"/api/scanners/{sid}")
+    assert delete.status_code == 204, delete.text
+
+    assert ("scanner.updated", sid) in [(e["kind"], e["scanner_id"]) for e in captured]
+    assert ("scanner.deleted", sid) in [(e["kind"], e["scanner_id"]) for e in captured]
+
+
+@pytest.mark.asyncio
 async def test_handshake_rejects_out_of_range_protocol(
     setup_db, admin_client: AsyncClient,
 ):

@@ -32,7 +32,9 @@ export type ScansStreamEvent =
       started_at?: string | null }
   | { kind: "source.created"; source_id: string; source_status: string;
       name: string; type: string }
+  | { kind: "source.updated"; source_id: string }
   | { kind: "source.deleted"; source_id: string }
+  | { kind: "host.changed"; host_id: string }
   | { kind: "ping" }
   | { kind: "error"; message: string };
 
