@@ -87,6 +87,12 @@ type Result struct {
 	// skipped" instead of pretending the scan was clean.
 	InaccessibleDirs  int
 	InaccessibleFiles int
+	// v0.40.0 — upstream-API pages the connector had to skip after
+	// retry-exhaustion 5xx on a specific page. Filesystem connectors
+	// leave this at 0. Currently surfaced by ImmichConnector to
+	// survive Immich #24359 (Postgres TOAST corruption on a single
+	// asset row).
+	UpstreamPagesSkipped int
 	// v0.30.0 — content-extraction outcome for this scan.
 	FilesExtracted     int64
 	ExtractionFailures int64
@@ -165,6 +171,16 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			s.info("prewalk complete: %d files, %d dirs, %d bytes",
 				pres.Files, pres.Dirs, pres.Bytes)
 		}
+	}
+
+	// v0.40.0 — give the connector a UI-visible warn sink if it asks
+	// for one. Today the only consumer is ImmichConnector (which uses
+	// it to surface skip-page notifications when Immich 5xxs on a
+	// specific bad asset row, per Immich #24359). The Connector
+	// interface itself stays untouched — connectors that don't need
+	// this stay nil and emit warnings via log.Printf only.
+	if setter, ok := s.connector.(warnHookSetter); ok {
+		setter.SetWarnHook(s.warn)
 	}
 
 	s.setPhase("walk")
@@ -429,6 +445,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 
 	result.InaccessibleDirs = walkStats.InaccessibleDirs
 	result.InaccessibleFiles = walkStats.InaccessibleFiles
+	result.UpstreamPagesSkipped = walkStats.UpstreamPagesSkipped
 
 	// v0.34.0 — hand the un-walked frontier back so the caller enqueues
 	// it as fresh work units. Done before the final flush so siblings
@@ -458,10 +475,12 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// questions (share-ACL denial, wrong root path, etc.).
 	log.Printf("scan %s: walk finished: %d files, %d dirs, "+
 		"%d inaccessible dirs, %d inaccessible files, "+
+		"%d upstream pages skipped, "+
 		"%d entries pending in final batch",
 		s.opts.ScanID,
 		result.FilesFound, result.DirsFound,
 		result.InaccessibleDirs, result.InaccessibleFiles,
+		result.UpstreamPagesSkipped,
 		len(batch),
 	)
 
@@ -502,10 +521,31 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",
-		result.FilesFound, result.DirsFound, result.BatchesSent,
-		result.InaccessibleDirs, result.InaccessibleFiles)
+	// v0.40.0 — surface skipped upstream pages in the user-visible
+	// scan-complete line so a partial scan can't masquerade as a
+	// clean one. Only emit when non-zero to keep the common path
+	// terse.
+	if result.UpstreamPagesSkipped > 0 {
+		s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files, %d upstream pages skipped (~%d assets may be missing)",
+			result.FilesFound, result.DirsFound, result.BatchesSent,
+			result.InaccessibleDirs, result.InaccessibleFiles,
+			result.UpstreamPagesSkipped, result.UpstreamPagesSkipped*250)
+	} else {
+		s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",
+			result.FilesFound, result.DirsFound, result.BatchesSent,
+			result.InaccessibleDirs, result.InaccessibleFiles)
+	}
 	return result, nil
+}
+
+// warnHookSetter is the (optional) interface a Connector may
+// implement to receive a UI-visible warn callback. v0.40.0 — the
+// Immich connector uses this to surface skip-page notifications when
+// the upstream Immich server 5xxs on a specific bad asset row.
+// Filesystem connectors don't implement this and continue to use
+// log.Printf for any operator-visible diagnostics.
+type warnHookSetter interface {
+	SetWarnHook(fn func(format string, args ...any))
 }
 
 // runShallowBFS walks Root breadth-first across a local frontier queue,

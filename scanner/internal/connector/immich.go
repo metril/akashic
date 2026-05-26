@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"path/filepath"
@@ -21,10 +23,37 @@ import (
 // (4 attempts, 250ms base, exponential with ±25% jitter); a single
 // transient Immich blip used to fail the whole scan after the walker
 // had already paginated through tens of thousands of assets.
-const (
+//
+// `var` rather than `const` so the test suite can shrink the backoff
+// to keep retry-exhausted scenarios from dominating wall-clock time.
+var (
 	immichMaxAttempts = 4
 	immichBackoffBase = 250 * time.Millisecond
 )
+
+// v0.40.0 — cap consecutive skipped pages before the Walk gives up.
+// A single failing page on `/api/search/metadata` is the per-row-
+// corruption fingerprint (Immich #24359 — Postgres TOAST corruption
+// on a specific asset row); skipping it lets the rest of the library
+// index. Three in a row, though, is Immich actually being down and
+// we should not silently lose hundreds of assets.
+const immichMaxConsecutivePageFailures = 3
+
+// retryableHTTPError is returned by fetchJSONOnce for 408/429/5xx
+// responses. fetchJSON's retry-exhaustion path wraps it via `%w` so
+// callers can errors.As to recover the status code. Walk uses this
+// to distinguish "one bad page upstream" (skip and continue) from
+// any other terminal error (return immediately).
+type retryableHTTPError struct {
+	StatusCode int
+	Snippet    string
+	Method     string
+	URL        string
+}
+
+func (e *retryableHTTPError) Error() string {
+	return fmt.Sprintf("immich: %s %s: %d %s", e.Method, e.URL, e.StatusCode, e.Snippet)
+}
 
 // ImmichConnector indexes an Immich photo/video library via its REST
 // API. Tier 3 / v0.8.0. Same hostless shape as PaperlessConnector:
@@ -68,6 +97,31 @@ type ImmichConnector struct {
 	// /api/albums + /api/albums/{id} fan-out. Empty when the user
 	// hasn't created any albums.
 	assetAlbums map[string][]string
+
+	// v0.40.0 — optional UI-visible warn sink. Wired by the scanner
+	// (via the warnHookSetter interface) so page-skip notifications
+	// reach the scan log, not just docker logs. Nil-safe.
+	warnHook func(format string, args ...any)
+}
+
+// SetWarnHook registers a callback the connector calls for
+// UI-visible warnings (e.g., "page N failed, skipping ~250 assets").
+// The scanner package detects this method via a small interface and
+// supplies its s.warn. If unset, warnings still hit docker logs via
+// log.Printf inside the warn() helper below.
+//
+// v0.40.0 — added to surface the skip-on-upstream-5xx outcome
+// without coupling the Connector interface to the scanner's
+// log sink for every connector type.
+func (c *ImmichConnector) SetWarnHook(fn func(format string, args ...any)) {
+	c.warnHook = fn
+}
+
+func (c *ImmichConnector) warn(format string, args ...any) {
+	if c.warnHook != nil {
+		c.warnHook(format, args...)
+	}
+	log.Printf("immich: "+format, args...)
 }
 
 // NewImmichConnector builds the connector but does NOT issue any HTTP
@@ -177,6 +231,11 @@ func (c *ImmichConnector) Walk(
 		}
 	}
 
+	// v0.40.0 — track consecutive page failures so we can distinguish
+	// "one poisoned row upstream" (skip) from "Immich actually went
+	// down" (abort). Reset on every successful page.
+	var consecutivePageFailures int
+
 	for page := 1; ; page++ {
 		if err := ctx.Err(); err != nil {
 			return stats, err
@@ -196,8 +255,35 @@ func (c *ImmichConnector) Walk(
 		}
 		body, err := c.fetchJSON(ctx, http.MethodPost, "/api/search/metadata", reqBody)
 		if err != nil {
+			// v0.40.0 — when /api/search/metadata returns 5xx after
+			// retry exhaustion on a non-first page, skip just that
+			// page and keep walking. This handles the documented
+			// upstream-Immich pathology (Immich #24359 — TOAST
+			// corruption on a specific asset row deterministically
+			// throws "Failed to search assets" on the page that
+			// contains it) without dropping the remaining ~hundreds
+			// of healthy pages. Page 1 failures stay fatal — that's
+			// Immich genuinely unavailable, not a bad row. Three
+			// consecutive skips abort: that's an outage, not
+			// corruption.
+			var rhe *retryableHTTPError
+			if errors.As(err, &rhe) && rhe.StatusCode >= 500 && page > 1 {
+				consecutivePageFailures++
+				if consecutivePageFailures >= immichMaxConsecutivePageFailures {
+					return stats, fmt.Errorf(
+						"immich: %d consecutive page failures; aborting scan: %w",
+						consecutivePageFailures, err)
+				}
+				stats.UpstreamPagesSkipped++
+				c.warn(
+					"page %d failed (HTTP %d: %s); skipping ~%d assets and continuing",
+					page, rhe.StatusCode, rhe.Snippet, c.pageSize,
+				)
+				continue
+			}
 			return stats, err
 		}
+		consecutivePageFailures = 0
 		var resp immichSearchResponse
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return stats, fmt.Errorf("immich: decode search page: %w", err)
@@ -451,10 +537,19 @@ func (c *ImmichConnector) fetchJSONOnce(ctx context.Context, method, target stri
 	// 408 Request Timeout, 429 Too Many Requests, and any 5xx are
 	// transient by definition. Backing off and retrying is the right
 	// thing — and matches what client.SendBatch does for the api side.
+	//
+	// v0.40.0 — returned as a typed retryableHTTPError so Walk can
+	// errors.As the retry-exhausted form and decide whether to skip
+	// a single bad page vs. fail the whole scan.
 	if resp.StatusCode == http.StatusRequestTimeout ||
 		resp.StatusCode == http.StatusTooManyRequests ||
 		resp.StatusCode >= 500 {
-		return nil, true, fmt.Errorf("immich: %s %s: %d %s", method, target, resp.StatusCode, snippet(respBody))
+		return nil, true, &retryableHTTPError{
+			StatusCode: resp.StatusCode,
+			Snippet:    snippet(respBody),
+			Method:     method,
+			URL:        target,
+		}
 	}
 	if resp.StatusCode >= 400 {
 		return nil, false, fmt.Errorf("immich: %s %s: %d %s", method, target, resp.StatusCode, snippet(respBody))

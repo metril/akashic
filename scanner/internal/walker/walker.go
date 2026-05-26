@@ -26,6 +26,12 @@ type WalkStats struct {
 	// File entries that we couldn't read metadata for (d.Info() or
 	// CollectFromInfo failed on a non-directory entry).
 	InaccessibleFiles int
+	// v0.40.0 — pages of upstream-API results the connector had to
+	// skip after retry-exhaustion 5xx on a specific page. Used by the
+	// Immich connector to survive a single corrupted asset row (per
+	// Immich #24359 — Postgres TOAST corruption) without losing the
+	// entire scan. Filesystem connectors leave this at 0.
+	UpstreamPagesSkipped int
 }
 
 // ShallowResult is what WalkShallow returns: file/empty-dir entries

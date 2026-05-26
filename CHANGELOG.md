@@ -5,6 +5,43 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.40.0 — 2026-05-26
+
+**An Immich scan now survives a single corrupted asset page instead
+of failing the whole scan, and the scan log makes it obvious when
+something was skipped so a partial index can't quietly masquerade as
+a complete one.**
+
+### Bug fixes
+
+- **One bad Immich asset row no longer takes the entire scan down.**
+  Immich has an unfixed upstream bug
+  ([#24359](https://github.com/immich-app/immich/issues/24359),
+  same symptom as
+  [immich-go #1160](https://github.com/simulot/immich-go/issues/1160))
+  where a single Postgres TOAST-corrupted asset row makes
+  `POST /api/search/metadata` return `500 "Failed to search assets"`
+  deterministically — every retry hits the same row. Pre-fix, the
+  scan died on the first bad page after the walker had already
+  paginated through hundreds of healthy pages. The connector now
+  skips just that one page and continues, logs a yellow warn naming
+  the page number and including the Immich `correlationId` (so the
+  operator can grep their Immich server log and identify the
+  offending row), and surfaces the skip count in the
+  "scan complete" line: `… X files (1 page skipped — ~250 assets
+  may be missing)`. Three consecutive skipped pages still aborts —
+  that pattern means Immich genuinely went down, not row
+  corruption.
+
+### Notes
+
+- Scanner-binary change only; no api change, no schema change, no
+  web change. Operators redeploy the scanner image.
+- The skip logic only fires on the asset-pagination loop, not on
+  Connect or album enumeration. Page 1 failures stay fatal —
+  without a successful first page, treating subsequent pages as
+  "missing" would silently produce empty scans.
+
 ## v0.39.0 — 2026-05-26
 
 **Immich scans now survive transient API blips instead of dying on

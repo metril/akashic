@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -299,6 +300,181 @@ func TestImmichFetchJSONRetriesExhaust(t *testing.T) {
 	}
 	if hits != immichMaxAttempts {
 		t.Errorf("expected %d attempts, got %d", immichMaxAttempts, hits)
+	}
+}
+
+// v0.40.0 — a single Immich 5xx on a specific page (per Immich
+// #24359 — TOAST corruption on one asset row) must not fail the
+// entire scan. Walk should skip just that page, increment
+// UpstreamPagesSkipped, fire the warn hook once, and continue.
+func TestImmichWalkSkipsSinglePoisonedPage(t *testing.T) {
+	origBackoff := immichBackoffBase
+	immichBackoffBase = 1 * time.Millisecond
+	defer func() { immichBackoffBase = origBackoff }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/users/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"id":"u1","email":"a@b.c"}`))
+	})
+	mux.HandleFunc("/api/albums", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[]`))
+	})
+	mux.HandleFunc("/api/albums/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no albums", http.StatusNotFound)
+	})
+	var pageSeq int
+	mux.HandleFunc("/api/search/metadata", func(w http.ResponseWriter, r *http.Request) {
+		pageSeq++
+		// Page 1: ok. Pages 2..5 (the four retry attempts on page 2):
+		// 500. Page 3: ok, last page.
+		switch {
+		case pageSeq == 1:
+			json.NewEncoder(w).Encode(map[string]any{
+				"assets": map[string]any{"nextPage": "2", "items": []map[string]any{
+					{"id": "asset-A", "originalFileName": "a.jpg",
+						"fileCreatedAt": "2024-01-01T00:00:00Z", "checksum": "h-A"},
+				}},
+			})
+		case pageSeq >= 2 && pageSeq <= 5:
+			http.Error(w,
+				`{"message":"Failed to search assets","correlationId":"abc123"}`,
+				http.StatusInternalServerError)
+		case pageSeq == 6:
+			json.NewEncoder(w).Encode(map[string]any{
+				"assets": map[string]any{"nextPage": "", "items": []map[string]any{
+					{"id": "asset-C", "originalFileName": "c.jpg",
+						"fileCreatedAt": "2024-03-01T00:00:00Z", "checksum": "h-C"},
+				}},
+			})
+		default:
+			t.Fatalf("unexpected sequence number %d", pageSeq)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "secret", nil, false, true)
+	var warns []string
+	c.SetWarnHook(func(format string, args ...any) {
+		warns = append(warns, fmt.Sprintf(format, args...))
+	})
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	var emitted []*models.EntryRecord
+	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+		emitted = append(emitted, e)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk should have succeeded despite the bad page, got: %v", err)
+	}
+	files := 0
+	for _, e := range emitted {
+		if e.Kind == "file" {
+			files++
+		}
+	}
+	if files != 2 {
+		t.Errorf("emitted file count = %d, want 2 (asset-A + asset-C); skipped page should not block sibling pages", files)
+	}
+	if stats.UpstreamPagesSkipped != 1 {
+		t.Errorf("UpstreamPagesSkipped = %d, want 1", stats.UpstreamPagesSkipped)
+	}
+	if len(warns) != 1 {
+		t.Fatalf("warn hook fired %d times, want 1: %v", len(warns), warns)
+	}
+	if !strings.Contains(warns[0], "page 2") || !strings.Contains(warns[0], "correlationId") {
+		t.Errorf("warn should name the page number and include the upstream snippet (with correlationId), got: %q", warns[0])
+	}
+}
+
+// Three consecutive page failures = Immich is genuinely down (not
+// per-row corruption); abort rather than silently lose hundreds of
+// assets. Verify Walk returns the underlying error.
+func TestImmichWalkAbortsAfterConsecutivePageFailures(t *testing.T) {
+	origBackoff := immichBackoffBase
+	immichBackoffBase = 1 * time.Millisecond
+	defer func() { immichBackoffBase = origBackoff }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/users/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"id":"u1"}`))
+	})
+	mux.HandleFunc("/api/albums", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[]`))
+	})
+	mux.HandleFunc("/api/albums/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", http.StatusNotFound)
+	})
+	var pageSeq int
+	mux.HandleFunc("/api/search/metadata", func(w http.ResponseWriter, r *http.Request) {
+		pageSeq++
+		if pageSeq == 1 {
+			json.NewEncoder(w).Encode(map[string]any{
+				"assets": map[string]any{"nextPage": "2", "items": []map[string]any{
+					{"id": "asset-A", "originalFileName": "a.jpg",
+						"fileCreatedAt": "2024-01-01T00:00:00Z"},
+				}},
+			})
+			return
+		}
+		http.Error(w, "still broken", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "secret", nil, false, true)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error { return nil })
+	if err == nil {
+		t.Fatalf("Walk should fail after %d consecutive page failures", immichMaxConsecutivePageFailures)
+	}
+	if !strings.Contains(err.Error(), "consecutive page failures") {
+		t.Errorf("error should mention consecutive failures, got: %v", err)
+	}
+}
+
+// Page 1 failing is Immich genuinely unavailable, not a poisoned
+// row. The skip-page heuristic only kicks in for page > 1; page 1
+// 5xx after retries stays fatal.
+func TestImmichWalkFirstPage5xxStillFatal(t *testing.T) {
+	origBackoff := immichBackoffBase
+	immichBackoffBase = 1 * time.Millisecond
+	defer func() { immichBackoffBase = origBackoff }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/users/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"id":"u1"}`))
+	})
+	mux.HandleFunc("/api/albums", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[]`))
+	})
+	mux.HandleFunc("/api/albums/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no", http.StatusNotFound)
+	})
+	mux.HandleFunc("/api/search/metadata", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "broken from the start", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "secret", nil, false, true)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error { return nil })
+	if err == nil {
+		t.Fatalf("Walk should fail on first-page 5xx, not skip-and-continue")
+	}
+	if !strings.Contains(err.Error(), "4 attempts failed") {
+		t.Errorf("error should be retry-exhausted, got: %v", err)
+	}
+	if stats.UpstreamPagesSkipped != 0 {
+		t.Errorf("UpstreamPagesSkipped = %d, want 0 (first-page failure must not be skipped)", stats.UpstreamPagesSkipped)
 	}
 }
 
