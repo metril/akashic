@@ -125,8 +125,15 @@ type Reporter struct {
 	// (heartbeat returns 409). The caller is expected to cancel the
 	// outer context, which propagates through the connector and walker.
 	// Fired at most once per Reporter lifetime via cancelOnce.
-	userCancel     func()
-	cancelOnce     sync.Once
+	//
+	// v0.39.0 — userCancelFired records whether the heartbeat actually
+	// saw a 409 (vs. the scan ctx being cancelled by the scanner
+	// itself on a walk error). The agent uses this to tell
+	// "api-driven termination, don't post /complete" apart from
+	// "scanner-side failure, do post /complete with status=failed".
+	userCancel       func()
+	cancelOnce       sync.Once
+	userCancelFired  atomic.Bool
 }
 
 // New builds a Reporter. apiURL is the base (e.g., "http://api:8000"),
@@ -162,12 +169,30 @@ func (r *Reporter) SetUserCancel(fn func()) { r.userCancel = fn }
 // signalCancel is called from inside heartbeat post handling. Wraps
 // the user callback in sync.Once so we don't recurse on every 409 the
 // API keeps returning until the process exits.
+//
+// v0.39.0 — sets userCancelFired BEFORE invoking the callback so any
+// caller observing the cancellation via the scan context sees the
+// flag (the ctx-cancel happens inside r.userCancel; the Store
+// happens-before the cancel, so a goroutine that wakes on ctx.Done()
+// and then calls UserCancelFired() is guaranteed to read true).
 func (r *Reporter) signalCancel() {
 	if r.userCancel == nil {
 		return
 	}
-	r.cancelOnce.Do(r.userCancel)
+	r.cancelOnce.Do(func() {
+		r.userCancelFired.Store(true)
+		r.userCancel()
+	})
 }
+
+// UserCancelFired reports whether the heartbeat saw a 409 from the
+// api and therefore fired the user-cancel callback. Used by the agent
+// to disambiguate api-driven termination ("don't post /complete; the
+// api already wrote authoritative status") from scanner-side errors
+// that cancelled the scan ctx but came from us ("do post /complete
+// with status=failed so the api learns about it without waiting for
+// the watchdog").
+func (r *Reporter) UserCancelFired() bool { return r.userCancelFired.Load() }
 
 // Start launches the heartbeat goroutine and the log-drain goroutine.
 // stderr relay is opt-in via StartStderrRelay since it replaces os.Stderr

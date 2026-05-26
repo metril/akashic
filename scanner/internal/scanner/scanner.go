@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -401,6 +402,16 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		walkStats, err = s.connector.Walk(scanCtx, s.opts.Root, s.opts.ExcludePatterns, walkHash, fullScan, walkFn)
 	}
 	if err != nil {
+		// v0.39.0 — surface the walk error to the user-visible log
+		// BEFORE cancelling. Without this, the only message that ever
+		// reaches the scan log is the sender goroutine's cascading
+		// "send batch failed: context canceled" — masking the real
+		// cause (e.g. an Immich 504 mid-pagination). Skip when the
+		// walk error is itself a context cancellation; that's noise
+		// (the cause was logged wherever cancellation originated).
+		if !errors.Is(err, context.Canceled) {
+			s.warn("walk failed: %v", err)
+		}
 		// Cancel and close the channel so the sender's range loop
 		// exits, then wait for drain — without close(batchCh) the
 		// sender keeps blocking on the channel forever and the wait
@@ -425,6 +436,12 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// retry of this unit re-splits harmlessly.
 	if s.opts.ShallowSplit != nil {
 		if serr := s.opts.ShallowSplit(ctx, frontier); serr != nil {
+			// v0.39.0 — same as the walk-error branch above: log the
+			// cause to the user-visible sink before the sender's
+			// inevitable "context canceled" lands.
+			if !errors.Is(serr, context.Canceled) {
+				s.warn("split frontier failed: %v", serr)
+			}
 			cancelScan()
 			close(batchCh)
 			<-senderDone

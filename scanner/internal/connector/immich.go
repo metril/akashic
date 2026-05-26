@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,15 @@ import (
 
 	"github.com/akashic-project/akashic/scanner/internal/walker"
 	"github.com/akashic-project/akashic/scanner/pkg/models"
+)
+
+// v0.39.0 — retry knobs for fetchJSON. Mirrors client.SendBatch
+// (4 attempts, 250ms base, exponential with ±25% jitter); a single
+// transient Immich blip used to fail the whole scan after the walker
+// had already paginated through tens of thousands of assets.
+const (
+	immichMaxAttempts = 4
+	immichBackoffBase = 250 * time.Millisecond
 )
 
 // ImmichConnector indexes an Immich photo/video library via its REST
@@ -347,18 +357,59 @@ func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *mo
 	return entry
 }
 
+// fetchJSON wraps fetchJSONOnce in a retry loop. Transient transport
+// errors and 408/429/5xx responses are retried with exponential
+// backoff; auth (401/403) and other 4xx are terminal. Caller-driven
+// context cancellation short-circuits without consuming the budget.
 func (c *ImmichConnector) fetchJSON(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	target := path
 	if strings.HasPrefix(target, "/") {
 		target = c.baseURL + target
 	}
-	var bodyReader *bytes.Reader
+	var rawBody []byte
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		bodyReader = bytes.NewReader(raw)
+		rawBody = raw
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < immichMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		respBody, retryable, err := c.fetchJSONOnce(ctx, method, target, rawBody)
+		if err == nil {
+			return respBody, nil
+		}
+		lastErr = err
+		if !retryable {
+			return nil, err
+		}
+		// Exponential backoff with ±25% jitter, mirroring SendBatch.
+		// Cancellable so a SIGTERM or a heartbeat 409 mid-backoff
+		// doesn't stall the scan for ~2 s.
+		if attempt+1 < immichMaxAttempts {
+			d := immichBackoffBase << attempt
+			jitter := time.Duration(rand.Int63n(int64(d / 4)))
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(d + jitter):
+			}
+		}
+	}
+	return nil, fmt.Errorf("immich: %d attempts failed: %w", immichMaxAttempts, lastErr)
+}
+
+// fetchJSONOnce performs one HTTP attempt. Returns (body, retryable, err)
+// where retryable indicates whether fetchJSON should back off and retry.
+func (c *ImmichConnector) fetchJSONOnce(ctx context.Context, method, target string, rawBody []byte) ([]byte, bool, error) {
+	var bodyReader *bytes.Reader
+	if rawBody != nil {
+		bodyReader = bytes.NewReader(rawBody)
 	}
 	var req *http.Request
 	var err error
@@ -368,7 +419,7 @@ func (c *ImmichConnector) fetchJSON(ctx context.Context, method, path string, bo
 		req, err = http.NewRequestWithContext(ctx, method, target, nil)
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req.Header.Set("x-api-key", c.apiKey)
 	req.Header.Set("Accept", "application/json")
@@ -377,20 +428,38 @@ func (c *ImmichConnector) fetchJSON(ctx context.Context, method, path string, bo
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		// Distinguish caller-cancellation (not retryable; the scan
+		// is ending) from genuine transport blips (TCP RST, DNS,
+		// TLS handshake, server-half-close mid-request — all
+		// worth retrying).
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
+		return nil, true, err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
+		return nil, true, err
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("immich: auth rejected (%d): %s", resp.StatusCode, snippet(respBody))
+		return nil, false, fmt.Errorf("immich: auth rejected (%d): %s", resp.StatusCode, snippet(respBody))
+	}
+	// 408 Request Timeout, 429 Too Many Requests, and any 5xx are
+	// transient by definition. Backing off and retrying is the right
+	// thing — and matches what client.SendBatch does for the api side.
+	if resp.StatusCode == http.StatusRequestTimeout ||
+		resp.StatusCode == http.StatusTooManyRequests ||
+		resp.StatusCode >= 500 {
+		return nil, true, fmt.Errorf("immich: %s %s: %d %s", method, target, resp.StatusCode, snippet(respBody))
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("immich: %s %s: %d %s", method, target, resp.StatusCode, snippet(respBody))
+		return nil, false, fmt.Errorf("immich: %s %s: %d %s", method, target, resp.StatusCode, snippet(respBody))
 	}
-	return respBody, nil
+	return respBody, false, nil
 }
 
 func immichTransport(tlsVerify bool) http.RoundTripper {

@@ -251,3 +251,74 @@ func TestImmichAuthRejection(t *testing.T) {
 		t.Errorf("error didn't mention auth rejection: %v", err)
 	}
 }
+
+// v0.39.0 — A single transient Immich 5xx used to fail the entire scan
+// after the walker had already paginated through tens of thousands of
+// assets. fetchJSON now retries 5xx (and 408/429, and transport
+// blips) with exponential backoff. Verify the probe survives two
+// flakes before getting a 200, and verify retry exhaustion still
+// surfaces the underlying error.
+func TestImmichFetchJSONRetriesTransientServerErrors(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits < 3 {
+			http.Error(w, "upstream hiccup", http.StatusBadGateway)
+			return
+		}
+		w.Write([]byte(`{"id":"u1","email":"a@b.c"}`))
+	}))
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "secret", nil, false, true)
+	c.httpClient = &http.Client{Timeout: 2 * time.Second}
+	if _, err := c.fetchJSON(context.Background(), http.MethodGet, "/api/users/me", nil); err != nil {
+		t.Fatalf("fetchJSON should have succeeded after 2 retries, got: %v", err)
+	}
+	if hits != 3 {
+		t.Errorf("expected 3 attempts (2 flakes + 1 success), got %d", hits)
+	}
+}
+
+func TestImmichFetchJSONRetriesExhaust(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.Error(w, "still broken", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "secret", nil, false, true)
+	c.httpClient = &http.Client{Timeout: 2 * time.Second}
+	_, err := c.fetchJSON(context.Background(), http.MethodGet, "/api/users/me", nil)
+	if err == nil {
+		t.Fatalf("fetchJSON should have failed after exhausting retries")
+	}
+	if !strings.Contains(err.Error(), "4 attempts failed") {
+		t.Errorf("error should mention attempt-exhaustion, got: %v", err)
+	}
+	if hits != immichMaxAttempts {
+		t.Errorf("expected %d attempts, got %d", immichMaxAttempts, hits)
+	}
+}
+
+// A 4xx (other than 408/429) must not be retried — those are misuse
+// signals, not transient. Verify the auth path (401) still terminates
+// after a single attempt rather than burning the retry budget.
+func TestImmichFetchJSONDoesNotRetryAuthRejection(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.Error(w, "no", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := NewImmichConnector(srv.URL, "wrong", nil, false, true)
+	c.httpClient = &http.Client{Timeout: 2 * time.Second}
+	if _, err := c.fetchJSON(context.Background(), http.MethodGet, "/api/users/me", nil); err == nil {
+		t.Fatalf("fetchJSON should have failed on 401")
+	}
+	if hits != 1 {
+		t.Errorf("401 should be terminal (no retry), got %d attempts", hits)
+	}
+}

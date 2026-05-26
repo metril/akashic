@@ -5,6 +5,45 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.39.0 — 2026-05-26
+
+**Immich scans now survive transient API blips instead of dying on
+the first 5xx, and when a scan really does fail the cause is visible
+in the log and the status flips immediately instead of staying
+"scanning" for an hour.**
+
+### Bug fixes
+
+- **An Immich scan no longer dies on a single transient HTTP error.**
+  Previously, one 5xx / 408 / 429 / network blip from the Immich
+  server during asset pagination failed the whole scan after the
+  walker had already paged through tens of thousands of assets. The
+  Immich connector now retries transient errors with exponential
+  backoff (4 attempts, 250 ms base), matching what the scanner's own
+  api client has done for batch ingest since v0.29.x. Auth (401/403)
+  and other 4xx are still terminal — those are misuse signals, not
+  flakes.
+- **The real cause of a failed scan is visible in the scan log.** A
+  walker error used to be silently masked by the sender goroutine's
+  cascading `send batch failed: context canceled` — the only thing
+  the user saw. The upstream cause (e.g. an Immich 504) is now
+  surfaced via a `walk failed: …` line ahead of any cascade.
+- **Scanner-side failures correctly report `failed` to the api
+  instead of being mistaken for an api-side cancellation.** The
+  agent's "did the api terminate this scan?" check was too broad
+  (any `scanCtx` cancellation matched, including the scanner's own
+  walk-error cancel), so on a scanner-side failure the agent skipped
+  posting `/complete` and the scan stayed `running` until the 60 min
+  stale-scan watchdog reaped it. The check now keys off whether the
+  heartbeat actually observed an api 409, so genuine failures get
+  posted promptly and the source row unsticks immediately via the
+  v0.37.0 live-refresh wiring.
+
+### Notes
+
+- Scanner-binary change only; the api image is unchanged. Operators
+  redeploy the scanner image.
+
 ## v0.38.0 — 2026-05-25
 
 **The Immich source connector works again against current Immich

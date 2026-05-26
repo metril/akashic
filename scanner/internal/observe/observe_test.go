@@ -159,6 +159,42 @@ func TestLogSinkBatchesByCount(t *testing.T) {
 	}
 }
 
+// v0.39.0 — UserCancelFired is the signal the agent uses to decide
+// whether the api already wrote the scan's terminal status. It must
+// be false until signalCancel actually fires (i.e. a heartbeat saw a
+// 409), and become true exactly once thereafter. Pre-fix the agent
+// relied on `scanCtx.Err() != nil`, which was true for ANY cancel —
+// including the scanner's own walk-error path — so scanner-side
+// failures were silently dropped instead of being posted as
+// /complete?status=failed.
+func TestUserCancelFiredOnlyWhenSignalCancelInvoked(t *testing.T) {
+	r := New("http://test", "tok", "scan-uuid", NewState())
+	var fired atomic.Bool
+	r.SetUserCancel(func() { fired.Store(true) })
+
+	if r.UserCancelFired() {
+		t.Fatalf("UserCancelFired should be false before signalCancel")
+	}
+	r.signalCancel()
+	if !r.UserCancelFired() {
+		t.Fatalf("UserCancelFired should be true after signalCancel")
+	}
+	if !fired.Load() {
+		t.Fatalf("the registered userCancel callback should have run")
+	}
+
+	// Idempotent: a second signalCancel must not re-invoke the
+	// callback (cancelOnce); UserCancelFired stays true.
+	fired.Store(false)
+	r.signalCancel()
+	if fired.Load() {
+		t.Fatalf("second signalCancel must not re-invoke the callback")
+	}
+	if !r.UserCancelFired() {
+		t.Fatalf("UserCancelFired must remain true")
+	}
+}
+
 func TestLogSinkDropsWhenFullAndReportsOverflow(t *testing.T) {
 	api := newFakeAPI()
 	srv := httptest.NewServer(api.handler())

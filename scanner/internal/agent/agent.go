@@ -486,7 +486,15 @@ func runLeasedScan(
 		ExtractWorkers: cfg.ExtractWorkers,
 	})
 	_, err = s.Run(scanCtx)
-	if err != nil && (errors.Is(err, context.Canceled) || scanCtx.Err() != nil) {
+	// v0.39.0 — only treat the run as "api terminated" when the
+	// heartbeat actually saw a 409. Pre-fix this checked
+	// `scanCtx.Err() != nil`, which was true for ANY cancellation of
+	// scanCtx — including the scanner's own cancelScan() on a walk
+	// error. That caused scanner-side failures (e.g. an Immich 504
+	// mid-pagination) to be silently dropped: the agent skipped
+	// /complete, so the api kept the scan in `running` until the 60
+	// min stale-scan watchdog reaped it.
+	if err != nil && reporter.UserCancelFired() {
 		// The api signalled a terminal state via a 409 on heartbeat.
 		// Not an error from our perspective — the api already wrote the
 		// authoritative status, so surface the sentinel and let the
