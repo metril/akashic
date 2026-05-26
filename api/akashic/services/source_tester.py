@@ -434,11 +434,16 @@ def test_webdav(cfg: dict) -> TestResult:
 def test_immich(cfg: dict) -> TestResult:
     """v0.8.0 — Tier 3 self-hosted library probe (photos / videos).
 
-    Validates URL + api_key by hitting `/api/server-info/ping`. Same
+    Validates URL + api_key by hitting `/api/users/me`. Same
     classification as test_paperless: 401/403 → auth, non-2xx → list,
     transport → connect. The api container is closer to most Immich
     instances than the scanner, so this stays an inline httpx call
     rather than a scanner subprocess.
+
+    v0.38.0: switched from the old `/api/server-info/ping` (renamed
+    to `/api/server/ping` and made unauthenticated in current Immich)
+    to `/api/users/me`, which validates both server reachability and
+    the API key in one roundtrip.
     """
     raw_url = (cfg.get("url") or "").strip()
     api_key = (cfg.get("api_key") or "").strip()
@@ -447,7 +452,7 @@ def test_immich(cfg: dict) -> TestResult:
     if not api_key:
         return TestResult(ok=False, step="config", error="api_key required")
     base = raw_url.rstrip("/")
-    target = f"{base}/api/server-info/ping"
+    target = f"{base}/api/users/me"
     verify = cfg.get("tls_verify")
     if verify is None:
         verify = True
@@ -468,7 +473,7 @@ def test_immich(cfg: dict) -> TestResult:
         body = resp.text[:200]
         return TestResult(
             ok=False, step="list",
-            error=f"GET /api/server-info/ping returned {resp.status_code}: {body}",
+            error=f"GET /api/users/me returned {resp.status_code}: {body}",
         )
     return TestResult(ok=True)
 

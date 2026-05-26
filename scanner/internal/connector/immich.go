@@ -40,7 +40,7 @@ import (
 //   - Immich `/api/people` is not loaded; per-asset `people` comes
 //     from the inline asset shape if the version exposes it. Older
 //     Immich versions may surface no person data.
-//   - Album memberships require fetching `/api/album/{id}` per album
+//   - Album memberships require fetching `/api/albums/{id}` per album
 //     to enumerate the assets in it. We fetch them all up-front at
 //     Connect time — slow for libraries with hundreds of albums but
 //     acceptable for typical home installs.
@@ -55,7 +55,7 @@ type ImmichConnector struct {
 	httpClient *http.Client
 
 	// asset_id → list of album names. Populated by Connect() via
-	// /api/album + /api/album/{id} fan-out. Empty when the user
+	// /api/albums + /api/albums/{id} fan-out. Empty when the user
 	// hasn't created any albums.
 	assetAlbums map[string][]string
 }
@@ -89,16 +89,20 @@ func (c *ImmichConnector) Connect(ctx context.Context) error {
 		Transport: immichTransport(c.tlsVerify),
 	}
 
-	// Smoke-test auth via /api/server-info/ping. Cheaper than a search
-	// roundtrip and immich-specific (returns "{"res":"pong"}").
-	if _, err := c.fetchJSON(ctx, http.MethodGet, "/api/server-info/ping", nil); err != nil {
+	// Smoke-test auth via /api/users/me. Validates both server
+	// reachability and the API key in a single roundtrip. The older
+	// /api/server-info/ping was renamed to /api/server/ping and made
+	// unauthenticated (PR #20250 "feat!: more permissions"), so we'd
+	// have no auth signal at connect time if we used it — a wrong key
+	// would surface as a confusing 401 mid-Walk against /api/albums.
+	if _, err := c.fetchJSON(ctx, http.MethodGet, "/api/users/me", nil); err != nil {
 		return fmt.Errorf("immich: connect: %w", err)
 	}
 
 	// Pre-load albums so the per-asset album-name lookup is O(1) at
 	// walk time. List endpoint returns just the album metadata; the
 	// per-album endpoint includes the asset list.
-	body, err := c.fetchJSON(ctx, http.MethodGet, "/api/album", nil)
+	body, err := c.fetchJSON(ctx, http.MethodGet, "/api/albums", nil)
 	if err != nil {
 		return fmt.Errorf("immich: list albums: %w", err)
 	}
@@ -110,7 +114,7 @@ func (c *ImmichConnector) Connect(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		full, err := c.fetchJSON(ctx, http.MethodGet, "/api/album/"+a.ID, nil)
+		full, err := c.fetchJSON(ctx, http.MethodGet, "/api/albums/"+a.ID, nil)
 		if err != nil {
 			// One unreachable album shouldn't tank the entire scan.
 			// Drop it from the membership map; assets in that album

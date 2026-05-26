@@ -102,28 +102,28 @@ func TestImmichBuildEntryNoExif(t *testing.T) {
 }
 
 // Smoke-test the full Walk against a fake Immich server. Tests:
-//   - Connect probes /api/server-info/ping
-//   - Connect loads /api/album + /api/album/{id}
+//   - Connect probes /api/users/me (validates server + api key)
+//   - Connect loads /api/albums + /api/albums/{id}
 //   - Walk paginates /api/search/metadata
 //   - assets-with-album mapping populates domain_metadata.album
 //   - album_filter whitelisting drops non-matching assets
 func TestImmichWalkAgainstFakeServer(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/server-info/ping", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/users/me", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-api-key") != "secret" {
 			http.Error(w, "no", http.StatusUnauthorized)
 			return
 		}
-		w.Write([]byte(`{"res":"pong"}`))
+		w.Write([]byte(`{"id":"u1","email":"a@b.c"}`))
 	})
-	mux.HandleFunc("/api/album", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/albums", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]any{
 			{"id": "alb-1", "albumName": "Vacation"},
 			{"id": "alb-2", "albumName": "Pets"},
 		})
 	})
-	mux.HandleFunc("/api/album/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/album/")
+	mux.HandleFunc("/api/albums/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/albums/")
 		switch id {
 		case "alb-1":
 			json.NewEncoder(w).Encode(map[string]any{

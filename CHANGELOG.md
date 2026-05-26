@@ -5,6 +5,32 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.38.0 — 2026-05-25
+
+**The Immich source connector works again against current Immich
+servers.**
+
+### Bug fixes
+
+- **Immich sources no longer fail at connect with `404 /api/server-info/ping`.**
+  Immich restructured its REST API (the same change that moved
+  `/user/*` to `/users/*`); the connector still spoke the pre-rename
+  paths and failed the moment it tried to reach a modern server.
+  Updated all three call sites to the current Immich API: the
+  connect-time probe now hits `/api/users/me` (validates both server
+  reachability and the API key in one call), and album enumeration
+  uses `/api/albums` + `/api/albums/{id}`. Asset paging
+  (`/api/search/metadata`) and the `x-api-key` auth header were
+  unchanged upstream.
+
+### Notes
+
+- Scanner-binary change plus an api change. Operators with the Immich
+  source enabled must redeploy both the api image and the scanner
+  image for sources to start working again.
+- No schema change, no migration, no source-config change — existing
+  Immich source rows keep working as soon as the new images are live.
+
 ## v0.37.0 — 2026-05-19
 
 **The dashboard now updates live when scans finish and when scanners
