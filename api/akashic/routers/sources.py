@@ -1068,7 +1068,11 @@ class ScannerReachabilityRow(BaseModel):
     last_probed_at: datetime | None
     step: str | None
     error: str | None
-    history: list[dict] = []  # [{ok, completed_at, step, error}, ...]
+    # v0.42.0 — the per-scanner 5-row history slice was removed.
+    # The AllowedScannersPanel only ever rendered one sparkline of
+    # colored dots from it, and the user explicitly asked for the
+    # dots gone (the full per-scanner history now lives in the
+    # v0.41.0 Reachability tab, served by /reachability-history).
 
 
 @router.get("/{source_id}/scanner-reachability", response_model=list[ScannerReachabilityRow])
@@ -1112,31 +1116,6 @@ async def list_source_scanner_reachability(
          ORDER BY s.name ASC
     """), {"source_id": source_id})).fetchall()
 
-    # History (last 5) per scanner — single roundtrip via window function.
-    history_rows = (await db.execute(text("""
-        SELECT scanner_id, ok, completed_at, step, error
-          FROM (
-              SELECT scanner_id, ok, completed_at, step, error,
-                     row_number() OVER (
-                         PARTITION BY scanner_id
-                         ORDER BY completed_at DESC
-                     ) AS rn
-                FROM reachability_results
-               WHERE source_id = :source_id
-                 AND scanner_id IS NOT NULL
-          ) t
-         WHERE rn <= 5
-         ORDER BY scanner_id, completed_at DESC
-    """), {"source_id": source_id})).fetchall()
-    history_by_scanner: dict = {}
-    for hr in history_rows:
-        history_by_scanner.setdefault(hr[0], []).append({
-            "ok": hr[1],
-            "completed_at": hr[2].isoformat() if hr[2] else None,
-            "step": hr[3],
-            "error": hr[4],
-        })
-
     out: list[ScannerReachabilityRow] = []
     for r in rows:
         allowed_set = set(r[4] or [])
@@ -1146,7 +1125,6 @@ async def list_source_scanner_reachability(
             scanner_id=r[0], name=r[1], pool=r[2], online=bool(r[3]),
             currently_allowed=currently_allowed,
             ok=r[5], last_probed_at=r[6], step=r[7], error=r[8],
-            history=history_by_scanner.get(r[0], []),
         ))
     return out
 

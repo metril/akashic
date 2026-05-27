@@ -5,6 +5,35 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.42.0 — 2026-05-27
+
+**The Immich reachability test is fast again, and the source detail
+no longer shows redundant rows of colored history dots beside each
+scanner.**
+
+### Bug fixes
+
+- **Immich reachability test responds in well under a second when
+  Immich is healthy.** v0.41.0 added pooled httpx connections to
+  amortise TLS handshake cost — but the pool can hand out a
+  connection that a reverse proxy in front of Immich silently
+  closed inside the 60 s keepalive window, and the next probe then
+  hung to the 10 s per-attempt timeout before the retry succeeded
+  on a fresh socket. Each probe again opens a fresh httpx client;
+  the cold-TLS cost (~100-200 ms) is bounded and predictable. The
+  v0.41.0 retry helper that absorbs the original flap stays.
+- **Per-scanner history sparklines removed from the Allowed-scanners
+  panel.** Each scanner row in the source detail used to render a
+  trailing strip of up to 5 small green / red dots showing recent
+  probe outcomes — redundant after v0.41.0's Reachability tab
+  added a per-scanner chronological textual log. The single
+  latest-status dot stays beside each scanner's status line.
+
+### Notes
+
+- API + web change. No scanner-binary change, no schema change, no
+  migration. Operators redeploy the api and web images.
+
 ## v0.41.0 — 2026-05-27
 
 **Reachability for hostless sources (Immich, Paperless, Dropbox,

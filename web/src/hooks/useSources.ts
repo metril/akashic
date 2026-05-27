@@ -152,13 +152,6 @@ export interface DeleteSourceArgs {
 // last reachability probe said". Saving a new allowed-scanner set
 // translates into per-scanner allowed_source_ids writes server-side.
 
-export interface ScannerReachabilityHistoryEntry {
-  ok: boolean;
-  completed_at: string | null;
-  step: string | null;
-  error: string | null;
-}
-
 export interface ScannerReachabilityRow {
   scanner_id: string;
   name: string;
@@ -169,7 +162,6 @@ export interface ScannerReachabilityRow {
   last_probed_at: string | null;
   step: string | null;
   error: string | null;
-  history: ScannerReachabilityHistoryEntry[];
 }
 
 export function useSourceScannerReachability(sourceId: string | null) {

@@ -4,7 +4,6 @@ import {
   useSourceScannerReachability,
   useTestSourceScanners,
   useUpdateSourceAllowedScanners,
-  type ScannerReachabilityHistoryEntry,
   type ScannerReachabilityRow,
 } from "../../hooks/useSources";
 import {
@@ -64,38 +63,6 @@ function deriveRowState(row: ScannerReachabilityRow): {
     label: "Failed",
     detail: reason,
   };
-}
-
-function HistoryDots({ history }: { history: ScannerReachabilityHistoryEntry[] }) {
-  if (!history || history.length === 0) return null;
-  // v0.29.0 — collapse consecutive identical (ok, step) entries
-  // client-side as a belt against the write-side dedup. Prevents
-  // legacy rows that pre-date the API dedup from rendering as
-  // repeating dots. `history` arrives most-recent-first.
-  const collapsed: ScannerReachabilityHistoryEntry[] = [];
-  for (const h of history) {
-    const prev = collapsed[collapsed.length - 1];
-    if (prev && prev.ok === h.ok && (prev.step ?? null) === (h.step ?? null)) {
-      continue;
-    }
-    collapsed.push(h);
-  }
-  return (
-    <span className="inline-flex items-center gap-1 ml-2" aria-label="Recent probe history">
-      {collapsed.slice(0, 5).map((h, i) => (
-        <span
-          key={i}
-          title={
-            (h.completed_at ? `${formatRelative(h.completed_at)} — ` : "") +
-            (h.ok ? "ok" : `failed${h.step ? ` (${h.step})` : ""}`)
-          }
-          className={`inline-block h-1.5 w-1.5 rounded-full ${
-            h.ok ? "bg-emerald-500" : "bg-rose-500"
-          }`}
-        />
-      ))}
-    </span>
-  );
 }
 
 export function AllowedScannersPanel({ sourceId }: Props) {
@@ -251,7 +218,6 @@ export function AllowedScannersPanel({ sourceId }: Props) {
                   <ReachabilityDot state={s.state} />
                   <span className="font-medium text-fg">{s.label}</span>
                   <span>· {s.detail}</span>
-                  <HistoryDots history={r.history} />
                 </div>
               </div>
               <Button
