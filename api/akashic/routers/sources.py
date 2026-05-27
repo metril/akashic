@@ -14,6 +14,11 @@ from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.user import SourcePermission, User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
+from akashic.schemas.reachability import (
+    PerScannerHistory,
+    ReachabilityHistory,
+    ReachabilityOutcome,
+)
 from akashic.schemas.source import (
     SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
 )
@@ -997,6 +1002,55 @@ async def get_source_reachability_summary(
         last_scanner_id=probe_scanner_id,
         last_scanner_name=probe_scanner_name,
     )
+
+
+# v0.41.0 — full reachability history per (source, scanner) for the
+# new Reachability tab in SourceDetail. Separate endpoint from
+# /scanner-reachability (which keeps a small 5-row slice for the
+# eligibility panel) so the tab gets deeper history without
+# bloating the panel's payload.
+
+
+@router.get(
+    "/{source_id}/reachability-history",
+    response_model=ReachabilityHistory,
+)
+async def get_source_reachability_history(
+    source_id: uuid.UUID,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await check_source_access(source_id, user, db, required_level="read")
+    src = (await db.execute(
+        select(Source).where(Source.id == source_id)
+    )).scalar_one_or_none()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    from akashic.services import reachability_results as rr_service
+    # Cap user-supplied limit so the daily prune's ceiling (20 rows
+    # per pair) defines the upper bound. Bigger values would just
+    # return fewer rows than asked.
+    safe_limit = max(1, min(int(limit or 20), 20))
+    groups = await rr_service.list_history(
+        db=db, source_id=source_id, limit_per_scanner=safe_limit,
+    )
+
+    per_scanner: list[PerScannerHistory] = []
+    for scanner_id, scanner_name, outcomes in groups:
+        per_scanner.append(PerScannerHistory(
+            scanner_id=scanner_id,
+            scanner_name=scanner_name,
+            outcomes=[
+                ReachabilityOutcome(
+                    ok=r.ok, step=r.step, error=r.error,
+                    started_at=r.started_at, completed_at=r.completed_at,
+                )
+                for r in outcomes
+            ],
+        ))
+    return ReachabilityHistory(per_scanner=per_scanner)
 
 
 # ── Eligibility-management UI (v0.5.7, rewritten v0.28.0) ──────────────

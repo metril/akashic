@@ -92,6 +92,61 @@ async def record_result(
     return row
 
 
+async def list_history(
+    *,
+    db: AsyncSession,
+    source_id: uuid.UUID,
+    limit_per_scanner: int = 20,
+) -> list[tuple[Optional[uuid.UUID], Optional[str], list[ReachabilityResult]]]:
+    """v0.41.0 — return the per-scanner reachability history for one
+    source, newest outcomes first within each scanner group.
+
+    Returns a list of `(scanner_id, scanner_name, outcomes)` tuples.
+    `scanner_id` is None for inline-by-API probes (hostless sources
+    probed by the api process itself) and the matching `scanner_name`
+    is None.
+
+    Caps at `limit_per_scanner` rows per (source, scanner) pair,
+    which dovetails with the daily `prune_old(per_pair_limit=20)`.
+    Hot path is the existing
+    `(source_id, scanner_id, completed_at DESC)` index, so the read
+    is cheap.
+    """
+    from akashic.models.scanner import Scanner
+
+    rows = (await db.execute(
+        select(ReachabilityResult)
+        .where(ReachabilityResult.source_id == source_id)
+        .order_by(
+            ReachabilityResult.scanner_id.asc().nulls_last(),
+            ReachabilityResult.completed_at.desc(),
+            ReachabilityResult.id.desc(),
+        )
+    )).scalars().all()
+
+    if not rows:
+        return []
+
+    scanner_ids = {r.scanner_id for r in rows if r.scanner_id is not None}
+    names: dict[uuid.UUID, str] = {}
+    if scanner_ids:
+        for sid, name in (await db.execute(
+            select(Scanner.id, Scanner.name).where(Scanner.id.in_(scanner_ids))
+        )).all():
+            names[sid] = name
+
+    # Group + cap per scanner, preserving sort order.
+    grouped: list[tuple[Optional[uuid.UUID], Optional[str], list[ReachabilityResult]]] = []
+    buckets: dict[Optional[uuid.UUID], list[ReachabilityResult]] = {}
+    for r in rows:
+        bucket = buckets.setdefault(r.scanner_id, [])
+        if len(bucket) < limit_per_scanner:
+            bucket.append(r)
+    for sid, outcomes in buckets.items():
+        grouped.append((sid, names.get(sid) if sid is not None else None, outcomes))
+    return grouped
+
+
 async def prune_old(db: AsyncSession, per_pair_limit: int = 20) -> int:
     """Keep the last `per_pair_limit` rows per (source_id, scanner_id)
     pair; delete the rest. Returns the number of deleted rows.

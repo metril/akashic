@@ -184,6 +184,44 @@ export function useSourceScannerReachability(sourceId: string | null) {
   });
 }
 
+// v0.41.0 — deeper per-scanner reachability history for the new
+// Reachability tab on SourceDetail. Separate hook + endpoint from
+// useSourceScannerReachability (which keeps a 5-row slice for the
+// eligibility panel) so the tab gets up to 20 rows per scanner
+// without bloating the panel's payload.
+export interface ReachabilityOutcome {
+  ok: boolean;
+  step: string | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string;
+}
+
+export interface PerScannerHistory {
+  scanner_id: string | null;
+  scanner_name: string | null;
+  outcomes: ReachabilityOutcome[];
+}
+
+export interface ReachabilityHistory {
+  per_scanner: PerScannerHistory[];
+}
+
+export function useSourceReachabilityHistory(
+  sourceId: string | null,
+  enabled = true,
+) {
+  return useQuery<ReachabilityHistory>({
+    queryKey: ["sources", sourceId, "reachability-history"],
+    queryFn: () =>
+      api.get<ReachabilityHistory>(
+        `/sources/${sourceId}/reachability-history`,
+      ),
+    enabled: sourceId != null && enabled,
+    staleTime: 10_000,
+  });
+}
+
 export function useUpdateSourceAllowedScanners() {
   const queryClient = useQueryClient();
   return useMutation({

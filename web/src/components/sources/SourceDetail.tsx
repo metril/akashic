@@ -24,6 +24,7 @@ import type { Source } from "../../types";
 import { formatDateTime } from "../../lib/format";
 import { formatSourceSummary } from "../../lib/sources";
 import { SourceFieldSet } from "./SourceFieldSet";
+import { ReachabilityHistoryTab } from "./ReachabilityHistoryTab";
 import { SourceAuditTab } from "./SourceAuditTab";
 import { ScanLogPanel } from "../scans/ScanLogPanel";
 import type { AnyConfig, SourceType } from "./sourceTypes";
@@ -56,7 +57,7 @@ interface SourceDetailProps {
   detailLoaded?: boolean;
 }
 
-type Tab = "details" | "history" | "live";
+type Tab = "details" | "history" | "reachability" | "live";
 
 export const SourceDetail = memo(function SourceDetail({
   source, open, onClose, activeScanId, latestScanId, detailLoaded = false,
@@ -104,6 +105,16 @@ export const SourceDetail = memo(function SourceDetail({
           <TabButton active={tab === "history"} onClick={() => setTab("history")}>
             History
           </TabButton>
+          {/* v0.41.0 — per-scanner probe-outcome history. Lazy-mounted so
+              the deeper history slice (~20 outcomes per scanner) doesn't
+              hit the api on every drawer open, only when the user
+              actually switches to the tab. */}
+          <TabButton
+            active={tab === "reachability"}
+            onClick={() => setTab("reachability")}
+          >
+            Reachability
+          </TabButton>
           {/* v0.29.7 — Scan log tab visible whenever the source has
               any scan to inspect (running OR terminal). Pre-fix the
               tab + content disappeared the instant a scan completed,
@@ -135,6 +146,12 @@ export const SourceDetail = memo(function SourceDetail({
           )}
           {tab === "history" && (
             <SourceAuditTab sourceId={source.id} visible={tab === "history"} />
+          )}
+          {tab === "reachability" && (
+            <ReachabilityHistoryTab
+              sourceId={source.id}
+              visible={tab === "reachability"}
+            />
           )}
           {tab === "live" && scanLogScanId && (
             <InlineLogPanel scanId={scanLogScanId} sourceName={source.name} />

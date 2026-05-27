@@ -352,3 +352,116 @@ async def test_reachability_summary_reflects_latest_probe(
     assert body["ok"] is False
     assert body["last_step"] == "auth"
     assert body["last_error"] == "bad creds"
+
+
+# ── /reachability-history (v0.41.0 — Reachability tab data) ───────────────
+
+
+@pytest.mark.asyncio
+async def test_reachability_history_groups_per_scanner_and_orders_newest_first(
+    client: AsyncClient, setup_db,
+):
+    """One source, two scanners, mixed outcomes. The endpoint
+    returns one group per scanner, outcomes newest-first within each
+    group. This is the data the new Reachability tab in SourceDetail
+    will render."""
+    from datetime import datetime, timedelta, timezone
+    from akashic.models.scanner import Scanner
+
+    src_r = await client.post(
+        "/api/sources",
+        json={
+            "name": "history-src",
+            "type": "smb",
+            "connection_config": {
+                "host": "h", "share": "s",
+                "username": "u", "password": "p",
+            },
+        },
+    )
+    sid = uuid.UUID(src_r.json()["id"])
+
+    async with setup_db() as session:
+        # Commit scanners first so the reachability_results FK resolves.
+        sc_a = Scanner(
+            id=uuid.uuid4(),
+            name=f"alpha-{uuid.uuid4().hex[:6]}",
+            public_key_pem="", key_fingerprint=uuid.uuid4().hex,
+        )
+        sc_b = Scanner(
+            id=uuid.uuid4(),
+            name=f"bravo-{uuid.uuid4().hex[:6]}",
+            public_key_pem="", key_fingerprint=uuid.uuid4().hex,
+        )
+        session.add_all([sc_a, sc_b])
+        await session.commit()
+
+        now = datetime.now(timezone.utc)
+        # alpha: failed, then succeeded (so newest=ok=True)
+        session.add(ReachabilityResult(
+            id=uuid.uuid4(), source_id=sid, scanner_id=sc_a.id,
+            ok=False, step="connect", error="timeout",
+            started_at=now - timedelta(minutes=10),
+            completed_at=now - timedelta(minutes=10),
+        ))
+        session.add(ReachabilityResult(
+            id=uuid.uuid4(), source_id=sid, scanner_id=sc_a.id,
+            ok=True, step=None, error=None,
+            started_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=2),
+        ))
+        # bravo: a single failure (newest)
+        session.add(ReachabilityResult(
+            id=uuid.uuid4(), source_id=sid, scanner_id=sc_b.id,
+            ok=False, step="auth", error="bad token",
+            started_at=now - timedelta(minutes=1),
+            completed_at=now - timedelta(minutes=1),
+        ))
+        await session.commit()
+        sc_a_name = sc_a.name
+        sc_b_name = sc_b.name
+
+    r = await client.get(f"/api/sources/{sid}/reachability-history")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    by_name = {g["scanner_name"]: g for g in body["per_scanner"]}
+    assert set(by_name) == {sc_a_name, sc_b_name}, by_name
+
+    alpha = by_name[sc_a_name]["outcomes"]
+    assert [o["ok"] for o in alpha] == [True, False], (
+        "expected newest first"
+    )
+    bravo = by_name[sc_b_name]["outcomes"]
+    assert len(bravo) == 1
+    assert bravo[0]["ok"] is False
+    assert bravo[0]["step"] == "auth"
+    assert bravo[0]["error"] == "bad token"
+
+
+@pytest.mark.asyncio
+async def test_reachability_history_empty_for_never_probed_source(
+    client: AsyncClient,
+):
+    src_r = await client.post(
+        "/api/sources",
+        json={
+            "name": "never-probed",
+            "type": "smb",
+            "connection_config": {
+                "host": "h", "share": "s",
+                "username": "u", "password": "p",
+            },
+        },
+    )
+    sid = src_r.json()["id"]
+    r = await client.get(f"/api/sources/{sid}/reachability-history")
+    assert r.status_code == 200
+    assert r.json() == {"per_scanner": []}
+
+
+@pytest.mark.asyncio
+async def test_reachability_history_404_for_unknown_source(
+    client: AsyncClient,
+):
+    r = await client.get(f"/api/sources/{uuid.uuid4()}/reachability-history")
+    assert r.status_code == 404

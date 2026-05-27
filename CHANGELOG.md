@@ -5,6 +5,49 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.41.0 — 2026-05-27
+
+**Reachability for hostless sources (Immich, Paperless, Dropbox,
+WebDAV, GDrive, OneDrive) no longer flips red on a single transient
+blip, and you can see the full probe history per scanner from a new
+Reachability tab in the source detail.**
+
+### Bug fixes
+
+- **Probes for HTTP-based hostless sources survive a single
+  transient failure.** Each Test click used to issue exactly one
+  HTTP request and write the outcome — a momentary TLS handshake
+  stall, an Immich `/api/users/me` 5xx from a brief DB blip, or any
+  flake during a probe wrote a stuck "unreachable" row that
+  persisted in the badge until the next probe. Probes now retry
+  transport errors and HTTP 408 / 429 / 5xx with exponential
+  backoff (3 attempts, 500 ms base, ±25 % jitter); auth (401/403)
+  and other 4xx still terminate immediately so the Test button
+  stays snappy on a misconfigured key. The probe also reuses
+  pooled httpx connections instead of opening a fresh client per
+  call, which eliminates cold-TLS-handshake cost as a source of
+  flap.
+- **Add-Source form no longer mislabels Immich (and Paperless /
+  Dropbox / WebDAV / GDrive / OneDrive) as "Inherit from host".**
+  Pre-fix only `local` got the correct "Use the built-in default"
+  label; the other six hostless types — which can never attach to
+  a Host — incorrectly read "Inherit from host" on the
+  Max-parallel-scanners and Scan-chunk-size checkboxes.
+
+### New
+
+- **Reachability tab on source detail.** Per-scanner chronological
+  probe history (newest first) for one source: timestamp,
+  reachable / unreachable, step, and error message. Same
+  `reachability_results` data the badge and eligibility panel
+  read, just deeper and grouped per scanner — useful for spotting
+  flap patterns that the single-color badge can't show.
+
+### Notes
+
+- API + web change. No scanner-binary change, no schema change, no
+  migration. Operators redeploy the api and web images.
+
 ## v0.40.0 — 2026-05-26
 
 **An Immich scan now survives a single corrupted asset page instead

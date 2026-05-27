@@ -9,6 +9,7 @@ just adds failure modes.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -42,3 +43,25 @@ class ProbeReport(BaseModel):
     step: Optional[str] = None
     error: Optional[str] = None
     source_id: uuid.UUID
+
+
+# v0.41.0 — response shape for GET /api/sources/{id}/reachability-history.
+# Drives the per-scanner "Reachability" tab in SourceDetail.
+
+
+class ReachabilityOutcome(BaseModel):
+    ok: bool
+    step: Optional[str] = None
+    error: Optional[str] = None
+    started_at: datetime
+    completed_at: datetime
+
+
+class PerScannerHistory(BaseModel):
+    scanner_id: Optional[uuid.UUID] = None
+    scanner_name: Optional[str] = None
+    outcomes: list[ReachabilityOutcome]
+
+
+class ReachabilityHistory(BaseModel):
+    per_scanner: list[PerScannerHistory]

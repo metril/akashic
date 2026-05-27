@@ -320,9 +320,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           max={16}
           fallback={1}
           inheritLabel={
-            type === "local" ? "Use the built-in default" : "Inherit from host"
+            isHostless ? "Use the built-in default" : "Inherit from host"
           }
-          hint="Cap (1–16) on cooperating scanners per scan. Inheriting falls back to the host's setting, or 1 (one scanner walks the whole tree)."
+          hint={
+            isHostless
+              ? "Cap (1–16) on cooperating scanners per scan. Unset falls back to 1 (one scanner walks the whole tree)."
+              : "Cap (1–16) on cooperating scanners per scan. Inheriting falls back to the host's setting, or 1 (one scanner walks the whole tree)."
+          }
         />
         <InheritableNumberField
           label="Scan chunk size"
@@ -332,9 +336,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
           max={1000000}
           fallback={2000}
           inheritLabel={
-            type === "local" ? "Use the built-in default" : "Inherit from host"
+            isHostless ? "Use the built-in default" : "Inherit from host"
           }
-          hint="Entries one scanner walks before handing the rest of its frontier back to the queue. Inheriting falls back to the host's setting, or 2000."
+          hint={
+            isHostless
+              ? "Entries one scanner walks before handing the rest of its frontier back to the queue. Unset falls back to 2000."
+              : "Entries one scanner walks before handing the rest of its frontier back to the queue. Inheriting falls back to the host's setting, or 2000."
+          }
         />
         <label className="flex items-start gap-2 text-sm text-fg cursor-pointer select-none">
           <input

@@ -537,3 +537,96 @@ async def test_endpoint_merges_credential_profile_password(
     # The profile's decrypted password is layered under the inline cfg.
     assert captured["cfg"]["password"] == "prof-secret-9"
     assert captured["cfg"]["host"] == "fs"
+
+
+# v0.41.0 — the hostless probes (Immich, Paperless, WebDAV, …) used
+# to fail on a single transient HTTP blip, leaving a stuck
+# "unreachable" row that flapped the badge until the user clicked
+# Test again. _retry_http_probe absorbs transient failures with
+# exponential backoff while keeping auth/4xx terminal so the Test
+# button stays snappy.
+
+import httpx as _httpx
+
+
+def _make_response(status: int, body: bytes = b"") -> _httpx.Response:
+    return _httpx.Response(status_code=status, content=body)
+
+
+def test_retry_http_probe_succeeds_after_transient_5xx(monkeypatch):
+    """A 503 followed by a 200: helper should return the 200 without
+    raising. Verifies that a single Immich GC pause / DB blip doesn't
+    flip the badge red anymore."""
+    monkeypatch.setattr(source_tester.time, "sleep", lambda *_: None)
+    seq = iter([
+        _make_response(503, b"transient"),
+        _make_response(503, b"transient"),
+        _make_response(200, b"ok"),
+    ])
+    resp = source_tester._retry_http_probe(lambda: next(seq))
+    assert resp.status_code == 200
+
+
+def test_retry_http_probe_exhaustion_returns_final_5xx(monkeypatch):
+    """3 consecutive 503s: helper exhausts retries and returns the
+    final response so the caller can classify it as step=list with
+    the actual status. We don't raise on retry-exhaust for 5xx — only
+    on transport errors — because the caller often has a meaningful
+    error body to surface."""
+    monkeypatch.setattr(source_tester.time, "sleep", lambda *_: None)
+    resp = source_tester._retry_http_probe(
+        lambda: _make_response(503, b"still broken"),
+    )
+    assert resp.status_code == 503
+
+
+def test_retry_http_probe_does_not_retry_auth_rejection(monkeypatch):
+    """401 is terminal: misuse signal, not transient. The user is
+    waiting on the Test button; retrying a wrong key just slows the
+    UI feedback for zero benefit."""
+    monkeypatch.setattr(source_tester.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _once() -> _httpx.Response:
+        calls["n"] += 1
+        return _make_response(401, b"bad key")
+
+    resp = source_tester._retry_http_probe(_once)
+    assert resp.status_code == 401
+    assert calls["n"] == 1, "401 must not trigger a retry"
+
+
+def test_retry_http_probe_retries_transport_blip_then_re_raises(monkeypatch):
+    """Two transport errors then a third: helper re-raises the last
+    httpx.RequestError so the caller maps it to step=connect. (3
+    attempts total, all transport failures = exhaust.)"""
+    monkeypatch.setattr(source_tester.time, "sleep", lambda *_: None)
+    calls = {"n": 0}
+
+    def _fail():
+        calls["n"] += 1
+        raise _httpx.ConnectError("simulated TCP RST")
+
+    with pytest.raises(_httpx.ConnectError):
+        source_tester._retry_http_probe(_fail)
+    assert calls["n"] == 3, "expected 3 attempts before re-raising"
+
+
+def test_retry_http_probe_transport_blip_then_success(monkeypatch):
+    """Transport error then a 200: helper retries past the blip and
+    returns the success — the previous "single hiccup = stuck red"
+    failure mode."""
+    monkeypatch.setattr(source_tester.time, "sleep", lambda *_: None)
+    seq: list = [
+        _httpx.ConnectError("TLS handshake stall"),
+        _make_response(200, b"ok"),
+    ]
+
+    def _step():
+        item = seq.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    resp = source_tester._retry_http_probe(_step)
+    assert resp.status_code == 200

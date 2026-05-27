@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import subprocess
-from typing import Literal, Optional
+import time
+from typing import Callable, Literal, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -27,6 +29,81 @@ logger = logging.getLogger(__name__)
 
 Step = Literal["connect", "auth", "mount", "list", "config"]
 _KNOWN_STEPS = ("connect", "auth", "mount", "list", "config")
+
+# v0.41.0 — module-level pooled httpx.Clients keep the TCP+TLS
+# connection warm across probes to the same host. Pre-v0.41.0 every
+# probe opened a fresh httpx.Client (full handshake each time),
+# which on a slow/lossy path could push past the 10 s timeout for no
+# real reason and write a spurious "unreachable" row. The 15 s
+# client-level timeout is the upper bound; each probe overrides per-
+# request to 10 s (self-hosted) or 15 s (OAuth). Two clients because
+# httpx's `verify` is set at construction, not per-request.
+_PROBE_LIMITS = httpx.Limits(
+    max_keepalive_connections=20,
+    keepalive_expiry=60.0,
+)
+_PROBE_CLIENT_VERIFY = httpx.Client(
+    timeout=15.0, verify=True, limits=_PROBE_LIMITS,
+)
+_PROBE_CLIENT_NOVERIFY = httpx.Client(
+    timeout=15.0, verify=False, limits=_PROBE_LIMITS,
+)
+
+
+def _probe_client(verify: bool) -> httpx.Client:
+    """Pick the pooled probe client matching the source's tls_verify
+    config. OAuth-shaped probes (gdrive/onedrive/dropbox) always call
+    with verify=True (cloud APIs have valid certs)."""
+    return _PROBE_CLIENT_VERIFY if verify else _PROBE_CLIENT_NOVERIFY
+
+
+def _retry_http_probe(
+    do_request: Callable[[], httpx.Response],
+    *, attempts: int = 3, base_delay: float = 0.5,
+) -> httpx.Response:
+    """v0.41.0 — wrap a probe's single HTTP attempt in a retry loop.
+
+    Retries on transport errors (httpx.RequestError) and on HTTP 408
+    / 429 / 5xx; passes auth (401/403) and other 4xx straight through
+    as terminal misuse signals. Pre-v0.41.0, a single transient blip
+    on a Test click wrote a stuck "unreachable" row that persisted
+    until the user clicked again — exactly the flap the user
+    reported. 3 attempts with exponential backoff (base_delay * 2^n)
+    and ±25% jitter caps the wall-clock cost at ~1.5 s of waiting
+    even if every attempt times out.
+
+    Returns the first non-retriable response; re-raises the last
+    httpx.RequestError when retries exhaust on transport failures.
+    When retries exhaust on 5xx, returns the final response so the
+    caller can classify it (step=list with the actual status code).
+    """
+    last_err: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            resp = do_request()
+        except httpx.RequestError as exc:
+            last_err = exc
+            if attempt + 1 >= attempts:
+                raise
+            _backoff_sleep(base_delay, attempt)
+            continue
+        if resp.status_code in (408, 429) or resp.status_code >= 500:
+            if attempt + 1 >= attempts:
+                return resp
+            _backoff_sleep(base_delay, attempt)
+            continue
+        return resp
+    # Unreachable: the loop either returns or re-raises every path.
+    # Belt-and-braces re-raise for type checkers.
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("_retry_http_probe: loop exited without result")
+
+
+def _backoff_sleep(base_delay: float, attempt: int) -> None:
+    delay = base_delay * (2 ** attempt)
+    jitter = random.uniform(-delay * 0.25, delay * 0.25)
+    time.sleep(max(0.0, delay + jitter))
 
 
 class TestResult(BaseModel):
@@ -349,9 +426,11 @@ def test_paperless(cfg: dict) -> TestResult:
     elif isinstance(verify, str):
         verify = verify.strip().lower() not in ("false", "0", "no")
     headers = {"Authorization": f"Token {api_token}", "Accept": "application/json"}
+    client = _probe_client(bool(verify))
     try:
-        with httpx.Client(timeout=10.0, verify=bool(verify)) as client:
-            resp = client.get(target, headers=headers)
+        resp = _retry_http_probe(
+            lambda: client.get(target, headers=headers, timeout=10.0),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
@@ -396,15 +475,18 @@ def test_webdav(cfg: dict) -> TestResult:
         "Depth": "0",
         "Content-Type": "application/xml; charset=utf-8",
     }
+    client = _probe_client(bool(verify))
     try:
-        with httpx.Client(timeout=10.0, verify=bool(verify)) as client:
-            resp = client.request(
+        resp = _retry_http_probe(
+            lambda: client.request(
                 "PROPFIND",
                 base,
                 headers=headers,
                 content=propfind_body,
                 auth=(username, password) if (username or password) else None,
-            )
+                timeout=10.0,
+            ),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
@@ -459,9 +541,11 @@ def test_immich(cfg: dict) -> TestResult:
     elif isinstance(verify, str):
         verify = verify.strip().lower() not in ("false", "0", "no")
     headers = {"x-api-key": api_key, "Accept": "application/json"}
+    client = _probe_client(bool(verify))
     try:
-        with httpx.Client(timeout=10.0, verify=bool(verify)) as client:
-            resp = client.get(target, headers=headers)
+        resp = _retry_http_probe(
+            lambda: client.get(target, headers=headers, timeout=10.0),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
@@ -498,16 +582,19 @@ def test_dropbox(cfg: dict) -> TestResult:
             error="no OAuth credential connected — sign in with Dropbox "
                   "from the source create or detail page",
         )
+    client = _probe_client(True)
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.post(
+        resp = _retry_http_probe(
+            lambda: client.post(
                 "https://api.dropboxapi.com/2/users/get_current_account",
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json",
                 },
                 content=b"null",
-            )
+                timeout=15.0,
+            ),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
@@ -543,13 +630,16 @@ def test_onedrive(cfg: dict) -> TestResult:
             error="no OAuth credential connected — sign in with Microsoft "
                   "from the source create or detail page",
         )
+    client = _probe_client(True)
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
+        resp = _retry_http_probe(
+            lambda: client.get(
                 "https://graph.microsoft.com/v1.0/me",
                 params={"$select": "displayName,mail,userPrincipalName"},
                 headers={"Authorization": f"Bearer {access_token}"},
-            )
+                timeout=15.0,
+            ),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
@@ -587,13 +677,16 @@ def test_gdrive(cfg: dict) -> TestResult:
             error="no OAuth credential connected — sign in with Google "
                   "from the source create or detail page",
         )
+    client = _probe_client(True)
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(
+        resp = _retry_http_probe(
+            lambda: client.get(
                 "https://www.googleapis.com/drive/v3/about",
                 params={"fields": "user/emailAddress"},
                 headers={"Authorization": f"Bearer {access_token}"},
-            )
+                timeout=15.0,
+            ),
+        )
     except httpx.RequestError as exc:
         return TestResult(ok=False, step="connect", error=str(exc))
     if resp.status_code in (401, 403):
