@@ -26,6 +26,7 @@ web/dist/
 
 # Local agent state
 .claude/
+docs/superpowers/
 
 # Environment
 .env
