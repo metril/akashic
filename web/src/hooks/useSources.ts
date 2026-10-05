@@ -105,6 +105,9 @@ export function useTestSourceScanners() {
       queryClient.invalidateQueries({
         queryKey: ["sources", sourceId, "reachability-summary"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["sources", sourceId, "reachability-history"],
+      });
     },
   });
 }

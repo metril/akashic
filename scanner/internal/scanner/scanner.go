@@ -529,7 +529,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files, %d upstream pages skipped (~%d assets may be missing)",
 			result.FilesFound, result.DirsFound, result.BatchesSent,
 			result.InaccessibleDirs, result.InaccessibleFiles,
-			result.UpstreamPagesSkipped, result.UpstreamPagesSkipped*250)
+			result.UpstreamPagesSkipped, result.UpstreamPagesSkipped*walkStats.UpstreamPageSize)
 	} else {
 		s.info("scan complete: %d files, %d dirs, %d batches, %d inaccessible dirs, %d inaccessible files",
 			result.FilesFound, result.DirsFound, result.BatchesSent,

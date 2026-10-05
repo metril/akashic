@@ -5,6 +5,76 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.43.0 — 2026-10-05
+
+**Releases now cut themselves: merging a CHANGELOG version bump to
+`main` tags the commit and publishes the images, scanner binaries
+and GitHub Release. The sweep also closes a credential-exfiltration
+hole in the source Test endpoint and a handful of smaller bugs
+across the api, scanner, CLI and web UI.**
+
+### Bug fixes
+
+- **`POST /api/sources/test` is admin-only.** Any signed-in user
+  could previously point the probe at a URL of their choosing while
+  naming an arbitrary credential profile or OAuth credential, and
+  the merged secrets were sent there. The endpoint now requires the
+  same admin role as creating a source. The probe also runs in a
+  worker thread, so a slow NFS or Kerberos check no longer stalls
+  every other request on the api event loop.
+- **Creating a source with a bad `oauth_credential_id` no longer
+  leaves an orphan row.** The credential is validated before the
+  source is written, in one transaction.
+- **Scan finalisation survives very large deletions.** Move
+  detection queried every stale content hash in a single `IN (...)`
+  and could exceed asyncpg's bind-parameter limit; hashes are now
+  queried in chunks and a redundant `NOT IN` clause was dropped.
+- **A late scanner `/complete` can't overwrite a user cancel.** The
+  api returns 409 when the scan already holds a different terminal
+  status; a matching status still releases the lease and flushes
+  counters as before.
+- **Probe payloads expire in Redis.** Dispatched probe requests
+  carry decrypted credentials; the list now has a 60 s TTL instead
+  of lingering for an offline scanner.
+- **Webhook URL safety check no longer blocks the event loop.**
+  DNS resolution for outbound webhooks is awaited asynchronously.
+- **Credential-profile save errors are reported accurately.** Only a
+  uniqueness violation maps to "name already in use"; other database
+  errors surface as such.
+- **Scanner: Immich album lookups that fail are now surfaced** as
+  scan warnings instead of being silently dropped, the retry jitter
+  can't panic on a tiny backoff, a scan that fails to start backs off
+  before the next lease poll instead of hammering the api, heartbeat
+  responses are drained so connections are reused, and the
+  skipped-pages estimate uses the real Immich page size.
+- **CLI: `sources create` and `tags create` report server errors**
+  instead of printing an empty object on a 4xx/5xx.
+- **Web: testing a scanner no longer discards unsaved allow-list
+  edits,** only the scanner being tested shows a spinner, the
+  Reachability tab refreshes after a Test, the `g`-chord shortcut
+  timer is cleaned up, and the source-detail tabs and allow-list
+  checkboxes carry proper ARIA roles and labels.
+
+### CI / release
+
+- **Automatic releases.** After a green build on `main`, the Build
+  workflow reads the top `## vX.Y.Z` heading of this file, creates
+  the tag if it doesn't exist and dispatches the Release workflow.
+  The Release body now includes the matching CHANGELOG section.
+- Release workflow hardening: tag input is read via environment
+  variables (no inline expression in shell), checkouts pin the tag,
+  the dispatched path stamps the correct scanner version, the web
+  job runs lint like the Build workflow, and a concurrency group
+  prevents duplicate runs.
+- The scanner binary bundled in the api image and the api's own
+  `/docs` version string now report the release version instead of
+  `dev`. The CLI is vetted and built in CI.
+
+### Notes
+
+- API, scanner, CLI and web change. No schema change, no migration.
+  Operators redeploy the api, web and scanner images.
+
 ## v0.42.0 — 2026-05-27
 
 **The Immich reachability test is fast again, and the source detail

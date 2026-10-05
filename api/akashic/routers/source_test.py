@@ -5,13 +5,14 @@ Runs the same probe before save that the user gets when they click
 with the test result. Never logs or echoes back credentials in the
 response payload.
 """
+import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import require_admin
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.audit import record_event
@@ -74,7 +75,7 @@ async def post_test(
     body: TestSourceRequest,
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     cfg = dict(body.connection_config or {})
 
@@ -128,7 +129,8 @@ async def post_test(
         merged.update(cfg)
         cfg = merged
 
-    result = test_connection(body.type, cfg)
+    # Probe does blocking I/O (subprocess, sync HTTP, sleeps).
+    result = await asyncio.to_thread(test_connection, body.type, cfg)
     await record_event(
         db=db, user=user,
         event_type="source_test_run",

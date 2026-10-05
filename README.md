@@ -228,22 +228,35 @@ key stops authenticating immediately.
 
 ## Releases
 
-CI runs on every push to `main` (build + test) and on every `v*.*.*` tag
-(build + test + publish). The full pipeline lives under
-[.github/workflows](.github/workflows).
+CI runs on every push to `main` and every pull request (build + test).
+Releases are cut automatically from the changelog. The full pipeline
+lives under [.github/workflows](.github/workflows).
 
 Cutting a release:
 
+1. Add a `## vX.Y.Z — YYYY-MM-DD` entry at the top of
+   [CHANGELOG.md](CHANGELOG.md) (semver; pre-releases use a hyphen, e.g.
+   `v0.1.0-rc.1`).
+2. Merge to `main`. Once the images build, `build.yml` creates the
+   `vX.Y.Z` tag on the merged commit (skipped if it already exists) and
+   dispatches `release.yml` for it.
+3. `release.yml` runs the test matrix, then:
+   - Publishes `ghcr.io/metril/akashic-api`, `akashic-web` and
+     `akashic-scanner` as `:vX.Y.Z` (and `:latest` for stable)
+   - Cross-compiles `akashic-scanner` for linux-amd64 and linux-arm64
+   - Creates a GitHub Release with the changelog section, auto-generated
+     notes and the scanner tarballs. The release fails if the top
+     changelog heading does not match the tag.
+
+Manual fallback, if the automatic run needs to be repeated or bypassed:
+
 ```sh
-# 1. Tag the commit you want to ship (semver; pre-releases use a hyphen, e.g. v0.1.0-rc.1):
+# Tag the commit you want to ship; the tag push triggers release.yml:
 git tag -a v0.1.0 -m "v0.1.0"
 git push github v0.1.0
 
-# 2. The release workflow runs the test matrix, then:
-#    - Publishes ghcr.io/metril/akashic-api:v0.1.0  (and :latest for stable)
-#    - Publishes ghcr.io/metril/akashic-web:v0.1.0  (and :latest for stable)
-#    - Cross-compiles akashic-scanner for linux-amd64, linux-arm64, darwin-arm64
-#    - Creates a GitHub Release with auto-generated notes + scanner tarballs
+# Or re-run release.yml for an existing tag from the Actions tab
+# (workflow_dispatch, input `tag`).
 ```
 
 `-rc`, `-beta`, etc. (anything with a hyphen) are flagged as pre-releases

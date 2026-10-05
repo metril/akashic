@@ -6,7 +6,7 @@ import logging
 import httpx
 
 from akashic.models.webhook import Webhook
-from akashic.services.url_guard import UnsafeURL, assert_safe_to_dispatch
+from akashic.services.url_guard import UnsafeURL, assert_safe_to_dispatch_async
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def dispatch_webhook(webhook: Webhook, payload: dict):
     # webhook persisted before the SSRF guard landed (or whose DNS
     # record changed to point at a private IP after creation).
     try:
-        assert_safe_to_dispatch(webhook.url)
+        await assert_safe_to_dispatch_async(webhook.url)
     except UnsafeURL as exc:
         logger.warning("Webhook dispatch refused for %s: %s", webhook.url, exc)
         return

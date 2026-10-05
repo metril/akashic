@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePalette } from "../hooks/usePalette";
 
@@ -38,6 +38,7 @@ export function KeyboardShortcuts() {
   // Without this state, "g d" would require both keys to be held
   // simultaneously, which is awkward.
   const [pendingG, setPendingG] = useState(false);
+  const gTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -73,7 +74,8 @@ export function KeyboardShortcuts() {
         // 1.5 s window to type the second key — long enough for a slow
         // user, short enough that an idle "g" doesn't haunt the next
         // unrelated keystroke.
-        setTimeout(() => setPendingG(false), 1500);
+        if (gTimer.current) clearTimeout(gTimer.current);
+        gTimer.current = setTimeout(() => setPendingG(false), 1500);
         return;
       }
 
@@ -98,6 +100,15 @@ export function KeyboardShortcuts() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [navigate, pendingG, palette]);
+
+  // Clear any armed chord timer on unmount only (not on every re-run of the
+  // handler effect, which would cancel the window as soon as pendingG flips).
+  useEffect(
+    () => () => {
+      if (gTimer.current) clearTimeout(gTimer.current);
+    },
+    [],
+  );
 
   if (!helpOpen) return null;
   return (

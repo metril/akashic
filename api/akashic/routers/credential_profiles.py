@@ -13,6 +13,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from akashic.config import settings
@@ -108,7 +109,7 @@ async def create_profile(
     db.add(profile)
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(
             status_code=409, detail=f"profile name {data.name!r} already in use",
@@ -201,7 +202,7 @@ async def update_profile(
 
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="profile name already in use")
     await db.refresh(p)

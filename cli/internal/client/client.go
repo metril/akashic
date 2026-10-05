@@ -155,6 +155,16 @@ func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 	return sources, nil
 }
 
+// checkStatus returns an error carrying the response body when the
+// server answered with a 4xx/5xx status.
+func checkStatus(resp *http.Response) error {
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 func (c *Client) CreateSource(ctx context.Context, name, sourceType string, config map[string]string) (*Source, error) {
 	body := map[string]interface{}{
 		"name":   name,
@@ -166,6 +176,10 @@ func (c *Client) CreateSource(ctx context.Context, name, sourceType string, conf
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if err := checkStatus(resp); err != nil {
+		return nil, err
+	}
 
 	var source Source
 	if err := json.NewDecoder(resp.Body).Decode(&source); err != nil {
@@ -305,6 +319,10 @@ func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if err := checkStatus(resp); err != nil {
+		return nil, err
+	}
 
 	var tag Tag
 	if err := json.NewDecoder(resp.Body).Decode(&tag); err != nil {

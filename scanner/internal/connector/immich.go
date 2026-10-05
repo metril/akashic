@@ -183,12 +183,13 @@ func (c *ImmichConnector) Connect(ctx context.Context) error {
 			// One unreachable album shouldn't tank the entire scan.
 			// Drop it from the membership map; assets in that album
 			// just won't surface its name as a domain_metadata
-			// value. Failure is logged via the error chain on
-			// the api side.
+			// value.
+			c.warn("album %s: fetch failed, skipping its membership: %v", a.ID, err)
 			continue
 		}
 		var detail immichAlbumDetail
 		if err := json.Unmarshal(full, &detail); err != nil {
+			c.warn("album %s: decode failed, skipping its membership: %v", a.ID, err)
 			continue
 		}
 		for _, asset := range detail.Assets {
@@ -275,6 +276,7 @@ func (c *ImmichConnector) Walk(
 						consecutivePageFailures, err)
 				}
 				stats.UpstreamPagesSkipped++
+				stats.UpstreamPageSize = c.pageSize
 				c.warn(
 					"page %d failed (HTTP %d: %s); skipping ~%d assets and continuing",
 					page, rhe.StatusCode, rhe.Snippet, c.pageSize,
@@ -479,7 +481,10 @@ func (c *ImmichConnector) fetchJSON(ctx context.Context, method, path string, bo
 		// doesn't stall the scan for ~2 s.
 		if attempt+1 < immichMaxAttempts {
 			d := immichBackoffBase << attempt
-			jitter := time.Duration(rand.Int63n(int64(d / 4)))
+			var jitter time.Duration
+			if q := int64(d / 4); q > 0 {
+				jitter = time.Duration(rand.Int63n(q))
+			}
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
