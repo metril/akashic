@@ -3,6 +3,7 @@
 # golang image. We build with CGO_ENABLED=0 so the resulting binary has no
 # runtime dependency on the builder image at all.
 FROM golang:1.23-alpine AS scanner-builder
+ARG VERSION=dev
 RUN apk add --no-cache git
 WORKDIR /src
 # Note: the scanner's go.mod has a `replace` directive pointing at
@@ -14,7 +15,7 @@ WORKDIR /src
 # this into the standard "COPY go.mod go.sum → go mod download → COPY ." form.
 COPY scanner/ ./scanner/
 RUN cd scanner && go mod download \
-    && CGO_ENABLED=0 go build -o /out/akashic-scanner ./cmd/akashic-scanner
+    && CGO_ENABLED=0 go build -ldflags "-X main.Version=${VERSION}" -o /out/akashic-scanner ./cmd/akashic-scanner
 
 # ---- runtime: python + bundled scanner ----
 # Bookworm-slim instead of the rolling -slim tag so we pin to a specific
@@ -22,6 +23,9 @@ RUN cd scanner && go mod download \
 # fixes for the CVEs flagged against 3.12-slim. pyproject.toml's
 # requires-python = ">=3.12" remains satisfied.
 FROM python:3.13-slim-bookworm
+
+ARG VERSION=dev
+ENV APP_VERSION=${VERSION}
 
 WORKDIR /app
 

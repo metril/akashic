@@ -1,5 +1,6 @@
 import gzip
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -238,7 +239,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Akashic", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Akashic", version=os.getenv("APP_VERSION", "dev"), lifespan=lifespan)
 
     # CORS allow-list (review A-I4). Empty list (the default) means
     # CORSMiddleware isn't mounted at all — same-origin only, which

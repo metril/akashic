@@ -223,32 +223,32 @@ async def create_source(
         oauth_credential_id = payload["connection_config"].pop(
             "oauth_credential_id", None
         )
-    source = Source(**payload)
-    db.add(source)
-    await db.commit()
-    await db.refresh(source)
+    cred = None
     if oauth_credential_id is not None:
         from akashic.models.oauth_credential import SourceOAuthCredential
         cred = await db.get(SourceOAuthCredential, oauth_credential_id)
         # Ownership check (review A-I2): only attach credentials that
         # are still unattached. Pre-fix any admin could supply any
         # other admin's unattached credential UUID and hijack it.
-        # We can't compare to "the user who created the credential"
-        # because that field isn't stored; instead, refuse to attach
-        # a credential that's already bound to a different source.
+        # Validated before the Source insert so a rejection leaves no
+        # orphan row.
         if cred is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="oauth_credential_id not found",
             )
-        if cred.source_id is not None and cred.source_id != source.id:
+        if cred.source_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="oauth_credential is already attached to another source",
             )
-        if cred.source_id is None:
-            cred.source_id = source.id
-            await db.commit()
+    source = Source(**payload)
+    db.add(source)
+    if cred is not None:
+        await db.flush()
+        cred.source_id = source.id
+    await db.commit()
+    await db.refresh(source)
     # Push to /ws/scans subscribers so the Sources page sees the
     # new card without polling.
     from akashic.services import scan_pubsub

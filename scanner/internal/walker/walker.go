@@ -32,6 +32,9 @@ type WalkStats struct {
 	// Immich #24359 — Postgres TOAST corruption) without losing the
 	// entire scan. Filesystem connectors leave this at 0.
 	UpstreamPagesSkipped int
+	// Asset count per upstream page, so callers can estimate how many
+	// items a skipped page held. 0 when no page was skipped.
+	UpstreamPageSize int
 }
 
 // ShallowResult is what WalkShallow returns: file/empty-dir entries

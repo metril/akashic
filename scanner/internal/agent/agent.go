@@ -115,6 +115,7 @@ func Run(ctx context.Context, cfg Config) error {
 			// overwrite the auto-finalization).
 			if err := runUnitCoordinated(ctx, httpc, cfg, priv, leased); err != nil {
 				log.Printf("unit-scan %s failed: %v", leased.ScanID, err)
+				sleepWithJitter(ctx, cfg.LeasePoll)
 			}
 			continue
 		}
@@ -352,6 +353,7 @@ func heartbeatLoop(
 			log.Printf("heartbeat: %v", err)
 			continue
 		}
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusUnauthorized {
 			log.Printf("heartbeat: 401 (key may have rotated; SIGHUP to reload)")

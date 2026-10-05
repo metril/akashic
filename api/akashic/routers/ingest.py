@@ -219,20 +219,23 @@ async def _sweep_stale_entries(
         if r.kind == "file" and r.content_hash
     ]
     if stale_files_with_hash:
-        stale_hashes = {r.content_hash for r in stale_files_with_hash}
-        stale_ids = {r.id for r in stale_files_with_hash}
+        stale_hashes = list({r.content_hash for r in stale_files_with_hash})
+        # The stale rows above are already is_deleted=True, so the
+        # is_deleted==False filter excludes them from candidates.
+        # Chunked to stay under asyncpg's 32767 bind-parameter limit.
         # Order by id for deterministic picking when more than one
         # candidate exists for a given hash — without it the test
         # suite could see flapping move targets.
-        candidates = (await db.execute(
-            select(Entry).where(
-                Entry.content_hash.in_(stale_hashes),
-                Entry.kind == "file",
-                Entry.is_deleted == False,  # noqa: E712
-                Entry.last_seen_at >= scan.started_at,
-                Entry.id.notin_(stale_ids),
-            ).order_by(Entry.id)
-        )).scalars().all()
+        candidates: list[Entry] = []
+        for i in range(0, len(stale_hashes), 5000):
+            candidates.extend((await db.execute(
+                select(Entry).where(
+                    Entry.content_hash.in_(stale_hashes[i:i + 5000]),
+                    Entry.kind == "file",
+                    Entry.is_deleted == False,  # noqa: E712
+                    Entry.last_seen_at >= scan.started_at,
+                ).order_by(Entry.id)
+            )).scalars().all())
         first_by_hash: dict[str, Entry] = {}
         for c in candidates:
             first_by_hash.setdefault(c.content_hash, c)

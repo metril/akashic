@@ -98,11 +98,11 @@ export const SourceDetail = memo(function SourceDetail({
     >
       <div className="flex flex-col h-full px-6 py-5">
         {/* Tabs */}
-        <div className="flex border-b border-line mb-3 text-sm shrink-0">
-          <TabButton active={tab === "details"} onClick={() => setTab("details")}>
+        <div role="tablist" className="flex border-b border-line mb-3 text-sm shrink-0">
+          <TabButton name="details" active={tab === "details"} onClick={() => setTab("details")}>
             Details
           </TabButton>
-          <TabButton active={tab === "history"} onClick={() => setTab("history")}>
+          <TabButton name="history" active={tab === "history"} onClick={() => setTab("history")}>
             History
           </TabButton>
           {/* v0.41.0 — per-scanner probe-outcome history. Lazy-mounted so
@@ -110,6 +110,7 @@ export const SourceDetail = memo(function SourceDetail({
               hit the api on every drawer open, only when the user
               actually switches to the tab. */}
           <TabButton
+            name="reachability"
             active={tab === "reachability"}
             onClick={() => setTab("reachability")}
           >
@@ -121,13 +122,18 @@ export const SourceDetail = memo(function SourceDetail({
               leaving the user no way to review the just-finished
               scan's log. */}
           {scanLogScanId && (
-            <TabButton active={tab === "live"} onClick={() => setTab("live")}>
+            <TabButton name="live" active={tab === "live"} onClick={() => setTab("live")}>
               Scan log
             </TabButton>
           )}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+        <div
+          role="tabpanel"
+          id="source-tabpanel"
+          aria-labelledby={`source-tab-${tab}`}
+          className="flex-1 min-h-0 overflow-y-auto pr-1"
+        >
           {tab === "details" && (
             detailLoaded ? (
               // DetailsTab mounts only once the full source has loaded,
@@ -163,10 +169,12 @@ export const SourceDetail = memo(function SourceDetail({
 });
 
 function TabButton({
+  name,
   active,
   onClick,
   children,
 }: {
+  name: string;
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
@@ -176,6 +184,8 @@ function TabButton({
       type="button"
       onClick={onClick}
       role="tab"
+      id={`source-tab-${name}`}
+      aria-controls="source-tabpanel"
       aria-selected={active}
       className={`px-3 py-1.5 -mb-px border-b-2 transition-colors rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
         active

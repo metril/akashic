@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   useSourceScannerReachability,
@@ -72,21 +72,32 @@ export function AllowedScannersPanel({ sourceId }: Props) {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [original, setOriginal] = useState<Set<string>>(new Set());
+  // Scanner ids with a probe in flight; "all" while Test all is running.
+  const [testing, setTesting] = useState<Set<string> | "all">(new Set());
+
+  // Re-seed from the server only on first load, a source switch, or when
+  // there are no unsaved edits — a Test probe refetches this query and must
+  // not wipe the user's pending checkbox changes.
+  const seededFor = useRef<string | null>(null);
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     if (!reachQ.data) return;
+    if (seededFor.current === sourceId && dirtyRef.current) return;
+    seededFor.current = sourceId;
     const allowed = new Set(
       reachQ.data.filter((r) => r.currently_allowed).map((r) => r.scanner_id),
     );
     setSelected(allowed);
     setOriginal(allowed);
-  }, [reachQ.data]);
+  }, [reachQ.data, sourceId]);
 
   const dirty = useMemo(() => {
     if (selected.size !== original.size) return true;
     for (const id of selected) if (!original.has(id)) return true;
     return false;
   }, [selected, original]);
+  dirtyRef.current = dirty;
 
   function toggle(scannerId: string) {
     setSelected((prev) => {
@@ -101,6 +112,9 @@ export function AllowedScannersPanel({ sourceId }: Props) {
     const ids = Array.from(selected);
     try {
       await update.mutateAsync({ sourceId, scannerIds: ids });
+      // Saved state is the new baseline; otherwise the panel stays dirty
+      // and the post-save refetch is ignored by the seeding effect.
+      setOriginal(new Set(selected));
       toast.success("Allowed scanners updated.");
     } catch (e) {
       toast.error(
@@ -110,6 +124,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
   }
 
   async function handleTestAll() {
+    setTesting("all");
     try {
       const res = await test.mutateAsync({ sourceId });
       const pending = res.results.filter((r) => r.pending).length;
@@ -124,16 +139,26 @@ export function AllowedScannersPanel({ sourceId }: Props) {
       toast.error(
         `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
+    } finally {
+      setTesting(new Set());
     }
   }
 
   async function handleTestOne(scannerId: string) {
+    setTesting((prev) => (prev === "all" ? prev : new Set(prev).add(scannerId)));
     try {
       await test.mutateAsync({ sourceId, scannerIds: [scannerId] });
     } catch (e) {
       toast.error(
         `Test failed: ${e instanceof Error ? e.message : "unknown error"}.`,
       );
+    } finally {
+      setTesting((prev) => {
+        if (prev === "all") return prev;
+        const next = new Set(prev);
+        next.delete(scannerId);
+        return next;
+      });
     }
   }
 
@@ -177,7 +202,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
           size="sm"
           variant="ghost"
           onClick={handleTestAll}
-          loading={test.isPending}
+          loading={testing === "all"}
           title="Ask every scanner to authenticate and list this source. Up to ~5 s per scanner."
         >
           Test all
@@ -194,6 +219,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
             >
               <input
                 type="checkbox"
+                aria-label={`Allow ${r.name}`}
                 checked={selected.has(r.scanner_id)}
                 onChange={() => toggle(r.scanner_id)}
                 className="mt-1 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
@@ -224,7 +250,7 @@ export function AllowedScannersPanel({ sourceId }: Props) {
                 size="sm"
                 variant="ghost"
                 onClick={() => handleTestOne(r.scanner_id)}
-                loading={test.isPending}
+                loading={testing === "all" || testing.has(r.scanner_id)}
                 disabled={!r.online}
                 title={r.online ? "Probe this scanner against this source." : "Scanner is offline."}
               >

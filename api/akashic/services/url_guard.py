@@ -18,6 +18,7 @@ Two-stage defense:
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 from urllib.parse import urlparse
@@ -56,14 +57,9 @@ def _resolve_all(hostname: str) -> list[str]:
     return [info[4][0] for info in infos]
 
 
-def validate_outbound_url(url: str) -> str:
-    """Parse + sanity-check ``url``. Returns it unchanged on success;
-    raises ``UnsafeURL`` on any of:
-    - non-http(s) scheme
-    - missing or non-resolvable hostname
-    - hostname resolves to a private/loopback/link-local/etc. IP
-    - URL is itself a literal IP in a blocked range
-    """
+def _precheck(url: str) -> str | None:
+    """Scheme/hostname/literal-IP checks. Returns the hostname that
+    still needs DNS resolution, or None if the URL is already settled."""
     parsed = urlparse(url)
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
         raise UnsafeURL(f"scheme {parsed.scheme!r} not allowed (use http or https)")
@@ -74,18 +70,32 @@ def validate_outbound_url(url: str) -> str:
     # Literal IP in URL — check directly.
     try:
         ipaddress.ip_address(host)
-        if _is_blocked_ip(host):
-            raise UnsafeURL(f"host {host!r} is in a blocked range")
-        return url
     except ValueError:
-        pass  # not a literal IP, fall through to DNS resolution
+        return host  # not a literal IP, needs DNS resolution
+    if _is_blocked_ip(host):
+        raise UnsafeURL(f"host {host!r} is in a blocked range")
+    return None
 
-    addrs = _resolve_all(host)
+
+def _check_addrs(host: str, addrs: list[str]) -> None:
     if not addrs:
         raise UnsafeURL(f"could not resolve {host!r}")
     for a in addrs:
         if _is_blocked_ip(a):
             raise UnsafeURL(f"{host!r} resolves to blocked address {a!r}")
+
+
+def validate_outbound_url(url: str) -> str:
+    """Parse + sanity-check ``url``. Returns it unchanged on success;
+    raises ``UnsafeURL`` on any of:
+    - non-http(s) scheme
+    - missing or non-resolvable hostname
+    - hostname resolves to a private/loopback/link-local/etc. IP
+    - URL is itself a literal IP in a blocked range
+    """
+    host = _precheck(url)
+    if host is not None:
+        _check_addrs(host, _resolve_all(host))
     return url
 
 
@@ -93,3 +103,16 @@ def assert_safe_to_dispatch(url: str) -> None:
     """Re-validate at dispatch time. Same checks as ``validate_outbound_url``
     but raises rather than returning the URL — caller already has it."""
     validate_outbound_url(url)
+
+
+async def assert_safe_to_dispatch_async(url: str) -> None:
+    """``assert_safe_to_dispatch`` for async callers: DNS resolution
+    runs on the loop's resolver instead of blocking the event loop."""
+    host = _precheck(url)
+    if host is None:
+        return
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, None)
+    except socket.gaierror:
+        infos = []
+    _check_addrs(host, [info[4][0] for info in infos])

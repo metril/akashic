@@ -148,8 +148,13 @@ async def dispatch_remote(
         body = json.dumps(payload, default=str)
         for sid in scanner_ids:
             chan = _probe_channel(sid)
-            await redis.lpush(chan, body)
-            await redis.ltrim(chan, 0, 99)
+            # Payload carries decrypted creds; EXPIRE keeps it from
+            # outliving the probe if the scanner never picks it up.
+            async with redis.pipeline(transaction=True) as pipe:
+                pipe.lpush(chan, body)
+                pipe.ltrim(chan, 0, 99)
+                pipe.expire(chan, 60)
+                await pipe.execute()
 
         deadline = asyncio.get_running_loop().time() + timeout_s
         wanted = {str(sid) for sid in scanner_ids}

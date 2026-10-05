@@ -1090,6 +1090,16 @@ async def complete_scan(
         raise HTTPException(
             status_code=403, detail="scanner is not the lease holder",
         )
+    # Don't let a late /complete overwrite a different terminal state
+    # (e.g. a user cancel racing the scanner's own completion). A
+    # matching status is allowed through: the final ingest batch
+    # already marks single-scanner scans "completed" before the agent
+    # posts /complete, and that call still has to release the lease,
+    # flush counters/Meilisearch and record reachability.
+    if scan.status in ("completed", "failed", "cancelled") and scan.status != body.status:
+        raise HTTPException(
+            status_code=409, detail=f"scan already {scan.status}",
+        )
     scan.status = body.status
     scan.completed_at = datetime.now(timezone.utc)
     if body.error_message is not None:

@@ -1,13 +1,18 @@
 name: Release
 
-# Tag-driven releases. Push a `vX.Y.Z` tag and this workflow:
+# Tag-driven releases. Normally cut automatically: bumping the top
+# `## vX.Y.Z` heading in CHANGELOG.md and merging to main makes build.yml
+# create the tag and dispatch this workflow. Pushing a `vX.Y.Z` tag by
+# hand, or running this workflow manually with an existing tag, works
+# as a fallback. Either way the workflow:
 #   1. Re-runs the full test matrix (api / scanner / web).
-#   2. Builds and publishes `akashic-api` + `akashic-web` Docker images
-#      to GHCR with both `:vX.Y.Z` and `:latest` tags (multi-arch).
-#   3. Cross-compiles the scanner CLI for linux-amd64, linux-arm64, and
-#      darwin-arm64; tarballs each binary; uploads them to a GitHub
-#      Release with auto-generated notes from commits since the previous
-#      tag.
+#   2. Builds and publishes `akashic-api`, `akashic-web` and
+#      `akashic-scanner` Docker images to GHCR with both `:vX.Y.Z` and
+#      `:latest` tags (api and scanner are multi-arch).
+#   3. Cross-compiles the scanner CLI for linux-amd64 and linux-arm64,
+#      tarballs each binary; uploads them to a GitHub Release whose body
+#      is the matching CHANGELOG.md section plus auto-generated notes from
+#      commits since the previous tag.
 #
 # Versioning: tags must match the `v*.*.*` pattern, with optional
 # `-prerelease` suffix (e.g. `v0.1.0-rc.1`). The `prerelease` flag on
@@ -22,6 +27,11 @@ on:
         description: "Tag to release (must already exist)"
         required: true
         type: string
+
+# One release run per tag; never cancel a publish in flight.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -56,6 +66,8 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -85,6 +97,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version: "1.23"
@@ -96,6 +110,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -105,6 +121,8 @@ jobs:
         run: npm ci
       - working-directory: web
         run: npx tsc --noEmit
+      - working-directory: web
+        run: npm run lint
       - working-directory: web
         run: npx vitest run
 
@@ -117,6 +135,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -126,8 +146,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Resolve tag
         id: meta
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          REF="$TAG"
           VERSION="${REF#v}"
           IS_PRE=false
           case "$VERSION" in
@@ -143,6 +165,7 @@ jobs:
           file: api/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: VERSION=${{ steps.meta.outputs.version }}
           # Pre-releases (e.g. v0.1.0-rc.1) skip the `:latest` tag so a
           # `docker pull akashic-api:latest` still resolves to the most
           # recent stable release.
@@ -215,6 +238,8 @@ jobs:
           - { os: linux, arch: arm64 }
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version: "1.23"
@@ -227,8 +252,9 @@ jobs:
           GOOS: ${{ matrix.target.os }}
           GOARCH: ${{ matrix.target.arch }}
           CGO_ENABLED: 0
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           mkdir -p ../dist
           OUT="../dist/akashic-scanner-${{ matrix.target.os }}-${{ matrix.target.arch }}"
           go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" \
@@ -254,6 +280,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0   # full history so release-notes can diff back to the previous tag
       - uses: actions/download-artifact@v8
         with:
@@ -268,14 +295,54 @@ jobs:
           merge-multiple: true
       - name: Determine prerelease
         id: meta
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          REF="$TAG"
           IS_PRE=false
           case "${REF#v}" in
             *-*) IS_PRE=true ;;
           esac
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
+      - name: Extract changelog section
+        # Takes the first `## v...` section of CHANGELOG.md and fails if its
+        # version is not the one being released, so a stale CHANGELOG is
+        # caught instead of publishing the wrong notes.
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p dist
+          awk '/^## v/ { n++; if (n == 2) exit } n == 1 { print }' CHANGELOG.md > dist/RELEASE_NOTES.md
+          HEADING_VERSION=$(head -n1 dist/RELEASE_NOTES.md | grep -oE '^## v[0-9]+\.[0-9]+\.[0-9]+[-0-9A-Za-z.]*' | sed 's/^## v//')
+          if [ -z "$HEADING_VERSION" ]; then
+            echo "::error::No '## vX.Y.Z' heading found at the top of CHANGELOG.md"
+            exit 1
+          fi
+          if [ "$HEADING_VERSION" != "${TAG#v}" ]; then
+            echo "::error::CHANGELOG.md top section is v${HEADING_VERSION} but releasing ${TAG}; update CHANGELOG.md"
+            exit 1
+          fi
+          {
+            cat dist/RELEASE_NOTES.md
+            echo
+            echo "## Container images"
+            echo
+            echo '```'
+            echo "docker pull ${IMAGE_API}:${TAG}"
+            echo "docker pull ${IMAGE_WEB}:${TAG}"
+            echo "docker pull ${IMAGE_SCANNER}:${TAG}"
+            echo '```'
+            echo
+            echo "## Scanner CLI"
+            echo
+            echo "Binaries below are statically linked (CGO_ENABLED=0). Verify"
+            echo "via the matching \`.sha256\` file:"
+            echo
+            echo '```'
+            echo "sha256sum -c akashic-scanner-linux-amd64.tar.gz.sha256"
+            echo '```'
+          } > dist/body.md
       - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
@@ -286,20 +353,4 @@ jobs:
           files: |
             dist/akashic-scanner-*.tar.gz
             dist/akashic-scanner-*.tar.gz.sha256
-          body: |
-            ## Container images
-
-            ```
-            docker pull ${{ env.IMAGE_API }}:${{ steps.meta.outputs.tag }}
-            docker pull ${{ env.IMAGE_WEB }}:${{ steps.meta.outputs.tag }}
-            docker pull ${{ env.IMAGE_SCANNER }}:${{ steps.meta.outputs.tag }}
-            ```
-
-            ## Scanner CLI
-
-            Binaries below are statically linked (CGO_ENABLED=0). Verify
-            via the matching `.sha256` file:
-
-            ```
-            sha256sum -c akashic-scanner-linux-amd64.tar.gz.sha256
-            ```
+          body_path: dist/body.md
