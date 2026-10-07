@@ -6,6 +6,7 @@ import { useAuth } from "./hooks/useAuth";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import Login from "./pages/Login";
+import AuthCallback from "./pages/AuthCallback";
 
 // Lazy-load every authenticated page so the initial bundle ships only the
 // Login + Layout shell + the React Query / Router runtime. Each page chunk
@@ -117,6 +118,7 @@ export default function App() {
       />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
       <Route
         path="/"
         element={

@@ -109,3 +109,78 @@ async def test_providers_setup_required_flips_after_first_user(client):
     response = await client.get("/api/auth/providers")
     assert response.status_code == 200
     assert response.json()["setup_required"] is False
+
+
+# ---------------------------------------------------------------------------
+# OIDC callback (browser SSO redirect flow)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock  # noqa: E402
+
+_CLAIMS = {"sub": "oidc-1", "preferred_username": "ssouser", "email": "sso@example.com"}
+
+
+@pytest.fixture
+def oidc_on(monkeypatch):
+    from akashic.config import settings
+    monkeypatch.setattr(settings, "oidc_enabled", True)
+    monkeypatch.setattr(settings, "frontend_url", "")
+    # httpx will not send a Secure cookie to http://test
+    monkeypatch.setattr(settings, "cookie_secure", False)
+    mock = AsyncMock(return_value=_CLAIMS)
+    monkeypatch.setattr("akashic.auth.oidc.exchange_code", mock)
+    return mock
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_success(client, oidc_on):
+    client.cookies.set("oidc_state", "s")
+    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/auth/callback"
+    cookies = r.headers.get_list("set-cookie")
+    refresh = [c for c in cookies if c.startswith("akashic_refresh=")]
+    assert refresh and "Path=/api/auth" in refresh[0]
+    assert "access_token" not in r.text
+    r2 = await client.post("/api/auth/refresh")
+    assert r2.status_code == 200
+    assert "access_token" in r2.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cookie,url", [
+    ("other", "/api/auth/oidc/callback?code=c&state=s"),
+    ("s", "/api/auth/oidc/callback?state=s"),
+])
+async def test_oidc_callback_bad_state(client, oidc_on, cookie, url):
+    client.cookies.set("oidc_state", cookie)
+    r = await client.get(url, follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login?error=sso_state"
+    assert not any(c.startswith("akashic_refresh=") for c in r.headers.get_list("set-cookie"))
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_idp_error(client, oidc_on):
+    client.cookies.set("oidc_state", "s")
+    r = await client.get("/api/auth/oidc/callback?error=access_denied&state=s", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login?error=sso_denied"
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_exchange_fails(client, oidc_on):
+    oidc_on.side_effect = RuntimeError("boom")
+    client.cookies.set("oidc_state", "s")
+    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login?error=sso_failed"
+
+
+@pytest.mark.asyncio
+async def test_oidc_callback_frontend_url(client, oidc_on, monkeypatch):
+    from akashic.config import settings
+    monkeypatch.setattr(settings, "frontend_url", "http://localhost:5173")
+    client.cookies.set("oidc_state", "s")
+    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    assert r.headers["location"] == "http://localhost:5173/auth/callback"

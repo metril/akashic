@@ -4,7 +4,7 @@ Endpoints
 ---------
 GET  /api/auth/providers          — list enabled auth providers
 GET  /api/auth/oidc/login         — redirect to OIDC provider
-GET  /api/auth/oidc/callback      — handle OIDC callback, return JWT
+GET  /api/auth/oidc/callback      — handle OIDC callback, set refresh cookie, 302 to SPA
 POST /api/auth/ldap/login         — LDAP username/password -> JWT
 """
 
@@ -14,6 +14,7 @@ import secrets
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +46,21 @@ def _set_refresh_cookie(response: Response, plain_token: str) -> None:
         path="/api/auth",
         max_age=settings.refresh_token_expire_days * 24 * 3600,
     )
+
+
+def _spa_redirect(path: str, **params: str) -> RedirectResponse:
+    """302 to a fixed SPA path (optionally with query params). Targets come
+    only from config + fixed paths, never from request input."""
+    url = settings.frontend_url.rstrip("/") + path
+    if params:
+        url += "?" + urlencode(params)
+    resp = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
+    # The one-shot state cookie is spent either way once we leave the
+    # callback; drop it with the same attributes it was set with.
+    resp.delete_cookie(
+        "oidc_state", httponly=True, samesite="lax", secure=settings.cookie_secure
+    )
+    return resp
 
 
 def _clear_refresh_cookie(response: Response) -> None:
@@ -154,25 +170,28 @@ async def oidc_login() -> Response:
     return response
 
 
-@router.get("/oidc/callback", response_model=TokenResponse)
+@router.get("/oidc/callback")
 async def oidc_callback(
-    response: Response,
-    code: str = Query(..., description="Authorization code returned by the OIDC provider"),
+    code: str | None = Query(None, description="Authorization code returned by the OIDC provider"),
     state: str | None = Query(None),
+    error: str | None = Query(None),
     oidc_state: str | None = Cookie(None),
     db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    """Handle the OIDC callback: exchange the code for tokens, mint
-    access + refresh, set the refresh cookie, and return the access
-    token to the SPA."""
+) -> Response:
+    """Handle the OIDC callback: exchange the code for tokens, mint a
+    refresh token, set the HttpOnly refresh cookie, and 302 the browser
+    to the SPA's /auth/callback (which trades the cookie for an access
+    token via /api/auth/refresh). Failures 302 to /login?error=<code>
+    with one of sso_denied, sso_state, sso_failed, sso_provision."""
     _require_oidc()
 
+    if error:
+        logger.warning("OIDC provider returned error: %s", error)
+        return _spa_redirect("/login", error="sso_denied")
+
     # Validate state parameter to prevent CSRF
-    if not state or not oidc_state or state != oidc_state:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or missing state parameter",
-        )
+    if not code or not state or not oidc_state or state != oidc_state:
+        return _spa_redirect("/login", error="sso_state")
 
     from akashic.auth.oidc import exchange_code, get_or_create_user
 
@@ -180,19 +199,13 @@ async def oidc_callback(
         claims = await exchange_code(code)
     except Exception as exc:
         logger.warning("OIDC code exchange failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="OIDC authentication failed",
-        ) from exc
+        return _spa_redirect("/login", error="sso_failed")
 
     try:
         user = await get_or_create_user(db, claims)
     except Exception as exc:
         logger.error("Failed to provision OIDC user: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User provisioning failed",
-        ) from exc
+        return _spa_redirect("/login", error="sso_provision")
 
     plain_refresh, _ = await refresh_service.mint(user.id, db)
     await record_event(
@@ -202,9 +215,9 @@ async def oidc_callback(
     )
     await db.commit()
 
-    token = create_access_token({"sub": str(user.id)})
-    _set_refresh_cookie(response, plain_refresh)
-    return TokenResponse(access_token=token)
+    resp = _spa_redirect("/auth/callback")
+    _set_refresh_cookie(resp, plain_refresh)
+    return resp
 
 
 @router.post("/ldap/login", response_model=TokenResponse)

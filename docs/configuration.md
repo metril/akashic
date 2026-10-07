@@ -41,6 +41,7 @@ See [authentication.md](authentication.md) for setup walk-throughs.
 | `OIDC_CLIENT_ID` | (empty) | OIDC client ID issued by your IdP. |
 | `OIDC_CLIENT_SECRET` | (empty) | OIDC client secret. |
 | `OIDC_REDIRECT_URI` | `http://localhost:8000/api/auth/oidc/callback` | Where the IdP returns to after auth. |
+| `FRONTEND_URL` | _(empty)_ | SPA base URL for post-SSO redirects. Empty = same origin; set when SPA and API differ (dev). |
 | `OIDC_STRATEGY` | `auto` | Identity resolution: `auto` \| `claim` \| `ldap_fallback` \| `name_match`. |
 | `OIDC_USERNAME_CLAIM` | `preferred_username` | Claim used as username. |
 | `OIDC_EMAIL_CLAIM` | `email` | Claim used as email. |

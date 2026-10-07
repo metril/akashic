@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Card, Input, Button } from "../components/ui";
 import { BrandMark } from "../components/BrandMark";
@@ -18,7 +18,17 @@ type Providers = {
   setup_required: boolean;
 };
 
+const SSO_ERRORS: Record<string, string> = {
+  sso_denied: "Sign-in was cancelled at the identity provider.",
+  sso_state: "Sign-in session expired. Please try again.",
+  sso_failed: "SSO sign-in failed. Please try again.",
+  sso_provision:
+    "Signed in, but your account could not be created. Contact an admin.",
+};
+
 export default function Login() {
+  const [searchParams] = useSearchParams();
+  const ssoError = SSO_ERRORS[searchParams.get("error") ?? ""];
   const { isAuthenticated, login, loading, error } = useAuth();
   const [providers, setProviders] = useState<Providers | null>(null);
   const [providersError, setProvidersError] = useState<string | null>(null);
@@ -232,7 +242,7 @@ export default function Login() {
             placeholder="••••••••"
             autoComplete="current-password"
             required
-            error={error || undefined}
+            error={error || ssoError || undefined}
           />
           <Button
             type="submit"
@@ -243,6 +253,22 @@ export default function Login() {
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
+
+        {providers?.oidc && (
+          <>
+            <div className="flex items-center gap-3 my-5 text-xs text-fg-muted">
+              <div className="flex-1 border-t border-line" />
+              <span>or</span>
+              <div className="flex-1 border-t border-line" />
+            </div>
+            <a
+              href="/api/auth/oidc/login"
+              className="block w-full text-center rounded-lg bg-surface text-fg border border-line hover:bg-surface-muted px-5 py-2.5 text-sm font-medium"
+            >
+              Sign in with SSO
+            </a>
+          </>
+        )}
       </Card>
     </div>
   );
