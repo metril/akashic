@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/oidc/callback"
+    # Base URL of the SPA for post-callback redirects. Empty -> relative
+    # redirects (same origin). Set when SPA and API differ in dev.
+    frontend_url: str = ""
 
     # OIDC → FsBinding bridge (Phase 2a). See docs/oidc-authentik.md.
     # `auto` tries claim → ldap_fallback → name_match in that order; pin to a

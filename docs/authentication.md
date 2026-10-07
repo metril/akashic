@@ -49,6 +49,10 @@ OIDC_CLIENT_SECRET=<from your IdP>
 OIDC_REDIRECT_URI=https://akashic.example.com/api/auth/oidc/callback
 ```
 
+Optional: `FRONTEND_URL` (default empty) is the SPA base URL used for
+post-callback redirects. Leave empty when the SPA and API share an
+origin; set it (e.g. `http://localhost:5173`) when they differ in dev.
+
 ### Claim mapping (defaults assume Authentik + AD federation)
 
 ```sh
@@ -88,20 +92,30 @@ extraction.
 
 - `GET /api/auth/providers` should return `{"oidc": true, ...}`.
 - Hitting `/api/auth/oidc/login` should 302 to your IdP.
-- After callback, decode the issued JWT — it should contain `sub`
-  from the IdP and `auth_provider: "oidc"`.
+- After the callback you should land on the dashboard; the browser
+  holds an HttpOnly `akashic_refresh` cookie and `POST /api/auth/refresh`
+  returns an access token.
 - **Settings → Users** in the UI: the OIDC user should appear with
   resolved `FsBindings` linking them to source-aware identities.
   Each binding shows a confidence badge (`claim`, `ldap`, or
   `name`) so you can tell which strategy resolved it.
 
-### Web UI status
+### Web UI flow
 
-`GET /api/auth/providers` is wired to the Login page, but the
-"Sign in with OIDC" button is not yet rendered in the UI as of
-the latest release. Until it ships, OIDC users sign in by hitting
-`/api/auth/oidc/login` directly — typically by landing on a
-corporate portal that links there, or by bookmarking it.
+When OIDC is enabled, the Login page shows a "Sign in with SSO" button.
+
+1. The button navigates to `/api/auth/oidc/login`, which redirects to the IdP.
+2. The IdP returns to `/api/auth/oidc/callback`, which sets the HttpOnly
+   refresh cookie and 302s to the SPA's `/auth/callback`.
+3. The SPA exchanges the refresh cookie for an access token via
+   `POST /api/auth/refresh` and navigates to the dashboard.
+
+Failures redirect to `/login?error=<code>`:
+
+- `sso_denied` — the IdP reported an error (e.g. user cancelled).
+- `sso_state` — state mismatch/expired, or no authorization code.
+- `sso_failed` — code exchange with the IdP failed.
+- `sso_provision` — the user account could not be created.
 
 ## Direct LDAP login
 

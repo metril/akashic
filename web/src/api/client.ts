@@ -111,6 +111,12 @@ async function silentRefresh(): Promise<string | null> {
   return inflightRefresh;
 }
 
+/** Finish an SSO login: the OIDC callback set the refresh cookie; trade
+ *  it for an access token. */
+export async function completeSsoLogin(): Promise<boolean> {
+  return (await silentRefresh()) !== null;
+}
+
 /** Cold-start auth bootstrap: if the session hint is set but no
  *  in-memory token exists, attempt one silent refresh so authed
  *  routes can render with valid credentials before any user-facing
