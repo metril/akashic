@@ -135,9 +135,12 @@ def oidc_on(monkeypatch):
 @pytest.mark.asyncio
 async def test_oidc_callback_success(client, oidc_on):
     client.cookies.set("oidc_state", "s")
+    client.cookies.set("oidc_pkce", "v")
+    client.cookies.set("oidc_nonce", "n")
     r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/auth/callback"
+    oidc_on.assert_awaited_once_with("c", code_verifier="v", nonce="n")
     cookies = r.headers.get_list("set-cookie")
     refresh = [c for c in cookies if c.startswith("akashic_refresh=")]
     assert refresh and "Path=/api/auth" in refresh[0]
@@ -154,6 +157,8 @@ async def test_oidc_callback_success(client, oidc_on):
 ])
 async def test_oidc_callback_bad_state(client, oidc_on, cookie, url):
     client.cookies.set("oidc_state", cookie)
+    client.cookies.set("oidc_pkce", "v")
+    client.cookies.set("oidc_nonce", "n")
     r = await client.get(url, follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_state"
@@ -163,6 +168,8 @@ async def test_oidc_callback_bad_state(client, oidc_on, cookie, url):
 @pytest.mark.asyncio
 async def test_oidc_callback_idp_error(client, oidc_on):
     client.cookies.set("oidc_state", "s")
+    client.cookies.set("oidc_pkce", "v")
+    client.cookies.set("oidc_nonce", "n")
     r = await client.get("/api/auth/oidc/callback?error=access_denied&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_denied"
@@ -172,6 +179,8 @@ async def test_oidc_callback_idp_error(client, oidc_on):
 async def test_oidc_callback_exchange_fails(client, oidc_on):
     oidc_on.side_effect = RuntimeError("boom")
     client.cookies.set("oidc_state", "s")
+    client.cookies.set("oidc_pkce", "v")
+    client.cookies.set("oidc_nonce", "n")
     r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_failed"
@@ -182,5 +191,47 @@ async def test_oidc_callback_frontend_url(client, oidc_on, monkeypatch):
     from akashic.config import settings
     monkeypatch.setattr(settings, "frontend_url", "http://localhost:5173")
     client.cookies.set("oidc_state", "s")
+    client.cookies.set("oidc_pkce", "v")
+    client.cookies.set("oidc_nonce", "n")
     r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.headers["location"] == "http://localhost:5173/auth/callback"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("present", [[], ["oidc_pkce"], ["oidc_nonce"]])
+async def test_oidc_callback_missing_pkce_cookie(client, oidc_on, present):
+    client.cookies.set("oidc_state", "s")
+    for name in present:
+        client.cookies.set(name, "x")
+    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login?error=sso_state"
+    oidc_on.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oidc_login_sets_pkce_and_nonce(client, monkeypatch):
+    import base64
+    import hashlib
+    from urllib.parse import parse_qs, urlparse
+
+    from akashic.config import settings
+
+    monkeypatch.setattr(settings, "oidc_enabled", True)
+    monkeypatch.setattr(
+        "akashic.auth.oidc._get_discovery",
+        AsyncMock(return_value={"authorization_endpoint": "https://idp.example/auth"}),
+    )
+    r = await client.get("/api/auth/oidc/login", follow_redirects=False)
+    assert r.status_code == 302
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["code_challenge_method"] == ["S256"]
+    assert q["nonce"] and q["state"] and q["code_challenge"]
+    set_cookies = r.headers.get_list("set-cookie")
+    vals = {}
+    for key in ("oidc_state", "oidc_pkce", "oidc_nonce"):
+        match = [c for c in set_cookies if c.startswith(key + "=")]
+        assert match, key
+        vals[key] = match[0].split(";", 1)[0].split("=", 1)[1]
+    digest = hashlib.sha256(vals["oidc_pkce"].encode()).digest()
+    assert q["code_challenge"][0] == base64.urlsafe_b64encode(digest).rstrip(b"=").decode()

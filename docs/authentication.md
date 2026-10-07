@@ -49,6 +49,13 @@ OIDC_CLIENT_SECRET=<from your IdP>
 OIDC_REDIRECT_URI=https://akashic.example.com/api/auth/oidc/callback
 ```
 
+Akashic always sends a PKCE (S256) `code_challenge` and a `nonce` on the
+authorization request and verifies both on the callback (the
+`code_verifier` goes in the token request; the ID token's `nonce` must
+match). Configure the IdP client as a confidential client with PKCE
+allowed (or required). During the redirect, three short-lived HttpOnly
+cookies carry the flow state: `oidc_state`, `oidc_pkce` and `oidc_nonce`.
+
 Optional: `FRONTEND_URL` (default empty) is the SPA base URL used for
 post-callback redirects. Leave empty when the SPA and API share an
 origin; set it (e.g. `http://localhost:5173`) when they differ in dev.

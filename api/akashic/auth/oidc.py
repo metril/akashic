@@ -1,12 +1,16 @@
 """OIDC/SSO authentication support (Authentik, Keycloak, Authelia, Google, etc.)
 
 Uses the authorization code flow:
-  1. Redirect the user to the provider via get_authorization_url().
+  1. Redirect the user to the provider via get_authorization_url(), with a
+     PKCE S256 code_challenge (see generate_pkce()) and a nonce.
   2. Provider redirects back to the callback with a ?code= parameter.
-  3. exchange_code() swaps the code for tokens and decodes the ID token.
+  3. exchange_code() swaps the code (plus PKCE code_verifier) for tokens,
+     decodes the ID token and verifies its nonce.
   4. get_or_create_user() resolves (or provisions) a local User record.
 """
 
+import base64
+import hashlib
 import secrets
 from urllib.parse import urlencode
 
@@ -78,12 +82,26 @@ def invalidate_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def get_authorization_url(state: str | None = None) -> str:
+def generate_pkce() -> tuple[str, str]:
+    """Return a PKCE ``(code_verifier, code_challenge)`` pair (S256)."""
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+async def get_authorization_url(
+    state: str | None = None,
+    code_challenge: str | None = None,
+    nonce: str | None = None,
+) -> str:
     """Build the redirect URL that sends the user to the OIDC provider.
 
     A random *state* value is generated when one is not supplied; callers
     should persist it in a short-lived cookie or session so the callback can
-    verify it.
+    verify it. When *code_challenge* is given it is sent with
+    ``code_challenge_method=S256``; *nonce*, when given, is echoed by the
+    provider in the ID token so the callback can verify it.
     """
     discovery = await _get_discovery()
     authorization_endpoint = discovery["authorization_endpoint"]
@@ -95,6 +113,11 @@ async def get_authorization_url(state: str | None = None) -> str:
         "scope": "openid email profile",
         "state": state or secrets.token_urlsafe(32),
     }
+    if code_challenge:
+        params["code_challenge"] = code_challenge
+        params["code_challenge_method"] = "S256"
+    if nonce:
+        params["nonce"] = nonce
     return f"{authorization_endpoint}?{urlencode(params)}"
 
 
@@ -103,29 +126,38 @@ async def get_authorization_url(state: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(
+    code: str, code_verifier: str | None = None, nonce: str | None = None
+) -> dict:
     """Exchange an authorization code for tokens; return the decoded ID-token claims.
 
-    The ID token signature is verified against the provider's JWKS.
+    The ID token signature is verified against the provider's JWKS. When
+    *code_verifier* is given it is sent in the token request (PKCE); when
+    *nonce* is given the ID token's ``nonce`` claim must match it.
 
     Raises:
         httpx.HTTPStatusError: if the token endpoint returns a non-2xx status.
         jose.JWTError: if the ID token is invalid / cannot be decoded.
+        ValueError: if no id_token is returned or the nonce does not match.
     """
     discovery = await _get_discovery()
     token_endpoint = discovery["token_endpoint"]
     issuer = discovery["issuer"]
 
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": settings.oidc_redirect_uri,
+        "client_id": settings.oidc_client_id,
+        "client_secret": settings.oidc_client_secret,
+    }
+    if code_verifier:
+        data["code_verifier"] = code_verifier
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             token_endpoint,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.oidc_redirect_uri,
-                "client_id": settings.oidc_client_id,
-                "client_secret": settings.oidc_client_secret,
-            },
+            data=data,
             headers={"Accept": "application/json"},
             timeout=15,
         )
@@ -145,6 +177,8 @@ async def exchange_code(code: str) -> dict:
         audience=settings.oidc_client_id,
         issuer=issuer,
     )
+    if nonce is not None and claims.get("nonce") != nonce:
+        raise ValueError("ID token nonce mismatch")
     return claims
 
 
