@@ -5,6 +5,20 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.44.1 — 2026-10-07
+
+**Hardens the OIDC sign-in flow with PKCE and a nonce, closing the
+two gaps the OIDC spec expects a confidential client to cover.**
+
+### Security
+
+- **PKCE (S256) and nonce on every OIDC login.** The authorization
+  request now carries a `code_challenge` and a `nonce`; the callback
+  presents the matching `code_verifier` and rejects an ID token whose
+  `nonce` does not match. Both values live in short-lived HttpOnly
+  cookies alongside `oidc_state`. IdPs that require PKCE for
+  confidential clients now work out of the box.
+
 ## v0.44.0 — 2026-10-07
 
 **Single sign-on now works from the browser. OIDC was already wired

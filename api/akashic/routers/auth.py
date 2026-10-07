@@ -48,6 +48,23 @@ def _set_refresh_cookie(response: Response, plain_token: str) -> None:
     )
 
 
+_FLOW_COOKIES = ("oidc_state", "oidc_pkce", "oidc_nonce")
+
+
+def _set_flow_cookie(resp: Response, key: str, value: str) -> None:
+    resp.set_cookie(
+        key=key,
+        value=value,
+        max_age=600,
+        httponly=True,
+        samesite="lax",
+        # Secure on a TLS deployment (review A-I1) so passive sniffing
+        # on a misconfigured-HTTP segment can't lift the flow cookies
+        # and replay the OIDC callback.
+        secure=settings.cookie_secure,
+    )
+
+
 def _spa_redirect(path: str, **params: str) -> RedirectResponse:
     """302 to a fixed SPA path (optionally with query params). Targets come
     only from config + fixed paths, never from request input."""
@@ -57,9 +74,10 @@ def _spa_redirect(path: str, **params: str) -> RedirectResponse:
     resp = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
     # The one-shot state cookie is spent either way once we leave the
     # callback; drop it with the same attributes it was set with.
-    resp.delete_cookie(
-        "oidc_state", httponly=True, samesite="lax", secure=settings.cookie_secure
-    )
+    for key in _FLOW_COOKIES:
+        resp.delete_cookie(
+            key, httponly=True, samesite="lax", secure=settings.cookie_secure
+        )
     return resp
 
 
@@ -142,12 +160,16 @@ async def oidc_login() -> Response:
     """Redirect the user to the configured OIDC provider for authentication."""
     _require_oidc()
 
-    from akashic.auth.oidc import get_authorization_url
+    from akashic.auth.oidc import generate_pkce, get_authorization_url
 
     state = secrets.token_urlsafe(32)
+    verifier, challenge = generate_pkce()
+    nonce = secrets.token_urlsafe(32)
 
     try:
-        url = await get_authorization_url(state=state)
+        url = await get_authorization_url(
+            state=state, code_challenge=challenge, nonce=nonce
+        )
     except Exception as exc:
         logger.error("Failed to build OIDC authorization URL: %s", exc)
         raise HTTPException(
@@ -156,17 +178,9 @@ async def oidc_login() -> Response:
         ) from exc
 
     response = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
-    response.set_cookie(
-        key="oidc_state",
-        value=state,
-        max_age=600,
-        httponly=True,
-        samesite="lax",
-        # Secure on a TLS deployment (review A-I1) so passive sniffing
-        # on a misconfigured-HTTP segment can't lift the state cookie
-        # and replay the OIDC callback.
-        secure=settings.cookie_secure,
-    )
+    _set_flow_cookie(response, "oidc_state", state)
+    _set_flow_cookie(response, "oidc_pkce", verifier)
+    _set_flow_cookie(response, "oidc_nonce", nonce)
     return response
 
 
@@ -176,6 +190,8 @@ async def oidc_callback(
     state: str | None = Query(None),
     error: str | None = Query(None),
     oidc_state: str | None = Cookie(None),
+    oidc_pkce: str | None = Cookie(None),
+    oidc_nonce: str | None = Cookie(None),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Handle the OIDC callback: exchange the code for tokens, mint a
@@ -192,11 +208,13 @@ async def oidc_callback(
     # Validate state parameter to prevent CSRF
     if not code or not state or not oidc_state or state != oidc_state:
         return _spa_redirect("/login", error="sso_state")
+    if not oidc_pkce or not oidc_nonce:
+        return _spa_redirect("/login", error="sso_state")
 
     from akashic.auth.oidc import exchange_code, get_or_create_user
 
     try:
-        claims = await exchange_code(code)
+        claims = await exchange_code(code, code_verifier=oidc_pkce, nonce=oidc_nonce)
     except Exception as exc:
         logger.warning("OIDC code exchange failed: %s", exc)
         return _spa_redirect("/login", error="sso_failed")
