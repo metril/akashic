@@ -5,6 +5,34 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.44.0 — 2026-10-07
+
+**Single sign-on now works from the browser. OIDC was already wired
+on the API, but the Login page had no SSO button and the callback
+handed the browser a JSON blob instead of a session, so nobody could
+actually sign in with it. Clicking "Sign in with SSO" now takes you
+to your IdP and back to the dashboard, signed in.**
+
+### Added
+
+- **"Sign in with SSO" button on the Login page**, shown whenever
+  `OIDC_ENABLED=true`. IdP errors (cancelled sign-in, expired state,
+  failed code exchange, provisioning failure) come back to the Login
+  page as a readable message instead of a bare 4xx.
+- **`FRONTEND_URL`** (optional, default empty). Base URL of the web
+  UI for post-login redirects. Leave it empty when the api and web
+  containers share an origin; set it only when they differ, such as
+  a Vite dev server on another port.
+
+### Changed
+
+- **`GET /api/auth/oidc/callback` no longer returns an access token
+  as JSON.** It sets the HttpOnly refresh cookie and redirects to the
+  web UI, which trades the cookie for an access token through
+  `POST /api/auth/refresh`. No token ever appears in a URL. Any
+  script that scraped the old JSON body must use the refresh
+  endpoint instead.
+
 ## v0.43.0 — 2026-10-05
 
 **Releases now cut themselves: merging a CHANGELOG version bump to
