@@ -43,8 +43,12 @@ class Limiter:
         client = request.client
         return client.host if client else "unknown"
 
-    def check(self, request: Request) -> None:
+    def check(self, request: Request, key: str | None = None) -> None:
+        """`key` (e.g. a username) narrows the bucket to ip+key so one
+        client can't exhaust the limit for everyone behind a shared proxy IP."""
         ip = self._client_ip(request)
+        if key is not None:
+            ip = f"{ip}|{key}"
         now = time.monotonic()
 
         bucket = self._buckets.get(ip)

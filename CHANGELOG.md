@@ -5,6 +5,22 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.45.0 — 2026-11-05
+
+**Closes several API abuse and correctness gaps: a gzip-bomb DoS, header injection in downloads, writes to finished scans, unbounded ingest batches, unthrottled password logins, and a refresh-token rotation race.**
+
+### Security
+
+- **Gzip request bodies are decompressed with a hard 32 MB output cap**, so a tiny hostile body can no longer inflate in memory before the size check (413).
+- **Password and LDAP logins are rate limited per IP** (10 per minute), matching the OAuth callback.
+- **Refresh-token rotation locks the row**, so two concurrent refreshes with one token can no longer both succeed.
+- **Download filenames are sanitised** (no quotes, CR/LF or non-ASCII in the fallback) and sent with an RFC 5987 `filename*` so Unicode names survive.
+
+### Fixed
+
+- **Ingest rejects batches for cancelled, failed or completed scans** with 409 instead of writing entries.
+- **Ingest batches are capped at 10,000 entries**, and the existing-entry lookup is chunked to stay under the Postgres parameter limit.
+
 ## v0.44.1 — 2026-10-07
 
 **Hardens the OIDC sign-in flow with PKCE and a nonce, closing the

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from akashic.auth import refresh as refresh_service
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.routers.auth import _set_refresh_cookie
+from akashic.services.rate_limit import make_limiter
 from akashic.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -66,12 +67,21 @@ async def create_user(
     return user
 
 
+_login_limiter = make_limiter(
+    max_requests=10,
+    window_seconds=60.0,
+    message="too many login attempts; wait a minute and try again",
+)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     data: UserLogin,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
+    _login_limiter.check(request, data.username.lower())
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):

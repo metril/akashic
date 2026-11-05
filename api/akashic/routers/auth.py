@@ -12,7 +12,7 @@ import asyncio
 import logging
 import secrets
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ from akashic.config import settings
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.audit import record_event
+from akashic.services.rate_limit import make_limiter
 
 
 REFRESH_COOKIE = "akashic_refresh"
@@ -238,14 +239,23 @@ async def oidc_callback(
     return resp
 
 
+_ldap_login_limiter = make_limiter(
+    max_requests=10,
+    window_seconds=60.0,
+    message="too many login attempts; wait a minute and try again",
+)
+
+
 @router.post("/ldap/login", response_model=TokenResponse)
 async def ldap_login(
+    request: Request,
     data: LDAPLoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Authenticate via LDAP bind and return a JWT on success."""
     _require_ldap()
+    _ldap_login_limiter.check(request, data.username.lower())
 
     from akashic.auth.ldap import authenticate_ldap, get_or_create_user
 
