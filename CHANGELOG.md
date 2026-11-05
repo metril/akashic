@@ -12,14 +12,14 @@ detail.
 ### Security
 
 - **Gzip request bodies are decompressed with a hard 32 MB output cap**, so a tiny hostile body can no longer inflate in memory before the size check (413).
-- **Password and LDAP logins are rate limited per IP** (10 per minute), matching the OAuth callback.
+- **Password and LDAP logins are rate limited per IP and username** (10 per minute), so one client can't lock out every user behind a shared proxy.
 - **Refresh-token rotation locks the row**, so two concurrent refreshes with one token can no longer both succeed.
 - **Download filenames are sanitised** (no quotes, CR/LF or non-ASCII in the fallback) and sent with an RFC 5987 `filename*` so Unicode names survive.
 
 ### Fixed
 
-- **Ingest rejects batches for cancelled, failed or completed scans** with 409 instead of writing entries.
-- **Ingest batches are capped at 10,000 entries**, and the existing-entry lookup is chunked to stay under the Postgres parameter limit.
+- **Ingest rejects batches for cancelled or failed scans** with 409 instead of writing entries. A retried batch for a completed scan is an idempotent no-op (200), so a lost response can't fail a finished scan.
+- **Ingest batches are capped at 10,000 entries** (413, which the scanner splits and retries), and the existing-entry lookup is chunked to stay under the Postgres parameter limit.
 
 ## v0.44.1 — 2026-10-07
 
