@@ -32,6 +32,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
+# Stay under postgres's 32767 bind-parameter cap per query.
+_MAX_QUERY_PARAMS = 30_000
+# Scanner's adaptive batch ceiling is 5000 (agent.go, env-tunable); 10000
+# leaves headroom. 413 (not 422) so the scanner's split-and-retry kicks in.
+_MAX_BATCH_ENTRIES = 10_000
+_LOOKUP_CHUNK = _MAX_QUERY_PARAMS
+
 
 def _parent_path(path: str) -> str:
     parent = os.path.dirname(path) or "/"
@@ -318,6 +325,11 @@ async def ingest_batch(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_ingest_user),
 ):
+    if len(batch.entries) > _MAX_BATCH_ENTRIES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"batch exceeds {_MAX_BATCH_ENTRIES} entries; split and retry",
+        )
     await check_source_access(batch.source_id, user, db, required_level="write")
 
     # scan_start sits 1ms before now so stale-detection (last_seen_at < scan.started_at)
@@ -341,6 +353,18 @@ async def ingest_batch(
     if scan.source_id != batch.source_id:
         raise HTTPException(
             status_code=400, detail="scan_id does not belong to this source"
+        )
+    if scan.status == "completed":
+        # Idempotent no-op: a retried final batch must not fail the scan.
+        return ScanBatchResponse(
+            files_processed=0, scan_id=batch.scan_id, extract_candidates=[],
+        )
+    if scan.status in ("cancelled", "failed"):
+        # Refuse before writing anything so a late batch can't
+        # resurrect entries or reopen the scan.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"scan is {scan.status}; no further batches accepted",
         )
     if scan.started_at is None:
         scan.started_at = scan_start
@@ -378,11 +402,11 @@ async def ingest_batch(
     # ingest latency at 10M+-file scale (1k-entry batch = 1k round-trips).
     incoming_paths = [incoming.path for incoming in batch.entries]
     existing_by_path: dict[str, Entry] = {}
-    if incoming_paths:
+    for _i in range(0, len(incoming_paths), _LOOKUP_CHUNK):
         existing_result = await db.execute(
             select(Entry).where(
                 Entry.source_id == batch.source_id,
-                Entry.path.in_(incoming_paths),
+                Entry.path.in_(incoming_paths[_i : _i + _LOOKUP_CHUNK]),
             )
         )
         for entry in existing_result.scalars():
@@ -524,8 +548,7 @@ async def ingest_batch(
         # comfortable headroom even if we add a column or two later.
         # v0.27.1 — pre-fix, batches over ~990 rows blew the cap and
         # the entire scan failed with a 500.
-        max_params = 30_000
-        chunk_rows = max(1, max_params // len(col_names))
+        chunk_rows = max(1, _MAX_QUERY_PARAMS // len(col_names))
         for start in range(0, len(rows), chunk_rows):
             chunk = rows[start : start + chunk_rows]
             stmt = (

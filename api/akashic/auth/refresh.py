@@ -92,8 +92,13 @@ async def rotate(
     a successor in the same chain. Returns None on any failure
     (expired / revoked / unknown / replay) — the auth router maps that
     to 401."""
+    # FOR UPDATE: concurrent refreshes with the same token serialize here,
+    # so the loser sees revoked_at and takes the replay path instead of
+    # both minting a successor.
     row = (await db.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == _hash(plain))
+        select(RefreshToken)
+        .where(RefreshToken.token_hash == _hash(plain))
+        .with_for_update()
     )).scalar_one_or_none()
     if row is None:
         return None

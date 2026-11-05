@@ -10,6 +10,7 @@ import logging
 import os
 import uuid
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
@@ -78,8 +79,12 @@ async def _load_entry_and_source(
 
 def _content_disposition(filename: str, as_attachment: bool) -> str:
     disp = "attachment" if as_attachment else "inline"
-    safe = filename.replace('"', "_")
-    return f'{disp}; filename="{safe}"'
+    # ASCII fallback (no quotes / CR / LF / non-ASCII) plus an RFC 5987
+    # filename* carrying the real UTF-8 name, percent-encoded.
+    safe = "".join(
+        c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename
+    ) or "download"
+    return f"{disp}; filename=\"{safe}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 def _looks_binary(buf: bytes) -> bool:

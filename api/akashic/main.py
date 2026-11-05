@@ -2,6 +2,7 @@ import gzip
 import logging
 import os
 import time
+import zlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
@@ -77,15 +78,27 @@ class _GzipRequestMiddleware:
             if not message.get("more_body", False):
                 break
 
+        # Stream-decompress with a bounded output so a gzip bomb never
+        # inflates past the cap in memory (gzip.decompress has no limit).
+        too_big = False
         try:
-            decompressed = gzip.decompress(b"".join(body_parts))
-        except (OSError, EOFError) as exc:
+            d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            decompressed = d.decompress(
+                b"".join(body_parts), self._MAX_DECOMPRESSED_BYTES + 1
+            )
+            if len(decompressed) > self._MAX_DECOMPRESSED_BYTES:
+                too_big = True
+            elif d.unconsumed_tail:
+                too_big = True
+            elif not d.eof:
+                raise EOFError("truncated gzip stream")
+        except (zlib.error, EOFError) as exc:
             await Response(
                 content=f"Invalid gzip body: {exc}".encode(),
                 status_code=400,
             )(scope, receive, send)
             return
-        if len(decompressed) > self._MAX_DECOMPRESSED_BYTES:
+        if too_big:
             await Response(
                 content=b"Decompressed body exceeds 32 MB cap",
                 status_code=413,

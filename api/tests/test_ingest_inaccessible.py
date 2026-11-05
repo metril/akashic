@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.models.scan import Scan
+from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.auth.jwt import create_ingest_token
@@ -75,6 +76,12 @@ async def test_inaccessible_counts_accumulate_across_batches(
     sid = uuid.uuid4()
     user, scan = await _seed(db_session, sid)
     token = create_ingest_token(str(user.id))
+    # Unit-coordinated scan: ingest defers finalize to the work-unit
+    # path, so the scan stays non-terminal across the per-unit finals.
+    db_session.add(ScanWorkUnit(
+        id=uuid.uuid4(), scan_id=scan.id, path="a", status="pending",
+    ))
+    await db_session.commit()
 
     for d, f in [(2, 5), (4, 1), (1, 3)]:
         payload = {
@@ -91,12 +98,10 @@ async def test_inaccessible_counts_accumulate_across_batches(
         )
         assert resp.status_code == 200
 
-    fetched = (await db_session.execute(
-        select(Scan).where(Scan.id == scan.id)
-    )).scalar_one()
-    await db_session.refresh(fetched)
-    assert fetched.inaccessible_dirs == 7  # 2 + 4 + 1
-    assert fetched.inaccessible_files == 9  # 5 + 1 + 3
+    from akashic.services import scan_counters
+    totals = await scan_counters.read(scan.id)
+    assert totals["inaccessible_dirs"] == 7  # 2 + 4 + 1
+    assert totals["inaccessible_files"] == 9  # 5 + 1 + 3
 
 
 @pytest.mark.asyncio
