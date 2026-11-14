@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/purge", tags=["purge"])
 
+_PURGE_CHUNK = 5000
+
 
 async def _cleanup_meilisearch_for_source(source_id: str, db_url: str):
     """Background task: remove purged entries from Meilisearch."""
@@ -87,42 +89,45 @@ async def purge_deleted(
 ):
     threshold = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
-    file_ids_result = await db.execute(
-        select(Entry.id).where(
-            Entry.kind == "file",
+    # Delete in id-keyed chunks so one huge purge never holds a single
+    # giant transaction / materialises every id in memory. Each chunk
+    # commits, then its file docs are removed from the search index.
+    files_count = 0
+    total_count = 0
+    while True:
+        chunk_ids = select(Entry.id).where(
             Entry.is_deleted == True,  # noqa: E712
             Entry.deleted_at <= threshold,
-        )
-    )
-    file_ids = [str(row[0]) for row in file_ids_result.all()]
-    files_count = len(file_ids)
-
-    await db.execute(
-        delete(Entry).where(
-            Entry.is_deleted == True,  # noqa: E712
-            Entry.deleted_at <= threshold,
-        )
-    )
+        ).limit(_PURGE_CHUNK)
+        removed = (await db.execute(
+            delete(Entry)
+            .where(Entry.id.in_(chunk_ids))
+            .returning(Entry.id, Entry.kind)
+        )).all()
+        await db.commit()
+        if not removed:
+            break
+        total_count += len(removed)
+        file_ids = [str(r.id) for r in removed if r.kind == "file"]
+        files_count += len(file_ids)
+        if file_ids:
+            try:
+                from akashic.services.search import delete_files_batch
+                await delete_files_batch(file_ids)
+            except Exception as exc:
+                logger.warning("Meilisearch cleanup for deleted files failed: %s", exc)
 
     log = PurgeLog(
         purge_type="deleted",
         target=f"older_than_{older_than_days}_days",
-        records_removed=files_count,
+        records_removed=total_count,
         performed_by=admin.id,
     )
     db.add(log)
     await db.commit()
 
-    if file_ids:
-        try:
-            from akashic.services.search import get_meili_client, INDEX_NAME
-            client = await get_meili_client()
-            index = await client.get_index(INDEX_NAME)
-            await index.delete_documents(file_ids)
-        except Exception as exc:
-            logger.warning("Meilisearch cleanup for deleted files failed: %s", exc)
-
     return {
         "files_removed": files_count,
+        "total_removed": total_count,
         "threshold_days": older_than_days,
     }

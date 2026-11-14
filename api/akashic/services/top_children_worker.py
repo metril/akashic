@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _KEY_PREFIX = "topchld:dirty:"
 WORKER_TICK_S = 1.0
+_DRAIN_CHUNK = 2000
 
 
 def _key(source_id: str) -> str:
@@ -89,15 +90,6 @@ async def _drain_one_source(
     """Pop all dirty paths for one source and recompute top_children
     for them. Returns the number of directories updated."""
     r = _client()
-    # SMEMBERS + DEL is racy across processes (another worker could
-    # be reading the same set), but recompute is idempotent so the
-    # worst case is a tiny bit of extra work. Avoids the lock that
-    # SPOP-loop would force.
-    paths_raw = await r.smembers(_key(source_id_str))
-    if not paths_raw:
-        return 0
-    await r.delete(_key(source_id_str))
-    paths = list(paths_raw)
     try:
         source_uuid = uuid.UUID(source_id_str)
     except ValueError:
@@ -105,9 +97,28 @@ async def _drain_one_source(
             "top_children_worker bad source_id key: %s", source_id_str,
         )
         return 0
-    updated = await rollup_top_children_for_paths(db, source_uuid, paths)
-    await db.commit()
-    return updated
+    # SPOP in chunks: atomic, so paths marked dirty while we work are
+    # never lost (SMEMBERS+DEL dropped anything added between the two).
+    total = 0
+    while True:
+        paths = await r.spop(_key(source_id_str), _DRAIN_CHUNK)
+        if not paths:
+            return total
+        paths = list(paths)
+        try:
+            total += await rollup_top_children_for_paths(db, source_uuid, paths)
+            await db.commit()
+        except Exception:
+            # Don't lose the popped paths, and leave the shared session
+            # clean for the next source.
+            await db.rollback()
+            try:
+                await r.sadd(_key(source_id_str), *paths)
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        if len(paths) < _DRAIN_CHUNK:
+            return total
 
 
 async def _drain_all() -> None:
@@ -157,7 +168,9 @@ _worker_sm = None
 def _worker_session_maker():
     global _worker_engine, _worker_sm
     if _worker_sm is None:
-        _worker_engine = create_async_engine(settings.database_url)
+        _worker_engine = create_async_engine(
+            settings.database_url, pool_size=2, max_overflow=2,
+        )
         _worker_sm = async_sessionmaker(
             _worker_engine, class_=AsyncSession, expire_on_commit=False,
         )

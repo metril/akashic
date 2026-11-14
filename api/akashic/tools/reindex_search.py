@@ -17,28 +17,33 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from akashic.config import settings
 from akashic.models.entry import Entry
-from akashic.services.search import build_entry_doc, ensure_index, index_files_batch
+from akashic.services.search import build_entry_doc, ensure_index, update_files_partial
 from akashic.services.tag_inheritance import get_tags_for_entries
 
 logger = logging.getLogger(__name__)
 
 
 async def _reindex(batch_size: int) -> int:
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(settings.database_url, pool_size=2, max_overflow=2)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     await ensure_index()
     total = 0
     try:
         async with session_factory() as db:
-            offset = 0
+            last_id = None
             while True:
-                rows = (await db.execute(
+                stmt = (
                     select(Entry)
                     .where(Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
                     .order_by(Entry.id)
-                    .offset(offset)
                     .limit(batch_size)
-                )).scalars().all()
+                )
+                if last_id is not None:
+                    # Keyset pagination: stable and O(batch) per page,
+                    # unlike OFFSET which rescans (and skips rows when
+                    # entries are deleted mid-run).
+                    stmt = stmt.where(Entry.id > last_id)
+                rows = (await db.execute(stmt)).scalars().all()
                 if not rows:
                     break
                 tag_map = await get_tags_for_entries(
@@ -48,9 +53,12 @@ async def _reindex(batch_size: int) -> int:
                     build_entry_doc(e, tags=tag_map.get(e.id, []))
                     for e in rows
                 ]
-                await index_files_batch(docs)
+                # Partial update: merges by id so extracted content_text
+                # survives (a full replace would wipe it).
+                await update_files_partial(docs)
                 total += len(rows)
-                offset += len(rows)
+                last_id = rows[-1].id
+                db.expunge_all()
                 logger.info("Re-indexed %d entries so far", total)
     finally:
         await engine.dispose()
