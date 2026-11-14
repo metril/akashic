@@ -1,8 +1,6 @@
 module github.com/akashic-project/akashic/scanner
 
-go 1.23.0
-
-toolchain go1.23.12
+go 1.25
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.26.0

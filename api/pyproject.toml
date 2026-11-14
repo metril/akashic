@@ -26,6 +26,8 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-httpx>=0.35",
+    "pytest-xdist>=3.6",
+    "pytest-split>=0.10",
     "coverage>=7.6",
 ]
 
@@ -43,6 +45,8 @@ build-backend = "hatchling.build"
 # (a SourceTester probe), not a test. Pin collection to `tests/` so
 # CI doesn't trip on prefix-shaped helpers in the package.
 testpaths = ["tests"]
+# Parallel by default; pass `-n 0` for a serial run.
+addopts = "-n auto"
 # Per-test loop scope for both fixtures and tests so the autouse setup_db
 # fixture's engine creates and disposes asyncpg connections on the same
 # loop the test runs on. With session scope, fixtures end up holding

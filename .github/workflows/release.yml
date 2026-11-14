@@ -40,9 +40,13 @@ env:
   IMAGE_SCANNER: ghcr.io/${{ github.repository_owner }}/akashic-scanner
 
 jobs:
-  test-api:
-    name: API tests
+  test-api-shard:
+    name: API tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2, 3, 4 ]
     services:
       postgres:
         image: postgres:16-alpine
@@ -91,7 +95,17 @@ jobs:
       - working-directory: api
         env:
           TEST_DB_URL: postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test
-        run: python -m pytest --tb=short -q
+        run: python -m pytest --tb=short -q --splits 4 --group ${{ matrix.shard }} -n auto
+
+  test-api:
+    name: API tests
+    needs: test-api-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all shards green
+        run: |
+          [ "${{ needs.test-api-shard.result }}" = "success" ] || { echo "::error::API test shards: ${{ needs.test-api-shard.result }}"; exit 1; }
 
   test-scanner:
     runs-on: ubuntu-latest
@@ -101,7 +115,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
+          go-version: "1.25"
           cache-dependency-path: scanner/go.sum
       - working-directory: scanner
         run: go test ./...
@@ -242,7 +256,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
+          go-version: "1.25"
           cache-dependency-path: scanner/go.sum
       - name: Build
         # CGO_ENABLED=0 keeps the binary statically linked — no glibc
