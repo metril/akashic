@@ -7,9 +7,20 @@ from collections.abc import AsyncGenerator
 # dev-bypass before any code path imports config.
 os.environ.setdefault("AKASHIC_DEV_ALLOW_DEFAULT_KEY", "1")
 
+# xdist isolation: each worker gets its own Postgres DB (<base>_gwN) and
+# its own Redis logical DB (N+1 mod 16). Must run before akashic.config
+# is imported so Settings picks up REDIS_URL. Serial runs keep the base
+# DB name and Redis db 0.
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+if _WORKER.startswith("gw") and _WORKER[2:].isnumeric():
+    _redis_base = os.environ.get("REDIS_URL", "redis://localhost:6379/0").rsplit("/", 1)[0]
+    os.environ["REDIS_URL"] = f"{_redis_base}/{(int(_WORKER[2:]) + 1) % 16}"
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -17,10 +28,42 @@ from akashic.database import Base, get_db
 from akashic.main import create_app
 from akashic.models import *  # noqa: F401,F403
 
-TEST_DB_URL = os.environ.get(
+_BASE_DB_URL = os.environ.get(
     "TEST_DB_URL",
     "postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test",
 )
+_base_prefix, _base_name = _BASE_DB_URL.rsplit("/", 1)
+_base_name, _, _query = _base_name.partition("?")
+_db_name = f"{_base_name}_{_WORKER}" if _WORKER else _base_name
+TEST_DB_URL = f"{_base_prefix}/{_db_name}" + (f"?{_query}" if _query else "")
+# Re-export so tests that read TEST_DB_URL from the env directly (e.g.
+# test_backfill_viewable) hit this worker's DB, not the shared base one.
+os.environ["TEST_DB_URL"] = TEST_DB_URL
+
+
+def _ensure_test_db() -> None:
+    """Create this worker's database if missing (via the postgres maintenance DB)."""
+    async def _go() -> None:
+        admin = create_async_engine(
+            f"{_base_prefix}/postgres", isolation_level="AUTOCOMMIT", poolclass=NullPool
+        )
+        try:
+            async with admin.connect() as conn:
+                exists = await conn.scalar(
+                    text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": _db_name}
+                )
+                if not exists:
+                    try:
+                        await conn.execute(text(f'CREATE DATABASE "{_db_name}"'))
+                    except ProgrammingError:
+                        pass  # created concurrently
+        finally:
+            await admin.dispose()
+
+    asyncio.run(_go())
+
+
+_ensure_test_db()
 
 
 @pytest_asyncio.fixture(autouse=True)

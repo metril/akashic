@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, func
+from sqlalchemy import String, DateTime, ForeignKey, Index, func, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +10,13 @@ from akashic.database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # One local row per (IdP, subject). Partial: local users have no external_id.
+        Index(
+            "uq_users_provider_ext", "auth_provider", "external_id",
+            unique=True, postgresql_where=text("external_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)

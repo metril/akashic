@@ -13,6 +13,7 @@ import logging
 
 import ldap  # python-ldap
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.config import settings
@@ -36,6 +37,13 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
     async.  Call it from a thread pool (``asyncio.get_event_loop().run_in_executor``)
     if you need non-blocking behaviour inside an async route.
     """
+    # An empty password makes an LDAP simple bind "unauthenticated", which
+    # succeeds on AD / many servers. Never let it reach the bind.
+    if not password or not password.strip():
+        return None
+
+    conn = None
+    user_conn = None
     try:
         conn = ldap.initialize(settings.ldap_server)
         conn.set_option(ldap.OPT_REFERRALS, 0)
@@ -94,6 +102,13 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
     except ldap.LDAPError as exc:
         logger.warning("LDAP error during authentication for %s: %s", username, exc)
         return None
+    finally:
+        for c in (user_conn, conn):
+            if c is not None:
+                try:
+                    c.unbind_s()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -128,15 +143,38 @@ async def get_or_create_user(db: AsyncSession, ldap_info: dict) -> User:
             username = f"{base_username}_{counter}"
             counter += 1
 
-        user = User(
-            username=username,
-            email=ldap_info.get("email"),
-            role="viewer",
-            auth_provider="ldap",
-            external_id=dn,
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        # Bounded retry: an IntegrityError may come from the
+        # (provider, external_id) race (re-select finds the winner) or
+        # from users.username (re-allocate a username and insert again).
+        for _attempt in range(5):
+            user = User(
+                username=username,
+                email=ldap_info.get("email"),
+                role="viewer",
+                auth_provider="ldap",
+                external_id=dn,
+            )
+            db.add(user)
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                user = (await db.execute(
+                    select(User).where(User.auth_provider == "ldap", User.external_id == dn)
+                )).scalar_one_or_none()
+                if user is not None:
+                    break
+                username = f"{base_username}_{counter}"
+                counter += 1
+                while (await db.execute(
+                    select(User).where(User.username == username)
+                )).scalar_one_or_none() is not None:
+                    username = f"{base_username}_{counter}"
+                    counter += 1
+            else:
+                await db.refresh(user)
+                break
+        else:
+            raise RuntimeError("could not provision user: username allocation kept colliding")
 
     return user

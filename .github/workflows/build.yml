@@ -38,9 +38,13 @@ env:
   IMAGE_SCANNER: ghcr.io/${{ github.repository_owner }}/akashic-scanner
 
 jobs:
-  test-api:
-    name: API tests
+  test-api-shard:
+    name: API tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2, 3, 4 ]
     services:
       postgres:
         image: postgres:16-alpine
@@ -89,7 +93,17 @@ jobs:
         working-directory: api
         env:
           TEST_DB_URL: postgresql+asyncpg://akashic:changeme@localhost:5432/akashic_test
-        run: python -m pytest --tb=short -q
+        run: python -m pytest --tb=short -q --splits 4 --group ${{ matrix.shard }} -n auto
+
+  test-api:
+    name: API tests
+    needs: test-api-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all shards green
+        run: |
+          [ "${{ needs.test-api-shard.result }}" = "success" ] || { echo "::error::API test shards: ${{ needs.test-api-shard.result }}"; exit 1; }
 
   test-scanner:
     name: Scanner tests
@@ -98,14 +112,16 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
-          cache-dependency-path: scanner/go.sum
+          go-version: "1.25"
+          cache-dependency-path: |
+            scanner/go.sum
+            cli/go.sum
       - name: Run go test
         working-directory: scanner
         run: go test ./...
-      - name: cli vet + build
+      - name: cli vet + test
         working-directory: cli
-        run: go vet ./... && go build ./...
+        run: go vet ./... && go test -race ./...
 
   test-web:
     name: Web tests + typecheck
@@ -167,7 +183,7 @@ jobs:
         with:
           context: .
           file: api/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ steps.tags.outputs.push }}
           tags: ${{ steps.tags.outputs.tags }}
           # Layer cache via the registry — first build is slow, every
@@ -255,7 +271,7 @@ jobs:
           # constraint as the api scanner-builder stage).
           context: .
           file: scanner/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ steps.tags.outputs.push }}
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=registry,ref=${{ env.IMAGE_SCANNER }}:buildcache

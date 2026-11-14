@@ -135,6 +135,7 @@ async def _distinct_active_scanners(
 
 async def _maybe_finalize_scan(
     db: AsyncSession, scan: Scan, source: Source | None,
+    swept_ids: list[str] | None = None,
 ) -> str | None:
     """Transition the scan to a terminal state when all its units are
     terminal. Returns the new status when transitioned, else None.
@@ -186,7 +187,9 @@ async def _maybe_finalize_scan(
     # delta lands on the row.
     if new_status == "completed" and failed == 0:
         from akashic.routers.ingest import _sweep_stale_entries
-        await _sweep_stale_entries(db, scan, now)
+        swept = await _sweep_stale_entries(db, scan, now)
+        if swept_ids is not None:
+            swept_ids.extend(swept)
 
     # v0.29.2 — flush per-scan Redis counter hash back to scan.*
     # before terminal commit. Single round-trip; safe to call even
@@ -441,13 +444,21 @@ async def complete_unit(
         raise HTTPException(
             status_code=403, detail="scanner is not the lease holder",
         )
+    if scan.status not in ("pending", "running") or unit.status != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"scan is {scan.status}, unit is {unit.status}; cannot finalize unit",
+        )
     now = datetime.now(timezone.utc)
     unit.status = "completed"
     unit.completed_at = now
     unit.lease_expires_at = None
 
-    new_status = await _maybe_finalize_scan(db, scan, source)
+    swept_ids: list[str] = []
+    new_status = await _maybe_finalize_scan(db, scan, source, swept_ids)
     await db.commit()
+    from akashic.routers.ingest import _delete_swept_from_index
+    await _delete_swept_from_index(swept_ids)
     if new_status is not None and source is not None:
         await _broadcast_terminal(scan, source, scanner, new_status)
         # Mirror the ingest-batch IsFinal=true post-scan tasks.
@@ -494,6 +505,11 @@ async def fail_unit(
     if unit.assigned_scanner_id != scanner.id:
         raise HTTPException(
             status_code=403, detail="scanner is not the lease holder",
+        )
+    if scan.status not in ("pending", "running") or unit.status != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"scan is {scan.status}, unit is {unit.status}; cannot finalize unit",
         )
     now = datetime.now(timezone.utc)
     unit.attempt_count = (unit.attempt_count or 0) + 1

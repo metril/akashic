@@ -27,6 +27,7 @@ that file.
 | `SECRET_KEY` | `changeme-secret-key` | JWT signing key. **Override in production.** |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access-token TTL. |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh-token TTL. Matches typical SSO session lifetimes. |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma-separated proxy IPs (or `*`) whose `X-Forwarded-For`/`-Proto` uvicorn trusts (`--proxy-headers`). Set to your reverse proxy's address so login rate limits key on the real client IP; leave default if clients connect directly. |
 
 ## Authentication
 

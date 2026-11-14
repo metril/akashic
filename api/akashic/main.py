@@ -249,6 +249,14 @@ async def lifespan(app: FastAPI):
             logger.warning("meili debouncer shutdown noise: %s", exc)
     from akashic.services import scan_pubsub
     await scan_pubsub.aclose()
+    from akashic.auth import oidc as _oidc
+    await _oidc.aclose()
+    # Background-task engines + shared webhook HTTP client.
+    from akashic.routers.ingest import dispose_bg_engines
+    from akashic.services import webhooks as _webhooks
+    await meili_indexer.dispose_bg_engine()
+    await dispose_bg_engines()
+    await _webhooks.aclose()
 
 
 def create_app() -> FastAPI:

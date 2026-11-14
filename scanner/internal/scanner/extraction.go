@@ -104,6 +104,9 @@ func DriveExtraction(
 
 	sink := newContentSink(ctx, apiClient, sourceID, scanID, logf)
 	pool := extract.NewPool(conn, ex, workers, sink.add, logf)
+	// Scan cancel skips queued extractions.
+	stop := context.AfterFunc(ctx, pool.Cancel)
+	defer stop()
 	for _, c := range candidates {
 		if ctx.Err() != nil {
 			break

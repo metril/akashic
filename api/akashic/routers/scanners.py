@@ -1096,21 +1096,22 @@ async def complete_scan(
     # already marks single-scanner scans "completed" before the agent
     # posts /complete, and that call still has to release the lease,
     # flush counters/Meilisearch and record reachability.
-    if scan.status in ("completed", "failed", "cancelled") and scan.status != body.status:
-        raise HTTPException(
-            status_code=409, detail=f"scan already {scan.status}",
-        )
-    scan.status = body.status
-    scan.completed_at = datetime.now(timezone.utc)
-    if body.error_message is not None:
-        scan.error_message = body.error_message
+    conflict = (
+        scan.status in ("completed", "failed", "cancelled")
+        and scan.status != body.status
+    )
+    if not conflict:
+        scan.status = body.status
+        scan.completed_at = datetime.now(timezone.utc)
+        if body.error_message is not None:
+            scan.error_message = body.error_message
     scan.lease_expires_at = None
     # v0.29.8 — distinguish scanner-driven terminal states so a sibling
     # scanner that races a heartbeat against the close logs the right
     # message. Joining scanners on a cooperative scan all post their
     # own /complete; whichever lands first sets the reason, the rest
     # see the existing reason on the next heartbeat 409.
-    if scan.cancellation_reason is None:
+    if scan.cancellation_reason is None and not conflict:
         if body.status == "completed":
             scan.cancellation_reason = "completed"
         elif body.status == "failed":
@@ -1139,6 +1140,14 @@ async def complete_scan(
             logging.getLogger(__name__).debug(
                 "meili flush on scan complete failed: %s", exc,
             )
+
+    if conflict:
+        # Counters flushed, Meili drained, lease released; the scan keeps
+        # its existing terminal status.
+        await db.commit()
+        raise HTTPException(
+            status_code=409, detail=f"scan already {scan.status}",
+        )
 
     # Phase-2 status transition: source.status mirrors the scan's
     # terminal state. Cancelled scans don't mark the source failed

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, field_validator
 
-from akashic.services.url_guard import UnsafeURL, validate_outbound_url
+from akashic.services.url_guard import UnsafeURL, validate_outbound_url_literal
 
 
 class WebhookCreate(BaseModel):
@@ -14,7 +14,7 @@ class WebhookCreate(BaseModel):
     @classmethod
     def _ssrf_guard(cls, v: str) -> str:
         try:
-            return validate_outbound_url(v)
+            return validate_outbound_url_literal(v)
         except UnsafeURL as exc:
             raise ValueError(str(exc)) from exc
 

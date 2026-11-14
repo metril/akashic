@@ -70,6 +70,10 @@ export default function Login() {
     return <Navigate to="/dashboard" replace />;
   }
 
+  // ldap shares the username/password form; hide it only when neither
+  // password provider is enabled (SSO-only deployments).
+  const showPasswordForm = providers?.local !== false || !!providers?.ldap;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     login(username, password);
@@ -192,7 +196,7 @@ export default function Login() {
               autoComplete="new-password"
               required
               minLength={MIN_PASSWORD_LENGTH}
-              error={setupError || undefined}
+              error={setupError || error || undefined}
             />
             <Button
               type="submit"
@@ -223,44 +227,48 @@ export default function Login() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Username"
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="admin"
-            autoComplete="username"
-            required
-            autoFocus
-          />
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="current-password"
-            required
-            error={error || ssoError || undefined}
-          />
-          <Button
-            type="submit"
-            loading={loading}
-            className="w-full"
-            size="lg"
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </Button>
-        </form>
+        {showPasswordForm && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input
+              label="Username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin"
+              autoComplete="username"
+              required
+              autoFocus
+            />
+            <Input
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              required
+              error={error || ssoError || undefined}
+            />
+            <Button
+              type="submit"
+              loading={loading}
+              className="w-full"
+              size="lg"
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        )}
 
         {providers?.oidc && (
           <>
+            {showPasswordForm && (
             <div className="flex items-center gap-3 my-5 text-xs text-fg-muted">
               <div className="flex-1 border-t border-line" />
               <span>or</span>
               <div className="flex-1 border-t border-line" />
             </div>
+            )}
             <a
               href="/api/auth/oidc/login"
               className="block w-full text-center rounded-lg bg-surface text-fg border border-line hover:bg-surface-muted px-5 py-2.5 text-sm font-medium"

@@ -73,6 +73,8 @@ async def list_duplicates(
 @router.get("/{content_hash}/files")
 async def get_duplicate_files(
     content_hash: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -80,7 +82,7 @@ async def get_duplicate_files(
         Entry.kind == "file",
         Entry.content_hash == content_hash,
         Entry.is_deleted == False,  # noqa: E712
-    )
+    ).order_by(Entry.id).offset(offset).limit(limit)
 
     allowed = await get_permitted_source_ids(user, db)
     if allowed is not None:

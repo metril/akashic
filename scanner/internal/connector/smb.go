@@ -133,13 +133,28 @@ type guardedReader struct {
 }
 
 func (g *guardedReader) Read(p []byte) (int, error) {
-	var n int
-	err := g.c.guard("file read", func() error {
-		var e error
-		n, e = g.rc.Read(p)
+	// Read into a private buffer: after a guard timeout the goroutine may
+	// still complete and must never write into the caller's p.
+	buf := make([]byte, len(p))
+	type readRes struct {
+		n   int
+		err error
+	}
+	res := make(chan readRes, 1)
+	gerr := g.c.guard("file read", func() error {
+		n, e := g.rc.Read(buf)
+		res <- readRes{n, e}
 		return e
 	})
-	return n, err
+	select {
+	case r := <-res:
+		copy(p, buf[:r.n])
+		return r.n, r.err
+	default:
+		// Guard returned early (timeout / ctx): the goroutine may still
+		// be running; never touch its n or buf.
+		return 0, gerr
+	}
 }
 
 func (g *guardedReader) Close() error {

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import exists, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,10 +68,18 @@ def _bg_session(db_url: str) -> "async_sessionmaker[AsyncSession]":
             async_sessionmaker as _asm,
             create_async_engine,
         )
-        engine = create_async_engine(db_url)
+        engine = create_async_engine(db_url, pool_size=2, max_overflow=2)
         sm = _asm(engine, class_=AsyncSession, expire_on_commit=False)
         _bg_session_makers[db_url] = sm
     return sm
+
+
+async def dispose_bg_engines() -> None:
+    """Dispose cached background-task engines (app shutdown)."""
+    sms = list(_bg_session_makers.values())
+    _bg_session_makers.clear()
+    for sm in sms:
+        await sm.kw["bind"].dispose()
 
 
 async def _rollup_subtree_aggregates(source_id: str, db_url: str):
@@ -161,19 +169,33 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
                     Webhook.user_id.in_(allowed_user_ids),
                 )
             )
-            for webhook in result.scalars().all():
-                await dispatch_webhook(webhook, {
-                    "event": event_type,
-                    "scan_id": scan_id,
-                    "source_id": source_id,
-                })
+            from akashic.services.webhooks import dispatch_webhooks
+            await dispatch_webhooks(result.scalars().all(), {
+                "event": event_type,
+                "scan_id": scan_id,
+                "source_id": source_id,
+            })
     except Exception as exc:
         logger.warning("Webhook dispatch failed: %s", exc)
 
 
+async def _delete_swept_from_index(file_ids: list[str]) -> None:
+    """Remove swept (soft-deleted) files from the search index. Called
+    after the sweep's transaction commits; failures are logged only —
+    the rows are already deleted in Postgres."""
+    if not file_ids:
+        return
+    from akashic.services.search import delete_files_batch
+    try:
+        for i in range(0, len(file_ids), 5000):
+            await delete_files_batch(file_ids[i:i + 5000])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("meili delete of swept entries failed: %s", exc)
+
+
 async def _sweep_stale_entries(
     db: AsyncSession, scan: Scan, now: datetime,
-) -> None:
+) -> list[str]:
     """Mark entries the scan didn't see as deleted, and emit `moved`
     events where a stale file's content_hash reappears at a new path.
 
@@ -188,7 +210,7 @@ async def _sweep_stale_entries(
     work-unit finalize path can run the identical sweep.
     """
     if scan.started_at is None:
-        return
+        return []
     from akashic.services import scan_counters
 
     # Bulk UPDATE … RETURNING (review D-I6). Pre-fix this loaded every
@@ -211,7 +233,8 @@ async def _sweep_stale_entries(
             Entry.source_id, Entry.path,
         )
     )).all()
-    stale_file_count = sum(1 for r in stale_returning if r.kind == "file")
+    swept_file_ids = [str(r.id) for r in stale_returning if r.kind == "file"]
+    stale_file_count = len(swept_file_ids)
     if stale_file_count:
         await scan_counters.add(scan.id, files_deleted=stale_file_count)
 
@@ -233,19 +256,23 @@ async def _sweep_stale_entries(
         # Order by id for deterministic picking when more than one
         # candidate exists for a given hash — without it the test
         # suite could see flapping move targets.
-        candidates: list[Entry] = []
+        # Slim DISTINCT ON (content_hash): one (hash, source, path) row
+        # per hash instead of every matching full Entry.
+        first_by_hash: dict[str, object] = {}
         for i in range(0, len(stale_hashes), 5000):
-            candidates.extend((await db.execute(
-                select(Entry).where(
+            rows = (await db.execute(
+                select(Entry.content_hash, Entry.source_id, Entry.path)
+                .where(
                     Entry.content_hash.in_(stale_hashes[i:i + 5000]),
                     Entry.kind == "file",
                     Entry.is_deleted == False,  # noqa: E712
                     Entry.last_seen_at >= scan.started_at,
-                ).order_by(Entry.id)
-            )).scalars().all())
-        first_by_hash: dict[str, Entry] = {}
-        for c in candidates:
-            first_by_hash.setdefault(c.content_hash, c)
+                )
+                .distinct(Entry.content_hash)
+                .order_by(Entry.content_hash, Entry.id)
+            )).all()
+            for c in rows:
+                first_by_hash.setdefault(c.content_hash, c)
         for stale in stale_files_with_hash:
             moved_to = first_by_hash.get(stale.content_hash)
             if moved_to:
@@ -258,6 +285,7 @@ async def _sweep_stale_entries(
                     new_path=moved_to.path,
                     scan_id=scan.id,
                 ))
+    return swept_file_ids
 
 
 def _apply_entry_fields(target: Entry, src):
@@ -332,12 +360,20 @@ async def ingest_batch(
         )
     await check_source_access(batch.source_id, user, db, required_level="write")
 
+    # Dedupe by path (last wins): a duplicate path would insert twice /
+    # trip ON CONFLICT and double-count. dict preserves first-seen order.
+    _by_path = {e.path: e for e in batch.entries}
+    if len(_by_path) != len(batch.entries):
+        batch.entries = list(_by_path.values())
+
     # scan_start sits 1ms before now so stale-detection (last_seen_at < scan.started_at)
     # works on single-batch scans.
     scan_start = datetime.now(timezone.utc) - timedelta(milliseconds=1)
     now = datetime.now(timezone.utc)
 
-    result = await db.execute(select(Scan).where(Scan.id == batch.scan_id))
+    result = await db.execute(
+        select(Scan).where(Scan.id == batch.scan_id)
+    )
     scan = result.scalar_one_or_none()
     if scan is None:
         # Reject unknown scan_id (review A-I6). Pre-fix the endpoint
@@ -366,10 +402,21 @@ async def ingest_batch(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"scan is {scan.status}; no further batches accepted",
         )
-    if scan.started_at is None:
-        scan.started_at = scan_start
-    if scan.status == "pending":
-        scan.status = "running"
+    if scan.started_at is None or scan.status == "pending":
+        # No row lock held for the batch (v0.29.2 design: concurrent
+        # scanners must not serialize on the Scan row). First-batch
+        # transition is a conditional UPDATE; it is a no-op if a cancel
+        # or a sibling batch won the race.
+        await db.execute(
+            sql_update(Scan)
+            .where(Scan.id == scan.id, Scan.status.in_(("pending", "running")))
+            .values(
+                status=case((Scan.status == "pending", "running"), else_=Scan.status),
+                started_at=func.coalesce(Scan.started_at, scan_start),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.refresh(scan)
 
     files_processed = 0
     new_file_ids: list[str] = []
@@ -664,6 +711,7 @@ async def ingest_batch(
     # entirely. A scan with no work units is single-scanner — ingest
     # owns its completion, as before.
     scan_finalized_here = False
+    swept_ids: list[str] = []
     if batch.is_final:
         has_work_units = await db.scalar(
             select(exists().where(ScanWorkUnit.scan_id == scan.id))
@@ -671,6 +719,22 @@ async def ingest_batch(
         scan_finalized_here = not has_work_units
 
     if scan_finalized_here:
+        # Exclusive lock only on the finalize path; re-check status so a
+        # concurrent cancel/complete still wins correctly.
+        locked = (await db.execute(
+            select(Scan).where(Scan.id == scan.id)
+            .with_for_update().execution_options(populate_existing=True)
+        )).scalar_one()
+        if locked.status in ("cancelled", "failed", "completed"):
+            await db.rollback()
+            if locked.status == "completed":
+                return ScanBatchResponse(
+                    files_processed=0, scan_id=batch.scan_id, extract_candidates=[],
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"scan is {locked.status}; no further batches accepted",
+            )
         scan.status = "completed"
         scan.completed_at = now
         # Set the reason so the scanner's heartbeat decoder logs an
@@ -688,7 +752,7 @@ async def ingest_batch(
             source.status = "online"
 
         # Reap entries the scan didn't see + emit `moved` events.
-        await _sweep_stale_entries(db, scan, now)
+        swept_ids = await _sweep_stale_entries(db, scan, now)
 
         # Flush the Redis counter hash back onto scan.* columns so the
         # row is authoritative post-scan. Same transaction as the
@@ -698,6 +762,7 @@ async def ingest_batch(
         await scan_counters.flush_to_db(db, scan)
 
     await db.commit()
+    await _delete_swept_from_index(swept_ids)
 
     # v0.4.11: event-driven scan.state broadcast. Batches arrive only
     # when the scanner has accumulated files to ingest — this is a real

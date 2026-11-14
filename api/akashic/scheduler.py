@@ -367,8 +367,11 @@ async def _finalize_orphaned_complete_scans():
                 source = (await db.execute(
                     select(Source).where(Source.id == scan.source_id)
                 )).scalar_one_or_none()
-            new_status = await _maybe_finalize_scan(db, scan, source)
+            swept_ids: list[str] = []
+            new_status = await _maybe_finalize_scan(db, scan, source, swept_ids)
             await db.commit()
+            from akashic.routers.ingest import _delete_swept_from_index
+            await _delete_swept_from_index(swept_ids)
             if new_status is None:
                 # A unit was split/re-queued between the scan-out and the
                 # lock — leave it for the lease loop. Not an error.

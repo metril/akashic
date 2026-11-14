@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getToken } from "../api/client";
+import { completeSsoLogin, getToken } from "../api/client";
 import { isStreamStale } from "../components/scans/scanLog";
 import type {
   ScanLogLine,
@@ -246,7 +246,8 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       scheduleFlush();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (wsRef.current !== ws || !mountedRef.current) return;
       wsRef.current = null;
       if (!enabledRef.current) {
         setState((s) => ({ ...s, status: "closed" }));
@@ -255,6 +256,15 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       attemptRef.current += 1;
       const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 10_000);
       setState((s) => ({ ...s, status: "reconnecting" }));
+      // 1008 = server rejected an expired access token: refresh first,
+      // otherwise every reconnect would be rejected the same way.
+      if (ev.code === 1008) {
+        void completeSsoLogin().then(() => {
+          if (!mountedRef.current || !enabledRef.current) return;
+          reconnectTimer.current = window.setTimeout(connect, delay);
+        });
+        return;
+      }
       reconnectTimer.current = window.setTimeout(connect, delay);
     };
 

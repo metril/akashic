@@ -81,11 +81,22 @@ _bg_sessionmaker: async_sessionmaker | None = None
 def _bg_session() -> async_sessionmaker:
     global _bg_engine, _bg_sessionmaker
     if _bg_sessionmaker is None:
-        _bg_engine = create_async_engine(settings.database_url)
+        _bg_engine = create_async_engine(
+            settings.database_url, pool_size=2, max_overflow=2,
+        )
         _bg_sessionmaker = async_sessionmaker(
             _bg_engine, class_=AsyncSession, expire_on_commit=False,
         )
     return _bg_sessionmaker
+
+
+async def dispose_bg_engine() -> None:
+    """Dispose the background engine on app shutdown."""
+    global _bg_engine, _bg_sessionmaker
+    if _bg_engine is not None:
+        await _bg_engine.dispose()
+    _bg_engine = None
+    _bg_sessionmaker = None
 
 
 async def mark_dirty(source_id: uuid.UUID | str, entry_ids: list[uuid.UUID | str]) -> None:
@@ -205,10 +216,15 @@ async def flush(source_id: uuid.UUID | str) -> int:
             pass
         return 0
 
-    # Success — clear the debounce timestamp so the next mark_dirty
-    # opens a fresh window.
+    # Success. Clear the debounce timestamp only if nothing remains (we
+    # popped at most _FLUSH_SIZE_THRESHOLD ids); otherwise re-stamp it so
+    # the remainder flushes on a later tick instead of being orphaned.
     try:
-        await _redis_client().delete(ts_key)
+        r = _redis_client()
+        if await r.scard(set_key) == 0:
+            await r.delete(ts_key)
+        else:
+            await r.set(ts_key, str(time.time()))
     except Exception:  # noqa: BLE001
         pass
     return len(entries)

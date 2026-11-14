@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user, require_admin
@@ -16,9 +16,14 @@ from akashic.schemas.user import UserCreate, UserLogin, UserResponse, TokenRespo
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
+_REGISTER_LOCK_KEY = 0x414B5348_01  # arbitrary constant: "AKSH"+1
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Serialize bootstrap: without the lock two concurrent registers both
+    # see count==0 and both become admin. Released at commit/rollback.
+    await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _REGISTER_LOCK_KEY})
     # Check if this is the first user (bootstrap)
     count_result = await db.execute(select(func.count(User.id)))
     user_count = count_result.scalar()
