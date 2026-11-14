@@ -2,7 +2,7 @@
 # Alpine base avoids the bulk of the CVE surface in the full Debian-based
 # golang image. We build with CGO_ENABLED=0 so the resulting binary has no
 # runtime dependency on the builder image at all.
-FROM golang:1.23-alpine AS scanner-builder
+FROM golang:1.25-alpine AS scanner-builder
 ARG VERSION=dev
 RUN apk add --no-cache git
 WORKDIR /src

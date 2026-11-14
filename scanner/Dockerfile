@@ -2,7 +2,7 @@
 # scanner-builder stage, but ships the binary on its own (Phase 2 of
 # the multi-scanner work — the api image stops bundling the binary in
 # Phase 3 once subprocess-spawn is removed).
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 # go.mod's `replace` directive for internal/vendor/go-smb2 means we
 # need the full source tree before `go mod download` (the replace target
@@ -15,7 +15,7 @@ RUN cd scanner && go mod download \
         -ldflags "-s -w -X main.Version=${VERSION}" \
         -o /out/akashic-scanner ./cmd/akashic-scanner
 
-FROM alpine:3.20
+FROM alpine:3.22
 # Non-root by default; the agent only needs to read its own key file
 # and reach the api over the network.
 RUN adduser -D -u 1000 scanner

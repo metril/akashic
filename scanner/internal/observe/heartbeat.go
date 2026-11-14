@@ -78,9 +78,9 @@ func (r *Reporter) postHeartbeat(ctx context.Context) (terminal bool) {
 	if resp.StatusCode == http.StatusConflict {
 		msg, completed := decodeCancelMessage(resp.Body)
 		if completed {
-			r.logSink.Info(msg)
+			r.logSink.Info("%s", msg)
 		} else {
-			r.logSink.Warn(msg)
+			r.logSink.Warn("%s", msg)
 		}
 		r.signalCancel()
 		return true
