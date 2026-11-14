@@ -43,4 +43,7 @@ RUN pip install --no-cache-dir .
 # The scanner binary lives on PATH so api code can spawn it via shutil.which.
 COPY --from=scanner-builder /out/akashic-scanner /usr/local/bin/akashic-scanner
 
-CMD ["uvicorn", "akashic.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Trust X-Forwarded-* only from FORWARDED_ALLOW_IPS (default: loopback) so the
+# per-IP rate limiters see real client IPs behind a reverse proxy.
+ENV FORWARDED_ALLOW_IPS=127.0.0.1
+CMD ["sh", "-c", "exec uvicorn akashic.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]

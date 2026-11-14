@@ -9,14 +9,17 @@ Uses the authorization code flow:
   4. get_or_create_user() resolves (or provisions) a local User record.
 """
 
+import asyncio
 import base64
 import hashlib
 import secrets
+import time
 from urllib.parse import urlencode
 
 import httpx
-from jose import jwt as jose_jwt
+from jose import JWTError, jwt as jose_jwt
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.config import settings
@@ -36,36 +39,59 @@ _jwks_fetched_at: float = 0
 # are cheap to fetch; no operational reason to keep the cache long-lived.
 _CACHE_TTL_SECONDS = 1800
 
+# One shared client (connection reuse) and a lock so concurrent logins
+# collapse into a single discovery / JWKS fetch.
+_client: httpx.AsyncClient | None = None
+_cache_lock: asyncio.Lock | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient()
+    return _client
+
+
+def _get_lock() -> asyncio.Lock:
+    global _cache_lock
+    if _cache_lock is None:
+        _cache_lock = asyncio.Lock()
+    return _cache_lock
+
+
+async def aclose() -> None:
+    """Close the shared HTTP client (called from the app lifespan)."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
+
 
 async def _get_discovery() -> dict:
     """Fetch (and cache with TTL) the OIDC discovery document."""
-    import time
-
     global _discovery_cache, _discovery_fetched_at
-    now = time.monotonic()
-    if _discovery_cache is None or (now - _discovery_fetched_at) > _CACHE_TTL_SECONDS:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(settings.oidc_discovery_url, timeout=10)
+    async with _get_lock():
+        now = time.monotonic()
+        if _discovery_cache is None or (now - _discovery_fetched_at) > _CACHE_TTL_SECONDS:
+            resp = await _get_client().get(settings.oidc_discovery_url, timeout=10)
             resp.raise_for_status()
             _discovery_cache = resp.json()
             _discovery_fetched_at = now
-    return _discovery_cache
+        return _discovery_cache
 
 
 async def _get_jwks() -> dict:
     """Fetch (and cache with TTL) the provider's JWKS for ID-token verification."""
-    import time
-
     global _jwks_cache, _jwks_fetched_at
-    now = time.monotonic()
-    if _jwks_cache is None or (now - _jwks_fetched_at) > _CACHE_TTL_SECONDS:
-        discovery = await _get_discovery()
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(discovery["jwks_uri"], timeout=10)
+    discovery = await _get_discovery()
+    async with _get_lock():
+        now = time.monotonic()
+        if _jwks_cache is None or (now - _jwks_fetched_at) > _CACHE_TTL_SECONDS:
+            resp = await _get_client().get(discovery["jwks_uri"], timeout=10)
             resp.raise_for_status()
             _jwks_cache = resp.json()
             _jwks_fetched_at = now
-    return _jwks_cache
+        return _jwks_cache
 
 
 def invalidate_cache() -> None:
@@ -154,29 +180,39 @@ async def exchange_code(
     if code_verifier:
         data["code_verifier"] = code_verifier
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            token_endpoint,
-            data=data,
-            headers={"Accept": "application/json"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        token_response = resp.json()
+    resp = await _get_client().post(
+        token_endpoint,
+        data=data,
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    token_response = resp.json()
 
     id_token = token_response.get("id_token")
     if not id_token:
         raise ValueError("No id_token in token response")
 
-    jwks = await _get_jwks()
+    def _decode(jwks: dict) -> dict:
+        return jose_jwt.decode(
+            id_token,
+            jwks,
+            algorithms=["RS256", "ES256", "RS384", "ES384", "RS512"],
+            audience=settings.oidc_client_id,
+            issuer=issuer,
+            # python-jose validates `at_hash` when present and requires
+            # the access token to do so.
+            access_token=token_response.get("access_token"),
+        )
 
-    claims: dict = jose_jwt.decode(
-        id_token,
-        jwks,
-        algorithms=["RS256", "ES256", "RS384", "ES384", "RS512"],
-        audience=settings.oidc_client_id,
-        issuer=issuer,
-    )
+    try:
+        claims: dict = _decode(await _get_jwks())
+    except JWTError:
+        # Possibly an IdP key rotation: drop the JWKS cache, refetch once.
+        global _jwks_cache, _jwks_fetched_at
+        _jwks_cache = None
+        _jwks_fetched_at = 0
+        claims = _decode(await _get_jwks())
     if nonce is not None and claims.get("nonce") != nonce:
         raise ValueError("ID token nonce mismatch")
     return claims
@@ -238,8 +274,16 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
             external_id=sub,
         )
         db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Concurrent first login won the (provider, external_id) race.
+            await db.rollback()
+            user = (await db.execute(
+                select(User).where(User.auth_provider == "oidc", User.external_id == sub)
+            )).scalar_one()
+        else:
+            await db.refresh(user)
 
     # Sync FsBindings from claims. The provisioning module is defensive
     # — it logs and swallows on bad claim shapes, so a malformed token

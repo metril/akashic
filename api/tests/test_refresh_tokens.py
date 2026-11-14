@@ -109,6 +109,12 @@ async def test_refresh_replay_revokes_chain(
     )
     assert rot1.status_code == 200
 
+    # Age the rotation past the grace window so this is a true replay.
+    for r in (await db_session.execute(select(RefreshToken))).scalars():
+        if r.revoked_at is not None:
+            r.revoked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await db_session.commit()
+
     # Second use of the original cookie — replay.
     replay = await client.post(
         "/api/auth/refresh",

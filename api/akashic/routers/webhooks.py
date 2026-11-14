@@ -8,6 +8,7 @@ from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.models.webhook import Webhook
+from akashic.services.url_guard import UnsafeURL, assert_safe_to_dispatch_async
 from akashic.schemas.webhook import WebhookCreate, WebhookResponse
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
@@ -19,6 +20,10 @@ async def create_webhook(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    try:
+        await assert_safe_to_dispatch_async(data.url)
+    except UnsafeURL as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     webhook = Webhook(
         user_id=user.id,
         event_type=data.event_type,

@@ -24,6 +24,7 @@ import socket
 from urllib.parse import urlparse
 
 _ALLOWED_SCHEMES = {"http", "https"}
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 class UnsafeURL(ValueError):
@@ -37,14 +38,13 @@ def _is_blocked_ip(addr: str) -> bool:
         ip = ipaddress.ip_address(addr)
     except ValueError:
         return True  # un-parseable → reject
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    # Allow only globally routable unicast addresses; this also rejects
+    # CGNAT, benchmarking, documentation, 6to4/NAT64-style ranges, etc.
+    if ip in _NAT64:
+        return True  # embeds an arbitrary IPv4 target
+    return not ip.is_global or ip.is_multicast
 
 
 def _resolve_all(hostname: str) -> list[str]:
@@ -83,6 +83,14 @@ def _check_addrs(host: str, addrs: list[str]) -> None:
     for a in addrs:
         if _is_blocked_ip(a):
             raise UnsafeURL(f"{host!r} resolves to blocked address {a!r}")
+
+
+def validate_outbound_url_literal(url: str) -> str:
+    """Scheme + literal-IP checks only (no DNS). Safe to call from sync
+    validation code; hostnames are resolved later by
+    ``assert_safe_to_dispatch_async``."""
+    _precheck(url)
+    return url
 
 
 def validate_outbound_url(url: str) -> str:

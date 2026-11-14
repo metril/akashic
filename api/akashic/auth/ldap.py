@@ -13,6 +13,7 @@ import logging
 
 import ldap  # python-ldap
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.config import settings
@@ -36,6 +37,13 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
     async.  Call it from a thread pool (``asyncio.get_event_loop().run_in_executor``)
     if you need non-blocking behaviour inside an async route.
     """
+    # An empty password makes an LDAP simple bind "unauthenticated", which
+    # succeeds on AD / many servers. Never let it reach the bind.
+    if not password or not password.strip():
+        return None
+
+    conn = None
+    user_conn = None
     try:
         conn = ldap.initialize(settings.ldap_server)
         conn.set_option(ldap.OPT_REFERRALS, 0)
@@ -94,6 +102,13 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
     except ldap.LDAPError as exc:
         logger.warning("LDAP error during authentication for %s: %s", username, exc)
         return None
+    finally:
+        for c in (user_conn, conn):
+            if c is not None:
+                try:
+                    c.unbind_s()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +151,15 @@ async def get_or_create_user(db: AsyncSession, ldap_info: dict) -> User:
             external_id=dn,
         )
         db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Concurrent first login won the (provider, external_id) race.
+            await db.rollback()
+            user = (await db.execute(
+                select(User).where(User.auth_provider == "ldap", User.external_id == dn)
+            )).scalar_one()
+        else:
+            await db.refresh(user)
 
     return user

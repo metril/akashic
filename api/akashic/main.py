@@ -249,6 +249,8 @@ async def lifespan(app: FastAPI):
             logger.warning("meili debouncer shutdown noise: %s", exc)
     from akashic.services import scan_pubsub
     await scan_pubsub.aclose()
+    from akashic.auth import oidc as _oidc
+    await _oidc.aclose()
 
 
 def create_app() -> FastAPI:
