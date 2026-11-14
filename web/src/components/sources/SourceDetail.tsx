@@ -544,11 +544,6 @@ const DetailsTab = memo(function DetailsTab({
                 Recover orphans…
               </Button>
             )}
-            {!isAdmin && (
-              <p className="text-xs text-fg-muted italic w-full mt-1">
-                Read-only — admin permission required to edit or delete.
-              </p>
-            )}
           </>
         ) : (
           <>

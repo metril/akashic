@@ -260,16 +260,15 @@ async def test_ws_rejects_invalid_token(app, fixture_scan):
 
 
 @pytest.mark.asyncio
-async def test_ws_rejects_viewer_without_source_access(
+async def test_ws_allows_viewer_on_any_source(
     app, viewer_user, fixture_scan
 ):
     token = create_access_token({"sub": str(viewer_user.id), "role": viewer_user.role})
     with TestClient(app) as client:
-        with pytest.raises(Exception):
-            with client.websocket_connect(
-                f"/ws/scans/{fixture_scan.id}?token={token}"
-            ) as ws:
-                ws.receive_json()
+        with client.websocket_connect(
+            f"/ws/scans/{fixture_scan.id}?token={token}"
+        ) as ws:
+            assert ws.receive_json()["kind"] == "snapshot"
 
 
 @pytest.mark.asyncio

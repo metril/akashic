@@ -25,10 +25,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+# Runtime settings snapshot (akashic.services.runtime_settings.rt()) or a
+# test double exposing the same attributes.
+Settings = Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.config import Settings
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.source import Source

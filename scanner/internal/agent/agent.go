@@ -39,15 +39,13 @@ type Config struct {
 	LeasePoll time.Duration // jittered ±20%
 	Hostname  string        // self-reported on handshake
 	Version   string        // build-time version string
-	// v0.30.0 — co-located Tika for content extraction. Empty disables
-	// document extraction (plain-text extraction still runs).
-	TikaURL string
-	// v0.30.0 — extraction goroutine-pool size; 0 = package default.
-	ExtractWorkers int
-	// v0.35.0 — how many work units this scanner walks in parallel on a
-	// single unit-coordinated scan. 1 (the default) = today's behaviour:
-	// one unit at a time. Raising it spawns that many worker goroutines,
-	// each with its own connector, draining the shared work-unit queue.
+	// Live is the API-delivered per-scanner config (Tika URL, extract
+	// pool size, unit concurrency), refreshed on every heartbeat. Set by
+	// Run; readers use cfg.Remote().
+	Live *LiveConfig
+	// Static fallbacks, used only when Live is nil (tests).
+	TikaURL            string
+	ExtractWorkers     int
 	MaxConcurrentUnits int
 }
 
@@ -65,6 +63,9 @@ func Run(ctx context.Context, cfg Config) error {
 		Timeout:   60 * time.Second,
 		Transport: newKeepaliveTransport(),
 	}
+
+	cfg.Live = &LiveConfig{}
+	cfg.Live.Set(RemoteConfig{ExtractWorkers: 0, MaxConcurrentUnits: 1})
 
 	// 1) Handshake — single-shot. Out-of-range protocol → fatal.
 	if err := handshake(ctx, httpc, cfg, priv); err != nil {
@@ -226,19 +227,15 @@ type handshakeReq struct {
 	ProtocolVersion int    `json:"protocol_version"`
 	Version         string `json:"version,omitempty"`
 	Hostname        string `json:"hostname,omitempty"`
-	// v0.36.0 — self-report the resolved MaxConcurrentUnits (env/flag,
-	// with the 1-floor applied in cmd/akashic-scanner/agent.go) so the
-	// admin UI can show each scanner's effective concurrency next to
-	// the other handshake-reported fields.
-	MaxConcurrentUnits int `json:"max_concurrent_units,omitempty"`
 }
 
 type handshakeResp struct {
-	Accepted              bool   `json:"accepted"`
-	ServerProtocolVersion int    `json:"server_protocol_version"`
-	AcceptedMin           int    `json:"accepted_min"`
-	AcceptedMax           int    `json:"accepted_max"`
-	Reason                string `json:"reason,omitempty"`
+	Config                *RemoteConfig `json:"config"`
+	Accepted              bool          `json:"accepted"`
+	ServerProtocolVersion int           `json:"server_protocol_version"`
+	AcceptedMin           int           `json:"accepted_min"`
+	AcceptedMax           int           `json:"accepted_max"`
+	Reason                string        `json:"reason,omitempty"`
 }
 
 type completeReq struct {
@@ -305,10 +302,9 @@ func handshake(
 		return err
 	}
 	body := handshakeReq{
-		ProtocolVersion:    protocol.Version,
-		Version:            cfg.Version,
-		Hostname:           cfg.Hostname,
-		MaxConcurrentUnits: cfg.MaxConcurrentUnits,
+		ProtocolVersion: protocol.Version,
+		Version:         cfg.Version,
+		Hostname:        cfg.Hostname,
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
 		cfg.APIBase+"/api/scanners/handshake", auth, body)
@@ -325,6 +321,10 @@ func handshake(
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("handshake HTTP %d: %s", resp.StatusCode, string(raw))
+	}
+	var hr handshakeResp
+	if err := json.NewDecoder(resp.Body).Decode(&hr); err == nil && hr.Config != nil && cfg.Live != nil {
+		cfg.Live.Set(*hr.Config)
 	}
 	log.Printf("handshake ok: scanner_id=%s protocol=%d hostname=%s",
 		cfg.ScannerID, protocol.Version, cfg.Hostname)
@@ -352,6 +352,14 @@ func heartbeatLoop(
 		if err != nil {
 			log.Printf("heartbeat: %v", err)
 			continue
+		}
+		var rc RemoteConfig
+		if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&rc) == nil && cfg.Live != nil {
+			if prev := cfg.Live.Get(); prev != rc {
+				log.Printf("config updated from api: tika=%q extract_workers=%d max_concurrent_units=%d",
+					rc.TikaURL, rc.ExtractWorkers, rc.MaxConcurrentUnits)
+			}
+			cfg.Live.Set(rc)
 		}
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
@@ -481,11 +489,11 @@ func runLeasedScan(
 		State:           state,
 		// v0.30.0 — content extraction. A dedicated connector instance
 		// per extraction pass keeps SMB sessions clear of the walk.
-		Extractor: extract.NewExtractor(cfg.TikaURL),
+		Extractor: extract.NewExtractor(cfg.Remote().TikaURL),
 		ExtractConnectorFactory: func() (connector.Connector, error) {
 			return connectorFromLeased(leased.Source)
 		},
-		ExtractWorkers: cfg.ExtractWorkers,
+		ExtractWorkers: cfg.Remote().ExtractWorkers,
 	})
 	_, err = s.Run(scanCtx)
 	// v0.39.0 — only treat the run as "api terminated" when the

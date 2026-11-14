@@ -29,18 +29,6 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class SourcePermission(Base):
-    __tablename__ = "source_permissions"
-
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
-    source_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("sources.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    access_level: Mapped[str] = mapped_column(String, default="read")
-
-
 class APIKey(Base):
     __tablename__ = "api_keys"
 

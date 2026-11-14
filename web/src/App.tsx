@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { bootstrapAuth, isAuthenticated } from "./api/client";
 import { useAuth } from "./hooks/useAuth";
+import AdminRoute from "./components/AdminRoute";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import Login from "./pages/Login";
@@ -26,6 +27,7 @@ const SettingsTags       = lazy(() => import("./pages/SettingsTags"));
 const SettingsSchedules  = lazy(() => import("./pages/SettingsSchedules"));
 const SettingsScanners   = lazy(() => import("./pages/SettingsScanners"));
 const SettingsCredentials = lazy(() => import("./pages/SettingsCredentials"));
+const SettingsServer     = lazy(() => import("./pages/SettingsServer"));
 const SettingsOAuth      = lazy(() => import("./pages/SettingsOAuth"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
@@ -46,26 +48,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/**
- * Defense-in-depth gate for `/admin/*` routes. The API enforces admin
- * via Depends(require_admin) on every endpoint these pages talk to, so
- * a non-admin who navigates here would just see 403s in the data
- * panels. But rendering the page at all leaks UI affordances and
- * filter chrome that hint at the existence of admin features. Block
- * the route outright and bounce to /dashboard. Sidebar already hides
- * the link for non-admins; this catches direct-URL / bookmark
- * traversal.
- *
- * Loading state: while the /api/users/me query is in flight we render
- * nothing rather than the page-loading spinner, since flashing the
- * admin page for a frame on a slow /me response would defeat the gate.
- */
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated: authed, user, isAdmin } = useAuth();
-  if (!authed) return <Navigate to="/login" replace />;
-  if (user === null) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
-  return <>{children}</>;
+function SettingsIndexRedirect() {
+  const { isAdmin } = useAuth();
+  return <Navigate to={isAdmin ? "credentials" : "identities"} replace />;
 }
 
 function PageLoader() {
@@ -202,7 +187,7 @@ export default function App() {
             </Suspense>
           }
         >
-          <Route index element={<Navigate to="credentials" replace />} />
+          <Route index element={<SettingsIndexRedirect />} />
           <Route
             path="identities"
             element={
@@ -214,41 +199,61 @@ export default function App() {
           <Route
             path="tags"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <SettingsTags />
-              </Suspense>
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsTags />
+                </Suspense>
+              </AdminRoute>
             }
           />
           <Route
             path="schedules"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <SettingsSchedules />
-              </Suspense>
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsSchedules />
+                </Suspense>
+              </AdminRoute>
             }
           />
           <Route
             path="scanners"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <SettingsScanners />
-              </Suspense>
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsScanners />
+                </Suspense>
+              </AdminRoute>
             }
           />
           <Route
             path="credentials"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <SettingsCredentials />
-              </Suspense>
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsCredentials />
+                </Suspense>
+              </AdminRoute>
             }
           />
           <Route
             path="oauth"
             element={
-              <Suspense fallback={<PageLoader />}>
-                <SettingsOAuth />
-              </Suspense>
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsOAuth />
+                </Suspense>
+              </AdminRoute>
+            }
+          />
+        <Route
+            path="server"
+            element={
+              <AdminRoute>
+                <Suspense fallback={<PageLoader />}>
+                  <SettingsServer />
+                </Suspense>
+              </AdminRoute>
             }
           />
         </Route>

@@ -78,7 +78,7 @@ func runUnitCoordinated(
 	// Built once and shared across this scanner's units (and workers);
 	// each extraction pass builds its own connector instance via the
 	// factory so SMB sessions stay isolated from the walk.
-	extractor := extract.NewExtractor(cfg.TikaURL)
+	extractor := extract.NewExtractor(cfg.Remote().TikaURL)
 	extractFactory := func() (connector.Connector, error) {
 		return connectorFromLeased(leased.Source)
 	}
@@ -106,7 +106,7 @@ func runUnitCoordinated(
 		return fmt.Errorf("enumerate units: %w", err)
 	}
 
-	workers := cfg.MaxConcurrentUnits
+	workers := cfg.Remote().MaxConcurrentUnits
 	if workers < 1 {
 		workers = 1
 	}
@@ -125,22 +125,20 @@ func runUnitCoordinated(
 	// connector; worker 0 starts with the probe-leased unit (if any).
 	// runUnitCoordinated returns once every worker has exited — which
 	// they all do on errScanTerminal or a scanCtx cancellation.
-	var wg sync.WaitGroup
-	errCh := make(chan error, workers)
-	for i := 0; i < workers; i++ {
-		var initial *workUnit
-		if i == 0 {
-			initial = probeUnit
-		}
-		wg.Add(1)
-		go func(initial *workUnit) {
-			defer wg.Done()
-			if err := runUnitWorker(scanCtx, deps, initial); err != nil {
-				errCh <- err
-			}
-		}(initial)
-	}
-	wg.Wait()
+	// Worker pool resizes live with the API-delivered MaxConcurrentUnits;
+	// see unitPool.
+	pool := newUnitPool(
+		func() int { return cfg.Remote().MaxConcurrentUnits },
+		func(idx int, initial *workUnit, retire func(int) bool) error {
+			return runUnitWorker(scanCtx, deps, idx, initial, retire)
+		},
+		func(want int) {
+			log.Printf("scan %s: scaling up to %d unit worker(s)", leased.ScanID, want)
+		},
+	)
+	errCh := pool.errCh
+	pool.start(scanCtx, workers, probeUnit, 2*time.Second)
+	pool.wg.Wait()
 	close(errCh)
 	// Return the first worker error, if any; a clean drain leaves errCh
 	// empty and the receive yields nil.
@@ -167,7 +165,8 @@ type unitWorkerDeps struct {
 // when MaxConcurrentUnits > 1; with the default of 1 it is exactly the
 // v0.34.0 sticky lease loop.
 func runUnitWorker(
-	scanCtx context.Context, d unitWorkerDeps, pending *workUnit,
+	scanCtx context.Context, d unitWorkerDeps, idx int, pending *workUnit,
+	retire func(int) bool,
 ) error {
 	conn, err := connectorFromLeased(d.leased.Source)
 	if err != nil {
@@ -193,6 +192,9 @@ func runUnitWorker(
 		}
 		unit := pending
 		pending = nil
+		if unit == nil && retire(idx) {
+			return nil // scaled down: retire between units
+		}
 		if unit == nil {
 			u, lErr := leaseUnit(scanCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID)
 			if errors.Is(lErr, errScanTerminal) {
@@ -219,7 +221,7 @@ func runUnitWorker(
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
 		go heartbeatUnitLoop(hbCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID)
 
-		walkErr := runUnitWalk(scanCtx, d.httpc, d.cfg, d.priv, d.apiClient, conn, d.leased, d.root, unit, d.state, d.reporter, d.leased.Source.ExcludePatterns, d.extractor, d.extractFactory, d.cfg.ExtractWorkers)
+		walkErr := runUnitWalk(scanCtx, d.httpc, d.cfg, d.priv, d.apiClient, conn, d.leased, d.root, unit, d.state, d.reporter, d.leased.Source.ExcludePatterns, extract.NewExtractor(d.cfg.Remote().TikaURL), d.extractFactory, d.cfg.Remote().ExtractWorkers)
 		hbCancel()
 
 		// Deliver the unit's terminal state, retrying on failure — see
@@ -508,4 +510,111 @@ func heartbeatUnitLoop(
 			log.Printf("scan %s unit %s: heartbeat failed: %v", scanID, unitID, err)
 		}
 	}
+}
+
+// unitPool is the live-resizable worker pool. active holds the indices of
+// workers that have not retired; all changes happen under mu, so the
+// retire decision and its removal are atomic with the monitor's
+// spawn decision (no over-spawn, no double-retire, no lost regrowth).
+// Worker 0 never retires, and the monitor only adds while worker 0 is
+// alive (stopped is set under mu before its wg.Done), so wg.Add never
+// races wg.Wait at zero.
+type unitPool struct {
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	active  map[int]bool
+	stopped bool
+	errCh   chan error
+	target  func() int
+	run     func(idx int, initial *workUnit, retire func(int) bool) error
+	onGrow  func(want int)
+}
+
+func newUnitPool(
+	target func() int,
+	run func(int, *workUnit, func(int) bool) error,
+	onGrow func(int),
+) *unitPool {
+	return &unitPool{
+		active: map[int]bool{}, errCh: make(chan error, 64),
+		target: target, run: run, onGrow: onGrow,
+	}
+}
+
+// retire reports whether worker idx must exit now (idx beyond the
+// target), removing it from the active set atomically if so.
+func (p *unitPool) retire(idx int) bool {
+	if idx == 0 {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if idx < p.target() {
+		return false
+	}
+	delete(p.active, idx)
+	return true
+}
+
+// spawnLocked starts worker idx. Caller holds mu.
+func (p *unitPool) spawnLocked(idx int, initial *workUnit) {
+	p.active[idx] = true
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		if idx == 0 {
+			defer func() { p.mu.Lock(); p.stopped = true; p.mu.Unlock() }()
+		}
+		if err := p.run(idx, initial, p.retire); err != nil {
+			select {
+			case p.errCh <- err:
+			default:
+			}
+		}
+	}()
+}
+
+// start spawns the initial workers and a monitor that refills any
+// missing index below the live target every interval.
+func (p *unitPool) start(ctx context.Context, workers int, probe *workUnit, interval time.Duration) {
+	p.mu.Lock()
+	for i := 0; i < workers; i++ {
+		var initial *workUnit
+		if i == 0 {
+			initial = probe
+		}
+		p.spawnLocked(i, initial)
+	}
+	p.mu.Unlock()
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			want := p.target()
+			if want > 64 {
+				want = 64
+			}
+			p.mu.Lock()
+			if p.stopped {
+				p.mu.Unlock()
+				return
+			}
+			grew := false
+			for i := 0; i < want; i++ {
+				if !p.active[i] {
+					p.spawnLocked(i, nil)
+					grew = true
+				}
+			}
+			p.mu.Unlock()
+			if grew {
+				p.onGrow(want)
+			}
+		}
+	}()
 }

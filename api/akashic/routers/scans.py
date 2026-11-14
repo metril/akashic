@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user, get_permitted_source_ids
+from akashic.auth.dependencies import check_source_access, get_current_user
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.source import Source
@@ -170,10 +170,6 @@ async def list_scans(
     stmt = select(Scan)
     if source_id:
         stmt = stmt.where(Scan.source_id == source_id)
-    else:
-        allowed = await get_permitted_source_ids(user, db)
-        if allowed is not None:
-            stmt = stmt.where(Scan.source_id.in_(allowed)) if allowed else stmt.where(False)
     if status:
         # Comma-separated list supported so the UI can poll
         # `?status=running,pending` in one request.

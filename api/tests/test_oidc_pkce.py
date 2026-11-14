@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwk, jwt
 
 from akashic.auth import oidc
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +54,7 @@ def idp(monkeypatch, httpx_mock):
     claims = {
         "sub": "u1",
         "iss": "https://idp.example",
-        "aud": settings.oidc_client_id,
+        "aud": rt().oidc_client_id,
         "exp": int(time.time()) + 300,
         "nonce": "good",
     }

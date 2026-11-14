@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_access_token
 from akashic.auth import refresh as refresh_service
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.audit import record_event
@@ -34,7 +34,7 @@ REFRESH_COOKIE = "akashic_refresh"
 def _set_refresh_cookie(response: Response, plain_token: str) -> None:
     """HttpOnly + SameSite=Lax cookie. Path=/api/auth so it's only
     sent to refresh / logout — minimizes accidental exposure on
-    other endpoints. The Secure flag is gated on settings.cookie_secure
+    other endpoints. The Secure flag is gated on rt().cookie_secure
     (default True) so production deployments behind TLS get the flag
     out of the box; local-dev http:// setups must set
     COOKIE_SECURE=false explicitly (review A-N3)."""
@@ -43,9 +43,9 @@ def _set_refresh_cookie(response: Response, plain_token: str) -> None:
         value=plain_token,
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=rt().cookie_secure,
         path="/api/auth",
-        max_age=settings.refresh_token_expire_days * 24 * 3600,
+        max_age=rt().refresh_token_expire_days * 24 * 3600,
     )
 
 
@@ -62,14 +62,14 @@ def _set_flow_cookie(resp: Response, key: str, value: str) -> None:
         # Secure on a TLS deployment (review A-I1) so passive sniffing
         # on a misconfigured-HTTP segment can't lift the flow cookies
         # and replay the OIDC callback.
-        secure=settings.cookie_secure,
+        secure=rt().cookie_secure,
     )
 
 
 def _spa_redirect(path: str, **params: str) -> RedirectResponse:
     """302 to a fixed SPA path (optionally with query params). Targets come
     only from config + fixed paths, never from request input."""
-    url = settings.frontend_url.rstrip("/") + path
+    url = rt().frontend_url.rstrip("/") + path
     if params:
         url += "?" + urlencode(params)
     resp = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
@@ -77,7 +77,7 @@ def _spa_redirect(path: str, **params: str) -> RedirectResponse:
     # callback; drop it with the same attributes it was set with.
     for key in _FLOW_COOKIES:
         resp.delete_cookie(
-            key, httponly=True, samesite="lax", secure=settings.cookie_secure
+            key, httponly=True, samesite="lax", secure=rt().cookie_secure
         )
     return resp
 
@@ -122,7 +122,7 @@ class ProvidersResponse(BaseModel):
 
 
 def _require_oidc() -> None:
-    if not settings.oidc_enabled:
+    if not rt().oidc_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OIDC authentication is not enabled",
@@ -130,7 +130,7 @@ def _require_oidc() -> None:
 
 
 def _require_ldap() -> None:
-    if not settings.ldap_enabled:
+    if not rt().ldap_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="LDAP authentication is not enabled",
@@ -150,8 +150,8 @@ async def get_providers(db: AsyncSession = Depends(get_db)) -> ProvidersResponse
     user_count = count_result.scalar() or 0
     return ProvidersResponse(
         local=True,
-        oidc=settings.oidc_enabled,
-        ldap=settings.ldap_enabled,
+        oidc=rt().oidc_enabled,
+        ldap=rt().ldap_enabled,
         setup_required=user_count == 0,
     )
 

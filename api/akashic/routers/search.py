@@ -8,12 +8,13 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
+from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.user import User
 from akashic.schemas.audit import SearchAsOverride
 from akashic.schemas.search import SearchResults
+from akashic.routers.browse import _should_enforce_perms
 from akashic.services.access_query import (
     override_tokens,
     user_has_any_bindings,
@@ -187,12 +188,7 @@ async def search(
             detail="search_as is admin-only",
         )
 
-    allowed_source_ids = await get_permitted_source_ids(user, db)
-    if allowed_source_ids is not None:
-        if not allowed_source_ids:
-            return SearchResults(results=[], total=0, query=q)
-        if source_id and source_id not in allowed_source_ids:
-            raise HTTPException(status_code=403, detail="No access to this source")
+    allowed_source_ids = None  # all sources readable by any viewer
 
     # Default policy: has bindings → 'readable'; no bindings → 'all'
     if permission_filter is None:
@@ -200,6 +196,13 @@ async def search(
             permission_filter = "readable"
         else:
             permission_filter = "readable" if await user_has_any_bindings(user, db) else "all"
+    elif (
+        permission_filter == "all"
+        and override is None
+        and await _should_enforce_perms(user, user.role == "admin", db)
+    ):
+        # Viewers cannot opt out of ACL enforcement; admins can.
+        permission_filter = "readable"
 
     # Force the SQL path when Meili can't express the query:
     #  - path/grammar predicates Meili doesn't support (today: PathPred)

@@ -9,7 +9,7 @@ from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.maintenance_job import MaintenanceJob
 from akashic.models.tag import Tag, EntryTag
-from akashic.models.user import User, SourcePermission, APIKey
+from akashic.models.user import User, APIKey
 from akashic.models.webhook import Webhook, PurgeLog
 from akashic.models.fs_person import FsPerson, FsBinding
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -40,7 +40,6 @@ __all__ = [
     "Tag",
     "EntryTag",
     "User",
-    "SourcePermission",
     "APIKey",
     "Webhook",
     "PurgeLog",

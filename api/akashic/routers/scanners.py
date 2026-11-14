@@ -69,6 +69,25 @@ class ScannerPatch(BaseModel):
     allowed_scan_types: list[str] | None = None
     clear_allowed_source_ids: bool = False
     clear_allowed_scan_types: bool = False
+    # Per-scanner config. Omitted = unchanged; use clear_* to revert to
+    # the inherited default.
+    tika_url: str | None = Field(default=None, max_length=512)
+    extract_workers: int | None = Field(default=None, ge=1, le=64)
+    max_concurrent_units: int | None = Field(default=None, ge=1, le=32)
+    clear_tika_url: bool = False
+    clear_extract_workers: bool = False
+    clear_max_concurrent_units: bool = False
+
+    @field_validator("tika_url")
+    @classmethod
+    def _tika_url_ok(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().rstrip("/")
+        # Empty string = extraction explicitly disabled on this scanner.
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("tika_url must start with http:// or https://")
+        return v
 
 
 class ScannerCreated(BaseModel):
@@ -82,6 +101,26 @@ class ScannerCreated(BaseModel):
     private_key_pem: str
     key_fingerprint: str
     protocol_version: int
+
+
+# Agent defaults when a scanner has no override (mirror the Go agent).
+DEFAULT_EXTRACT_WORKERS = 4
+DEFAULT_MAX_CONCURRENT_UNITS = 1
+
+
+class ScannerEffectiveConfig(BaseModel):
+    tika_url: str
+    extract_workers: int
+    max_concurrent_units: int
+
+
+def effective_scanner_config(s: Scanner) -> ScannerEffectiveConfig:
+    from akashic.services.runtime_settings import rt
+    return ScannerEffectiveConfig(
+        tika_url=s.tika_url if s.tika_url is not None else (rt().tika_url or ""),
+        extract_workers=s.extract_workers or DEFAULT_EXTRACT_WORKERS,
+        max_concurrent_units=s.max_concurrent_units or DEFAULT_MAX_CONCURRENT_UNITS,
+    )
 
 
 class ScannerSummary(BaseModel):
@@ -98,11 +137,12 @@ class ScannerSummary(BaseModel):
     online: bool
     allowed_source_ids: list[uuid.UUID] | None = None
     allowed_scan_types: list[str] | None = None
-    # v0.36.0 — handshake-reported unit concurrency
-    # (AKASHIC_MAX_CONCURRENT_UNITS on the scanner host). Read-only on
-    # the API. NULL = the scanner hasn't handshook since this field
-    # was added.
+    # Admin-set per-scanner config; NULL = inherit. `effective_config`
+    # is what the agent actually receives.
+    tika_url: str | None = None
+    extract_workers: int | None = None
     max_concurrent_units: int | None = None
+    effective_config: "ScannerEffectiveConfig | None" = None
 
     model_config = {"from_attributes": True}
 
@@ -111,11 +151,12 @@ class HandshakeRequest(BaseModel):
     protocol_version: int
     version: str | None = None
     hostname: str | None = None
-    # v0.36.0 — see ScannerSummary.max_concurrent_units.
+    # Legacy (v0.36.0): ignored; concurrency is admin-configured now.
     max_concurrent_units: int | None = None
 
 
 class HandshakeResponse(BaseModel):
+    config: ScannerEffectiveConfig | None = None
     accepted: bool
     server_protocol_version: int
     accepted_min: int
@@ -179,7 +220,10 @@ def _to_summary(s: Scanner) -> ScannerSummary:
         online=_is_online(s),
         allowed_source_ids=s.allowed_source_ids,
         allowed_scan_types=s.allowed_scan_types,
+        tika_url=s.tika_url,
+        extract_workers=s.extract_workers,
         max_concurrent_units=s.max_concurrent_units,
+        effective_config=effective_scanner_config(s),
     )
 
 
@@ -281,6 +325,12 @@ async def patch_scanner(
         scanner.allowed_scan_types = body.allowed_scan_types
     elif body.clear_allowed_scan_types:
         scanner.allowed_scan_types = None
+    for f in ("tika_url", "extract_workers", "max_concurrent_units"):
+        v = getattr(body, f)
+        if v is not None:
+            setattr(scanner, f, v)
+        elif getattr(body, f"clear_{f}"):
+            setattr(scanner, f, None)
     await db.commit()
     await db.refresh(scanner)
     from akashic.services import scan_pubsub
@@ -731,9 +781,6 @@ async def handshake(
     scanner.protocol_version = body.protocol_version
     scanner.version = body.version
     scanner.hostname = body.hostname
-    # v0.36.0 — persist the scanner's reported MaxConcurrentUnits
-    # alongside version/hostname; UI surfaces it next to those.
-    scanner.max_concurrent_units = body.max_concurrent_units
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
     # Push the freshly-reported metadata (online status, version,
@@ -761,6 +808,7 @@ async def handshake(
             media_type="application/json",
         )
     return HandshakeResponse(
+        config=effective_scanner_config(scanner),
         accepted=True,
         server_protocol_version=PROTOCOL_VERSION,
         accepted_min=ACCEPTED_MIN,
@@ -770,7 +818,7 @@ async def handshake(
 
 @router.post(
     "/api/scanners/{scanner_id}/heartbeat",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=ScannerEffectiveConfig,
 )
 async def scanner_heartbeat(
     scanner_id: uuid.UUID,
@@ -784,6 +832,8 @@ async def scanner_heartbeat(
         raise HTTPException(status_code=403, detail="scanner_id mismatch")
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
+    # Live config delivery: the agent applies this every heartbeat.
+    return effective_scanner_config(scanner)
 
 
 # ── Lease + complete ─────────────────────────────────────────────────────

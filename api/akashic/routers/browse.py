@@ -11,7 +11,7 @@ from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_current_user
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -75,7 +75,7 @@ async def _should_enforce_perms(user: User, show_all: bool, db: AsyncSession) ->
     (a user with no FsBindings would see nothing — no filter for them
     until an admin attaches one).
     """
-    if not settings.browse_enforce_perms:
+    if not rt().browse_enforce_perms:
         return False
     if user.role == "admin" and show_all:
         return False

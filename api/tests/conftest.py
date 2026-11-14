@@ -2,10 +2,12 @@ import asyncio
 import os
 from collections.abc import AsyncGenerator
 
-# The Settings validator rejects the shipped default secret_key in
-# prod; tests run with whatever default is around, so opt in to the
-# dev-bypass before any code path imports config.
-os.environ.setdefault("AKASHIC_DEV_ALLOW_DEFAULT_KEY", "1")
+import tempfile as _tempfile
+
+# Per-worker secret key file so Settings never touches /data in tests.
+os.environ["SECRET_KEY_FILE"] = os.path.join(
+    _tempfile.mkdtemp(prefix="akashic-test-key-"), "secret.key",
+)
 
 # xdist isolation: each worker gets its own Postgres DB (<base>_gwN) and
 # its own Redis logical DB (N+1 mod 16). Must run before akashic.config
@@ -64,6 +66,22 @@ def _ensure_test_db() -> None:
 
 
 _ensure_test_db()
+
+
+@pytest.fixture(autouse=True)
+def rt_set(monkeypatch):
+    """Override runtime settings for one test: ``rt_set(cookie_secure=False)``.
+
+    Also resets the in-memory snapshot to registry defaults per test.
+    """
+    from akashic.services import runtime_settings as _rs
+    monkeypatch.setattr(_rs, "_values", {})
+
+    def _set(**kw):
+        for k, v in kw.items():
+            assert k in _rs.REGISTRY, k
+            _rs._values[k] = v
+    return _set
 
 
 @pytest_asyncio.fixture(autouse=True)

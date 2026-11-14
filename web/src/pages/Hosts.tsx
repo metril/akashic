@@ -54,7 +54,7 @@ export default function Hosts() {
                 description={
                   isAdmin
                     ? "Add a host on the right, then attach shares from the Sources page."
-                    : "Ask an administrator to add hosts."
+                    : undefined
                 }
               />
             </Card>

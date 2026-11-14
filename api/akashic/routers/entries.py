@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.dependencies import (
     check_source_access,
     get_current_user,
-    get_permitted_source_ids,
 )
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryVersion
@@ -20,7 +19,12 @@ from akashic.schemas.entry import (
     EntryVersionResponse,
     _EntrySourceRef,
 )
-from akashic.services.access_query import user_can_view
+from akashic.routers.browse import _should_enforce_perms
+from akashic.services.access_query import (
+    user_can_view,
+    user_principal_tokens,
+    viewable_clause,
+)
 from akashic.services.tag_inheritance import get_tags_for_entry
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
@@ -43,19 +47,15 @@ async def list_entries(
     stmt = select(Entry).where(Entry.is_deleted == False)  # noqa: E712
     if source_id:
         stmt = stmt.where(Entry.source_id == source_id)
-    else:
-        allowed = await get_permitted_source_ids(user, db)
-        if allowed is not None:
-            if not allowed:
-                return []
-            stmt = stmt.where(Entry.source_id.in_(allowed))
     if kind:
         stmt = stmt.where(Entry.kind == kind)
     if extension:
         stmt = stmt.where(Entry.extension == extension)
     if path_prefix:
         stmt = stmt.where(Entry.path.startswith(path_prefix))
-    stmt = stmt.offset(offset).limit(limit)
+    if await _should_enforce_perms(user, True, db):
+        stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
+    stmt = stmt.order_by(Entry.path).offset(offset).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -72,11 +72,8 @@ async def get_entries_by_hash(
         Entry.kind == "file",
         Entry.is_deleted == False,  # noqa: E712
     )
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is not None:
-        if not allowed:
-            return []
-        stmt = stmt.where(Entry.source_id.in_(allowed))
+    if await _should_enforce_perms(user, True, db):
+        stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
     result = await db.execute(stmt)
     return result.scalars().all()
 

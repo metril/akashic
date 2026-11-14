@@ -26,21 +26,20 @@ from akashic.auth.oidc_provisioning import (
     extract_identities,
     sync_fs_bindings_from_claims,
 )
-from akashic.config import Settings
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.source import Source
 from akashic.models.user import User
 
 
-def _settings(strategy: str = "auto", **kw) -> Settings:
-    """Build a Settings with overridden defaults for strategy testing.
-    Keeps tests free of env-var setup."""
-    base = Settings()
-    base.oidc_strategy = strategy
-    for k, v in kw.items():
-        setattr(base, k, v)
-    return base
+def _settings(strategy: str = "auto", **kw):
+    """Snapshot-like object with registry defaults + overrides."""
+    from types import SimpleNamespace
+    from akashic.services.runtime_settings import REGISTRY
+    vals = {k: sp.default for k, sp in REGISTRY.items()}
+    vals["oidc_strategy"] = strategy
+    vals.update(kw)
+    return SimpleNamespace(**vals)
 
 
 # ── _decode_object_sid ─────────────────────────────────────────────────────

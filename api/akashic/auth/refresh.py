@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.models.refresh_token import RefreshToken
 
 
@@ -66,7 +66,7 @@ async def mint(
         chain_id=chain_id or uuid.uuid4(),
         token_hash=_hash(plain),
         expires_at=datetime.now(timezone.utc)
-        + timedelta(days=settings.refresh_token_expire_days),
+        + timedelta(days=rt().refresh_token_expire_days),
     )
     db.add(row)
     await db.flush()

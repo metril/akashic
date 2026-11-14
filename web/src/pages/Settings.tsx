@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 
+import { useAuth } from "../hooks/useAuth";
 import { Icon, Page, type IconName } from "../components/ui";
 import { cn } from "../components/ui/cn";
 
@@ -9,6 +10,8 @@ interface SettingsTab {
   iconName: IconName;
   /** Tooltip on the tab; describes what the section is for. */
   hint: string;
+  /** Hidden from non-admins; the matching route is wrapped in AdminRoute. */
+  adminOnly?: boolean;
 }
 
 /**
@@ -21,24 +24,28 @@ interface SettingsTab {
 const TABS: SettingsTab[] = [
   {
     to: "/settings/credentials",
+    adminOnly: true,
     label: "Credentials",
     iconName: "shield",
     hint: "Reusable credential profiles for SMB / NFS / S3 hosts and shares.",
   },
   {
     to: "/settings/oauth",
+    adminOnly: true,
     label: "OAuth",
     iconName: "box",
     hint: "OAuth client apps for Google Drive, OneDrive, and Dropbox.",
   },
   {
     to: "/settings/scanners",
+    adminOnly: true,
     label: "Scanners",
     iconName: "database",
     hint: "Registered scanner agents, join tokens, and auto-discovery.",
   },
   {
     to: "/settings/schedules",
+    adminOnly: true,
     label: "Schedules",
     iconName: "clock",
     hint: "Source scan cadences (cron) — one row per source.",
@@ -51,13 +58,23 @@ const TABS: SettingsTab[] = [
   },
   {
     to: "/settings/tags",
+    adminOnly: true,
     label: "Tags",
     iconName: "tag",
     hint: "Custom labels applied to entries for filter and search.",
   },
+  {
+    to: "/settings/server",
+    adminOnly: true,
+    label: "Server",
+    iconName: "settings",
+    hint: "Server-wide runtime settings (auth, scanning, ingest, limits).",
+  },
 ];
 
 export default function Settings() {
+  const { isAdmin } = useAuth();
+  const tabs = TABS.filter((t) => isAdmin || !t.adminOnly);
   return (
     <Page
       title="Settings"
@@ -74,7 +91,7 @@ export default function Settings() {
           className="flex gap-1 -mb-px overflow-x-auto"
           aria-label="Settings sections"
         >
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <NavLink
               key={tab.to}
               to={tab.to}

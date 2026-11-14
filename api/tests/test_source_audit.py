@@ -330,9 +330,8 @@ async def test_patch_rejects_sentinel_for_non_secret_field(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_viewer_with_read_access_can_view_audit(setup_db):
-    """A non-admin user with read permission on the source should be
+    """A non-admin user should be
     able to view its audit history."""
-    from akashic.models.user import SourcePermission
     async with setup_db() as session:
         viewer = User(
             id=uuid.uuid4(), username="vw", email="v@v", password_hash="x", role="viewer",
@@ -343,13 +342,7 @@ async def test_viewer_with_read_access_can_view_audit(setup_db):
             type="local",
             connection_config={"path": "/tmp"},
         )
-        # Commit user + source first; FK on source_permissions requires
-        # both to exist before the permission row inserts.
         session.add_all([viewer, src])
-        await session.commit()
-        session.add(SourcePermission(
-            user_id=viewer.id, source_id=src.id, access_level="read",
-        ))
         await session.commit()
         sid = src.id
 
@@ -369,7 +362,7 @@ async def test_viewer_with_read_access_can_view_audit(setup_db):
 
 
 @pytest.mark.asyncio
-async def test_viewer_without_access_gets_403(setup_db):
+async def test_viewer_cannot_write_source(setup_db):
     async with setup_db() as session:
         viewer = User(
             id=uuid.uuid4(), username="other", email="o@o", password_hash="x", role="viewer",
@@ -395,5 +388,5 @@ async def test_viewer_without_access_gets_403(setup_db):
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_get_current_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        r = await ac.get(f"/api/sources/{sid}/audit")
+        r = await ac.delete(f"/api/sources/{sid}")
         assert r.status_code == 403

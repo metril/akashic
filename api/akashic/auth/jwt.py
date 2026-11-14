@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 
 from akashic.config import settings
+from akashic.services.runtime_settings import rt
 
 ALGORITHM = "HS256"
 
@@ -24,7 +25,7 @@ INGEST_AUDIENCE = "akashic-ingest"
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=rt().access_token_expire_minutes))
     to_encode.update({"exp": expire, "aud": AUDIENCE})
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 

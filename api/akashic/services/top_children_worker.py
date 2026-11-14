@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.services.subtree_rollup import rollup_top_children_for_paths
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ async def mark_dirty(source_id: str | uuid.UUID, parent_paths: list[str]) -> Non
     """
     if not parent_paths:
         return
-    if not settings.streaming_topchildren:
+    if not rt().streaming_topchildren:
         return
     try:
         await _client().sadd(_key(str(source_id)), *parent_paths)
@@ -182,7 +183,7 @@ async def _worker_loop() -> None:
     sources have dirty sets. Exits cleanly on _shutdown event."""
     logger.info(
         "top_children_worker started (tick=%.1fs, flag=%s)",
-        WORKER_TICK_S, settings.streaming_topchildren,
+        WORKER_TICK_S, rt().streaming_topchildren,
     )
     while not _shutdown.is_set():
         try:
@@ -202,7 +203,7 @@ def start_worker() -> None:
     """Start the periodic worker if the feature flag is on. Idempotent
     — safe to call multiple times. Called from app startup."""
     global _worker_task
-    if not settings.streaming_topchildren:
+    if not rt().streaming_topchildren:
         logger.debug(
             "top_children_worker not started (flag streaming_topchildren=False)",
         )

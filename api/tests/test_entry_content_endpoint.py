@@ -263,11 +263,11 @@ async def test_content_404_for_unknown_entry(admin_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_content_403_for_viewer_without_perm(
+async def test_content_readable_by_viewer(
     viewer_client: AsyncClient, text_entry: Entry
 ):
     r = await viewer_client.get(f"/api/entries/{text_entry.id}/content")
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 @pytest.mark.asyncio
