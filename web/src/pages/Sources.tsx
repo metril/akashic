@@ -21,6 +21,7 @@ import type { Scan, Source } from "../types";
 import { computeETA, formatDateTime, formatDuration, formatNumber, formatRelative } from "../lib/format";
 import { deriveSourcePill, formatSourceSummary, type SourcePillState } from "../lib/sources";
 import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
+import { useAuth } from "../hooks/useAuth";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ReachabilityBadge } from "../components/sources/ReachabilityBadge";
 import { ScanLogPanel } from "../components/scans/ScanLogPanel";
@@ -385,6 +386,7 @@ function VirtualSourceList({
 
 export default function Sources() {
   const { data: sources, isLoading, error } = useSources();
+  const { isAdmin } = useAuth();
   // v0.4.5: source.status updates via WS scan.state events get
   // patched directly into the React Query cache by the reconciler,
   // so the badge / DisplayRows reflect "scanning" within one WS
@@ -524,13 +526,15 @@ export default function Sources() {
         <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/40 px-4 py-3">
           <p className="text-sm text-amber-900 dark:text-amber-200">
             <span className="font-medium">No scanner agent is online.</span>{" "}
-            Scans will queue indefinitely until you register one.{" "}
-            <Link
-              to="/settings/scanners"
-              className="underline font-medium hover:text-amber-700"
-            >
-              Settings → Scanners
-            </Link>
+            Scans will queue indefinitely until {isAdmin ? "you register one." : "an administrator registers one."}{" "}
+            {isAdmin && (
+              <Link
+                to="/settings/scanners"
+                className="underline font-medium hover:text-amber-700"
+              >
+                Settings → Scanners
+              </Link>
+            )}
           </p>
         </div>
       )}
@@ -610,7 +614,7 @@ export default function Sources() {
         </div>
 
         <div>
-          <AddSourceForm />
+          {isAdmin && <AddSourceForm />}
         </div>
       </div>
 

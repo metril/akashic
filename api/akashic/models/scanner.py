@@ -47,11 +47,11 @@ class Scanner(Base):
     allowed_scan_types: Mapped[list[str] | None] = mapped_column(
         ARRAY(String(16)), nullable=True,
     )
-    # v0.36.0 — the scanner self-reports its MaxConcurrentUnits on
-    # handshake (set on the scanner host via AKASHIC_MAX_CONCURRENT_UNITS
-    # / --max-concurrent-units). Read-only on the API; admins see it
-    # next to the other handshake-reported fields. NULL = the scanner
-    # hasn't handshook since this column was added.
+    # Admin-managed per-scanner config (NULL = inherit the default:
+    # tika_url -> global runtime setting, workers/units -> agent defaults).
+    # Delivered to the agent in the handshake / heartbeat response.
+    tika_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    extract_workers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_concurrent_units: Mapped[int | None] = mapped_column(
         Integer, nullable=True,
     )

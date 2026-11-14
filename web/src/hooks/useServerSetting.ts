@@ -45,3 +45,60 @@ export function useServerSetting<T>(key: string, defaultValue: T) {
 
   return { value: query.data ?? defaultValue, query, set };
 }
+
+// ── Schema-driven bulk settings (Settings → Server) ────────────────
+
+export type ServerSettingType =
+  | "bool" | "int" | "str" | "list[str]" | "dict[str,int]" | "enum";
+
+export type ServerSettingValue =
+  | boolean | number | string | string[] | Record<string, number> | null;
+
+export interface ServerSettingDef {
+  key: string;
+  type: ServerSettingType;
+  group: string;
+  description: string;
+  secret: boolean;
+  restart: boolean;
+  default: ServerSettingValue;
+  value: ServerSettingValue;
+  choices: string[] | null;
+  /** Secrets only: whether a value is stored. */
+  set?: boolean;
+}
+
+export interface ServerSettingGroup {
+  key: string;
+  label: string;
+  settings: ServerSettingDef[];
+}
+
+export interface ServerSettingsResponse {
+  groups: ServerSettingGroup[];
+}
+
+const ALL_KEY = ["server-settings", "all"] as const;
+
+export function useServerSettings() {
+  const { isAdmin } = useAuth();
+  const qc = useQueryClient();
+
+  const query = useQuery<ServerSettingsResponse>({
+    queryKey: ALL_KEY,
+    queryFn: () => api.get<ServerSettingsResponse>("/server-settings"),
+    enabled: isAdmin,
+    staleTime: 10_000,
+  });
+
+  /** Atomic PATCH: the API 422s and applies nothing if any value is invalid. */
+  const save = useMutation<ServerSettingsResponse | unknown, Error, Record<string, ServerSettingValue>>({
+    mutationFn: (values) => api.patch("/server-settings", { values }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ALL_KEY });
+      qc.invalidateQueries({ queryKey: ["server-setting"] });
+    },
+  });
+
+  return { query, save };
+}

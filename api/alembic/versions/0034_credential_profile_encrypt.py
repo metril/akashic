@@ -27,7 +27,6 @@ Create Date: 2026-05-15
 from __future__ import annotations
 
 import json
-import os
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -40,31 +39,11 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-_DEV_SECRET_KEY = "changeme-secret-key"
-
-
-def _assert_real_secret_key() -> None:
-    """Fail the migration if SECRET_KEY is the shipped default.
-
-    Encrypting with a known key offers zero protection — better to
-    refuse than to ship a deployment that thinks its credentials are
-    encrypted. The opt-out is AKASHIC_DEV_ALLOW_DEFAULT_KEY=1 (same
-    gate the config validator uses) for the test suite.
-    """
-    key = os.environ.get("SECRET_KEY", _DEV_SECRET_KEY)
-    if key == _DEV_SECRET_KEY and not os.environ.get(
-        "AKASHIC_DEV_ALLOW_DEFAULT_KEY"
-    ):
-        raise RuntimeError(
-            "Migration 0034 refuses to run with the shipped default "
-            "SECRET_KEY — encrypted credentials would offer no real "
-            "protection. Set SECRET_KEY to a long random value first."
-        )
+# The signing/encryption key is now always a real, auto-generated key
+# (settings.secret_key_file), so the old shipped-default guard is gone.
 
 
 def upgrade() -> None:
-    _assert_real_secret_key()
-
     op.add_column(
         "credential_profiles",
         sa.Column("credentials_encrypted", sa.LargeBinary(), nullable=True),

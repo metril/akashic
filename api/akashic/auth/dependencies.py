@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import decode_access_token, decode_ingest_token
 from akashic.database import get_db
-from akashic.models.user import User, SourcePermission
+from akashic.models.user import User
 
 security = HTTPBearer()
 
@@ -105,32 +105,11 @@ async def check_source_access(
     db: AsyncSession,
     required_level: str = "read",
 ) -> None:
-    """Check if user has access to a source. Admins bypass all checks."""
-    if user.role == "admin":
-        return
-    result = await db.execute(
-        select(SourcePermission).where(
-            SourcePermission.user_id == user.id,
-            SourcePermission.source_id == source_id,
+    """Any authenticated user may read any source; write/admin levels
+    require the admin role. (File-level visibility is narrowed by
+    filesystem-ACL filtering, not by per-source grants.)"""
+    if required_level in ("write", "admin") and user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Requires {required_level} access to this source",
         )
-    )
-    perm = result.scalar_one_or_none()
-    if perm is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this source")
-
-    # Enforce access level hierarchy: read < write < admin
-    level_hierarchy = {"read": 0, "write": 1, "admin": 2}
-    user_level = level_hierarchy.get(perm.access_level, 0)
-    required = level_hierarchy.get(required_level, 0)
-    if user_level < required:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Requires {required_level} access to this source")
-
-
-async def get_permitted_source_ids(user: User, db: AsyncSession) -> list[uuid.UUID] | None:
-    """Return list of source IDs the user can access, or None if admin (no filtering needed)."""
-    if user.role == "admin":
-        return None  # Admin sees everything
-    result = await db.execute(
-        select(SourcePermission.source_id).where(SourcePermission.user_id == user.id)
-    )
-    return [row[0] for row in result.all()]

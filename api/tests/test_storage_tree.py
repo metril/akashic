@@ -15,11 +15,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_access_token
-from akashic.config import settings
 from akashic.models.entry import Entry
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.source import Source
-from akashic.models.user import SourcePermission, User
+from akashic.models.user import User
 from akashic.services.subtree_rollup import rollup_source
 
 
@@ -168,20 +167,19 @@ async def test_tree_min_bytes_filters_small_leaves(
 
 @pytest.mark.asyncio
 async def test_tree_perm_filter_hides_unviewable(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch,
+    client: AsyncClient, db_session: AsyncSession, rt_set,
 ):
     """When BROWSE_ENFORCE_PERMS is on and the user has bindings, the
     recursive CTE filters hidden entries out at SQL — the response
     never sees them."""
-    monkeypatch.setattr(settings, "browse_enforce_perms", True)
+    rt_set(browse_enforce_perms=True)
 
     src = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
     user = User(id=uuid.uuid4(), username="alice", email="a@e", password_hash="x", role="user")
     db_session.add_all([src, user])
     await db_session.commit()
 
-    # Source-level grant + a binding that gives uid 1000 only.
-    db_session.add(SourcePermission(user_id=user.id, source_id=src.id, access_level="read"))
+    # A binding that gives uid 1000 only.
     person = FsPerson(id=uuid.uuid4(), user_id=user.id, label="t")
     db_session.add(person)
     await db_session.commit()

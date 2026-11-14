@@ -84,7 +84,7 @@ _REQUIRED_TABLES = {
     "users", "sources", "entries", "scans", "scan_log_entries",
     "fs_persons", "fs_bindings", "principals_cache", "principal_groups_cache",
     "audit_events", "tags", "webhooks", "entry_versions", "entry_events",
-    "entry_tags", "api_keys", "purge_log", "source_permissions",
+    "entry_tags", "api_keys", "purge_log",
 }
 
 

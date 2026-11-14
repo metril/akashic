@@ -5,24 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
+from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.entry import Entry
+from akashic.routers.browse import _should_enforce_perms
+from akashic.services.access_query import user_principal_tokens, viewable_clause
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
 from akashic.models.user import User
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
-
-
-async def _source_filter(user: User, db: AsyncSession):
-    """WHERE clauses scoping queries to permitted sources."""
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is None:
-        return []  # Admin — no filter
-    if not allowed:
-        return [False]
-    return [Entry.source_id.in_(allowed)]
 
 
 _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
@@ -34,7 +26,6 @@ async def get_storage_by_type(
     user: User = Depends(get_current_user),
 ):
     filters = list(_FILE_FILTERS)
-    filters.extend(await _source_filter(user, db))
 
     stmt = (
         select(
@@ -59,7 +50,6 @@ async def get_storage_by_source(
     user: User = Depends(get_current_user),
 ):
     filters = list(_FILE_FILTERS)
-    filters.extend(await _source_filter(user, db))
 
     stmt = (
         select(
@@ -92,7 +82,8 @@ async def get_largest_files(
     user: User = Depends(get_current_user),
 ):
     filters = [*_FILE_FILTERS, Entry.size_bytes.isnot(None)]
-    filters.extend(await _source_filter(user, db))
+    if await _should_enforce_perms(user, True, db):
+        filters.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
         select(Entry)
@@ -118,17 +109,6 @@ async def get_largest_files(
 # ── Time-series endpoints (driven by scan_snapshots) ──────────────────────
 
 
-async def _check_source_visibility(
-    source_id: uuid.UUID, user: User, db: AsyncSession,
-) -> None:
-    """403 if the user can't see this source. Admins bypass."""
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is None:
-        return  # admin
-    if source_id not in allowed:
-        raise HTTPException(status_code=403, detail="Source access denied")
-
-
 @router.get("/timeseries")
 async def get_timeseries(
     source_id: uuid.UUID,
@@ -142,7 +122,6 @@ async def get_timeseries(
     `size` reads `total_size_bytes`; `count` reads `file_count`. Caller
     can plot directly in recharts. The response is ordered oldest-to-newest
     so the X axis is monotonic without a client-side sort."""
-    await _check_source_visibility(source_id, user, db)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     col = ScanSnapshot.total_size_bytes if metric == "size" else ScanSnapshot.file_count
@@ -174,7 +153,6 @@ async def get_forecast(
     the last N snapshots, residual stddev for a 95% interval band. If
     fewer than 3 snapshots exist, returns `null` for the projection so
     the UI can render a "not enough history yet" empty state."""
-    await _check_source_visibility(source_id, user, db)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     rows = (
@@ -254,7 +232,6 @@ async def get_extension_trend(
     Returns `{extension: [{taken_at, n, bytes}]}`. Missing extensions in
     a given snapshot return zeros so the chart's lines remain monotonic
     in time."""
-    await _check_source_visibility(source_id, user, db)
     requested = [e.strip().lower() for e in extensions.split(",") if e.strip()]
     if not requested:
         return {}
@@ -295,7 +272,6 @@ async def get_owner_distribution(
     Names are hydrated via principals_cache when the owner_name looks
     like a SID; raw POSIX names pass through. Used by the Dashboard's
     'Top owners by size' tile."""
-    await _check_source_visibility(source_id, user, db)
 
     row = (
         await db.execute(

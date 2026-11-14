@@ -12,6 +12,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from akashic.config import settings
+from akashic.services.runtime_settings import rt
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 # before users complain. The threshold is conservative — in steady
 # state we should see ~zero of these.
 #
-# Per-endpoint override: settings.slow_query_ms_overrides maps a route
+# Per-endpoint override: rt().slow_query_ms_overrides maps a route
 # prefix (e.g. "browse", "ingest") to a custom threshold. The middleware
 # in akashic.main sets `current_endpoint_var` from request.url.path so
 # the listener below can pick the right threshold without plumbing it
@@ -42,12 +43,12 @@ def _slow_threshold_ms() -> int:
     tasks, scheduled jobs, etc).
     """
     endpoint = current_endpoint_var.get()
-    overrides = settings.slow_query_ms_overrides or {}
+    overrides = rt().slow_query_ms_overrides or {}
     if endpoint:
         for prefix, ms in overrides.items():
             if prefix in endpoint:
                 return ms
-    return settings.slow_query_ms
+    return rt().slow_query_ms
 
 
 @event.listens_for(engine.sync_engine, "before_cursor_execute")

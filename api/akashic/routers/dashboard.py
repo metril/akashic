@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, get_permitted_source_ids
+from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -38,18 +38,8 @@ _TOP_N_EXTENSIONS = 5
 _RECENT_SCANS = 6
 
 
-async def _allowed_source_ids(user: User, db: AsyncSession) -> list[str] | None:
-    """Returns None for admins (no scoping), [] when user has zero
-    sources, or the explicit ID list for everyone else. Pre-converted to
-    string so it slots straight into JSONB lookups."""
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is None:
-        return None
-    return [str(s) for s in allowed]
-
-
 async def _latest_snapshots(
-    db: AsyncSession, allowed: list[str] | None,
+    db: AsyncSession,
 ) -> list[ScanSnapshot]:
     """One row per source — the most recent snapshot. Used to compute
     'current' totals and the per-source breakdowns. Skipped sources
@@ -61,15 +51,11 @@ async def _latest_snapshots(
         .order_by(ScanSnapshot.source_id, ScanSnapshot.taken_at.desc())
         .distinct(ScanSnapshot.source_id)
     )
-    if allowed is not None:
-        inner = inner.where(
-            ScanSnapshot.source_id.in_([s for s in allowed]) if allowed else literal(False)
-        )
     return list((await db.execute(inner)).scalars().all())
 
 
 async def _snapshots_at_age(
-    db: AsyncSession, allowed: list[str] | None, days: int,
+    db: AsyncSession, days: int,
 ) -> dict[str, ScanSnapshot]:
     """Per-source latest snapshot taken at-or-before `days` ago. Used
     for the 30d delta. Returns {source_id_str: ScanSnapshot}."""
@@ -80,10 +66,6 @@ async def _snapshots_at_age(
         .order_by(ScanSnapshot.source_id, ScanSnapshot.taken_at.desc())
         .distinct(ScanSnapshot.source_id)
     )
-    if allowed is not None:
-        stmt = stmt.where(
-            ScanSnapshot.source_id.in_(allowed) if allowed else literal(False)
-        )
     rows = (await db.execute(stmt)).scalars().all()
     return {str(r.source_id): r for r in rows}
 
@@ -111,20 +93,15 @@ async def get_summary(
     user: User = Depends(get_current_user),
 ):
     is_admin = user.role == "admin"
-    allowed = await _allowed_source_ids(user, db)
 
     # ── Source counts ───────────────────────────────────────────────────
     src_stmt = select(Source.id, Source.status, Source.name)
-    if allowed is not None:
-        src_stmt = src_stmt.where(
-            Source.id.in_(allowed) if allowed else literal(False)
-        )
     sources = (await db.execute(src_stmt)).all()
     active_scan_count = sum(1 for s in sources if s.status in ("running", "scanning"))
 
     # ── Storage totals + 30d delta (snapshot-driven) ───────────────────
-    latest = await _latest_snapshots(db, allowed)
-    older = await _snapshots_at_age(db, allowed, days=30)
+    latest = await _latest_snapshots(db)
+    older = await _snapshots_at_age(db, days=30)
 
     total_bytes = sum(s.total_size_bytes or 0 for s in latest)
     total_files = sum(s.file_count or 0 for s in latest)
@@ -188,10 +165,6 @@ async def get_summary(
         .order_by(Scan.started_at.desc().nulls_last())
         .limit(_RECENT_SCANS)
     )
-    if allowed is not None:
-        scan_stmt = scan_stmt.where(
-            Scan.source_id.in_(allowed) if allowed else literal(False)
-        )
     recent_scans_rows = (await db.execute(scan_stmt)).scalars().all()
     source_name_by_id = {s.id: s.name for s in sources}
     recent_scans = [

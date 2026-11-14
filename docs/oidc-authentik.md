@@ -92,7 +92,7 @@ In **Applications → Providers → Create → OAuth2/OpenID Provider**:
 
 - **Name**: `Akashic`.
 - **Client type**: Confidential.
-- **Client ID / Client secret**: Authentik generates these — copy them into your Akashic `.env` (see Step 6).
+- **Client ID / Client secret**: Authentik generates these — copy them into Akashic's Settings → Server (see Step 6).
 - **Redirect URIs**: `http://akashic.local:8000/api/auth/oidc/callback` (replace with your Akashic external URL).
 - **Signing key**: any RS256 key Authentik provides.
 - **Scopes**: `openid email profile groups`.
@@ -117,7 +117,7 @@ In **Applications → Applications → Create**:
 
 ## Step 6 — Configure Akashic
 
-In Akashic's `.env` (or compose env block):
+In Akashic, open **Settings → Server → Authentication** and enter these values (the names below match the UI fields):
 
 ```ini
 OIDC_ENABLED=true
@@ -138,7 +138,7 @@ OIDC_GROUPS_CLAIM=groups
 OIDC_GROUPS_FORMAT=sid
 ```
 
-Restart the api: `docker compose restart api`.
+Save; no restart is needed.
 
 ## Step 7 — Mark each source's principal domain
 

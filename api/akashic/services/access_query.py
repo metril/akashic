@@ -131,9 +131,9 @@ async def user_can_view(entry, user: User, db: AsyncSession) -> bool:
     `viewable_by_read` array. Mirrors the semantics of `viewable_clause`
     used by the SQL-side trim, just on a single already-loaded row.
     """
-    from akashic.config import settings  # avoid module-load cycle
+    from akashic.services.runtime_settings import rt
 
-    if not settings.browse_enforce_perms:
+    if not rt().browse_enforce_perms:
         return True
     if user.role == "admin":
         return True

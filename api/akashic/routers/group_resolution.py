@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import get_current_user
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
@@ -57,7 +57,7 @@ async def post_resolve_groups(
         raise HTTPException(status_code=404, detail="Source not found")
 
     # Cache check.
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.group_cache_ttl_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=rt().group_cache_ttl_hours)
     cache_row = (await db.execute(
         select(PrincipalGroupsCache).where(
             PrincipalGroupsCache.source_id == source.id,

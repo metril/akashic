@@ -5,6 +5,26 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.47.0 — 2026-11-14
+
+**Configuration moves out of env vars and into the web UI, viewers can finally see indexed data, and admin-only controls are hidden from everyone else.**
+
+### Changed
+
+- **Settings → Server** (admin-only) now holds every runtime setting: sessions and cookies, CORS, OIDC, LDAP, Tika, slow-query logging, audit retention, group-cache TTL, and feature flags such as file-permission enforcement. Changes apply live on every API worker. OIDC client secret and LDAP bind password are encrypted at rest and never returned by the API.
+- **Only bootstrap connections stay in env**: `DATABASE_URL`, `REDIS_URL`, `MEILI_URL`, `MEILI_KEY`, and `SECRET_KEY_FILE`. The signing/encryption key is generated on first boot and kept in `/data/secret.key`.
+- **`docker compose up` needs no `.env`**: a one-shot `init` service generates the Postgres password and Meilisearch key into a shared volume.
+- **Per-scanner settings** (Tika URL, extraction workers, concurrent units) are edited on each scanner in Settings → Scanners and applied on the scanner's next heartbeat. The `AKASHIC_TIKA_URL`, `AKASHIC_EXTRACT_WORKERS`, and `AKASHIC_MAX_CONCURRENT_UNITS` variables and flags are removed.
+- **Viewers read every source.** The per-source permission table, which nothing could populate, is dropped (migration 0043). When file-permission enforcement is on, viewers only see files their filesystem identity can read — now applied consistently across browse, search, entries, duplicates, analytics, and storage views.
+- **Admin-only UI is hidden from non-admins** instead of failing with "admin required": Credentials, OAuth, Scanners, Schedules, Tags and Server settings tabs, the add-source form, and source/host edit controls.
+
+### Upgrading
+
+- On first boot, any legacy env values still present (including from an existing `.env`, which compose reads if it exists) are imported into the database once and then ignored; a warning names each one. An existing `SECRET_KEY` is persisted to `/data/secret.key` so stored credentials keep decrypting. After that first boot the old variables can be removed.
+- Existing Postgres volumes: keep `POSTGRES_PASSWORD` (and `MEILI_MASTER_KEY`) set for the first `up` so `init` reuses them.
+- Run multiple API replicas only with a shared `/data` volume.
+- Scanner per-unit concurrency is now set from the UI; any value previously passed on the command line is ignored.
+
 ## v0.46.0 — 2026-11-14
 
 **Fixes SSO logins against Authentik, closes several auth and SSRF gaps, and repairs scan, search and purge correctness bugs found in a full code review.**

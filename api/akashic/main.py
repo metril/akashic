@@ -9,7 +9,6 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from akashic.config import settings
 
 from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
 from akashic.services import metrics as metrics_svc
@@ -147,7 +146,7 @@ class _TimingMiddleware(BaseHTTPMiddleware):
         if path_template in _INSTRUMENT_SKIP_PATHS:
             return await call_next(request)
         # Make the request path visible to the SQL slow-query listener
-        # so per-endpoint thresholds (settings.slow_query_ms_overrides)
+        # so per-endpoint thresholds (slow_query_ms_overrides)
         # can apply.
         from akashic.database import current_endpoint_var
         token = current_endpoint_var.set(path_template)
@@ -170,6 +169,31 @@ class _TimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class _DynamicCORSMiddleware:
+    """CORSMiddleware whose allow-list tracks the runtime snapshot."""
+
+    def __init__(self, app):
+        self.app = app
+        self._cached: tuple | None = None
+        self._inner = None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from akashic.services.runtime_settings import rt
+        origins = tuple(rt().cors_allow_origins or ())
+        if not origins:
+            return await self.app(scope, receive, send)
+        if self._cached != origins:
+            self._inner = CORSMiddleware(
+                self.app, allow_origins=list(origins), allow_credentials=True,
+                allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=["Authorization", "Content-Type"],
+            )
+            self._cached = origins
+        return await self._inner(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -179,22 +203,20 @@ async def lifespan(app: FastAPI):
     from akashic.database import ensure_schema
     await ensure_schema()
 
-    # First-boot bootstrap: seed `discovery_enabled` from env if the
-    # row doesn't exist yet. Runtime UI PATCHes win after that.
-    from akashic.config import settings
+    # One-time legacy env import, then load the runtime snapshot.
     from akashic.database import async_session
-    from akashic.services.server_settings import (
-        KEY_DISCOVERY_ENABLED, seed_from_env_if_missing,
-    )
-    if settings.scanner_discovery_enabled is not None:
-        try:
-            async with async_session() as session:
-                await seed_from_env_if_missing(
-                    session, KEY_DISCOVERY_ENABLED,
-                    bool(settings.scanner_discovery_enabled),
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("discovery setting seed failed: %s", exc)
+    from akashic.services.runtime_settings import load_snapshot
+    from akashic.services.server_settings import import_legacy_env
+    try:
+        async with async_session() as session:
+            await import_legacy_env(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("legacy env import failed: %s", exc)
+    try:
+        async with async_session() as session:
+            await load_snapshot(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("runtime settings load failed: %s", exc)
 
     try:
         from akashic.services.search import ensure_index
@@ -217,7 +239,7 @@ async def lifespan(app: FastAPI):
         logger.warning("maintenance job reconcile failed: %s", exc)
 
     # v0.4.11 Phase 8e — streaming top_children worker. No-op when
-    # the feature flag (settings.streaming_topchildren) is False.
+    # the feature flag (streaming_topchildren) is False.
     from akashic.services import top_children_worker
     top_children_worker.start_worker()
 
@@ -262,20 +284,9 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Akashic", version=os.getenv("APP_VERSION", "dev"), lifespan=lifespan)
 
-    # CORS allow-list (review A-I4). Empty list (the default) means
-    # CORSMiddleware isn't mounted at all — same-origin only, which
-    # matches the typical deploy where the SPA + API share a host.
-    # Set CORS_ALLOW_ORIGINS=["https://akashic.example.com"] (JSON
-    # list in env) to enable cross-origin browser fetches with
-    # credentials.
-    if settings.cors_allow_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=list(settings.cors_allow_origins),
-            allow_credentials=True,
-            allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type"],
-        )
+    # CORS allow-list read from the runtime snapshot per request, so
+    # changing origins in the UI needs no restart. Empty = same-origin.
+    app.add_middleware(_DynamicCORSMiddleware)
 
     # Slow-request observability + Prometheus instrumentation.
     # Order matters: install before the routers so it wraps every

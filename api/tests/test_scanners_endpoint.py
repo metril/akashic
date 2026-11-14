@@ -143,51 +143,72 @@ async def test_handshake_accepts_in_range_protocol(setup_db, admin_client: Async
 
 
 @pytest.mark.asyncio
-async def test_handshake_persists_max_concurrent_units(
+async def test_scanner_config_patch_and_effective(
     setup_db, admin_client: AsyncClient,
 ):
-    """v0.36.0 — the scanner self-reports its MaxConcurrentUnits on
-    handshake; the admin UI surfaces it. Persistence mirrors how
-    version/hostname are written: whatever the scanner sends becomes
-    the row's value (including back to NULL when an older agent omits
-    the field)."""
+    """Per-scanner config: defaults inherit, PATCH overrides, clear_* reverts,
+    and the agent receives the effective config on handshake + heartbeat."""
+    from akashic.services.runtime_settings import rt
+
     create = await admin_client.post(
-        "/api/scanners", json={"name": "mcu-scanner", "pool": "default"},
+        "/api/scanners", json={"name": "cfg-scanner", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
     token = _scanner_token(sid, body["private_key_pem"])
+    hdr = {"Authorization": f"Bearer {token}"}
 
-    async with _build_unauth_client(setup_db) as ac:
-        r = await ac.post(
-            "/api/scanners/handshake",
-            json={
-                "protocol_version": PROTOCOL_VERSION,
-                "version": "0.36.0",
-                "hostname": "scanner-mcu",
-                "max_concurrent_units": 4,
-            },
-            headers={"Authorization": f"Bearer {token}"},
-        )
+    row = next(s for s in (await admin_client.get("/api/scanners")).json()
+               if s["id"] == sid)
+    assert row["tika_url"] is None and row["extract_workers"] is None
+    assert row["effective_config"] == {
+        "tika_url": rt().tika_url, "extract_workers": 4,
+        "max_concurrent_units": 1,
+    }
+
+    r = await admin_client.patch(f"/api/scanners/{sid}", json={
+        "tika_url": "http://tika:9998/", "extract_workers": 8,
+        "max_concurrent_units": 3,
+    })
     assert r.status_code == 200, r.text
+    assert r.json()["tika_url"] == "http://tika:9998"
+    assert r.json()["effective_config"] == {
+        "tika_url": "http://tika:9998", "extract_workers": 8,
+        "max_concurrent_units": 3,
+    }
 
-    listing = await admin_client.get("/api/scanners")
-    row = next(s for s in listing.json() if s["id"] == sid)
-    assert row["max_concurrent_units"] == 4
-
-    # An older agent that omits the field clears the value back to
-    # NULL — matches the version/hostname write semantic so the admin
-    # can tell "stopped reporting" apart from "still at 4".
     async with _build_unauth_client(setup_db) as ac:
-        r2 = await ac.post(
+        hb = await ac.post(f"/api/scanners/{sid}/heartbeat", headers=hdr)
+        assert hb.status_code == 200 and hb.json()["max_concurrent_units"] == 3
+        hs = await ac.post(
             "/api/scanners/handshake",
-            json={"protocol_version": PROTOCOL_VERSION},
-            headers={"Authorization": f"Bearer {token}"},
+            json={"protocol_version": PROTOCOL_VERSION}, headers=hdr,
         )
-    assert r2.status_code == 200
-    listing2 = await admin_client.get("/api/scanners")
-    row2 = next(s for s in listing2.json() if s["id"] == sid)
-    assert row2["max_concurrent_units"] is None
+        assert hs.json()["config"]["extract_workers"] == 8
+
+    r = await admin_client.patch(f"/api/scanners/{sid}", json={
+        "clear_tika_url": True, "clear_extract_workers": True,
+        "clear_max_concurrent_units": True,
+    })
+    assert r.json()["tika_url"] is None
+    assert r.json()["effective_config"]["max_concurrent_units"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"extract_workers": 0}, {"extract_workers": 999},
+    {"max_concurrent_units": 0}, {"tika_url": "ftp://x"},
+])
+async def test_scanner_config_patch_validation(
+    admin_client: AsyncClient, payload,
+):
+    create = await admin_client.post(
+        "/api/scanners", json={"name": "cfg-bad", "pool": "default"},
+    )
+    r = await admin_client.patch(
+        f"/api/scanners/{create.json()['id']}", json=payload,
+    )
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio

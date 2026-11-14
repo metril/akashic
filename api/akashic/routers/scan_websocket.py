@@ -27,7 +27,7 @@ from akashic.auth.jwt import decode_access_token
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
-from akashic.models.user import User, SourcePermission
+from akashic.models.user import User
 from akashic.services import scan_pubsub
 
 logger = logging.getLogger(__name__)
@@ -54,17 +54,7 @@ async def _resolve_user(token: str, db: AsyncSession) -> User | None:
 
 
 async def _user_can_read_source(user: User, source_id: uuid.UUID, db: AsyncSession) -> bool:
-    if user.role == "admin":
-        return True
-    perm = (
-        await db.execute(
-            select(SourcePermission).where(
-                SourcePermission.user_id == user.id,
-                SourcePermission.source_id == source_id,
-            )
-        )
-    ).scalar_one_or_none()
-    return perm is not None  # any access level can subscribe to read-only stream
+    return True  # any authenticated user can subscribe to the read-only stream
 
 
 def _scan_snapshot(scan: Scan) -> dict:
@@ -331,7 +321,6 @@ async def scans_stream(
     before accept; permitted_source_ids resolved once on connect; events
     for sources outside that set are silently dropped server-side.
     """
-    from akashic.auth.dependencies import get_permitted_source_ids
     from akashic.models.source import Source as SourceModel
 
     async with async_session() as db:
@@ -341,9 +330,6 @@ async def scans_stream(
                 code=status.WS_1008_POLICY_VIOLATION, reason="invalid token",
             )
             return
-        # `None` means admin / no source-permission filter.
-        permitted = await get_permitted_source_ids(user, db)
-
         # Snapshot: the current pending/running/recently-failed scans
         # the user can see. Same shape useActiveScans was building
         # client-side from /scans?status=…&limit=200 — but here we
@@ -352,17 +338,7 @@ async def scans_stream(
         scans_q = select(Scan).where(
             Scan.status.in_(["pending", "running", "failed"]),
         )
-        if permitted is not None:
-            if not permitted:
-                # User can't see anything. Send empty snapshot and
-                # then live-filter every event (which will also drop
-                # everything). Cheap.
-                snapshot_scans = []
-            else:
-                scans_q = scans_q.where(Scan.source_id.in_(permitted))
-                snapshot_scans = list((await db.execute(scans_q)).scalars().all())
-        else:
-            snapshot_scans = list((await db.execute(scans_q)).scalars().all())
+        snapshot_scans = list((await db.execute(scans_q)).scalars().all())
 
         # Look up scanner names so the snapshot frame carries them.
         from akashic.models.scanner import Scanner as ScannerModel
@@ -419,10 +395,6 @@ async def scans_stream(
         logger.debug("scans_stream snapshot send failed: %s", exc)
         return
 
-    permitted_set: set[str] | None = (
-        {str(sid) for sid in permitted} if permitted is not None else None
-    )
-
     forward_task: asyncio.Task | None = None
     heartbeat_task: asyncio.Task | None = None
     receive_task: asyncio.Task | None = None
@@ -431,11 +403,6 @@ async def scans_stream(
     async def _forward() -> None:
         try:
             async for event in scan_pubsub.subscribe_sources():
-                # Per-event RBAC filter. None == admin / no filter.
-                if permitted_set is not None:
-                    src = event.get("source_id")
-                    if src is not None and src not in permitted_set:
-                        continue
                 # Per-scan-id coalescing on `scan.state` heartbeats.
                 # Other kinds pass through unchanged. See
                 # _PerScanCoalescer above.

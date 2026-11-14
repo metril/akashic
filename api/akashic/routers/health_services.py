@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import require_admin
 from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.user import User
 
@@ -111,7 +112,7 @@ async def _probe_tika() -> dict[str, Any]:
             # Tika's root `/tika` returns "This is Tika Server (Apache
             # Tika x.y.z). Please PUT" on GET — cheap liveness check
             # without needing to upload anything.
-            r = await client.get(f"{settings.tika_url}/tika")
+            r = await client.get(f"{rt().tika_url}/tika")
         if r.status_code != 200:
             return {
                 "ok": False, "latency_ms": None,

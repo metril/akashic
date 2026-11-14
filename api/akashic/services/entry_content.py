@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Cap on simultaneous scanner subprocesses (per api process). Default 10
 # matches the spec; override via env var for stress tests.
-_FETCH_CONCURRENCY = int(os.environ.get("AKASHIC_FETCH_CONCURRENCY", "10"))
 _FETCH_SEMAPHORE: asyncio.Semaphore | None = None
 _FETCH_SEMAPHORE_LOOP: asyncio.AbstractEventLoop | None = None
+_FETCH_SEMAPHORE_SIZE: int | None = None
 PREVIEW_MAX_BYTES = 64 * 1024
 _FETCH_CHUNK = 64 * 1024
 
@@ -34,11 +34,15 @@ def _semaphore() -> asyncio.Semaphore:
     loop changed (e.g., per-test loop in pytest-asyncio function scope).
     A semaphore is bound to the loop that creates it; reusing one across
     loops produces 'Future attached to a different loop' errors."""
-    global _FETCH_SEMAPHORE, _FETCH_SEMAPHORE_LOOP
+    global _FETCH_SEMAPHORE, _FETCH_SEMAPHORE_LOOP, _FETCH_SEMAPHORE_SIZE
+    from akashic.services.runtime_settings import rt
     loop = asyncio.get_running_loop()
-    if _FETCH_SEMAPHORE is None or _FETCH_SEMAPHORE_LOOP is not loop:
-        _FETCH_SEMAPHORE = asyncio.Semaphore(_FETCH_CONCURRENCY)
+    size = max(1, int(rt().fetch_concurrency))
+    if (_FETCH_SEMAPHORE is None or _FETCH_SEMAPHORE_LOOP is not loop
+            or _FETCH_SEMAPHORE_SIZE != size):
+        _FETCH_SEMAPHORE = asyncio.Semaphore(size)
         _FETCH_SEMAPHORE_LOOP = loop
+        _FETCH_SEMAPHORE_SIZE = size
     return _FETCH_SEMAPHORE
 
 

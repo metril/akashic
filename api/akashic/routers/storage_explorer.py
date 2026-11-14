@@ -47,9 +47,8 @@ from sqlalchemy.types import Text
 from akashic.auth.dependencies import (
     check_source_access,
     get_current_user,
-    get_permitted_source_ids,
 )
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.scan_snapshot import ScanSnapshot
@@ -86,7 +85,7 @@ def _normalize_path(path: str) -> str:
 async def _should_apply_perm_filter(
     user: User, show_all: bool, db: AsyncSession,
 ) -> bool:
-    if not settings.browse_enforce_perms:
+    if not rt().browse_enforce_perms:
         return False
     if user.role == "admin" and show_all:
         return False
@@ -143,12 +142,7 @@ async def list_sources(
 ):
     """Cross-source treemap. One row per source the caller can see,
     sized by total bytes from the latest scan_snapshot."""
-    allowed = await get_permitted_source_ids(user, db)
     src_stmt = select(Source.id, Source.name, Source.type)
-    if allowed is not None:
-        if not allowed:
-            return {"sources": []}
-        src_stmt = src_stmt.where(Source.id.in_(allowed))
     sources = (await db.execute(src_stmt)).all()
     if not sources:
         return {"sources": []}

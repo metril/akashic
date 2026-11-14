@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from akashic.auth import oidc
 from akashic.auth.passwords import hash_password
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.models.refresh_token import RefreshToken
 from akashic.models.user import User
 from akashic.routers.auth import REFRESH_COOKIE
@@ -43,7 +43,7 @@ def _clear():
 
 
 def _claims():
-    return {"sub": "u1", "iss": "https://idp.example", "aud": settings.oidc_client_id,
+    return {"sub": "u1", "iss": "https://idp.example", "aud": rt().oidc_client_id,
             "exp": int(time.time()) + 300, "nonce": "n"}
 
 
@@ -173,14 +173,16 @@ def test_non_global_ips_blocked(url):
         validate_outbound_url(url)
 
 
-def test_schema_does_no_dns(monkeypatch):
+def test_schema_does_no_dns():
     import socket
+    from unittest import mock
     from akashic.schemas.webhook import WebhookCreate
 
     def boom(*a, **k):
         raise AssertionError("sync DNS in schema")
-    monkeypatch.setattr(socket, "getaddrinfo", boom)
-    WebhookCreate(event_type="x", url="https://hooks.example.com/x", secret="s")
+    # Scoped patch: autouse DB fixtures tear down (and connect) after the test body.
+    with mock.patch.object(socket, "getaddrinfo", boom):
+        WebhookCreate(event_type="x", url="https://hooks.example.com/x", secret="s")
 
 
 @pytest.mark.asyncio

@@ -136,10 +136,9 @@ async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
 async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_url: str):
     """Background task: dispatch webhooks for scan events.
 
-    Scoped to webhook owners who have access to this source (admins or
-    SourcePermission rows).
+    Scoped to admin webhook owners (viewers have no webhook-bearing source grants).
     """
-    from akashic.models.user import SourcePermission, User
+    from akashic.models.user import User
     from akashic.models.webhook import Webhook
     from akashic.services.webhooks import dispatch_webhook
 
@@ -151,14 +150,7 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
             )
             admin_ids = [row[0] for row in admin_ids_result.all()]
 
-            perm_ids_result = await db.execute(
-                select(SourcePermission.user_id).where(
-                    SourcePermission.source_id == uuid.UUID(source_id)
-                )
-            )
-            permitted_user_ids = [row[0] for row in perm_ids_result.all()]
-
-            allowed_user_ids = list(set(admin_ids + permitted_user_ids))
+            allowed_user_ids = admin_ids
             if not allowed_user_ids:
                 return
 

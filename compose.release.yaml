@@ -13,18 +13,48 @@
 # without losing data.
 
 services:
+  # First-run secret generator. Writes random Postgres + Meilisearch
+  # secrets into the `secrets` volume (idempotent: existing files are
+  # kept). Upgrading with an existing Postgres volume? Run once with
+  # POSTGRES_PASSWORD (and optionally MEILI_MASTER_KEY) set to the old
+  # values; they are written over the generated ones.
+  init:
+    image: alpine:3.20
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
+    command:
+      - sh
+      - -ec
+      - |
+        umask 022
+        gen() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+        put() { # name, override
+          if [ -n "$$2" ]; then printf '%s' "$$2" > "/secrets/$$1"
+          elif [ ! -s "/secrets/$$1" ]; then gen > "/secrets/$$1"; fi
+        }
+        put postgres_password "$$POSTGRES_PASSWORD"
+        put meili_key "$$MEILI_MASTER_KEY"
+    volumes:
+      - secrets:/secrets
+    restart: "no"
+
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-akashic}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-akashic}
+      POSTGRES_USER: akashic
+      POSTGRES_PASSWORD_FILE: /secrets/postgres_password
+      POSTGRES_DB: akashic
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - secrets:/secrets:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-akashic}"]
+      test: ["CMD-SHELL", "pg_isready -U akashic"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,10 +62,15 @@ services:
   meilisearch:
     image: getmeili/meilisearch:v1.11
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme-meili-key}
       MEILI_NO_ANALYTICS: "true"
+    # The image has no *_FILE support; read the key from the secrets volume.
+    entrypoint: ["tini", "--", "sh", "-c", "MEILI_MASTER_KEY=$$(cat /secrets/meili_key) exec /bin/meilisearch"]
     volumes:
       - msdata:/meili_data
+      - secrets:/secrets:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:7700:7700"
     healthcheck:
@@ -80,8 +115,30 @@ services:
     image: ghcr.io/metril/akashic-api:${AKASHIC_VERSION:-latest}
     ports:
       - "127.0.0.1:8000:8000"
-    env_file: .env
+    environment:
+      MEILI_URL: http://meilisearch:7700
+      REDIS_URL: redis://redis:6379/0
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    # Read once for the legacy-env -> web-UI settings import on upgrade.
+    # Optional; safe to delete .env afterwards.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - apidata:/data   # secret.key (JWT signing key), auto-generated on first boot
+      - secrets:/secrets:ro
+    # DATABASE_URL / MEILI_KEY are built from the generated secrets.
+    command:
+      - sh
+      - -c
+      - |
+        PGPW="$$(python -c 'import urllib.parse;print(urllib.parse.quote(open("/secrets/postgres_password").read().strip(),safe=""))')"
+        export DATABASE_URL="postgresql+asyncpg://akashic:$$PGPW@postgres:5432/akashic"
+        export MEILI_KEY="$$(cat /secrets/meili_key)"
+        exec uvicorn akashic.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips "$$FORWARDED_ALLOW_IPS"
     depends_on:
+      init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       meilisearch:
@@ -135,9 +192,6 @@ services:
       AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
       AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
       SCANNER_ID: ${SCANNER_ID:-}
-      # v0.30.0 — the scanner extracts file text itself and sends
-      # documents to this co-located Tika.
-      AKASHIC_TIKA_URL: ${AKASHIC_TIKA_URL:-http://tika:9998}
     volumes:
       - scanner-data:/secrets
     depends_on:
@@ -167,6 +221,8 @@ services:
       - api
 
 volumes:
+  secrets:
+  apidata:
   pgdata:
   msdata:
   redisdata:

@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.models.user import User
 
 
@@ -73,7 +73,7 @@ async def _get_discovery() -> dict:
     async with _get_lock():
         now = time.monotonic()
         if _discovery_cache is None or (now - _discovery_fetched_at) > _CACHE_TTL_SECONDS:
-            resp = await _get_client().get(settings.oidc_discovery_url, timeout=10)
+            resp = await _get_client().get(rt().oidc_discovery_url, timeout=10)
             resp.raise_for_status()
             _discovery_cache = resp.json()
             _discovery_fetched_at = now
@@ -134,8 +134,8 @@ async def get_authorization_url(
 
     params = {
         "response_type": "code",
-        "client_id": settings.oidc_client_id,
-        "redirect_uri": settings.oidc_redirect_uri,
+        "client_id": rt().oidc_client_id,
+        "redirect_uri": rt().oidc_redirect_uri,
         "scope": "openid email profile",
         "state": state or secrets.token_urlsafe(32),
     }
@@ -173,9 +173,9 @@ async def exchange_code(
     data = {
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": settings.oidc_redirect_uri,
-        "client_id": settings.oidc_client_id,
-        "client_secret": settings.oidc_client_secret,
+        "redirect_uri": rt().oidc_redirect_uri,
+        "client_id": rt().oidc_client_id,
+        "client_secret": rt().oidc_client_secret,
     }
     if code_verifier:
         data["code_verifier"] = code_verifier
@@ -198,7 +198,7 @@ async def exchange_code(
             id_token,
             jwks,
             algorithms=["RS256", "ES256", "RS384", "ES384", "RS512"],
-            audience=settings.oidc_client_id,
+            audience=rt().oidc_client_id,
             issuer=issuer,
             # python-jose validates `at_hash` when present and requires
             # the access token to do so.
@@ -306,7 +306,7 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
     # everything" rather than 500'ing the callback.
     from akashic.auth.oidc_provisioning import sync_fs_bindings_from_claims
 
-    await sync_fs_bindings_from_claims(db, user, id_token_claims, settings)
+    await sync_fs_bindings_from_claims(db, user, id_token_claims, rt())
     await db.commit()
 
     return user

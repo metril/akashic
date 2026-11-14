@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.source import Source
@@ -424,7 +425,7 @@ async def _check_stale_scans():
        this catches orphaned pending scans (started_at NULL) and any other case where
        the source state never returned to online/offline.
     """
-    threshold_minutes = settings.stale_scan_threshold_minutes
+    threshold_minutes = rt().stale_scan_threshold_minutes
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=threshold_minutes)
     message = f"Watchdog: exceeded {threshold_minutes} min"
@@ -729,18 +730,17 @@ async def _snapshot_fallback_loop():
 
 
 async def _audit_retention_loop():
-    """Daily: delete audit events older than `settings.audit_retention_days`.
+    """Daily: delete audit events older than `rt().audit_retention_days`.
     No-op when the setting is 0."""
     from datetime import datetime, timedelta, timezone
     from sqlalchemy import delete
-    from akashic.config import settings
     from akashic.database import async_session
     from akashic.models.audit_event import AuditEvent
 
     while True:
         try:
-            if settings.audit_retention_days > 0:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=settings.audit_retention_days)
+            if rt().audit_retention_days > 0:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=rt().audit_retention_days)
                 async with async_session() as db:
                     result = await db.execute(
                         delete(AuditEvent).where(AuditEvent.occurred_at < cutoff)

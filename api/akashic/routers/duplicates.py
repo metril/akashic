@@ -6,11 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, get_permitted_source_ids, require_admin
+from akashic.auth.dependencies import get_current_user, require_admin
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.routers.browse import _should_enforce_perms
+from akashic.services.access_query import user_principal_tokens, viewable_clause
 from akashic.services.audit import record_event
 from akashic.services.duplicate_delete import delete_copy
 from akashic.services.search import delete_file_from_index
@@ -33,12 +35,8 @@ async def list_duplicates(
         Entry.is_deleted == False,  # noqa: E712
         Entry.content_hash.isnot(None),
     ]
-
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is not None:
-        if not allowed:
-            return []
-        base_filter.append(Entry.source_id.in_(allowed))
+    if await _should_enforce_perms(user, False, db):
+        base_filter.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
         select(
@@ -83,12 +81,8 @@ async def get_duplicate_files(
         Entry.content_hash == content_hash,
         Entry.is_deleted == False,  # noqa: E712
     ).order_by(Entry.id).offset(offset).limit(limit)
-
-    allowed = await get_permitted_source_ids(user, db)
-    if allowed is not None:
-        if not allowed:
-            return []
-        stmt = stmt.where(Entry.source_id.in_(allowed))
+    if await _should_enforce_perms(user, False, db):
+        stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     result = await db.execute(stmt)
     entries = result.scalars().all()

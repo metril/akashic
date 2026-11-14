@@ -121,12 +121,9 @@ _CLAIMS = {"sub": "oidc-1", "preferred_username": "ssouser", "email": "sso@examp
 
 
 @pytest.fixture
-def oidc_on(monkeypatch):
-    from akashic.config import settings
-    monkeypatch.setattr(settings, "oidc_enabled", True)
-    monkeypatch.setattr(settings, "frontend_url", "")
+def oidc_on(monkeypatch, rt_set):
     # httpx will not send a Secure cookie to http://test
-    monkeypatch.setattr(settings, "cookie_secure", False)
+    rt_set(oidc_enabled=True, frontend_url="", cookie_secure=False)
     mock = AsyncMock(return_value=_CLAIMS)
     monkeypatch.setattr("akashic.auth.oidc.exchange_code", mock)
     return mock
@@ -187,9 +184,8 @@ async def test_oidc_callback_exchange_fails(client, oidc_on):
 
 
 @pytest.mark.asyncio
-async def test_oidc_callback_frontend_url(client, oidc_on, monkeypatch):
-    from akashic.config import settings
-    monkeypatch.setattr(settings, "frontend_url", "http://localhost:5173")
+async def test_oidc_callback_frontend_url(client, oidc_on, rt_set):
+    rt_set(frontend_url="http://localhost:5173")
     client.cookies.set("oidc_state", "s")
     client.cookies.set("oidc_pkce", "v")
     client.cookies.set("oidc_nonce", "n")
@@ -210,14 +206,12 @@ async def test_oidc_callback_missing_pkce_cookie(client, oidc_on, present):
 
 
 @pytest.mark.asyncio
-async def test_oidc_login_sets_pkce_and_nonce(client, monkeypatch):
+async def test_oidc_login_sets_pkce_and_nonce(client, monkeypatch, rt_set):
     import base64
     import hashlib
     from urllib.parse import parse_qs, urlparse
 
-    from akashic.config import settings
-
-    monkeypatch.setattr(settings, "oidc_enabled", True)
+    rt_set(oidc_enabled=True)
     monkeypatch.setattr(
         "akashic.auth.oidc._get_discovery",
         AsyncMock(return_value={"authorization_endpoint": "https://idp.example/auth"}),

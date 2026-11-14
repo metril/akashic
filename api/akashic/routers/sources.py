@@ -12,7 +12,7 @@ from akashic.models.audit_event import AuditEvent
 from akashic.models.entry import Entry
 from akashic.models.host import Host
 from akashic.models.source import Source
-from akashic.models.user import SourcePermission, User
+from akashic.models.user import User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
 from akashic.schemas.reachability import (
     PerScannerHistory,
@@ -284,16 +284,7 @@ async def list_sources(
     exclude_patterns and ships a server-rendered `summary` for the
     SourceCard subtitle. Per-source detail (with full config) is
     served by GET /sources/{id} which the panel fetches on click."""
-    if user.role == "admin":
-        result = await db.execute(select(Source).order_by(Source.name))
-    else:
-        # Non-admins only see sources they have permission for
-        result = await db.execute(
-            select(Source)
-            .join(SourcePermission, Source.id == SourcePermission.source_id)
-            .where(SourcePermission.user_id == user.id)
-            .order_by(Source.name)
-        )
+    result = await db.execute(select(Source).order_by(Source.name))
     return [SourceListResponse.from_source(s) for s in result.scalars().all()]
 
 

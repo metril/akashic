@@ -220,8 +220,8 @@ async def test_owner_distribution_empty_when_no_snapshots(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_timeseries_403_for_inaccessible_source(client, db_session):
-    """A non-admin user without source permission should get 403."""
+async def test_timeseries_open_to_regular_user(client, db_session):
+    """Any authenticated user may read any source."""
     admin_token = await _register_login(client)
     # Make a regular user.
     await client.post(
@@ -240,4 +240,4 @@ async def test_timeseries_403_for_inaccessible_source(client, db_session):
         f"/api/analytics/timeseries?source_id={src.id}",
         headers={"Authorization": f"Bearer {user_token}"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200

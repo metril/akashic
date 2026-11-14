@@ -56,8 +56,6 @@ services:
       AKASHIC_DISCOVER: ${AKASHIC_DISCOVER:-}
       AKASHIC_CLAIM_TOKEN: ${AKASHIC_CLAIM_TOKEN:-}
       SCANNER_ID: ${SCANNER_ID:-}
-      # Co-located Tika — document bytes stay on this host's network.
-      AKASHIC_TIKA_URL: http://tika:9998
     volumes:
       - scanner-data:/secrets
     depends_on:

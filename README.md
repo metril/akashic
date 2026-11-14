@@ -97,22 +97,11 @@ at `localhost:8000`.
 
 ## Configuration
 
-The API reads `.env` from the repo root (see
-[compose.yaml](compose.yaml) `api.env_file`). The full env-var
-reference lives in [docs/configuration.md](docs/configuration.md);
-the most commonly-overridden keys are:
-
-| Key | Default | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | `postgresql+asyncpg://…` | Postgres DSN |
-| `MEILI_URL` / `MEILI_KEY` | local | Meilisearch endpoint |
-| `REDIS_URL` | local | Extraction queue backend |
-| `SECRET_KEY` | `changeme-secret-key` | JWT signing key — **override in production** |
-| `OIDC_ENABLED` | `false` | Enable SSO. See [docs/authentication.md](docs/authentication.md). |
-| `LDAP_ENABLED` | `false` | Enable direct LDAP login. See [docs/authentication.md](docs/authentication.md). |
-| `BROWSE_ENFORCE_PERMS` | `false` | Apply per-user ACL filter to Browse |
-| `STREAMING_TOPCHILDREN` | `false` | Live mid-scan updates in the Storage view |
-| `STALE_SCAN_THRESHOLD_MINUTES` | `60` | Watchdog window for pending/running scans |
+No `.env` file is needed: `docker compose up` generates the database
+and search secrets itself, and everything else (OIDC, LDAP, CORS,
+token TTLs, feature flags) is configured in **Settings → Server** in
+the web UI. See [docs/configuration.md](docs/configuration.md) for the
+five bootstrap variables and the upgrade path from env-based installs.
 
 ## First-time login
 
@@ -213,7 +202,7 @@ docker run -d --restart=unless-stopped \
 For local-dev single-host installs, `make bootstrap-scanner`
 automates path 1 against the running api: it mints a join token,
 runs `akashic-scanner claim` inside the bundled scanner container,
-and stamps `SCANNER_ID` into `.env` so `make scanner` brings up
+and stamps `SCANNER_ID` into `.env` (optional, scanner only) so `make scanner` brings up
 the agent service.
 
 ### Authentication model

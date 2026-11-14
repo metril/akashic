@@ -122,7 +122,9 @@ async def test_refresh_replay_revokes_chain(
     )
     assert replay.status_code == 401
 
-    # Both rows in the chain are now revoked.
+    # Both rows in the chain are now revoked (re-read: the request used
+    # another session, db_session's identity map is stale).
+    db_session.expire_all()
     rows = (await db_session.execute(select(RefreshToken))).scalars().all()
     assert len(rows) == 2
     assert all(r.revoked_at is not None for r in rows)

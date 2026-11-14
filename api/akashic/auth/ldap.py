@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.config import settings
+from akashic.services.runtime_settings import rt
 from akashic.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -45,17 +45,17 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
     conn = None
     user_conn = None
     try:
-        conn = ldap.initialize(settings.ldap_server)
+        conn = ldap.initialize(rt().ldap_server)
         conn.set_option(ldap.OPT_REFERRALS, 0)
         conn.set_option(ldap.OPT_NETWORK_TIMEOUT, 5)
 
         # Step 1 — service-account bind to search for the user
-        conn.simple_bind_s(settings.ldap_bind_dn, settings.ldap_bind_password)
+        conn.simple_bind_s(rt().ldap_bind_dn, rt().ldap_bind_password)
 
         # Step 2 — find the user's DN
-        search_filter = settings.ldap_user_filter.format(username=ldap.filter.escape_filter_chars(username))
+        search_filter = rt().ldap_user_filter.format(username=ldap.filter.escape_filter_chars(username))
         results = conn.search_s(
-            settings.ldap_user_base,
+            rt().ldap_user_base,
             ldap.SCOPE_SUBTREE,
             search_filter,
             ["dn", "uid", "mail", "cn", "sAMAccountName", "userPrincipalName"],
@@ -70,7 +70,7 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
             return None
 
         # Step 3 — bind as the user to verify the password
-        user_conn = ldap.initialize(settings.ldap_server)
+        user_conn = ldap.initialize(rt().ldap_server)
         user_conn.set_option(ldap.OPT_REFERRALS, 0)
         user_conn.set_option(ldap.OPT_NETWORK_TIMEOUT, 5)
         user_conn.simple_bind_s(user_dn, password)

@@ -121,7 +121,5 @@ async def test_resolve_unknown_source_returns_error_status(client, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
         json={"source_id": str(uuid.uuid4()), "sids": ["S-1-5-32-544"]},
     )
-    # check_source_access raises 403 if the user has no permission
-    # AND the source doesn't exist — that's the actual response code
-    # we should expect here. UI treats 403 the same as transient.
+    # Nonexistent source: 404/403/200 all tolerated (UI treats as transient).
     assert resp.status_code in (403, 404, 200)

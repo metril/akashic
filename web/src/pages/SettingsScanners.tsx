@@ -23,6 +23,8 @@ import {
 } from "../components/ui";
 import { AllowedSourcesModal } from "../components/scanners/AllowedSourcesModal";
 import { JoinTokenWizard } from "../components/scanners/JoinTokenWizard";
+import { ScannerConfigPanel } from "../components/scanners/ScannerConfigPanel";
+import type { ScannerEffectiveConfig, ScannerOverrides } from "../components/scanners/ScannerConfigPanel";
 import { PendingClaimRow } from "../components/scanners/PendingClaimRow";
 import { DiscoveryToggle } from "../components/scanners/DiscoveryToggle";
 import { useScannerClaimTokens } from "../hooks/useScannerClaimTokens";
@@ -47,6 +49,8 @@ interface Scanner {
   // v0.36.0 — handshake-reported unit concurrency; null = the scanner
   // hasn't reported yet (pre-handshake or upgraded from an older agent).
   max_concurrent_units: number | null;
+  overrides: ScannerOverrides;
+  effective_config: ScannerEffectiveConfig;
 }
 
 interface ScannerCreated {
@@ -318,7 +322,8 @@ function ScannerRow({
   const sourceScope = s.allowed_source_ids;
   const typeScope = s.allowed_scan_types;
   return (
-    <li className="px-4 py-3 flex items-center justify-between gap-3">
+    <li className="px-4 py-3">
+     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span
@@ -397,6 +402,13 @@ function ScannerRow({
           Delete
         </Button>
       </div>
+     </div>
+     <ScannerConfigPanel
+       key={JSON.stringify(s.overrides)}
+       scannerId={s.id}
+       overrides={s.overrides}
+       effective={s.effective_config}
+     />
     </li>
   );
 }

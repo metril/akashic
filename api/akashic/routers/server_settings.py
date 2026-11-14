@@ -1,15 +1,19 @@
-"""Admin GET/PATCH for runtime server settings.
+"""Admin API for runtime server settings (typed registry, grouped).
 
-The values themselves are intentionally typed as `Any` (JSONB) so
-the same endpoint handles every flavour of toggle. Callers that
-care about a specific shape (e.g. the discovery endpoint reading a
-bool) validate at the read site, not here.
+GET  /api/server-settings        -> {"groups": [{key,label,settings:[...]}]}
+GET  /api/server-settings/{key}  -> {key, value, set}
+PATCH /api/server-settings/{key} body {"value": ...}
+PATCH /api/server-settings       body {"values": {key: value, ...}} (atomic)
+
+Secrets are never returned: ``value`` is the mask when set, "" when not,
+and ``set`` says which. On PATCH a secret of null or the mask is left
+unchanged; an explicit "" clears it.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +24,10 @@ from akashic.models.server_setting import ServerSetting
 from akashic.models.user import User
 from akashic.services import scan_pubsub
 from akashic.services.audit import record_event
+from akashic.services.runtime_settings import (
+    GROUPS, MASK, REGISTRY, Spec, coerce, decode_stored, encode_stored,
+    load_snapshot,
+)
 from akashic.services.server_settings import set_setting
 
 router = APIRouter(prefix="/api/server-settings", tags=["server-settings"])
@@ -28,19 +36,91 @@ router = APIRouter(prefix="/api/server-settings", tags=["server-settings"])
 class SettingValue(BaseModel):
     key: str
     value: Any
+    set: bool | None = None  # secrets only
 
 
 class SettingPatch(BaseModel):
-    value: Any
+    value: Any = None
 
 
-@router.get("", response_model=list[SettingValue])
+class BulkPatch(BaseModel):
+    values: dict[str, Any]
+
+
+def _public(spec: Spec, stored: Any, present: bool) -> tuple[Any, bool | None]:
+    """(value, set) as exposed to clients."""
+    if spec.secret:
+        is_set = bool(stored)
+        return (MASK if is_set else ""), is_set
+    if not present:
+        return spec.default, None
+    try:
+        return decode_stored(spec, stored), None
+    except ValueError:
+        return spec.default, None
+
+
+def _describe(spec: Spec, stored: Any, present: bool) -> dict:
+    value, is_set = _public(spec, stored, present)
+    d = {
+        "key": spec.key, "type": spec.type_name, "group": spec.group,
+        "description": spec.description, "secret": spec.secret,
+        "restart": spec.restart, "default": spec.default, "value": value,
+        "choices": list(spec.choices) if spec.choices else None,
+    }
+    if spec.secret:
+        d["set"] = is_set
+    return d
+
+
+def _invalid(key: str, msg: str) -> HTTPException:
+    """FastAPI-style 422 so clients can map the error to the field."""
+    return HTTPException(422, [{
+        "type": "value_error", "loc": ["body", "values", key], "msg": msg,
+    }])
+
+
+def _prepare(spec: Spec, raw: Any) -> tuple[bool, Any]:
+    """(changed, value_to_store). Raises HTTPException(422) on bad input."""
+    if spec.secret:
+        if raw is None or raw == MASK:
+            return False, None
+        if not isinstance(raw, str):
+            raise _invalid(spec.key, "must be a string")
+        return True, encode_stored(spec, raw)
+    try:
+        return True, coerce(spec, raw)
+    except ValueError as e:
+        raise _invalid(spec.key, str(e)) from e
+
+
+def _spec(key: str) -> Spec:
+    spec = REGISTRY.get(key)
+    if spec is None:
+        raise HTTPException(404, f"unknown setting: {key}")
+    return spec
+
+
+async def _rows(db: AsyncSession) -> dict[str, Any]:
+    return {r.key: r.value for r in (await db.execute(select(ServerSetting))).scalars()}
+
+
+@router.get("")
 async def list_settings(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    rows = (await db.execute(select(ServerSetting))).scalars().all()
-    return [SettingValue(key=r.key, value=r.value) for r in rows]
+    rows = await _rows(db)
+    groups = []
+    for gkey, label in GROUPS:
+        groups.append({
+            "key": gkey, "label": label,
+            "settings": [
+                _describe(s, rows.get(s.key), s.key in rows)
+                for s in REGISTRY.values() if s.group == gkey
+            ],
+        })
+    return {"groups": groups}
 
 
 @router.get("/{key}", response_model=SettingValue)
@@ -49,12 +129,45 @@ async def get_setting_endpoint(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    row = (await db.execute(
-        select(ServerSetting).where(ServerSetting.key == key)
-    )).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"unknown setting: {key}")
-    return SettingValue(key=row.key, value=row.value)
+    spec = _spec(key)
+    rows = await _rows(db)
+    value, is_set = _public(spec, rows.get(key), key in rows)
+    return SettingValue(key=key, value=value, set=is_set)
+
+
+async def _apply(
+    db: AsyncSession, request: Request, user: User, items: dict[str, Any],
+) -> dict[str, SettingValue]:
+    prepared: dict[str, Any] = {}
+    for key, raw in items.items():
+        spec = _spec(key)
+        changed, val = _prepare(spec, raw)
+        if changed:
+            prepared[key] = val
+    for key, val in prepared.items():
+        await set_setting(db, key, val, user_id=user.id)
+    await db.commit()
+    await load_snapshot(db)
+    if prepared:
+        # Bust cache + reload snapshot on every worker/process.
+        await scan_pubsub.publish_scanner_event({
+            "kind": "setting.changed",
+            "key": next(iter(prepared)) if len(prepared) == 1 else None,
+        })
+        await record_event(
+            db=db, user=user, event_type="server_setting_updated",
+            request=request,
+            payload={"values": {
+                k: ("<redacted>" if REGISTRY[k].secret else v)
+                for k, v in prepared.items()
+            }, "key": next(iter(prepared)) if len(prepared) == 1 else None},
+        )
+    rows = await _rows(db)
+    out = {}
+    for key in items:
+        v, s = _public(REGISTRY[key], rows.get(key), key in rows)
+        out[key] = SettingValue(key=key, value=v, set=s)
+    return out
 
 
 @router.patch("/{key}", response_model=SettingValue)
@@ -65,17 +178,15 @@ async def patch_setting(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    row = await set_setting(db, key, body.value, user_id=user.id)
-    await db.commit()
-    # Bust cache cluster-wide so toggling on one node propagates
-    # without waiting on the 5s TTL.
-    await scan_pubsub.publish_scanner_event({
-        "kind": "setting.changed",
-        "key": key,
-    })
-    await record_event(
-        db=db, user=user, event_type="server_setting_updated",
-        request=request,
-        payload={"key": key, "value": body.value},
-    )
-    return SettingValue(key=row.key, value=row.value)
+    _spec(key)
+    return (await _apply(db, request, user, {key: body.value}))[key]
+
+
+@router.patch("", response_model=dict[str, SettingValue])
+async def patch_settings_bulk(
+    body: BulkPatch,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    return await _apply(db, request, user, body.values)
