@@ -95,11 +95,8 @@ Returns 204. Only the owner can delete.
 
 ## Visibility scoping
 
-A webhook fires only for events on sources its owner has
-permission to read (admin, or holds an explicit
-`SourcePermission` row). For deployment-wide hooks (e.g. ChatOps
-"scan finished" notifications across every source), register the
-hook under an admin account.
+Webhooks fire only for hooks owned by an admin account. Register
+hooks (e.g. ChatOps "scan finished" notifications) under an admin.
 
 ## Reliability
 

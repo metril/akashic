@@ -105,7 +105,7 @@ WHERE viewable_by_read && ARRAY['posix:uid:1001', 'posix:gid:100', '*', 'auth']:
 
 A user with no bindings keeps see-all behaviour until an admin
 attaches one — the feature flag is a deployment switch, not a per-user
-lockout. See `BROWSE_ENFORCE_PERMS` below.
+lockout. See *Enforce file permissions* below.
 
 ## Per-source `principal_domain` config
 
@@ -120,11 +120,13 @@ SID against every source's prefix and only auto-binds where they
 agree. SIDs that match no source go into `fs_unbound_identities` so
 admins can attach them manually.
 
-## Feature flag: `BROWSE_ENFORCE_PERMS`
+## Feature flag: Enforce file permissions
 
-Default `false`. When off, Browse and entry-by-id endpoints behave
-exactly like before (anyone with source access sees everything). When
-on:
+Set in **Settings → Server → Feature flags** (`browse_enforce_perms`).
+Default off. Every user can read every source; when off, non-admins
+see all indexed files. When on, non-admins are trimmed everywhere
+entry paths are returned — browse, search, entries, duplicates,
+analytics and storage views:
 
 - Browse listings apply the array-overlap trim.
 - `/api/entries/<id>` returns 404 (not 403) for entries the caller

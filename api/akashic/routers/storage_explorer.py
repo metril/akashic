@@ -26,7 +26,7 @@ Color modes (toggle in the UI):
 Permission scoping:
 
 - Source-level: check_source_access on every request.
-- Per-entry (Phase 5): when BROWSE_ENFORCE_PERMS is on and the user
+- Per-entry (Phase 5): when the browse_enforce_perms server setting is on and the user
   isn't an admin (or admin without show_all=1), queries apply
   viewable_clause and roll hidden entries into a synthetic
   `<hidden>` bucket whose size is exposed only to admins.

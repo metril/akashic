@@ -61,7 +61,6 @@ are set per scanner in **Settings → Scanners**; the scanner only needs
   (or keep them in `.env`; compose still reads it for these
   substitutions). Non-default `POSTGRES_USER`/`POSTGRES_DB` are no
   longer supported by the compose files; they are fixed to `akashic`.
-- `.env.example` is gone; `.env` is optional and only used as above.
 
 ## Multiple API replicas
 
