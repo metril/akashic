@@ -45,10 +45,12 @@ func (r *Reporter) StartStderrRelay(ctx context.Context) (cleanup func(), err er
 	cleanup = func() {
 		// Closing the write end signals EOF to the reader; the reader
 		// flushes any buffered bytes and returns.
+		// Do NOT cancel before the reader hits EOF: that would drop the
+		// final buffered stderr. cancel() only runs after the drain.
 		os.Stderr = originalStderr
 		pw.Close()
-		cancel()
 		wg.Wait()
+		cancel()
 		pr.Close()
 	}
 	return cleanup, nil
@@ -103,6 +105,14 @@ func (r *Reporter) runStderrRelay(ctx context.Context, pr *os.File, tee io.Write
 		select {
 		case <-ctx.Done():
 			flushFinal()
+			// Keep draining so the reader goroutine never blocks on
+			// readCh; console tee only (API ctx is gone). Ends when the
+			// write end closes (cleanup) and readCh is closed.
+			for data := range readCh {
+				if tee != nil {
+					tee.Write(data)
+				}
+			}
 			return
 		case <-flushTicker.C:
 			flush()
@@ -116,6 +126,10 @@ func (r *Reporter) runStderrRelay(ctx context.Context, pr *os.File, tee io.Write
 				flush()
 			}
 		case <-readErr:
+			// readCh is closed right after readErr; drain what's left.
+			for data := range readCh {
+				pending.Write(data)
+			}
 			flushFinal()
 			return
 		}

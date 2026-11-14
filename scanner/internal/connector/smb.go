@@ -133,12 +133,19 @@ type guardedReader struct {
 }
 
 func (g *guardedReader) Read(p []byte) (int, error) {
+	// Read into a private buffer: after a guard timeout the goroutine may
+	// still complete and must never write into the caller's p.
+	buf := make([]byte, len(p))
 	var n int
 	err := g.c.guard("file read", func() error {
 		var e error
-		n, e = g.rc.Read(p)
+		n, e = g.rc.Read(buf)
 		return e
 	})
+	if err != nil && n == 0 {
+		return 0, err
+	}
+	copy(p, buf[:n])
 	return n, err
 }
 

@@ -39,6 +39,8 @@ type Pool struct {
 	sink  func(ContentRecord)
 	logf  func(string, ...any)
 	wg    sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
 	extracted atomic.Int64
 	failures  atomic.Int64
 }
@@ -67,7 +69,10 @@ func NewPool(
 	logf func(string, ...any),
 ) *Pool {
 	n := clampWorkers(conn.Type(), workers)
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
+		ctx:    ctx,
+		cancel: cancel,
 		conn: conn,
 		ex:   ex,
 		// Bounded buffer: a saturated pool applies brief backpressure
@@ -86,12 +91,15 @@ func NewPool(
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for job := range p.jobs {
+		if p.ctx.Err() != nil {
+			continue // cancelled: skip queued jobs
+		}
 		p.process(job)
 	}
 }
 
 func (p *Pool) process(job Job) {
-	ctx := context.Background()
+	ctx := p.ctx
 	rc, err := p.conn.ReadFile(ctx, job.Path)
 	if err != nil {
 		p.failures.Add(1)
@@ -129,11 +137,17 @@ func (p *Pool) Submit(job Job) {
 	p.jobs <- job
 }
 
+// Cancel aborts the pool: in-flight reads/extractions see a cancelled
+// context and queued jobs are skipped. Call before Close to shut down
+// without draining the queue.
+func (p *Pool) Cancel() { p.cancel() }
+
 // Close stops accepting jobs and waits for all in-flight extraction
 // to drain.
 func (p *Pool) Close() {
 	close(p.jobs)
 	p.wg.Wait()
+	p.cancel()
 }
 
 // Stats returns cumulative (filesExtracted, failures) since the pool

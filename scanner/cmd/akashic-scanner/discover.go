@@ -228,8 +228,33 @@ func jittered(d time.Duration) time.Duration {
 //	65  expired — TTL elapsed before any decision
 //	66  timeout — caller's --timeout fired before the api decided
 //	1   network or unexpected error
+func isTransientPollStatus(code int) bool {
+	return code == 502 || code == 503 || code == 504
+}
+
+// pollBackoff: 1s, 2s, 4s … capped at 15s.
+func pollBackoff(attempt int) time.Duration {
+	if attempt > 4 {
+		attempt = 4
+	}
+	return time.Second << attempt
+}
+
+// sleepCtx sleeps d; false if ctx ended first.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
 func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, string, string) {
 	cli := &http.Client{Timeout: 35 * time.Second} // > server long-poll window
+	transient := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -257,6 +282,15 @@ func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, str
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if isTransientPollStatus(resp.StatusCode) {
+			fmt.Fprintf(os.Stderr, "poll returned %d (will retry)\n", resp.StatusCode)
+			if !sleepCtx(ctx, pollBackoff(transient)) {
+				os.Exit(66)
+			}
+			transient++
+			continue
+		}
+		transient = 0
 		if resp.StatusCode/100 != 2 {
 			fmt.Fprintf(os.Stderr, "poll returned %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 			os.Exit(1)

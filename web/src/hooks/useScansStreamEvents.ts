@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef } from "react";
 
-import { getToken } from "../api/client";
+import { completeSsoLogin, getToken } from "../api/client";
 
 export type ScansStreamEvent =
   | { kind: "snapshot"; scans: SnapshotScan[] }
@@ -114,9 +114,17 @@ function open() {
       // Malformed frame; ignore (live stream is best-effort).
     }
   };
-  sock.onclose = () => {
+  sock.onclose = (ev) => {
     if (ws === sock) ws = null;
     if (listeners.size === 0) return; // nothing to reconnect for
+    if (ev.code === 1008) {
+      // Expired access token: refresh before reconnecting, else the
+      // server rejects every retry the same way.
+      void completeSsoLogin().then(() => {
+        if (listeners.size > 0) scheduleReconnect();
+      });
+      return;
+    }
     scheduleReconnect();
   };
   sock.onerror = () => {
