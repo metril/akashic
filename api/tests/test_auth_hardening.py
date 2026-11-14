@@ -219,3 +219,47 @@ async def test_register_uses_advisory_lock(client, db_session):
         event.remove(eng, "before_cursor_execute", grab)
     assert r.status_code == 201
     assert any("pg_advisory_xact_lock" in s for s in stmts)
+
+
+@pytest.mark.asyncio
+async def test_refresh_grace_is_single_use(client, db_session):
+    c1 = await _seed_login(client, db_session)
+    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200
+    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200  # grace
+    # Second reuse of the same rotated token: replay -> 401, chain revoked.
+    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 401
+
+
+def _hide_username_check_once(db_session, monkeypatch):
+    real_execute = db_session.execute
+    calls = {"n": 0}
+
+    async def fake_execute(stmt, *a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:  # username-availability check misses (race)
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+        return await real_execute(stmt, *a, **kw)
+
+    monkeypatch.setattr(db_session, "execute", fake_execute)
+
+
+@pytest.mark.asyncio
+async def test_oidc_provision_retries_on_username_collision(db_session, monkeypatch):
+    db_session.add(User(username="taken", auth_provider="local", role="viewer"))
+    await db_session.commit()
+    _hide_username_check_once(db_session, monkeypatch)
+    user = await oidc.get_or_create_user(db_session, {"sub": "s-new", "preferred_username": "taken"})
+    assert user.external_id == "s-new" and user.username == "taken_1"
+
+
+@pytest.mark.asyncio
+async def test_ldap_provision_retries_on_username_collision(db_session, monkeypatch):
+    from akashic.auth import ldap as ldap_auth
+
+    db_session.add(User(username="taken", auth_provider="local", role="viewer"))
+    await db_session.commit()
+    _hide_username_check_once(db_session, monkeypatch)
+    user = await ldap_auth.get_or_create_user(db_session, {"dn": "cn=x", "uid": "taken"})
+    assert user.external_id == "cn=x" and user.username == "taken_1"

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import exists, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,7 +372,7 @@ async def ingest_batch(
     now = datetime.now(timezone.utc)
 
     result = await db.execute(
-        select(Scan).where(Scan.id == batch.scan_id).with_for_update()
+        select(Scan).where(Scan.id == batch.scan_id)
     )
     scan = result.scalar_one_or_none()
     if scan is None:
@@ -402,10 +402,21 @@ async def ingest_batch(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"scan is {scan.status}; no further batches accepted",
         )
-    if scan.started_at is None:
-        scan.started_at = scan_start
-    if scan.status == "pending":
-        scan.status = "running"
+    if scan.started_at is None or scan.status == "pending":
+        # No row lock held for the batch (v0.29.2 design: concurrent
+        # scanners must not serialize on the Scan row). First-batch
+        # transition is a conditional UPDATE; it is a no-op if a cancel
+        # or a sibling batch won the race.
+        await db.execute(
+            sql_update(Scan)
+            .where(Scan.id == scan.id, Scan.status.in_(("pending", "running")))
+            .values(
+                status=case((Scan.status == "pending", "running"), else_=Scan.status),
+                started_at=func.coalesce(Scan.started_at, scan_start),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.refresh(scan)
 
     files_processed = 0
     new_file_ids: list[str] = []
@@ -708,6 +719,22 @@ async def ingest_batch(
         scan_finalized_here = not has_work_units
 
     if scan_finalized_here:
+        # Exclusive lock only on the finalize path; re-check status so a
+        # concurrent cancel/complete still wins correctly.
+        locked = (await db.execute(
+            select(Scan).where(Scan.id == scan.id)
+            .with_for_update().execution_options(populate_existing=True)
+        )).scalar_one()
+        if locked.status in ("cancelled", "failed", "completed"):
+            await db.rollback()
+            if locked.status == "completed":
+                return ScanBatchResponse(
+                    files_processed=0, scan_id=batch.scan_id, extract_candidates=[],
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"scan is {locked.status}; no further batches accepted",
+            )
         scan.status = "completed"
         scan.completed_at = now
         # Set the reason so the scanner's heartbeat decoder logs an

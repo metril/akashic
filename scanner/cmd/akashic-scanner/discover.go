@@ -237,7 +237,11 @@ func pollBackoff(attempt int) time.Duration {
 	if attempt > 4 {
 		attempt = 4
 	}
-	return time.Second << attempt
+	d := time.Second << attempt
+	if d > 15*time.Second {
+		d = 15 * time.Second
+	}
+	return d
 }
 
 // sleepCtx sleeps d; false if ctx ended first.

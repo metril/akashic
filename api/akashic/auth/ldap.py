@@ -143,23 +143,38 @@ async def get_or_create_user(db: AsyncSession, ldap_info: dict) -> User:
             username = f"{base_username}_{counter}"
             counter += 1
 
-        user = User(
-            username=username,
-            email=ldap_info.get("email"),
-            role="viewer",
-            auth_provider="ldap",
-            external_id=dn,
-        )
-        db.add(user)
-        try:
-            await db.commit()
-        except IntegrityError:
-            # Concurrent first login won the (provider, external_id) race.
-            await db.rollback()
-            user = (await db.execute(
-                select(User).where(User.auth_provider == "ldap", User.external_id == dn)
-            )).scalar_one()
+        # Bounded retry: an IntegrityError may come from the
+        # (provider, external_id) race (re-select finds the winner) or
+        # from users.username (re-allocate a username and insert again).
+        for _attempt in range(5):
+            user = User(
+                username=username,
+                email=ldap_info.get("email"),
+                role="viewer",
+                auth_provider="ldap",
+                external_id=dn,
+            )
+            db.add(user)
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                user = (await db.execute(
+                    select(User).where(User.auth_provider == "ldap", User.external_id == dn)
+                )).scalar_one_or_none()
+                if user is not None:
+                    break
+                username = f"{base_username}_{counter}"
+                counter += 1
+                while (await db.execute(
+                    select(User).where(User.username == username)
+                )).scalar_one_or_none() is not None:
+                    username = f"{base_username}_{counter}"
+                    counter += 1
+            else:
+                await db.refresh(user)
+                break
         else:
-            await db.refresh(user)
+            raise RuntimeError("could not provision user: username allocation kept colliding")
 
     return user

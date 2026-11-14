@@ -120,8 +120,16 @@ async def start_job(
     db.add(job)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         await db.rollback()
+        orig = getattr(e, "orig", None)
+        cname = getattr(orig, "constraint_name", None) or getattr(
+            getattr(orig, "__cause__", None), "constraint_name", None
+        )
+        if cname is None and "uq_maintenance_jobs_kind_running" in str(orig):
+            cname = "uq_maintenance_jobs_kind_running"
+        if cname != "uq_maintenance_jobs_kind_running":
+            raise
         raise JobAlreadyRunning(kind) from None
     await db.refresh(job)
 

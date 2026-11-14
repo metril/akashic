@@ -37,7 +37,7 @@ from akashic.models.refresh_token import RefreshToken
 
 
 # Re-presenting a just-rotated token within this window is tolerated.
-ROTATION_GRACE_SECONDS = 10
+ROTATION_GRACE_SECONDS = 3
 
 
 def _hash(plain: str) -> str:
@@ -133,6 +133,9 @@ async def rotate(
                 )
                 successor.revoked_at = now
                 successor.revoke_reason = "rotated"
+                # Grace is single-use per rotated row: a second reuse of
+                # this token takes the replay path.
+                row.revoke_reason = "rotated_grace"
                 return new_plain, new_row
         # Replay: the presented token matched a row that's already
         # revoked. The most likely cause is a stolen token being used

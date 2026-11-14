@@ -266,24 +266,39 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
             username = f"{preferred}_{counter}"
             counter += 1
 
-        user = User(
-            username=username,
-            email=id_token_claims.get("email"),
-            role="viewer",
-            auth_provider="oidc",
-            external_id=sub,
-        )
-        db.add(user)
-        try:
-            await db.commit()
-        except IntegrityError:
-            # Concurrent first login won the (provider, external_id) race.
-            await db.rollback()
-            user = (await db.execute(
-                select(User).where(User.auth_provider == "oidc", User.external_id == sub)
-            )).scalar_one()
+        # Bounded retry: an IntegrityError may come from the
+        # (provider, external_id) race (re-select finds the winner) or
+        # from users.username (re-allocate a username and insert again).
+        for _attempt in range(5):
+            user = User(
+                username=username,
+                email=id_token_claims.get("email"),
+                role="viewer",
+                auth_provider="oidc",
+                external_id=sub,
+            )
+            db.add(user)
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                user = (await db.execute(
+                    select(User).where(User.auth_provider == "oidc", User.external_id == sub)
+                )).scalar_one_or_none()
+                if user is not None:
+                    break
+                username = f"{preferred}_{counter}"
+                counter += 1
+                while (await db.execute(
+                    select(User).where(User.username == username)
+                )).scalar_one_or_none() is not None:
+                    username = f"{preferred}_{counter}"
+                    counter += 1
+            else:
+                await db.refresh(user)
+                break
         else:
-            await db.refresh(user)
+            raise RuntimeError("could not provision user: username allocation kept colliding")
 
     # Sync FsBindings from claims. The provisioning module is defensive
     # — it logs and swallows on bad claim shapes, so a malformed token
