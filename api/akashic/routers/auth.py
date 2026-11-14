@@ -15,7 +15,7 @@ import secrets
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,7 +97,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class LDAPLoginRequest(BaseModel):
     username: str
-    password: str
+    password: str = Field(min_length=1)
 
 
 class TokenResponse(BaseModel):

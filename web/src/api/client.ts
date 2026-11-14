@@ -71,7 +71,7 @@ let inflightRefresh: Promise<string | null> | null = null;
 
 async function silentRefresh(): Promise<string | null> {
   if (!inflightRefresh) {
-    inflightRefresh = (async () => {
+    const doRefresh = async (): Promise<string | null> => {
       try {
         // The refresh cookie rides on this fetch automatically because
         // it's HttpOnly + Path=/api/auth + same-origin.
@@ -106,7 +106,14 @@ async function silentRefresh(): Promise<string | null> {
           inflightRefresh = null;
         }, 0);
       }
-    })();
+    };
+    // Serialize across tabs: the server rotates the refresh cookie on
+    // each call, so two tabs refreshing at once would race the rotation.
+    // Fall back to an unlocked refresh where Web Locks is unavailable.
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    inflightRefresh = locks
+      ? (locks.request("akashic-refresh", doRefresh) as unknown as Promise<string | null>)
+      : doRefresh();
   }
   return inflightRefresh;
 }

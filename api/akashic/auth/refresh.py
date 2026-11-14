@@ -36,6 +36,10 @@ from akashic.config import settings
 from akashic.models.refresh_token import RefreshToken
 
 
+# Re-presenting a just-rotated token within this window is tolerated.
+ROTATION_GRACE_SECONDS = 10
+
+
 def _hash(plain: str) -> str:
     return hashlib.sha256(plain.encode("utf-8")).hexdigest()
 
@@ -105,6 +109,31 @@ async def rotate(
 
     now = datetime.now(timezone.utc)
     if row.revoked_at is not None:
+        # Grace window: a token rotated moments ago is almost always a
+        # second tab / retried request racing the first refresh, not
+        # theft. Rotate the chain's live successor instead of revoking.
+        if (
+            row.revoke_reason == "rotated"
+            and now - row.revoked_at < timedelta(seconds=ROTATION_GRACE_SECONDS)
+            and row.expires_at > now
+        ):
+            successor = (await db.execute(
+                select(RefreshToken)
+                .where(
+                    RefreshToken.chain_id == row.chain_id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+                .order_by(RefreshToken.issued_at.desc())
+                .limit(1)
+                .with_for_update()
+            )).scalar_one_or_none()
+            if successor is not None and successor.expires_at > now:
+                new_plain, new_row = await mint(
+                    successor.user_id, db, chain_id=successor.chain_id
+                )
+                successor.revoked_at = now
+                successor.revoke_reason = "rotated"
+                return new_plain, new_row
         # Replay: the presented token matched a row that's already
         # revoked. The most likely cause is a stolen token being used
         # after the legitimate user already rotated. Fail closed by
