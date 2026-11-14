@@ -119,10 +119,9 @@ see X but I think I should." The toggle persists in
 `localStorage`.
 
 The exact behaviour depends on the
-[`BROWSE_ENFORCE_PERMS`](configuration.md#permissions--caching)
-feature flag. Off by default — when off, Browse shows everything
-the user has source-level access to (matching pre-Phase-5
-behaviour). Flip on once your deployment has FsBindings set up
+**Enforce file permissions** feature flag (Settings → Server; see
+[permissions-model.md](permissions-model.md)). Off by default — when
+off, Browse shows everything in every source. Flip on once your deployment has FsBindings set up
 and the entry backfill has run.
 
 ### Sort

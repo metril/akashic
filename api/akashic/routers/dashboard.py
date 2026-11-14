@@ -6,9 +6,8 @@ Rather than firing one query per tile (which the old Dashboard did,
 producing a waterfall of N+1 requests), we fold everything into one
 endpoint: the page renders skeletons once, then everything appears.
 
-Source-visibility scoping mirrors the existing /analytics endpoints:
-admins see global numbers; non-admins see only the sources their
-SourcePermission rows admit. The access-risks tile is admin-only —
+Every authenticated user sees numbers across all sources. The
+access-risks tile is admin-only —
 "how many files are world-readable?" is a security operator question
 and the answer is sensitive in itself.
 """
