@@ -5,6 +5,38 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.46.0 — 2026-11-14
+
+**Fixes SSO logins against Authentik, closes several auth and SSRF gaps, and repairs scan, search and purge correctness bugs found in a full code review.**
+
+### Security
+
+- **OIDC logins verify the ID token's `at_hash`** against the access token. Previously every login from an IdP that sends `at_hash` (Authentik does) failed with `sso_failed`. JWKS is refetched once on an unknown signing key, so IdP key rotation no longer breaks logins.
+- **LDAP rejects empty passwords** before binding, closing an unauthenticated-bind login on Active Directory.
+- **Refresh-token reuse** gets a single-use 3-second grace window (for lost responses and multi-tab races) instead of logging the user out everywhere; any further reuse still revokes the chain. Browser tabs now serialise refreshes with Web Locks.
+- **Webhook SSRF guard blocks every non-global address**, including carrier-grade NAT/Tailscale (`100.64.0.0/10`), IPv4-mapped IPv6 and NAT64. The webhook DNS check no longer blocks the event loop.
+- **Real client IPs behind a reverse proxy**: the API container runs uvicorn with `--proxy-headers`; set `FORWARDED_ALLOW_IPS` to your proxy's address (default `127.0.0.1`).
+- **One user per IdP identity**: unique index on `(auth_provider, external_id)` (migration 0041); concurrent first logins no longer create duplicate users or 500.
+- **First-user-becomes-admin** registration is serialised with an advisory lock.
+
+### Fixed
+
+- **Files deleted on disk are removed from search** at the end of a scan instead of lingering until purge.
+- **Cancelled scans stay cancelled**: completing or failing a work unit of a cancelled scan returns 409 instead of flipping it to completed and sweeping unwalked entries as deleted. A late `completed` status still flushes counters and the search index.
+- **Ingest no longer serialises concurrent scanners** on the scan row lock; the exclusive lock is taken only when finalising.
+- **A batch containing the same path twice** no longer fails with a foreign-key error on every retry.
+- **Search index flushes no longer drop entries** past the first 5,000 of a burst; storage roll-ups no longer lose dirty paths or stall after one source's DB error.
+- **Browse sorted by modified date** no longer 500s on page 2; the "hidden by permissions" audit event no longer fires on every large folder page.
+- **Admin reindex keeps extracted file text** (partial updates, keyset paging) and can't be started twice concurrently (migration 0042).
+- **Duplicate-file lists are paginated**; **purge** deletes in chunks and counts directories too (`total_removed`).
+- **Scanner**: stderr relay no longer loses the final log lines or leaks a goroutine; SMB read timeouts no longer race on the caller's buffer; cancelling a scan skips queued content extractions; discovery polling retries transient 502/503/504.
+- **Web**: live scan streams recover after the access token expires (WS close 1008), no longer mix frames from a previous scan, and the login page hides the password form on SSO-only deployments.
+
+### Changed
+
+- API tests run in parallel (pytest-xdist, per-worker DB and Redis) and CI splits them across 4 shards behind the single `API tests` check. CLI tests run in CI.
+- Go 1.25, Alpine 3.22, Node 22 and nginx 1.28 base images; pull-request image builds are amd64-only.
+
 ## v0.45.0 — 2026-11-05
 
 **Closes several API abuse and correctness gaps: a gzip-bomb DoS, header injection in downloads, writes to finished scans, unbounded ingest batches, unthrottled password logins, and a refresh-token rotation race.**
