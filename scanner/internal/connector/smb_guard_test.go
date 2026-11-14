@@ -152,3 +152,29 @@ func TestGuardedReader_StalledReadTripsGuard(t *testing.T) {
 		t.Error("connection not closed when a file read stalled")
 	}
 }
+
+type lateReader struct{ release chan struct{} }
+
+func (s *lateReader) Read(p []byte) (int, error) {
+	<-s.release
+	copy(p, "late")
+	return 4, nil
+}
+func (s *lateReader) Close() error { return nil }
+
+func TestGuardedReader_NoWriteIntoCallerBufferAfterAbort(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &SMBConnector{ctx: ctx}
+	sr := &lateReader{release: make(chan struct{})}
+	g := &guardedReader{c: c, rc: sr}
+	p := make([]byte, 8)
+	cancel()
+	if _, err := g.Read(p); err == nil {
+		t.Fatal("expected error")
+	}
+	close(sr.release)
+	time.Sleep(20 * time.Millisecond)
+	if string(p[:4]) == "late" {
+		t.Fatal("late read wrote into caller buffer")
+	}
+}

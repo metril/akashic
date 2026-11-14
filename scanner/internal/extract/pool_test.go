@@ -142,3 +142,22 @@ func TestPool_CloseWaitsForInFlight(t *testing.T) {
 		t.Errorf("Close returned with %d/50 jobs processed", n)
 	}
 }
+
+func TestPool_CancelSkipsQueuedJobs(t *testing.T) {
+	conn := &fakeConn{typ: "local", files: map[string][]byte{}}
+	for i := 0; i < 20; i++ {
+		conn.files[fmt.Sprintf("/f%d.txt", i)] = []byte("data")
+	}
+	var n int
+	var mu sync.Mutex
+	sink := func(ContentRecord) { mu.Lock(); n++; mu.Unlock() }
+	pool := NewPool(conn, NewExtractor(""), 1, sink, discardLog)
+	pool.Cancel()
+	for path := range conn.files {
+		pool.Submit(Job{Path: path, MimeType: "text/plain", Size: 4})
+	}
+	pool.Close()
+	if n != 0 {
+		t.Errorf("processed %d jobs after Cancel, want 0", n)
+	}
+}
