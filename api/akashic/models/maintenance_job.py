@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,14 @@ class MaintenanceJob(Base):
     """
 
     __tablename__ = "maintenance_jobs"
+    __table_args__ = (
+        # At most one running job per kind — closes the check-then-insert
+        # race in start_job.
+        Index(
+            "uq_maintenance_jobs_kind_running", "kind", unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,

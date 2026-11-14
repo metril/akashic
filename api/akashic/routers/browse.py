@@ -1,3 +1,4 @@
+from datetime import datetime
 import base64
 import json
 import logging
@@ -181,7 +182,15 @@ async def browse(
             )
         cursor_kind_is_file = int(c["kf"])
         cursor_sort_val = c["s"]
-        cursor_id = uuid.UUID(c["id"])
+        try:
+            cursor_id = uuid.UUID(c["id"])
+            if sort == "modified" and cursor_sort_val is not None:
+                # JSON carries the timestamp as a string; asyncpg won't
+                # bind a str to timestamptz.
+                cursor_sort_val = datetime.fromisoformat(str(cursor_sort_val))
+        except (ValueError, TypeError, KeyError) as exc:
+            logger.info("browse: bad cursor payload: %s", exc)
+            raise HTTPException(status_code=400, detail="invalid cursor")
 
     # Stable ordering with seekable cursor. Three-tier comparison:
     # (kind_is_file, sort_col, Entry.id), matching the ORDER BY exactly.
@@ -304,6 +313,7 @@ async def browse(
             db=db, user=user, request=request,
             source_id=source_id, path=norm_path,
             visible_count=len(rows),
+            base_filter=base_filter,
             base_filter_no_perm=[c for c in base_filter if c is not perm_filter],
         )
 
@@ -356,6 +366,7 @@ async def _maybe_audit_filter(
     source_id: uuid.UUID,
     path: str,
     visible_count: int,
+    base_filter: list,
     base_filter_no_perm: list,
 ) -> None:
     """Emit a `browse_filtered` audit event when the per-user ACL filter
@@ -364,7 +375,13 @@ async def _maybe_audit_filter(
     total = (await db.execute(
         select(func.count(Entry.id)).where(and_(*base_filter_no_perm))
     )).scalar() or 0
-    hidden = total - visible_count
+    # Compare against the permission-filtered TOTAL, not this page's row
+    # count (a page is at most `limit` rows, so total - page overstated
+    # "hidden" on every multi-page folder).
+    visible_total = (await db.execute(
+        select(func.count(Entry.id)).where(and_(*base_filter))
+    )).scalar() or 0
+    hidden = total - visible_total
     if hidden <= 0:
         return
     await record_event(

@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from akashic.database import async_session
 from akashic.models.maintenance_job import MaintenanceJob
@@ -117,7 +118,11 @@ async def start_job(
         triggered_by=user.id if user is not None else None,
     )
     db.add(job)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise JobAlreadyRunning(kind) from None
     await db.refresh(job)
 
     task = asyncio.create_task(_run(job.id, kind, params))
