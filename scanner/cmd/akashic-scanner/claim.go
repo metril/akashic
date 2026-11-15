@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +13,8 @@ import (
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/agent"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // runClaim implements `akashic-scanner claim` — the self-registration
@@ -52,11 +51,11 @@ func runClaim(args []string) {
 		log.Fatalf("persist key: %v", err)
 	}
 
-	body := map[string]any{
-		"token":          *token,
-		"public_key_pem": pub,
-		"hostname":       host,
-		"agent_version":  Version,
+	body := apiclient.ClaimRequest{
+		Token:        *token,
+		PublicKeyPem: pub,
+		Hostname:     wire.Str(host),
+		AgentVersion: wire.To(Version),
 	}
 	// Same backoff strategy as discover — survive cold starts where
 	// the api isn't yet accepting connections, network blips during
@@ -91,45 +90,28 @@ func runClaim(args []string) {
 // the assigned (scanner_id, name, pool). Errors include the response
 // body so the operator sees the api's reason verbatim ("token has
 // expired", "token has already been used", …).
-func postClaim(ctx context.Context, apiBase string, body map[string]any) (string, string, string, error) {
-	buf, err := json.Marshal(body)
+func postClaim(ctx context.Context, apiBase string, body apiclient.ClaimRequest) (string, string, string, error) {
+	api, err := apiclient.NewClientWithResponses(apiBase, apiclient.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}))
+	if err != nil {
+		return "", "", "", &permanentError{err: err}
+	}
+	resp, err := api.ClaimWithTokenWithResponse(ctx, body)
 	if err != nil {
 		return "", "", "", err
 	}
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost,
-		apiBase+"/api/v1/scanners/claim",
-		bytes.NewReader(buf),
-	)
-	if err != nil {
-		return "", "", "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	cli := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return "", "", "", err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		err := fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	if resp.StatusCode()/100 != 2 {
+		err := fmt.Errorf("api returned %d: %s", resp.StatusCode(), strings.TrimSpace(string(resp.Body)))
 		// 4xx is permanent (bad token, already used, expired) — don't
 		// retry. 5xx + connection errors are transient → retry.
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
 			return "", "", "", &permanentError{err: err}
 		}
 		return "", "", "", err
 	}
-	var out struct {
-		ScannerID string `json:"scanner_id"`
-		Name      string `json:"name"`
-		Pool      string `json:"pool"`
+	if resp.JSON201 == nil {
+		return "", "", "", fmt.Errorf("claim: unexpected %d response (body: %s)", resp.StatusCode(), string(resp.Body))
 	}
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return "", "", "", fmt.Errorf("decode response: %w (body: %s)", err, string(respBody))
-	}
-	return out.ScannerID, out.Name, out.Pool, nil
+	return resp.JSON201.ScannerId.String(), resp.JSON201.Name, resp.JSON201.Pool, nil
 }
 
 // postClaimWithRetry wraps postClaim with the same exponential
@@ -137,7 +119,7 @@ func postClaim(ctx context.Context, apiBase string, body map[string]any) (string
 // for the rationale). 4xx responses bail out immediately —
 // retrying a bad/expired/used token won't change the answer.
 func postClaimWithRetry(
-	ctx context.Context, apiBase string, body map[string]any,
+	ctx context.Context, apiBase string, body apiclient.ClaimRequest,
 ) (string, string, string, error) {
 	delay := time.Second
 	const maxDelay = 30 * time.Second

@@ -1,7 +1,6 @@
 package observe
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -44,23 +43,7 @@ func (r *Reporter) runHeartbeat(ctx context.Context) {
 // the API answered 409 — the scan has ended and the caller should stop
 // heartbeating.
 func (r *Reporter) postHeartbeat(ctx context.Context) (terminal bool) {
-	body, err := json.Marshal(r.state.snapshot())
-	if err != nil {
-		// Marshal of our own struct shouldn't fail; if it does, log via
-		// the structured logger so it's visible in the UI rather than
-		// silently swallowed.
-		r.logSink.Warn("heartbeat marshal failed: %v", err)
-		return false
-	}
-	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/heartbeat"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+r.apiKey)
-
-	resp, err := r.httpClient.Do(req)
+	resp, err := r.api.PostHeartbeat(ctx, r.scanID, r.state.snapshot())
 	if err != nil {
 		// Network blip — let the next tick retry. Don't flood the log if
 		// the API is down for an extended period.

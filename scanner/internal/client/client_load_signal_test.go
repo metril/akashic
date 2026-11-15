@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 )
 
 func TestIsLoadSignal_NilNotLoad(t *testing.T) {
@@ -101,8 +103,8 @@ func TestSendOnce_StatusCodeClassification(t *testing.T) {
 				w.WriteHeader(tc.status)
 			}))
 			defer srv.Close()
-			c := New(srv.URL, "k")
-			_, err := c.sendOnce(context.Background(), []byte("{}"))
+			c := newTestClient(t, srv.URL, "k")
+			_, err := c.sendOnce(context.Background(), apiclient.ScanBatchIn{})
 			if err == nil {
 				t.Fatalf("expected error for status %d", tc.status)
 			}

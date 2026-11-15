@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // fakeOneDriveServer minimally implements the Graph endpoints we use:
@@ -19,7 +20,7 @@ import (
 // /me/drive/items/{id}/permissions.
 type fakeOneDriveServer struct {
 	*httptest.Server
-	children    map[string][]driveItem            // itemID -> children list
+	children    map[string][]driveItem           // itemID -> children list
 	permissions map[string][]driveItemPermission // itemID -> permissions list
 }
 
@@ -150,10 +151,10 @@ func TestOneDriveWalkBuildsPaths(t *testing.T) {
 		{ID: "file-1", Name: "Q1.docx", Size: 1024, File: &file},
 	}
 	c := newOneDriveTestConnector(fs)
-	emitted := []*models.EntryRecord{}
+	emitted := []*apiclient.EntryIn{}
 	_, err := c.Walk(
 		context.Background(), "/", nil, true, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			emitted = append(emitted, r)
 			return nil
 		},
@@ -165,18 +166,18 @@ func TestOneDriveWalkBuildsPaths(t *testing.T) {
 	if len(emitted) != 3 {
 		t.Fatalf("want 3 entries, got %d", len(emitted))
 	}
-	if emitted[0].Path != "/OneDrive" || emitted[0].Kind != "directory" {
+	if emitted[0].Path != "/OneDrive" || wire.Deref(emitted[0].Kind) != apiclient.Directory {
 		t.Errorf("root: %+v", emitted[0])
 	}
-	if emitted[1].Path != "/OneDrive/Reports" || emitted[1].NativeID != "fld-1" {
+	if emitted[1].Path != "/OneDrive/Reports" || wire.Deref(emitted[1].NativeId) != "fld-1" {
 		t.Errorf("Reports: %+v", emitted[1])
 	}
 	if emitted[2].Path != "/OneDrive/Reports/Q1.docx" {
 		t.Errorf("Q1: %+v", emitted[2])
 	}
 	// SHA-1 lowercased + sha1: prefix.
-	if emitted[2].ContentHash != "sha1:abc123" {
-		t.Errorf("Q1 hash: %q", emitted[2].ContentHash)
+	if wire.Deref(emitted[2].ContentHash) != "sha1:abc123" {
+		t.Errorf("Q1 hash: %q", wire.Deref(emitted[2].ContentHash))
 	}
 }
 
@@ -196,17 +197,17 @@ func TestOneDriveBuildACLUserGrant(t *testing.T) {
 		},
 	}
 	acl := buildOneDriveACL(perms)
-	if acl == nil || acl.Type != "cloud_drive" {
+	if acl == nil || aclType(acl) != "cloud_drive" {
 		t.Fatalf("acl: %+v", acl)
 	}
-	if len(acl.CloudDriveGrants) != 1 {
-		t.Fatalf("want 1 grant, got %d", len(acl.CloudDriveGrants))
+	if len(cloudGrants(t, acl)) != 1 {
+		t.Fatalf("want 1 grant, got %d", len(cloudGrants(t, acl)))
 	}
-	g := acl.CloudDriveGrants[0]
+	g := cloudGrants(t, acl)[0]
 	if g.Role != "writer" {
 		t.Errorf("role: %q", g.Role)
 	}
-	if g.Principal.Email != "alice@contoso.com" {
+	if wire.Deref(g.Principal.Email) != "alice@contoso.com" {
 		t.Errorf("principal email lost: %+v", g.Principal)
 	}
 }
@@ -220,10 +221,10 @@ func TestOneDriveBuildACLAnonymousLink(t *testing.T) {
 		},
 	}
 	acl := buildOneDriveACL(perms)
-	if acl == nil || len(acl.CloudDriveGrants) != 1 {
+	if acl == nil || len(cloudGrants(t, acl)) != 1 {
 		t.Fatalf("acl: %+v", acl)
 	}
-	g := acl.CloudDriveGrants[0]
+	g := cloudGrants(t, acl)[0]
 	if g.Principal.Type != "anyone" {
 		t.Errorf("anon link should map to anyone principal, got %q", g.Principal.Type)
 	}
@@ -241,10 +242,10 @@ func TestOneDriveBuildACLOrganizationLink(t *testing.T) {
 		},
 	}
 	acl := buildOneDriveACL(perms)
-	if acl == nil || len(acl.CloudDriveGrants) != 1 {
+	if acl == nil || len(cloudGrants(t, acl)) != 1 {
 		t.Fatalf("acl: %+v", acl)
 	}
-	g := acl.CloudDriveGrants[0]
+	g := cloudGrants(t, acl)[0]
 	if g.Principal.Type != "domain" {
 		t.Errorf("organization link should map to domain principal, got %q", g.Principal.Type)
 	}
@@ -309,7 +310,7 @@ func TestOneDriveWalkParallelizesPermissionFetches(t *testing.T) {
 	emitted := 0
 	_, err := c.Walk(
 		context.Background(), "/", nil, false, false,
-		func(r *models.EntryRecord) error { emitted++; return nil },
+		func(r *apiclient.EntryIn) error { emitted++; return nil },
 	)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -357,8 +358,8 @@ func TestOneDriveWalkPreservesChildOrder(t *testing.T) {
 	got := []string{}
 	_, err := c.Walk(
 		context.Background(), "/", nil, false, false,
-		func(r *models.EntryRecord) error {
-			if r.Kind == "file" {
+		func(r *apiclient.EntryIn) error {
+			if wire.Deref(r.Kind) == apiclient.File {
 				got = append(got, r.Name)
 			}
 			return nil

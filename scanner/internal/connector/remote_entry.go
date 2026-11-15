@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // fileInfoToEntry converts an fs.FileInfo into an EntryRecord. Used by the
@@ -19,31 +20,28 @@ import (
 // (os.ModeDir, os.ModeSymlink, …) don't overflow the api side's INT32
 // `mode` column — that's the bug that made every SMB batch ingest
 // 500 with "value out of int32 range".
-func fileInfoToEntry(ctx context.Context, path string, info fs.FileInfo, computeHash bool, conn Connector) *models.EntryRecord {
+func fileInfoToEntry(ctx context.Context, path string, info fs.FileInfo, computeHash bool, conn Connector) *apiclient.EntryIn {
 	modTime := info.ModTime()
-	mode := metadata.SafeMode(info)
-	entry := &models.EntryRecord{
-		Path:       path,
-		Name:       info.Name(),
-		Mode:       &mode,
-		ModifiedAt: &modTime,
+	isDir := info.IsDir()
+	entry := &apiclient.EntryIn{
+		Path:         path,
+		Name:         info.Name(),
+		Kind:         wire.KindOf(isDir),
+		Mode:         wire.To(int(metadata.SafeMode(info))),
+		FsModifiedAt: &modTime,
 	}
-	if info.IsDir() {
-		entry.Kind = "directory"
-	} else {
-		entry.Kind = "file"
-		size := info.Size()
-		entry.SizeBytes = &size
+	if !isDir {
+		entry.SizeBytes = wire.To(int(info.Size()))
 		ext := filepath.Ext(info.Name())
 		if ext != "" {
-			entry.Extension = strings.TrimPrefix(ext, ".")
+			entry.Extension = wire.To(strings.TrimPrefix(ext, "."))
 		}
 	}
 
-	if computeHash && entry.Kind == "file" && conn != nil {
+	if computeHash && !isDir && conn != nil {
 		if rc, err := conn.ReadFile(ctx, path); err == nil {
 			if hash, err := metadata.HashReader(rc); err == nil {
-				entry.ContentHash = hash
+				entry.ContentHash = &hash
 			}
 			rc.Close()
 		}

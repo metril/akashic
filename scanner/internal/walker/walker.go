@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
-type WalkFunc func(entry *models.EntryRecord) error
+type WalkFunc func(entry *apiclient.EntryIn) error
 
 // WalkStats tracks how many directory and file reads were silently
 // skipped during a walk. v0.5.11 — before this, ENOENT / permission
@@ -225,9 +226,9 @@ func walkDir(
 			}
 			// Stamp the child directory's subtree fields and emit it.
 			b, f, dn := childTotals.bytes, childTotals.fileCount, childTotals.dirCount
-			entry.SubtreeSizeBytes = &b
-			entry.SubtreeFileCount = &f
-			entry.SubtreeDirCount = &dn
+			entry.SubtreeSizeBytes = wire.To(int(b))
+			entry.SubtreeFileCount = wire.To(int(f))
+			entry.SubtreeDirCount = wire.To(int(dn))
 			if err := fn(entry); err != nil {
 				return totals, err
 			}
@@ -240,7 +241,7 @@ func walkDir(
 				continue
 			}
 			if entry.SizeBytes != nil {
-				totals.bytes += *entry.SizeBytes
+				totals.bytes += int64(*entry.SizeBytes)
 			}
 			totals.fileCount++
 			if err := fn(entry); err != nil {

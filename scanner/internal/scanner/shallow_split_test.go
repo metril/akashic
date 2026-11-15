@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // fanoutTree builds root/{a.txt, d1/x.txt, d2/y.txt, d3/z.txt}.
@@ -44,17 +44,17 @@ func fanoutTree(t *testing.T) string {
 // handed to ShallowSplit plus every file basename emitted.
 func runShallow(t *testing.T, root string, budget int) (frontier []string, files []string) {
 	t.Helper()
-	srv := newTestServer(t, func(b models.ScanBatch) {
+	srv := newTestServer(t, func(b apiclient.ScanBatchIn) {
 		for _, e := range b.Entries {
-			if e.Kind == "file" {
+			if wire.Deref(e.Kind) == apiclient.File {
 				files = append(files, filepath.Base(e.Path))
 			}
 		}
 	})
 	defer srv.Close()
 
-	s := New(client.New(srv.URL, "k"), connector.NewLocalConnector(), Options{
-		SourceID: "src", ScanID: "scan", Root: root, BatchSize: 100,
+	s := New(mustClient(t, srv.URL, "k"), connector.NewLocalConnector(), Options{
+		SourceID: testSource, ScanID: testScan, Root: root, BatchSize: 100,
 		SuppressScanFinal: true,
 		ShallowBudget:     budget,
 		ShallowSplit: func(_ context.Context, f []string) error {

@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -15,7 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/akashic-project/akashic/scanner/internal/agent"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // runDiscover implements `akashic-scanner discover` — the
@@ -64,11 +65,11 @@ func runDiscover(args []string) {
 	postCtx, postCancel := context.WithTimeout(context.Background(), *timeout)
 	defer postCancel()
 	discoveryID, pairing, expiresAt, err := postDiscoverWithRetry(
-		postCtx, apiBase, map[string]any{
-			"public_key_pem": pub,
-			"hostname":       host,
-			"agent_version":  Version,
-			"requested_pool": *pool,
+		postCtx, apiBase, apiclient.DiscoverRequest{
+			PublicKeyPem:  pub,
+			Hostname:      wire.Str(host),
+			AgentVersion:  wire.To(Version),
+			RequestedPool: wire.Str(*pool),
 		},
 	)
 	if err != nil {
@@ -101,53 +102,36 @@ func runDiscover(args []string) {
 	}
 }
 
-func postDiscover(ctx context.Context, apiBase string, body map[string]any) (string, string, time.Time, error) {
-	buf, err := json.Marshal(body)
+func postDiscover(ctx context.Context, apiBase string, body apiclient.DiscoverRequest) (uuid.UUID, string, time.Time, error) {
+	api, err := apiclient.NewClientWithResponses(apiBase, apiclient.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}))
 	if err != nil {
-		return "", "", time.Time{}, err
+		return uuid.Nil, "", time.Time{}, &permanentError{err: err}
 	}
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost,
-		apiBase+"/api/v1/scanners/discover",
-		bytes.NewReader(buf),
-	)
+	resp, err := api.DiscoverScannerWithResponse(ctx, body)
 	if err != nil {
-		return "", "", time.Time{}, err
+		return uuid.Nil, "", time.Time{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	cli := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
+	if resp.StatusCode()/100 != 2 {
 		// 404 = discovery disabled on the server; phrase the error so
 		// the operator can find the toggle.
-		if resp.StatusCode == 404 {
-			return "", "", time.Time{}, fmt.Errorf(
+		if resp.StatusCode() == 404 {
+			return uuid.Nil, "", time.Time{}, fmt.Errorf(
 				"discovery endpoint returned 404 — is `discovery_enabled` turned on in the api's Settings → Scanners pane?",
 			)
 		}
-		err := fmt.Errorf("api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		err := fmt.Errorf("api returned %d: %s", resp.StatusCode(), strings.TrimSpace(string(resp.Body)))
 		// 4xx is "the api heard us and said no" — bad input, discovery
 		// disabled, etc. Don't retry; the operator has to fix something.
 		// 5xx + connection errors are transient → retry.
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			return "", "", time.Time{}, &permanentError{err: err}
+		if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
+			return uuid.Nil, "", time.Time{}, &permanentError{err: err}
 		}
-		return "", "", time.Time{}, err
+		return uuid.Nil, "", time.Time{}, err
 	}
-	var out struct {
-		DiscoveryID string    `json:"discovery_id"`
-		PairingCode string    `json:"pairing_code"`
-		ExpiresAt   time.Time `json:"expires_at"`
+	if resp.JSON201 == nil {
+		return uuid.Nil, "", time.Time{}, fmt.Errorf("discover: unexpected %d response (body: %s)", resp.StatusCode(), string(resp.Body))
 	}
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return "", "", time.Time{}, err
-	}
-	return out.DiscoveryID, out.PairingCode, out.ExpiresAt, nil
+	return resp.JSON201.DiscoveryId, resp.JSON201.PairingCode, resp.JSON201.ExpiresAt, nil
 }
 
 // permanentError marks a postDiscover failure as not-retryable
@@ -166,8 +150,8 @@ func (e *permanentError) Unwrap() error { return e.err }
 // Backoff: 1s → 2s → 4s → 8s → 16s → 30s (capped). Jitter ±20%
 // so a fleet of scanners coming up together doesn't stampede.
 func postDiscoverWithRetry(
-	ctx context.Context, apiBase string, body map[string]any,
-) (string, string, time.Time, error) {
+	ctx context.Context, apiBase string, body apiclient.DiscoverRequest,
+) (uuid.UUID, string, time.Time, error) {
 	delay := time.Second
 	const maxDelay = 30 * time.Second
 	attempt := 0
@@ -185,14 +169,14 @@ func postDiscoverWithRetry(
 		// disabled" message every 2s is just noise.
 		var perm *permanentError
 		if errors.As(err, &perm) {
-			return "", "", time.Time{}, err
+			return uuid.Nil, "", time.Time{}, err
 		}
 		fmt.Fprintf(os.Stderr,
 			"discover: attempt %d failed (%v); retrying in %s\n",
 			attempt, err, delay)
 		select {
 		case <-ctx.Done():
-			return "", "", time.Time{}, fmt.Errorf(
+			return uuid.Nil, "", time.Time{}, fmt.Errorf(
 				"discover: gave up after %d attempts: %w", attempt, err,
 			)
 		case <-time.After(jittered(delay)):
@@ -256,8 +240,12 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, string, string) {
-	cli := &http.Client{Timeout: 35 * time.Second} // > server long-poll window
+func pollDiscover(ctx context.Context, apiBase string, discoveryID uuid.UUID) (string, string, string) {
+	api, err := apiclient.NewClientWithResponses(apiBase,
+		apiclient.WithHTTPClient(&http.Client{Timeout: 35 * time.Second})) // > server long-poll window
+	if err != nil {
+		log.Fatalf("build poll client: %v", err)
+	}
 	transient := 0
 	for {
 		select {
@@ -266,14 +254,7 @@ func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, str
 			os.Exit(66)
 		default:
 		}
-		req, err := http.NewRequestWithContext(
-			ctx, http.MethodGet,
-			apiBase+"/api/v1/scanners/discover/"+discoveryID, nil,
-		)
-		if err != nil {
-			log.Fatalf("build poll request: %v", err)
-		}
-		resp, err := cli.Do(req)
+		resp, err := api.DiscoverStatusWithResponse(ctx, discoveryID)
 		if err != nil {
 			// Transient network error — back off briefly and retry.
 			fmt.Fprintf(os.Stderr, "poll error (will retry): %v\n", err)
@@ -284,10 +265,8 @@ func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, str
 			}
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if isTransientPollStatus(resp.StatusCode) {
-			fmt.Fprintf(os.Stderr, "poll returned %d (will retry)\n", resp.StatusCode)
+		if isTransientPollStatus(resp.StatusCode()) {
+			fmt.Fprintf(os.Stderr, "poll returned %d (will retry)\n", resp.StatusCode())
 			if !sleepCtx(ctx, pollBackoff(transient)) {
 				os.Exit(66)
 			}
@@ -295,27 +274,21 @@ func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, str
 			continue
 		}
 		transient = 0
-		if resp.StatusCode/100 != 2 {
-			fmt.Fprintf(os.Stderr, "poll returned %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode()/100 != 2 || resp.JSON200 == nil {
+			fmt.Fprintf(os.Stderr, "poll returned %d: %s\n", resp.StatusCode(), strings.TrimSpace(string(resp.Body)))
 			os.Exit(1)
 		}
-		var st struct {
-			Status     string `json:"status"`
-			ScannerID  string `json:"scanner_id"`
-			Name       string `json:"name"`
-			Pool       string `json:"pool"`
-			DenyReason string `json:"deny_reason"`
-		}
-		if err := json.Unmarshal(body, &st); err != nil {
-			log.Fatalf("decode poll response: %v", err)
-		}
+		st := resp.JSON200
 		switch st.Status {
 		case "approved":
-			return st.ScannerID, st.Name, st.Pool
+			if st.ScannerId == nil {
+				log.Fatalf("discovery approved without a scanner_id")
+			}
+			return st.ScannerId.String(), wire.Deref(st.Name), wire.Deref(st.Pool)
 		case "denied":
 			fmt.Fprintf(os.Stderr, "admin denied discovery")
-			if st.DenyReason != "" {
-				fmt.Fprintf(os.Stderr, ": %s", st.DenyReason)
+			if reason := wire.Deref(st.DenyReason); reason != "" {
+				fmt.Fprintf(os.Stderr, ": %s", reason)
 			}
 			fmt.Fprintln(os.Stderr)
 			os.Exit(64)

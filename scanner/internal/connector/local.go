@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 type LocalConnector struct{}
@@ -21,14 +21,14 @@ func (c *LocalConnector) Connect(_ context.Context) error {
 	return nil
 }
 
-func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+func (c *LocalConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*apiclient.EntryIn) error) (walker.WalkStats, error) {
 	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 
 // WalkShallow implements connector.ShallowWalker.
 func (c *LocalConnector) WalkShallow(
 	ctx context.Context, root string, excludePatterns []string,
-	computeHash bool, fn func(*models.EntryRecord) error,
+	computeHash bool, fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	res, err := walker.WalkShallow(ctx, root, excludePatterns, computeHash, fn)
 	if err != nil {
@@ -40,7 +40,7 @@ func (c *LocalConnector) WalkShallow(
 // StatRoot implements connector.ShallowWalker — the directory record for
 // `path` itself, which a budgeted shallow walk must emit (the recursive
 // Walk emits each directory post-order, but WalkShallow emits only files).
-func (c *LocalConnector) StatRoot(_ context.Context, path string) (*models.EntryRecord, error) {
+func (c *LocalConnector) StatRoot(_ context.Context, path string) (*apiclient.EntryIn, error) {
 	return metadata.Collect(path, false, metadata.NewOwnerResolver())
 }
 

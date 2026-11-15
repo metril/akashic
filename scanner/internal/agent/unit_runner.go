@@ -38,16 +38,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func runUnitCoordinated(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, leased *leasedScan,
+	priv ed25519.PrivateKey, leased *apiclient.LeasedScan,
 ) error {
 	// Capability probe: build one connector solely to check it
 	// implements ShallowWalker. A connector that doesn't (a future
@@ -62,23 +66,30 @@ func runUnitCoordinated(
 		log.Printf(
 			"scan %s: connector %q does not implement ShallowWalker; "+
 				"falling back to legacy single-walker path",
-			leased.ScanID, leased.Source.Type,
+			leased.ScanId, leased.Source.Type,
 		)
 		if err := runLeasedScan(ctx, cfg, priv, leased); err != nil {
-			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, "failed", err.Error())
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanId, "failed", err.Error())
 			return err
 		}
-		return complete(ctx, httpc, cfg, priv, leased.ScanID, "completed", "")
+		return complete(ctx, httpc, cfg, priv, leased.ScanId, "completed", "")
 	}
 
 	root := sourceRoot(leased.Source)
-	apiClient := client.New(cfg.APIBase, leased.APIJWT)
+	token, err := ingestToken(leased)
+	if err != nil {
+		return err
+	}
+	apiClient, err := client.New(cfg.APIBase, token)
+	if err != nil {
+		return err
+	}
 
 	// v0.30.0 — content extraction for the unit-coordinated path.
 	// Built once and shared across this scanner's units (and workers);
 	// each extraction pass builds its own connector instance via the
 	// factory so SMB sessions stay isolated from the walk.
-	extractor := extract.NewExtractor(cfg.Remote().TikaURL)
+	extractor := extract.NewExtractor(cfg.Remote().TikaUrl)
 	extractFactory := func() (connector.Connector, error) {
 		return connectorFromLeased(leased.Source)
 	}
@@ -88,7 +99,10 @@ func runUnitCoordinated(
 	// concurrent walks, and one shared State means the per-scan
 	// heartbeat reports the scan's aggregate progress.
 	state := observe.NewState()
-	reporter := observe.New(cfg.APIBase, leased.APIJWT, leased.ScanID, state)
+	reporter, err := observe.New(cfg.APIBase, token, leased.ScanId, state)
+	if err != nil {
+		return err
+	}
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	reporter.SetUserCancel(cancel)
@@ -101,7 +115,7 @@ func runUnitCoordinated(
 	// it by the enumeration probe; that unit MUST be processed —
 	// abandoning it used to orphan the unit and stall the whole scan
 	// (v0.32.1) — so it is handed to worker 0 below.
-	probeUnit, err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanID)
+	probeUnit, err := ensureUnitsEnumerated(scanCtx, httpc, cfg, priv, leased.ScanId)
 	if err != nil {
 		return fmt.Errorf("enumerate units: %w", err)
 	}
@@ -112,7 +126,7 @@ func runUnitCoordinated(
 	}
 	if workers > 1 {
 		log.Printf("scan %s: draining work units with %d worker(s) in parallel",
-			leased.ScanID, workers)
+			leased.ScanId, workers)
 	}
 
 	deps := unitWorkerDeps{
@@ -129,11 +143,11 @@ func runUnitCoordinated(
 	// see unitPool.
 	pool := newUnitPool(
 		func() int { return cfg.Remote().MaxConcurrentUnits },
-		func(idx int, initial *workUnit, retire func(int) bool) error {
+		func(idx int, initial *apiclient.WorkUnitOut, retire func(int) bool) error {
 			return runUnitWorker(scanCtx, deps, idx, initial, retire)
 		},
 		func(want int) {
-			log.Printf("scan %s: scaling up to %d unit worker(s)", leased.ScanID, want)
+			log.Printf("scan %s: scaling up to %d unit worker(s)", leased.ScanId, want)
 		},
 	)
 	errCh := pool.errCh
@@ -152,7 +166,7 @@ type unitWorkerDeps struct {
 	cfg            Config
 	priv           ed25519.PrivateKey
 	apiClient      *client.Client
-	leased         *leasedScan
+	leased         *apiclient.LeasedScan
 	root           string
 	state          *observe.State
 	reporter       *observe.Reporter
@@ -165,7 +179,7 @@ type unitWorkerDeps struct {
 // when MaxConcurrentUnits > 1; with the default of 1 it is exactly the
 // v0.34.0 sticky lease loop.
 func runUnitWorker(
-	scanCtx context.Context, d unitWorkerDeps, idx int, pending *workUnit,
+	scanCtx context.Context, d unitWorkerDeps, idx int, pending *apiclient.WorkUnitOut,
 	retire func(int) bool,
 ) error {
 	conn, err := connectorFromLeased(d.leased.Source)
@@ -196,9 +210,9 @@ func runUnitWorker(
 			return nil // scaled down: retire between units
 		}
 		if unit == nil {
-			u, lErr := leaseUnit(scanCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID)
+			u, lErr := leaseUnit(scanCtx, d.httpc, d.cfg, d.priv, d.leased.ScanId)
 			if errors.Is(lErr, errScanTerminal) {
-				log.Printf("scan %s: scan reached a terminal state; exiting unit loop", d.leased.ScanID)
+				log.Printf("scan %s: scan reached a terminal state; exiting unit loop", d.leased.ScanId)
 				return nil
 			}
 			if errors.Is(lErr, errNoWork) {
@@ -210,7 +224,7 @@ func runUnitWorker(
 			if lErr != nil {
 				// Cap-reached or transient: jitter and try again. The cap
 				// case clears as siblings finish their units.
-				log.Printf("scan %s: lease unit: %v (sleeping)", d.leased.ScanID, lErr)
+				log.Printf("scan %s: lease unit: %v (sleeping)", d.leased.ScanId, lErr)
 				sleepWithJitter(scanCtx, d.cfg.LeasePoll)
 				continue
 			}
@@ -219,9 +233,9 @@ func runUnitWorker(
 
 		// Heartbeat in the background; cancelled when the unit's walk returns.
 		hbCtx, hbCancel := context.WithCancel(scanCtx)
-		go heartbeatUnitLoop(hbCtx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID)
+		go heartbeatUnitLoop(hbCtx, d.httpc, d.cfg, d.priv, d.leased.ScanId, unit.Id)
 
-		walkErr := runUnitWalk(scanCtx, d.httpc, d.cfg, d.priv, d.apiClient, conn, d.leased, d.root, unit, d.state, d.reporter, d.leased.Source.ExcludePatterns, extract.NewExtractor(d.cfg.Remote().TikaURL), d.extractFactory, d.cfg.Remote().ExtractWorkers)
+		walkErr := runUnitWalk(scanCtx, d.httpc, d.cfg, d.priv, d.apiClient, conn, d.leased, d.root, unit, d.state, d.reporter, wire.Deref(d.leased.Source.ExcludePatterns), extract.NewExtractor(d.cfg.Remote().TikaUrl), d.extractFactory, d.cfg.Remote().ExtractWorkers)
 		hbCancel()
 
 		// Deliver the unit's terminal state, retrying on failure — see
@@ -237,19 +251,19 @@ func runUnitWorker(
 			if ts, ok := conn.(connector.TransientStaller); ok && ts.IsStalled() {
 				requeue = true
 				log.Printf("scan %s unit %s: walk failed on a transient stall: %v (requeuing)",
-					d.leased.ScanID, unit.ID, walkErr)
+					d.leased.ScanId, unit.Id, walkErr)
 			} else {
-				log.Printf("scan %s unit %s: walk failed: %v", d.leased.ScanID, unit.ID, walkErr)
+				log.Printf("scan %s unit %s: walk failed: %v", d.leased.ScanId, unit.Id, walkErr)
 			}
-			deliverUnitTerminal("fail", d.leased.ScanID, unit.ID,
+			deliverUnitTerminal("fail", d.leased.ScanId, unit.Id,
 				func(ctx context.Context) error {
-					return failUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID, walkErr.Error(), requeue)
+					return failUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanId, unit.Id, walkErr.Error(), requeue)
 				})
 			continue
 		}
-		deliverUnitTerminal("complete", d.leased.ScanID, unit.ID,
+		deliverUnitTerminal("complete", d.leased.ScanId, unit.Id,
 			func(ctx context.Context) error {
-				return completeUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanID, unit.ID)
+				return completeUnit(ctx, d.httpc, d.cfg, d.priv, d.leased.ScanId, unit.Id)
 			})
 	}
 }
@@ -272,7 +286,7 @@ var terminalDeliveryBackoff = 1 * time.Second
 // can't abort delivery; if anything, a cancelled scan makes landing the
 // unit's terminal state more urgent. After the budget is spent it gives
 // up and logs: the API watchdog is the last-resort recovery.
-func deliverUnitTerminal(name, scanID, unitID string, post func(context.Context) error) {
+func deliverUnitTerminal(name string, scanID, unitID uuid.UUID, post func(context.Context) error) {
 	backoff := terminalDeliveryBackoff
 	for attempt := 1; attempt <= terminalDeliveryAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -314,13 +328,13 @@ func deliverUnitTerminal(name, scanID, unitID string, post func(context.Context)
 //     return (nil, nil) and the lease loop exits on its next call.
 func ensureUnitsEnumerated(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID string,
-) (*workUnit, error) {
+	priv ed25519.PrivateKey, scanID uuid.UUID,
+) (*apiclient.WorkUnitOut, error) {
 	probe, err := leaseUnit(ctx, httpc, cfg, priv, scanID)
 	if err == nil && probe != nil {
 		log.Printf(
 			"scan %s: queue already enumerated; processing probe-leased "+
-				"unit %s", scanID, probe.ID,
+				"unit %s", scanID, probe.Id,
 		)
 		return probe, nil
 	}
@@ -354,7 +368,7 @@ func ensureUnitsEnumerated(
 // sourceRoot returns the per-type "root path" for a leased source.
 // SMB sources don't have an explicit root in connection_config (the
 // share itself is the root). S3 uses the bucket prefix.
-func sourceRoot(src leasedSource) string {
+func sourceRoot(src apiclient.LeasedSource) string {
 	cfg := src.ConnectionConfig
 	switch src.Type {
 	case "local":
@@ -407,9 +421,9 @@ func runUnitWalk(
 	httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 	apiClient *client.Client,
 	conn connector.Connector,
-	leased *leasedScan,
+	leased *apiclient.LeasedScan,
 	root string,
-	unit *workUnit,
+	unit *apiclient.WorkUnitOut,
 	state *observe.State,
 	reporter *observe.Reporter,
 	excludes []string,
@@ -419,8 +433,8 @@ func runUnitWalk(
 ) error {
 	subRoot := joinSubpath(leased.Source.Type, root, unit.Path)
 	srcType := leased.Source.Type
-	scanID := leased.ScanID
-	unitID := unit.ID
+	scanID := leased.ScanId
+	unitID := unit.Id
 	unitPath := unit.Path
 
 	// ShallowSplit hands the un-walked frontier (paths relative to this
@@ -460,7 +474,7 @@ func runUnitWalk(
 	// signal AIMD wants to act on.
 	batcher := newAdaptiveBatcher(scanID)
 	s := scanner.New(apiClient, conn, scanner.Options{
-		SourceID:        leased.Source.ID,
+		SourceID:        leased.Source.Id,
 		ScanID:          scanID,
 		Root:            subRoot,
 		BatchSize:       500,
@@ -496,7 +510,7 @@ func runUnitWalk(
 
 func heartbeatUnitLoop(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, unitID string,
+	priv ed25519.PrivateKey, scanID, unitID uuid.UUID,
 ) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
@@ -526,13 +540,13 @@ type unitPool struct {
 	stopped bool
 	errCh   chan error
 	target  func() int
-	run     func(idx int, initial *workUnit, retire func(int) bool) error
+	run     func(idx int, initial *apiclient.WorkUnitOut, retire func(int) bool) error
 	onGrow  func(want int)
 }
 
 func newUnitPool(
 	target func() int,
-	run func(int, *workUnit, func(int) bool) error,
+	run func(int, *apiclient.WorkUnitOut, func(int) bool) error,
 	onGrow func(int),
 ) *unitPool {
 	return &unitPool{
@@ -557,7 +571,7 @@ func (p *unitPool) retire(idx int) bool {
 }
 
 // spawnLocked starts worker idx. Caller holds mu.
-func (p *unitPool) spawnLocked(idx int, initial *workUnit) {
+func (p *unitPool) spawnLocked(idx int, initial *apiclient.WorkUnitOut) {
 	p.active[idx] = true
 	p.wg.Add(1)
 	go func() {
@@ -576,10 +590,10 @@ func (p *unitPool) spawnLocked(idx int, initial *workUnit) {
 
 // start spawns the initial workers and a monitor that refills any
 // missing index below the live target every interval.
-func (p *unitPool) start(ctx context.Context, workers int, probe *workUnit, interval time.Duration) {
+func (p *unitPool) start(ctx context.Context, workers int, probe *apiclient.WorkUnitOut, interval time.Duration) {
 	p.mu.Lock()
 	for i := 0; i < workers; i++ {
-		var initial *workUnit
+		var initial *apiclient.WorkUnitOut
 		if i == 0 {
 			initial = probe
 		}

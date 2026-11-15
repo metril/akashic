@@ -4,7 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestParsePosixACL_AccessOnly(t *testing.T) {
@@ -13,12 +14,12 @@ func TestParsePosixACL_AccessOnly(t *testing.T) {
 	if def != nil {
 		t.Errorf("expected nil default entries, got %v", def)
 	}
-	want := []models.PosixACE{
-		{Tag: "user_obj", Qualifier: "", Perms: "rwx"},
-		{Tag: "user", Qualifier: "alice", Perms: "r-x"},
-		{Tag: "group_obj", Qualifier: "", Perms: "r-x"},
-		{Tag: "mask", Qualifier: "", Perms: "r-x"},
-		{Tag: "other", Qualifier: "", Perms: "r-x"},
+	want := []apiclient.PosixACEInput{
+		{Tag: "user_obj", Qualifier: nil, Perms: "rwx"},
+		{Tag: "user", Qualifier: wire.To("alice"), Perms: "r-x"},
+		{Tag: "group_obj", Qualifier: nil, Perms: "r-x"},
+		{Tag: "mask", Qualifier: nil, Perms: "r-x"},
+		{Tag: "other", Qualifier: nil, Perms: "r-x"},
 	}
 	if !reflect.DeepEqual(access, want) {
 		t.Errorf("got %v, want %v", access, want)
@@ -42,7 +43,7 @@ default:other::r--
 	if len(def) != 5 {
 		t.Errorf("expected 5 default entries, got %d", len(def))
 	}
-	if def[1].Tag != "user" || def[1].Qualifier != "alice" || def[1].Perms != "r--" {
+	if def[1].Tag != "user" || wire.Deref(def[1].Qualifier) != "alice" || def[1].Perms != "r--" {
 		t.Errorf("default user:alice mismatch: %+v", def[1])
 	}
 }

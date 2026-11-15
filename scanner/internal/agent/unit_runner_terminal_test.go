@@ -20,7 +20,7 @@ func TestDeliverUnitTerminal_SucceedsAfterTransientFailures(t *testing.T) {
 	defer func() { terminalDeliveryBackoff = old }()
 
 	calls := 0
-	deliverUnitTerminal("complete", "scan-1", "unit-1", func(context.Context) error {
+	deliverUnitTerminal("complete", testScanID, testUnitID, func(context.Context) error {
 		calls++
 		if calls < 3 {
 			return errors.New("connection reset")
@@ -38,7 +38,7 @@ func TestDeliverUnitTerminal_StopsAtTheAttemptBudget(t *testing.T) {
 	defer func() { terminalDeliveryBackoff = old }()
 
 	calls := 0
-	deliverUnitTerminal("complete", "scan-1", "unit-1", func(context.Context) error {
+	deliverUnitTerminal("complete", testScanID, testUnitID, func(context.Context) error {
 		calls++
 		return errors.New("api unreachable")
 	})
@@ -51,7 +51,7 @@ func TestDeliverUnitTerminal_StopsAtTheAttemptBudget(t *testing.T) {
 func TestDeliverUnitTerminal_FirstAttemptSucceeds(t *testing.T) {
 	calls := 0
 	start := time.Now()
-	deliverUnitTerminal("complete", "scan-1", "unit-1", func(context.Context) error {
+	deliverUnitTerminal("complete", testScanID, testUnitID, func(context.Context) error {
 		calls++
 		return nil
 	})
@@ -67,7 +67,7 @@ func TestDeliverUnitTerminal_FirstAttemptSucceeds(t *testing.T) {
 // helper roots fresh Background contexts so a cancelled scan can't abort
 // terminal delivery.
 func TestDeliverUnitTerminal_PassesLiveContext(t *testing.T) {
-	deliverUnitTerminal("complete", "scan-1", "unit-1", func(ctx context.Context) error {
+	deliverUnitTerminal("complete", testScanID, testUnitID, func(ctx context.Context) error {
 		if ctx == nil {
 			t.Fatal("nil context passed to the terminal post")
 		}

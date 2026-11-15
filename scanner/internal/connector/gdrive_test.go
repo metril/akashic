@@ -10,7 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // fakeDriveServer minimally implements the Drive v3 endpoints we use:
@@ -140,10 +141,10 @@ func TestGDriveWalkBuildsSyntheticPaths(t *testing.T) {
 			Size: "2048"},
 	}
 	c := newGDriveTestConnector(fs)
-	emitted := []*models.EntryRecord{}
+	emitted := []*apiclient.EntryIn{}
 	_, err := c.Walk(
 		context.Background(), "/", nil, true, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			emitted = append(emitted, r)
 			return nil
 		},
@@ -155,20 +156,20 @@ func TestGDriveWalkBuildsSyntheticPaths(t *testing.T) {
 	if len(emitted) != 4 {
 		t.Fatalf("want 4 entries, got %d: %+v", len(emitted), emitted)
 	}
-	if emitted[0].Path != "/My Drive" || emitted[0].Kind != "directory" {
+	if emitted[0].Path != "/My Drive" || wire.Deref(emitted[0].Kind) != apiclient.Directory {
 		t.Errorf("root: %+v", emitted[0])
 	}
-	if emitted[1].Path != "/My Drive/Reports" || emitted[1].NativeID != "fld-1" {
+	if emitted[1].Path != "/My Drive/Reports" || wire.Deref(emitted[1].NativeId) != "fld-1" {
 		t.Errorf("Reports: %+v", emitted[1])
 	}
 	if emitted[2].Path != "/My Drive/Reports/Q1.pdf" {
 		t.Errorf("Q1: %+v", emitted[2])
 	}
-	if emitted[2].ContentHash != "md5:abc" {
-		t.Errorf("Q1 hash: %q", emitted[2].ContentHash)
+	if wire.Deref(emitted[2].ContentHash) != "md5:abc" {
+		t.Errorf("Q1 hash: %q", wire.Deref(emitted[2].ContentHash))
 	}
-	if emitted[2].NativeID != "file-1" {
-		t.Errorf("Q1 native_id: %q", emitted[2].NativeID)
+	if wire.Deref(emitted[2].NativeId) != "file-1" {
+		t.Errorf("Q1 native_id: %q", wire.Deref(emitted[2].NativeId))
 	}
 }
 
@@ -186,7 +187,7 @@ func TestGDriveWalkNameCollisionAppendsID(t *testing.T) {
 	paths := []string{}
 	_, err := c.Walk(
 		context.Background(), "/", nil, false, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			paths = append(paths, r.Path)
 			return nil
 		},
@@ -214,29 +215,29 @@ func TestGDriveBuildACL(t *testing.T) {
 			{ID: "p2", Type: "anyone", Role: "reader"},
 			{ID: "p3", Type: "domain", Role: "reader", Domain: "example.com"},
 			{ID: "p4", Type: "user", Role: "owner",
-				EmailAddress: "owner@example.com",
+				EmailAddress:        "owner@example.com",
 				InheritedPermission: true,
 				InheritedFromID:     "fld-1"},
 		},
 	}
 	acl := buildGDriveACL(f)
-	if acl == nil || acl.Type != "cloud_drive" {
+	if acl == nil || aclType(acl) != "cloud_drive" {
 		t.Fatalf("acl: %+v", acl)
 	}
-	if len(acl.CloudDriveGrants) != 4 {
-		t.Fatalf("want 4 grants, got %d", len(acl.CloudDriveGrants))
+	if len(cloudGrants(t, acl)) != 4 {
+		t.Fatalf("want 4 grants, got %d", len(cloudGrants(t, acl)))
 	}
-	if acl.CloudDriveGrants[0].Role != "writer" {
-		t.Errorf("first role: %q", acl.CloudDriveGrants[0].Role)
+	if cloudGrants(t, acl)[0].Role != "writer" {
+		t.Errorf("first role: %q", cloudGrants(t, acl)[0].Role)
 	}
-	if acl.CloudDriveGrants[3].Inherited != true {
-		t.Errorf("inherited flag lost: %+v", acl.CloudDriveGrants[3])
+	if !wire.Deref(cloudGrants(t, acl)[3].Inherited) {
+		t.Errorf("inherited flag lost: %+v", cloudGrants(t, acl)[3])
 	}
-	if acl.CloudDriveGrants[3].InheritedFromID != "fld-1" {
+	if wire.Deref(cloudGrants(t, acl)[3].InheritedFromId) != "fld-1" {
 		t.Errorf("inherited_from_id lost")
 	}
 	// MarshalJSON should round-trip — discriminator + grants.
-	b, err := acl.MarshalJSON()
+	b, err := json.Marshal(acl)
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
@@ -255,7 +256,7 @@ func TestStripCollisionHint(t *testing.T) {
 		{"Foo (1aBcD-XyZ_99)", "Foo", "1aBcD-XyZ_99"},
 		{"Foo", "Foo", ""},
 		{"Foo (with spaces)", "Foo (with spaces)", ""}, // not an id-shaped suffix
-		{"Foo ()", "Foo ()", ""},                        // empty hint, ignored
+		{"Foo ()", "Foo ()", ""},                       // empty hint, ignored
 	}
 	for _, tc := range cases {
 		gotName, gotID := stripCollisionHint(tc.in)

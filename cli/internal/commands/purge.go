@@ -20,7 +20,11 @@ func NewPurgeCmd(c *client.Client) *cobra.Command {
 			if !confirm {
 				return fmt.Errorf("pass --confirm to confirm purge of source %s", sourceID)
 			}
-			if err := c.PurgeSource(context.Background(), sourceID); err != nil {
+			id, err := client.ParseID("source id", sourceID)
+			if err != nil {
+				return &ExitErr{Code: ExitUserErr, Err: err}
+			}
+			if err := c.PurgeSource(context.Background(), id); err != nil {
 				return err
 			}
 			fmt.Printf("Purged source %s\n", sourceID)

@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/akashic-project/akashic/scanner/internal/agent"
 )
 
@@ -55,9 +57,13 @@ func runAgent(args []string) {
 		cancel()
 	}()
 
+	sid, err := uuid.Parse(*scannerID)
+	if err != nil {
+		log.Fatalf("--scanner-id is not a UUID: %v", err)
+	}
 	cfg := agent.Config{
 		APIBase:   *apiURL,
-		ScannerID: *scannerID,
+		ScannerID: sid,
 		KeyPath:   *keyPath,
 		LeasePoll: *leasePoll,
 		Hostname:  hostname,

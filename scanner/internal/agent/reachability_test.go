@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,24 +31,25 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 	reported := make(chan struct{}, 1)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/scanners/scan-1/probes/long-poll", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/scanners/"+testScannerID.String()+"/probes/long-poll", func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&pollCount, 1)
 		if count == 1 {
-			req := probeRequest{
-				RequestID:  "req-1",
-				SourceID:   "src-1",
+			req := apiclient.ProbeRequest{
+				RequestId:  testRequestID,
+				SourceId:   testSourceID,
 				SourceType: "local",
 				ConnectionConfig: map[string]any{
 					"root_path": t.TempDir(),
 				},
 			}
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(req)
 			return
 		}
 		// Subsequent long-polls timeout (204) so the loop idles.
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("/api/v1/scanners/scan-1/probes/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/scanners/"+testScannerID.String()+"/probes/", func(w http.ResponseWriter, r *http.Request) {
 		// Path: /api/v1/scanners/scan-1/probes/{request_id}/report
 		// Split → ["", "api", "v1", "scanners", "scan-1", "probes", "{req}", "report"]
 		parts := strings.Split(r.URL.Path, "/")
@@ -56,10 +58,10 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 			return
 		}
 		reportedReqID = parts[6]
-		var rep probeReport
+		var rep apiclient.ProbeReport
 		_ = json.NewDecoder(r.Body).Decode(&rep)
-		reportedSrcID = rep.SourceID
-		reportedOK = rep.OK
+		reportedSrcID = rep.SourceId.String()
+		reportedOK = rep.Ok
 		w.WriteHeader(http.StatusNoContent)
 		select {
 		case reported <- struct{}{}:
@@ -71,7 +73,7 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 	defer srv.Close()
 
 	httpc := &http.Client{Timeout: 5 * time.Second}
-	cfg := Config{APIBase: srv.URL, ScannerID: "scan-1"}
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -84,11 +86,11 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 		t.Fatal("agent did not report a probe result within 5s")
 	}
 
-	if reportedReqID != "req-1" {
-		t.Errorf("reported request id = %q, want req-1", reportedReqID)
+	if reportedReqID != testRequestID.String() {
+		t.Errorf("reported request id = %q, want %s", reportedReqID, testRequestID)
 	}
-	if reportedSrcID != "src-1" {
-		t.Errorf("reported source id = %q, want src-1", reportedSrcID)
+	if reportedSrcID != testSourceID.String() {
+		t.Errorf("reported source id = %q, want %s", reportedSrcID, testSourceID)
 	}
 	if !reportedOK {
 		t.Errorf("reported ok=false, want true (local probe against TempDir should succeed)")
@@ -109,7 +111,7 @@ func TestReachabilityLoop_HandlesEmptyLongPoll(t *testing.T) {
 	defer srv.Close()
 
 	httpc := &http.Client{Timeout: 5 * time.Second}
-	cfg := Config{APIBase: srv.URL, ScannerID: "scan-1"}
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	reachabilityLoop(ctx, httpc, cfg, priv)

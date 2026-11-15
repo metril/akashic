@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 // NFSConnector wraps LocalConnector for NFS-mounted paths.
@@ -21,14 +21,14 @@ func (c *NFSConnector) Connect(ctx context.Context) error {
 	return c.local.Connect(ctx)
 }
 
-func (c *NFSConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+func (c *NFSConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*apiclient.EntryIn) error) (walker.WalkStats, error) {
 	return walker.Walk(ctx, root, excludePatterns, computeHash, fn)
 }
 
 // WalkShallow implements connector.ShallowWalker.
 func (c *NFSConnector) WalkShallow(
 	ctx context.Context, root string, excludePatterns []string,
-	computeHash bool, fn func(*models.EntryRecord) error,
+	computeHash bool, fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	res, err := walker.WalkShallow(ctx, root, excludePatterns, computeHash, fn)
 	if err != nil {
@@ -38,7 +38,7 @@ func (c *NFSConnector) WalkShallow(
 }
 
 // StatRoot implements connector.ShallowWalker.
-func (c *NFSConnector) StatRoot(ctx context.Context, path string) (*models.EntryRecord, error) {
+func (c *NFSConnector) StatRoot(ctx context.Context, path string) (*apiclient.EntryIn, error) {
 	return c.local.StatRoot(ctx, path)
 }
 

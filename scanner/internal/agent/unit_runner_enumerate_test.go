@@ -13,6 +13,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -24,11 +25,12 @@ func TestEnsureUnitsEnumerated_ReturnsProbeLeasedUnit(t *testing.T) {
 	// leased to it by the probe. That unit MUST be returned so the
 	// caller processes (and ultimately /complete-s) it.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/scans/scan-1/work/lease" {
+		if r.URL.Path == "/api/v1/scans/"+testScanID.String()+"/work/lease" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(
-				`{"id":"unit-7","scan_id":"scan-1","path":"sub","status":"running"}`))
+			_, _ = w.Write([]byte(fmt.Sprintf(
+				`{"id":%q,"scan_id":%q,"path":"sub","status":"running"}`,
+				testUnitID, testScanID)))
 			return
 		}
 		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -40,10 +42,10 @@ func TestEnsureUnitsEnumerated_ReturnsProbeLeasedUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1"}
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
 
 	unit, err := ensureUnitsEnumerated(
-		context.Background(), srv.Client(), cfg, priv, "scan-1")
+		context.Background(), srv.Client(), cfg, priv, testScanID)
 	if err != nil {
 		t.Fatalf("ensureUnitsEnumerated: %v", err)
 	}
@@ -51,8 +53,8 @@ func TestEnsureUnitsEnumerated_ReturnsProbeLeasedUnit(t *testing.T) {
 		t.Fatal("probe-leased unit was abandoned (nil returned) — the " +
 			"v0.32.1 stall bug")
 	}
-	if unit.ID != "unit-7" {
-		t.Errorf("got unit ID %q, want unit-7", unit.ID)
+	if unit.Id != testUnitID {
+		t.Errorf("got unit ID %v, want %v", unit.Id, testUnitID)
 	}
 }
 
@@ -63,15 +65,16 @@ func TestEnsureUnitsEnumerated_EnqueuesRootUnitWhenQueueEmpty(t *testing.T) {
 	var splitPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/scans/scan-1/work/lease":
+		case "/api/v1/scans/" + testScanID.String() + "/work/lease":
 			w.WriteHeader(http.StatusNoContent)
-		case "/api/v1/scans/scan-1/work/split":
+		case "/api/v1/scans/" + testScanID.String() + "/work/split":
 			splitHits.Add(1)
 			var body struct {
 				ChildPaths []string `json:"child_paths"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			splitPaths = body.ChildPaths
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"created":1,"skipped":0}`))
 		default:
@@ -81,15 +84,15 @@ func TestEnsureUnitsEnumerated_EnqueuesRootUnitWhenQueueEmpty(t *testing.T) {
 	defer srv.Close()
 
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1"}
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
 
 	unit, err := ensureUnitsEnumerated(
-		context.Background(), srv.Client(), cfg, priv, "scan-1")
+		context.Background(), srv.Client(), cfg, priv, testScanID)
 	if err != nil {
 		t.Fatalf("ensureUnitsEnumerated: %v", err)
 	}
 	if unit != nil {
-		t.Errorf("first scanner enqueues and returns no unit, got %q", unit.ID)
+		t.Errorf("first scanner enqueues and returns no unit, got %v", unit.Id)
 	}
 	if splitHits.Load() != 1 {
 		t.Fatalf("expected exactly one /work/split call, got %d", splitHits.Load())
@@ -106,10 +109,10 @@ func TestEnsureUnitsEnumerated_SkipsEnumerationWhenCapped(t *testing.T) {
 	var splitHits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/scans/scan-1/work/lease":
+		case "/api/v1/scans/" + testScanID.String() + "/work/lease":
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte("max_parallel_scanners cap reached"))
-		case "/api/v1/scans/scan-1/work/split":
+		case "/api/v1/scans/" + testScanID.String() + "/work/split":
 			splitHits.Add(1)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"created":0,"skipped":0}`))
@@ -120,15 +123,15 @@ func TestEnsureUnitsEnumerated_SkipsEnumerationWhenCapped(t *testing.T) {
 	defer srv.Close()
 
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1"}
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
 
 	unit, err := ensureUnitsEnumerated(
-		context.Background(), srv.Client(), cfg, priv, "scan-1")
+		context.Background(), srv.Client(), cfg, priv, testScanID)
 	if err != nil {
 		t.Fatalf("a lease cap must not be fatal: %v", err)
 	}
 	if unit != nil {
-		t.Errorf("expected no unit on the capped path, got %q", unit.ID)
+		t.Errorf("expected no unit on the capped path, got %v", unit.Id)
 	}
 	if splitHits.Load() != 0 {
 		t.Error("ensureUnitsEnumerated re-enumerated despite the queue " +

@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // PaperlessConnector indexes a Paperless-ngx instance via its REST API.
@@ -27,7 +28,7 @@ import (
 // EntryRecord per document, plus directory entries for the synthetic
 // `/<correspondent>/<document_type>/<year>/` hierarchy. Document
 // metadata (correspondent, document_type, tags, created date, custom
-// fields, OCR-extracted content) lands in EntryRecord.DomainMetadata
+// fields, OCR-extracted content) lands in EntryIn.DomainMetadata
 // where the Library Metadata UI surfaces it.
 //
 // Auth: Paperless uses `Authorization: Token <api_token>` (NOT
@@ -47,11 +48,11 @@ import (
 //     concurrency wouldn't help — the bottleneck is Paperless's API,
 //     not akashic's ingest.
 type PaperlessConnector struct {
-	baseURL    string
-	apiToken   string
-	tagFilter  []string // optional case-insensitive whitelist
-	tlsVerify  bool
-	pageSize   int
+	baseURL   string
+	apiToken  string
+	tagFilter []string // optional case-insensitive whitelist
+	tlsVerify bool
+	pageSize  int
 
 	httpClient *http.Client
 
@@ -131,7 +132,7 @@ func (c *PaperlessConnector) Connect(ctx context.Context) error {
 // via the API.
 func (c *PaperlessConnector) Walk(
 	ctx context.Context, root string, _ []string, _ bool, _ bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	var stats walker.WalkStats
 	if c.httpClient == nil {
@@ -147,10 +148,10 @@ func (c *PaperlessConnector) Walk(
 			return nil
 		}
 		emittedDirs[dirPath] = true
-		return fn(&models.EntryRecord{
+		return fn(&apiclient.EntryIn{
 			Path: dirPath,
 			Name: pathBase(dirPath),
-			Kind: "directory",
+			Kind: wire.To(apiclient.Directory),
 		})
 	}
 
@@ -227,7 +228,7 @@ func (c *PaperlessConnector) Close() error { return nil }
 
 // ----- helpers -----
 
-func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string) *models.EntryRecord {
+func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string) *apiclient.EntryIn {
 	correspondent := lookupOr(c.correspondents, doc.Correspondent, "Unsorted")
 	documentType := lookupOr(c.documentTypes, doc.DocumentType, "Unfiled")
 
@@ -247,22 +248,22 @@ func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string
 		"/" + safeSegment(year)
 	fullPath := parentPath + "/" + filename
 
-	entry := &models.EntryRecord{
+	entry := &apiclient.EntryIn{
 		Path:      fullPath,
 		Name:      filename,
-		Kind:      "file",
-		Extension: ext,
+		Kind:      wire.To(apiclient.File),
+		Extension: wire.Str(ext),
 	}
 	if doc.Modified != nil && !doc.Modified.IsZero() {
 		t := *doc.Modified
-		entry.ModifiedAt = &t
+		entry.FsModifiedAt = &t
 	}
 	if !doc.Created.IsZero() {
 		t := doc.Created
-		entry.CreatedAt = &t
+		entry.FsCreatedAt = &t
 	}
 	if doc.ContentChecksum != "" {
-		entry.ContentHash = doc.ContentChecksum
+		entry.ContentHash = wire.Str(doc.ContentChecksum)
 	}
 
 	dm := map[string]interface{}{
@@ -305,7 +306,7 @@ func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string
 		// few lines" without bloating the row.
 		dm["content_preview"] = truncate(doc.Content, 480)
 	}
-	entry.DomainMetadata = dm
+	entry.DomainMetadata = &dm
 	return entry
 }
 

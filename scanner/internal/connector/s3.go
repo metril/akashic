@@ -14,9 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 type S3Connector struct {
@@ -96,7 +97,7 @@ func (c *S3Connector) resolvePathStyle() bool {
 // off as work units.
 func (c *S3Connector) WalkShallow(
 	ctx context.Context, prefix string, excludePatterns []string,
-	computeHash bool, fn func(*models.EntryRecord) error,
+	computeHash bool, fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -151,29 +152,29 @@ func (c *S3Connector) WalkShallow(
 			if excludeSet[strings.ToLower(name)] {
 				continue
 			}
-			entry := &models.EntryRecord{
+			entry := &apiclient.EntryIn{
 				Path: key,
 				Name: name,
-				Kind: "file",
+				Kind: wire.To(apiclient.File),
 			}
 			size := aws.ToInt64(obj.Size)
-			entry.SizeBytes = &size
+			entry.SizeBytes = wire.To(int(size))
 			if ext := filepath.Ext(name); ext != "" {
-				entry.Extension = strings.TrimPrefix(ext, ".")
+				entry.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 			}
 			if obj.LastModified != nil {
 				t := *obj.LastModified
-				entry.ModifiedAt = &t
+				entry.FsModifiedAt = &t
 			}
 			if obj.ETag != nil {
 				// "etag:" prefix (review S-I2) so multi-part ETag
 				// composites (`hex-N`) and other connectors' raw
 				// hex MD5s don't collide in the API's dedup space.
-				entry.ContentHash = "etag:" + strings.Trim(aws.ToString(obj.ETag), "\"")
+				entry.ContentHash = wire.Str("etag:" + strings.Trim(aws.ToString(obj.ETag), "\""))
 			}
 			if computeHash {
 				if hash, err := c.hashObject(ctx, key); err == nil {
-					entry.ContentHash = hash
+					entry.ContentHash = wire.Str(hash)
 				}
 			}
 			if c.captureObjectACLs {
@@ -192,7 +193,7 @@ func (c *S3Connector) WalkShallow(
 	return subdirs, nil
 }
 
-func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns []string, computeHash bool, _ bool, fn func(*apiclient.EntryIn) error) (walker.WalkStats, error) {
 	var stats walker.WalkStats
 	excludeSet := make(map[string]bool, len(excludePatterns))
 	for _, p := range excludePatterns {
@@ -231,41 +232,41 @@ func (c *S3Connector) Walk(ctx context.Context, prefix string, excludePatterns [
 			}
 
 			isDir := strings.HasSuffix(key, "/")
-			entry := &models.EntryRecord{
+			entry := &apiclient.EntryIn{
 				Path: key,
 				Name: filepath.Base(key),
 			}
 			if isDir {
-				entry.Kind = "directory"
+				entry.Kind = wire.To(apiclient.Directory)
 			} else {
-				entry.Kind = "file"
+				entry.Kind = wire.To(apiclient.File)
 				size := aws.ToInt64(obj.Size)
-				entry.SizeBytes = &size
+				entry.SizeBytes = wire.To(int(size))
 				ext := filepath.Ext(entry.Name)
 				if ext != "" {
-					entry.Extension = strings.TrimPrefix(ext, ".")
+					entry.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 				}
 			}
 
 			if obj.LastModified != nil {
 				t := *obj.LastModified
-				entry.ModifiedAt = &t
+				entry.FsModifiedAt = &t
 			}
 
 			if obj.ETag != nil {
 				// "etag:" prefix (review S-I2) so multi-part ETag
 				// composites (`hex-N`) and other connectors' raw
 				// hex MD5s don't collide in the API's dedup space.
-				entry.ContentHash = "etag:" + strings.Trim(aws.ToString(obj.ETag), "\"")
+				entry.ContentHash = wire.Str("etag:" + strings.Trim(aws.ToString(obj.ETag), "\""))
 			}
 
-			if computeHash && entry.Kind == "file" {
+			if computeHash && !wire.IsDir(entry) {
 				if hash, err := c.hashObject(ctx, key); err == nil {
-					entry.ContentHash = hash
+					entry.ContentHash = wire.Str(hash)
 				}
 			}
 
-			if c.captureObjectACLs && entry.Kind == "file" {
+			if c.captureObjectACLs && !wire.IsDir(entry) {
 				if aclOut, aerr := c.client.GetObjectAcl(ctx, &s3.GetObjectAclInput{
 					Bucket: aws.String(c.bucket),
 					Key:    aws.String(key),
@@ -298,7 +299,7 @@ func (c *S3Connector) hashObject(ctx context.Context, key string) (string, error
 // StatRoot implements connector.ShallowWalker. An S3 "directory" is just
 // a key prefix, not a real object — there is no directory record to
 // emit, so this returns (nil, nil) and the budgeted shallow walk skips it.
-func (c *S3Connector) StatRoot(_ context.Context, _ string) (*models.EntryRecord, error) {
+func (c *S3Connector) StatRoot(_ context.Context, _ string) (*apiclient.EntryIn, error) {
 	return nil, nil
 }
 
@@ -338,27 +339,28 @@ func (c *S3Connector) Type() string {
 
 // CollectBucketSecurity fetches GetBucketAcl + GetBucketPolicy + GetPublicAccessBlock
 // and packs them into a SourceSecurityMetadata for the next ingest batch.
-func (c *S3Connector) CollectBucketSecurity(ctx context.Context) (*models.SourceSecurityMetadata, error) {
+func (c *S3Connector) CollectBucketSecurity(ctx context.Context) (*apiclient.SourceSecurityMetadataInput, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("not connected")
 	}
-	meta := &models.SourceSecurityMetadata{
+	meta := &apiclient.SourceSecurityMetadataInput{
 		CapturedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if aclOut, err := c.client.GetBucketAcl(ctx, &s3.GetBucketAclInput{
 		Bucket: aws.String(c.bucket),
 	}); err == nil {
-		meta.BucketAcl = bucketAclToMap(aclOut)
+		acl := bucketAclToMap(aclOut)
+		meta.BucketAcl = &acl
 	}
 
 	if polOut, err := c.client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{
 		Bucket: aws.String(c.bucket),
 	}); err == nil && polOut.Policy != nil {
-		meta.BucketPolicyPresent = true
+		meta.BucketPolicyPresent = wire.To(true)
 		var doc map[string]interface{}
 		if jerr := json.Unmarshal([]byte(*polOut.Policy), &doc); jerr == nil {
-			meta.BucketPolicy = doc
+			meta.BucketPolicy = &doc
 		}
 	}
 
@@ -366,7 +368,7 @@ func (c *S3Connector) CollectBucketSecurity(ctx context.Context) (*models.Source
 		Bucket: aws.String(c.bucket),
 	}); err == nil && pabOut.PublicAccessBlockConfiguration != nil {
 		cfg := pabOut.PublicAccessBlockConfiguration
-		meta.PublicAccessBlock = &models.PublicAccessBlock{
+		meta.PublicAccessBlock = &apiclient.PublicAccessBlock{
 			BlockPublicAcls:       aws.ToBool(cfg.BlockPublicAcls),
 			IgnorePublicAcls:      aws.ToBool(cfg.IgnorePublicAcls),
 			BlockPublicPolicy:     aws.ToBool(cfg.BlockPublicPolicy),
@@ -374,7 +376,7 @@ func (c *S3Connector) CollectBucketSecurity(ctx context.Context) (*models.Source
 		}
 	}
 
-	meta.IsPublicInferred = inferS3Public(meta)
+	meta.IsPublicInferred = wire.To(inferS3Public(meta))
 	return meta, nil
 }
 
@@ -403,20 +405,23 @@ func bucketAclToMap(out *s3.GetBucketAclOutput) map[string]interface{} {
 	return m
 }
 
-func inferS3Public(meta *models.SourceSecurityMetadata) bool {
+func inferS3Public(meta *apiclient.SourceSecurityMetadataInput) bool {
 	if pab := meta.PublicAccessBlock; pab != nil &&
 		pab.BlockPublicAcls && pab.IgnorePublicAcls &&
 		pab.BlockPublicPolicy && pab.RestrictPublicBuckets {
 		return false
 	}
-	if acl, ok := meta.BucketAcl["grants"].([]map[string]interface{}); ok {
-		for _, g := range acl {
-			if uri, _ := g["grantee_uri"].(string); strings.HasSuffix(uri, "/AllUsers") {
-				return true
+	if meta.BucketAcl != nil {
+		if acl, ok := (*meta.BucketAcl)["grants"].([]map[string]interface{}); ok {
+			for _, g := range acl {
+				if uri, _ := g["grantee_uri"].(string); strings.HasSuffix(uri, "/AllUsers") {
+					return true
+				}
 			}
 		}
 	}
-	if doc := meta.BucketPolicy; doc != nil {
+	if meta.BucketPolicy != nil {
+		doc := *meta.BucketPolicy
 		if stmts, ok := doc["Statement"].([]interface{}); ok {
 			for _, s := range stmts {
 				stmt, _ := s.(map[string]interface{})

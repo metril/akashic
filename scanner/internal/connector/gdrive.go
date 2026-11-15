@@ -13,13 +13,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // GDriveConfig is the connection_config shape the API hands the scanner
-// for a Google Drive source. ``access_token`` is minted at scan-lease
-// time by ``api.routers.scanners.lease_scan`` from the source's
+// for a Google Drive source. “access_token“ is minted at scan-lease
+// time by “api.routers.scanners.lease_scan“ from the source's
 // SourceOAuthCredential row; for long scans the scanner re-mints via
 // POST /api/v1/scanners/oauth/access-token.
 //
@@ -40,13 +41,13 @@ type GDriveConfig struct {
 //
 // Path synthesis: Drive addresses files by opaque ID and lets two
 // siblings share a name. The walker emits a synthesized display path
-// (``/My Drive/Foo/Bar.docx``) and persists the opaque ID in
-// EntryRecord.NativeID. On collision we append `` (id)`` to the name
+// (“/My Drive/Foo/Bar.docx“) and persists the opaque ID in
+// EntryRecord.NativeID. On collision we append “ (id)“ to the name
 // segment so the path stays unique within akashic's
 // (source_id, path) uniqueness constraint.
 //
-// Permissions → cloud_drive ACL: each file's ``permissions`` array is
-// mapped principal-by-principal; ``inherited`` flags grants Drive
+// Permissions → cloud_drive ACL: each file's “permissions“ array is
+// mapped principal-by-principal; “inherited“ flags grants Drive
 // reports as inherited.
 type GDriveConnector struct {
 	cfg        *GDriveConfig
@@ -108,16 +109,16 @@ func (c *GDriveConnector) Connect(ctx context.Context) error {
 
 func (c *GDriveConnector) Close() error { return nil }
 
-// Walk performs a BFS over the Drive subtree rooted at ``root`` (the
-// argument here is akashic's display path, e.g. ``/My Drive``; we
+// Walk performs a BFS over the Drive subtree rooted at “root“ (the
+// argument here is akashic's display path, e.g. “/My Drive“; we
 // translate to a Drive folder id via the configured FolderID, defaulting
-// to ``root`` for "My Drive").
+// to “root“ for "My Drive").
 //
 // Excludes are matched against the synthesized display path using
 // the standard walker.MatchAny rules.
 //
 // Hash: Drive returns md5Checksum directly on binary files (Google-
-// format docs leave it empty). When present, emit ``md5:<hex>`` so
+// format docs leave it empty). When present, emit “md5:<hex>“ so
 // content_hash plays nicely with the existing prefix-tagged hash
 // vocabulary.
 func (c *GDriveConnector) Walk(
@@ -126,7 +127,7 @@ func (c *GDriveConnector) Walk(
 	excludePatterns []string,
 	computeHash bool,
 	fullScan bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	stats := walker.WalkStats{}
 
@@ -147,11 +148,11 @@ func (c *GDriveConnector) Walk(
 	rootPath := "/" + rootName
 
 	// Emit the root folder itself.
-	if err := fn(&models.EntryRecord{
+	if err := fn(&apiclient.EntryIn{
 		Path:     rootPath,
 		Name:     rootName,
-		Kind:     "directory",
-		NativeID: rootID,
+		Kind:     wire.To(apiclient.Directory),
+		NativeId: wire.Str(rootID),
 	}); err != nil {
 		return stats, err
 	}
@@ -190,12 +191,12 @@ func (c *GDriveConnector) Walk(
 				// content hashes (the "structure-only" full scan)
 				// drop the md5 we already have so we don't surface a
 				// hash that doesn't match what was promised.
-				rec.ContentHash = ""
+				rec.ContentHash = nil
 			}
 			if err := fn(rec); err != nil {
 				return err
 			}
-			if rec.IsDir() {
+			if wire.IsDir(rec) {
 				queue = append(queue, queued{id: child.ID, path: childPath})
 			}
 			return nil
@@ -220,7 +221,7 @@ func (c *GDriveConnector) WalkShallow(
 	root string,
 	excludePatterns []string,
 	computeHash bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	rootID := c.cfg.FolderID
 	if rootID == "" {
@@ -236,11 +237,11 @@ func (c *GDriveConnector) WalkShallow(
 	}
 	rootPath := "/" + rootName
 
-	if err := fn(&models.EntryRecord{
+	if err := fn(&apiclient.EntryIn{
 		Path:     rootPath,
 		Name:     rootName,
-		Kind:     "directory",
-		NativeID: rootID,
+		Kind:     wire.To(apiclient.Directory),
+		NativeId: wire.Str(rootID),
 	}); err != nil {
 		return nil, err
 	}
@@ -259,9 +260,9 @@ func (c *GDriveConnector) WalkShallow(
 		}
 		rec := buildGDriveEntry(child, childPath, displayName)
 		if !computeHash {
-			rec.ContentHash = ""
+			rec.ContentHash = nil
 		}
-		if rec.IsDir() {
+		if wire.IsDir(rec) {
 			subdirs = append(subdirs, childPath)
 			return nil // The unit-coordinated agent walks the subtree separately.
 		}
@@ -311,29 +312,29 @@ func (c *GDriveConnector) Delete(ctx context.Context, p string) error {
 
 // driveFile is the subset of a Drive v3 File resource we actually use.
 type driveFile struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	MimeType     string             `json:"mimeType"`
-	Size         string             `json:"size"`
-	ModifiedTime string             `json:"modifiedTime"`
-	CreatedTime  string             `json:"createdTime"`
-	Md5Checksum  string             `json:"md5Checksum"`
-	Trashed      bool               `json:"trashed"`
-	Shared       bool               `json:"shared"`
-	Parents      []string           `json:"parents"`
-	Owners       []drivePermission  `json:"owners"`
-	Permissions  []drivePermission  `json:"permissions"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	MimeType     string            `json:"mimeType"`
+	Size         string            `json:"size"`
+	ModifiedTime string            `json:"modifiedTime"`
+	CreatedTime  string            `json:"createdTime"`
+	Md5Checksum  string            `json:"md5Checksum"`
+	Trashed      bool              `json:"trashed"`
+	Shared       bool              `json:"shared"`
+	Parents      []string          `json:"parents"`
+	Owners       []drivePermission `json:"owners"`
+	Permissions  []drivePermission `json:"permissions"`
 }
 
 type drivePermission struct {
-	ID                   string `json:"id"`
-	Type                 string `json:"type"`
-	Role                 string `json:"role"`
-	EmailAddress         string `json:"emailAddress"`
-	DisplayName          string `json:"displayName"`
-	Domain               string `json:"domain"`
-	InheritedPermission  bool   `json:"inherited"`
-	InheritedFromID      string `json:"inheritedFrom"`
+	ID                  string `json:"id"`
+	Type                string `json:"type"`
+	Role                string `json:"role"`
+	EmailAddress        string `json:"emailAddress"`
+	DisplayName         string `json:"displayName"`
+	Domain              string `json:"domain"`
+	InheritedPermission bool   `json:"inherited"`
+	InheritedFromID     string `json:"inheritedFrom"`
 }
 
 // driveListPage is one page of a files.list response.
@@ -343,7 +344,7 @@ type driveListPage struct {
 }
 
 // listChildren paginates through files.list with parent==parentID and
-// invokes ``cb`` for each child.
+// invokes “cb“ for each child.
 const driveListFields = "nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,md5Checksum,trashed,shared,parents,owners(id,emailAddress,displayName,domain),permissions(id,type,role,emailAddress,displayName,domain,inherited,inheritedFrom))"
 
 func (c *GDriveConnector) listChildren(
@@ -448,7 +449,7 @@ func (c *GDriveConnector) resolveFileIDByPath(
 	return parentID, parentMime, nil
 }
 
-// matchExcludes returns true when ``p`` (or any of its path segments)
+// matchExcludes returns true when “p“ (or any of its path segments)
 // matches one of the exclude patterns case-insensitively. Mirrors the
 // simple substring-or-segment match the WebDAV connector uses; full
 // glob support lives in the local walker.
@@ -545,20 +546,20 @@ func (c *GDriveConnector) do(ctx context.Context, method, url string, body io.Re
 
 const driveFolderMime = "application/vnd.google-apps.folder"
 
-func buildGDriveEntry(f driveFile, displayPath, displayName string) *models.EntryRecord {
-	rec := &models.EntryRecord{
+func buildGDriveEntry(f driveFile, displayPath, displayName string) *apiclient.EntryIn {
+	rec := &apiclient.EntryIn{
 		Path:     displayPath,
 		Name:     displayName,
-		NativeID: f.ID,
-		MimeType: f.MimeType,
+		NativeId: wire.Str(f.ID),
+		MimeType: wire.Str(f.MimeType),
 	}
 	if f.MimeType == driveFolderMime {
-		rec.Kind = "directory"
+		rec.Kind = wire.To(apiclient.Directory)
 	} else {
-		rec.Kind = "file"
+		rec.Kind = wire.To(apiclient.File)
 		ext := path.Ext(f.Name)
 		if ext != "" {
-			rec.Extension = strings.TrimPrefix(ext, ".")
+			rec.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 		}
 	}
 	if f.Size != "" {
@@ -570,28 +571,29 @@ func buildGDriveEntry(f driveFile, displayPath, displayName string) *models.Entr
 		// "unknown" to keep the dashboard's size buckets honest.
 		var n int64
 		if _, err := fmt.Sscanf(f.Size, "%d", &n); err == nil && n > 0 {
-			rec.SizeBytes = &n
+			rec.SizeBytes = wire.To(int(n))
 		}
 	}
 	if f.Md5Checksum != "" {
-		rec.ContentHash = "md5:" + f.Md5Checksum
+		rec.ContentHash = wire.Str("md5:" + f.Md5Checksum)
 	}
 	if f.ModifiedTime != "" {
 		if t, err := time.Parse(time.RFC3339, f.ModifiedTime); err == nil {
-			rec.ModifiedAt = &t
+			rec.FsModifiedAt = &t
 		}
 	}
 	if f.CreatedTime != "" {
 		if t, err := time.Parse(time.RFC3339, f.CreatedTime); err == nil {
-			rec.CreatedAt = &t
+			rec.FsCreatedAt = &t
 		}
 	}
 	if len(f.Owners) > 0 {
 		owner := f.Owners[0]
-		rec.OwnerName = owner.DisplayName
-		if rec.OwnerName == "" {
-			rec.OwnerName = owner.EmailAddress
+		name := owner.DisplayName
+		if name == "" {
+			name = owner.EmailAddress
 		}
+		rec.OwnerName = wire.Str(name)
 	}
 	rec.Acl = buildGDriveACL(f)
 	return rec
@@ -609,11 +611,11 @@ func buildGDriveEntry(f driveFile, displayPath, displayName string) *models.Entr
 //
 // We pass the DisplayName + EmailAddress through so the API doesn't
 // have to round-trip to Drive again at render time.
-func buildGDriveACL(f driveFile) *models.ACL {
+func buildGDriveACL(f driveFile) *apiclient.ACLInput {
 	if len(f.Permissions) == 0 && len(f.Owners) == 0 {
 		return nil
 	}
-	grants := make([]models.CloudDriveGrant, 0, len(f.Permissions)+len(f.Owners))
+	grants := make([]apiclient.CloudDriveGrantInput, 0, len(f.Permissions)+len(f.Owners))
 	for _, perm := range f.Permissions {
 		role := mapDriveRole(perm.Role)
 		if role == "" {
@@ -630,22 +632,19 @@ func buildGDriveACL(f driveFile) *models.ACL {
 		if principalType == "anyone" && id == "" {
 			id = "anyone"
 		}
-		grants = append(grants, models.CloudDriveGrant{
-			Principal: models.CloudDrivePrincipal{
-				Type:  principalType,
-				ID:    id,
-				Email: perm.EmailAddress,
-				Name:  perm.DisplayName,
+		grants = append(grants, apiclient.CloudDriveGrantInput{
+			Principal: apiclient.CloudDrivePrincipalInput{
+				Type:  apiclient.CloudDrivePrincipalInputType(principalType),
+				Id:    id,
+				Email: wire.Str(perm.EmailAddress),
+				Name:  wire.Str(perm.DisplayName),
 			},
-			Role:            role,
-			Inherited:       perm.InheritedPermission,
-			InheritedFromID: perm.InheritedFromID,
+			Role:            apiclient.CloudDriveGrantInputRole(role),
+			Inherited:       wire.To(perm.InheritedPermission),
+			InheritedFromId: wire.Str(perm.InheritedFromID),
 		})
 	}
-	return &models.ACL{
-		Type:             "cloud_drive",
-		CloudDriveGrants: grants,
-	}
+	return wire.CloudDriveACL(grants, "")
 }
 
 func mapDriveRole(r string) string {

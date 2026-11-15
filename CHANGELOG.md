@@ -28,6 +28,7 @@ detail.
 - **Error responses are documented per route** in the OpenAPI spec (401/403 from auth and scope, 404 for source-scoped access, 422 for inputs, plus every code a handler raises) instead of the same five codes everywhere.
 - Ingest tokens now stop working as soon as their holder loses the right to write sources, instead of at expiry.
 - Scanner-agent endpoints (claim, handshake, heartbeat, leases, ingest, discovery) are tagged "Scanner protocol (internal)" in the API docs and live in their own router module.
+- The scanner and the CLI call the API through clients generated from `openapi.json` (`make openapi` regenerates them; CI fails when they drift), replacing the hand-written request and response types. The CLI now rejects a non-UUID scan, source or file id up front and shows the API's error message for every failed call.
 
 ## v0.47.0 — 2026-11-14
 

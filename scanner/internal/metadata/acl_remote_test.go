@@ -4,7 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestParseRemotePosixDump_MultipleFiles(t *testing.T) {
@@ -29,23 +30,24 @@ other::r--
 	if len(got) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(got))
 	}
-	if got["/etc/passwd"] == nil || got["/etc/passwd"].Type != "posix" {
+	if got["/etc/passwd"] == nil || aclType(got["/etc/passwd"]) != "posix" {
 		t.Errorf("missing or wrong-typed entry for /etc/passwd: %+v", got["/etc/passwd"])
 	}
 	foo := got["/tmp/foo"]
 	if foo == nil {
 		t.Fatal("missing /tmp/foo")
 	}
-	wantBob := models.PosixACE{Tag: "user", Qualifier: "bob", Perms: "r-x"}
+	wantBob := apiclient.PosixACEInput{Tag: "user", Qualifier: wire.To("bob"), Perms: "r-x"}
 	found := false
-	for _, e := range foo.Entries {
+	fooEntries := posixEntries(t, foo)
+	for _, e := range fooEntries {
 		if reflect.DeepEqual(e, wantBob) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected user:bob:r-x in /tmp/foo entries, got %+v", foo.Entries)
+		t.Errorf("expected user:bob:r-x in /tmp/foo entries, got %+v", fooEntries)
 	}
 }
 
@@ -67,8 +69,8 @@ default:other::r--
 	if dir == nil {
 		t.Fatal("missing /tmp/dir")
 	}
-	if len(dir.DefaultEntries) != 4 {
-		t.Errorf("expected 4 default entries, got %d", len(dir.DefaultEntries))
+	if len(wire.Deref(posixACL(t, dir).DefaultEntries)) != 4 {
+		t.Errorf("expected 4 default entries, got %d", len(wire.Deref(posixACL(t, dir).DefaultEntries)))
 	}
 }
 
@@ -84,7 +86,7 @@ A::OWNER@:rwatTnNcCy
 	if len(got) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(got))
 	}
-	if got["/tmp/foo"].Type != "nfsv4" || len(got["/tmp/foo"].NfsV4Entries) != 3 {
+	if aclType(got["/tmp/foo"]) != "nfsv4" || len(nfsEntries(t, got["/tmp/foo"])) != 3 {
 		t.Errorf("unexpected /tmp/foo: %+v", got["/tmp/foo"])
 	}
 }

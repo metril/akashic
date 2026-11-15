@@ -1,6 +1,8 @@
 package metadata
 
 import (
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,16 +24,16 @@ func TestCollect_RegularFile(t *testing.T) {
 	if entry.Name != "test.txt" {
 		t.Errorf("expected name test.txt, got %s", entry.Name)
 	}
-	if entry.Kind != "file" {
-		t.Errorf("expected kind file, got %s", entry.Kind)
+	if wire.Deref(entry.Kind) != apiclient.File {
+		t.Errorf("expected kind file, got %s", wire.Deref(entry.Kind))
 	}
-	if entry.Extension != "txt" {
-		t.Errorf("expected extension txt, got %s", entry.Extension)
+	if wire.Deref(entry.Extension) != "txt" {
+		t.Errorf("expected extension txt, got %s", wire.Deref(entry.Extension))
 	}
 	if entry.SizeBytes == nil || *entry.SizeBytes != 11 {
 		t.Errorf("expected size 11, got %v", entry.SizeBytes)
 	}
-	if entry.ContentHash == "" {
+	if wire.Deref(entry.ContentHash) == "" {
 		t.Error("expected non-empty content hash")
 	}
 	if entry.Mode == nil {
@@ -54,10 +56,10 @@ func TestCollect_Directory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if entry.Kind != "directory" {
-		t.Errorf("expected kind directory, got %s", entry.Kind)
+	if wire.Deref(entry.Kind) != apiclient.Directory {
+		t.Errorf("expected kind directory, got %s", wire.Deref(entry.Kind))
 	}
-	if entry.ContentHash != "" {
+	if wire.Deref(entry.ContentHash) != "" {
 		t.Error("expected empty content hash for directory")
 	}
 	if entry.SizeBytes != nil {
@@ -75,7 +77,7 @@ func TestCollect_WithHash(t *testing.T) {
 	entry1, _ := Collect(path, true, nil)
 	entry2, _ := Collect(path, true, nil)
 
-	if entry1.ContentHash != entry2.ContentHash {
+	if wire.Deref(entry1.ContentHash) != wire.Deref(entry2.ContentHash) {
 		t.Error("same content should produce same hash")
 	}
 }
@@ -92,7 +94,7 @@ func TestCollect_SkipHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if entry.ContentHash != "" {
+	if wire.Deref(entry.ContentHash) != "" {
 		t.Error("expected empty hash when computeHash=false")
 	}
 }
@@ -129,7 +131,7 @@ func TestCollect_ACLWrapped(t *testing.T) {
 	}
 	// ACL may be nil on filesystems without extended ACLs — that's fine.
 	// But if present, it must be POSIX-typed.
-	if entry.Acl != nil && entry.Acl.Type != "posix" {
-		t.Errorf("expected posix ACL or nil, got type=%q", entry.Acl.Type)
+	if aclType(entry.Acl) != "" && aclType(entry.Acl) != "posix" {
+		t.Errorf("expected posix ACL or nil, got type=%q", aclType(entry.Acl))
 	}
 }

@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestSendContent_PostsToContentEndpoint(t *testing.T) {
@@ -22,10 +23,10 @@ func TestSendContent_PostsToContentEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "jwt")
-	err := c.SendContent(context.Background(), models.ContentBatch{
-		SourceID: "s", ScanID: "sc",
-		Items: []models.ContentItem{{Path: "/a.pdf", ContentText: "hello"}},
+	c := newTestClient(t, srv.URL, "jwt")
+	err := c.SendContent(context.Background(), apiclient.ContentBatchIn{
+		SourceId: testSource, ScanId: testScan,
+		Items: []apiclient.ContentItemIn{{Path: "/a.pdf", ContentText: wire.To("hello")}},
 	})
 	if err != nil {
 		t.Fatalf("SendContent: %v", err)
@@ -46,9 +47,9 @@ func TestSendContent_RetriesOn5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "jwt")
+	c := newTestClient(t, srv.URL, "jwt")
 	c.backoffBase = 1 * time.Millisecond
-	if err := c.SendContent(context.Background(), models.ContentBatch{}); err != nil {
+	if err := c.SendContent(context.Background(), apiclient.ContentBatchIn{}); err != nil {
 		t.Fatalf("expected success after retry, got %v", err)
 	}
 	if got := calls.Load(); got != 3 {
@@ -64,9 +65,9 @@ func TestSendContent_DoesNotRetry4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "jwt")
+	c := newTestClient(t, srv.URL, "jwt")
 	c.backoffBase = 1 * time.Millisecond
-	if err := c.SendContent(context.Background(), models.ContentBatch{}); err == nil {
+	if err := c.SendContent(context.Background(), apiclient.ContentBatchIn{}); err == nil {
 		t.Fatal("expected error on 400")
 	}
 	if got := calls.Load(); got != 1 {
@@ -82,7 +83,7 @@ func TestSendContent_SplitsOn413(t *testing.T) {
 		paths []string
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var b models.ContentBatch
+		var b apiclient.ContentBatchIn
 		json.NewDecoder(r.Body).Decode(&b)
 		if len(b.Items) > 2 {
 			http.Error(w, "too big", http.StatusRequestEntityTooLarge)
@@ -97,15 +98,15 @@ func TestSendContent_SplitsOn413(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "jwt")
+	c := newTestClient(t, srv.URL, "jwt")
 	c.backoffBase = 1 * time.Millisecond
 
-	items := make([]models.ContentItem, 6)
+	items := make([]apiclient.ContentItemIn, 6)
 	for i := range items {
-		items[i] = models.ContentItem{Path: fmt.Sprintf("/c%d", i), ContentText: "x"}
+		items[i] = apiclient.ContentItemIn{Path: fmt.Sprintf("/c%d", i), ContentText: wire.To("x")}
 	}
-	if err := c.SendContent(context.Background(), models.ContentBatch{
-		SourceID: "s", ScanID: "sc", Items: items,
+	if err := c.SendContent(context.Background(), apiclient.ContentBatchIn{
+		SourceId: testSource, ScanId: testScan, Items: items,
 	}); err != nil {
 		t.Fatalf("SendContent should recover from 413, got %v", err)
 	}
@@ -124,11 +125,11 @@ func TestSendContent_DropsUnsplittableItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "jwt")
+	c := newTestClient(t, srv.URL, "jwt")
 	c.backoffBase = 1 * time.Millisecond
-	err := c.SendContent(context.Background(), models.ContentBatch{
-		SourceID: "s", ScanID: "sc",
-		Items: []models.ContentItem{{Path: "/huge.pdf", ContentText: "x"}},
+	err := c.SendContent(context.Background(), apiclient.ContentBatchIn{
+		SourceId: testSource, ScanId: testScan,
+		Items: []apiclient.ContentItemIn{{Path: "/huge.pdf", ContentText: wire.To("x")}},
 	})
 	if err != nil {
 		t.Fatalf("a lone oversized item must be dropped, not error: %v", err)

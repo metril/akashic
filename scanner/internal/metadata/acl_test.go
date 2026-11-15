@@ -17,7 +17,7 @@ func TestCollectACL_PosixFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	// On a fresh tmpfile with only standard rwx, ACL may be nil — but if returned, must be POSIX-typed.
-	if acl != nil && acl.Type != "posix" {
-		t.Errorf("expected nil or posix ACL, got %s", acl.Type)
+	if acl != nil && aclType(acl) != "posix" {
+		t.Errorf("expected nil or posix ACL, got %s", aclType(acl))
 	}
 }

@@ -3042,6 +3042,8 @@ export interface components {
              */
             summary: string;
         };
+        "ACL-Input": components["schemas"]["PosixACL-Input"] | components["schemas"]["NfsV4ACL-Input"] | components["schemas"]["NtACL-Input"] | components["schemas"]["S3ACL-Input"] | components["schemas"]["CloudDriveACL-Input"];
+        "ACL-Output": components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"];
         /**
          * AccessPrincipal
          * @description The principal that was looked up.
@@ -4978,11 +4980,8 @@ export interface components {
          *     }
          */
         EntryDetailResponse: {
-            /**
-             * Acl
-             * @description Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none.
-             */
-            acl: (components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"]) | null;
+            /** @description Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none. */
+            acl: components["schemas"]["ACL-Output"] | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -5128,11 +5127,8 @@ export interface components {
          * @description Inbound from the scanner; one row per file/directory observed in a scan.
          */
         EntryIn: {
-            /**
-             * Acl
-             * @description Access control list as read from the storage system; null when it reports none.
-             */
-            acl?: (components["schemas"]["PosixACL-Input"] | components["schemas"]["NfsV4ACL-Input"] | components["schemas"]["NtACL-Input"] | components["schemas"]["S3ACL-Input"] | components["schemas"]["CloudDriveACL-Input"]) | null;
+            /** @description Access control list as read from the storage system; null when it reports none. */
+            acl?: components["schemas"]["ACL-Input"] | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -5422,11 +5418,8 @@ export interface components {
         };
         /** EntryVersionResponse */
         EntryVersionResponse: {
-            /**
-             * Acl
-             * @description ACL at the time of this version; null when none was recorded.
-             */
-            acl: (components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"]) | null;
+            /** @description ACL at the time of this version; null when none was recorded. */
+            acl: components["schemas"]["ACL-Output"] | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.

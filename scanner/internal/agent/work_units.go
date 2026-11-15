@@ -3,43 +3,20 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
+
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // Work-unit endpoints (Phase 2 of v0.5.x parallel scanning).
 //
 // The agent uses these when the leased scan's MaxParallelScanners > 1.
-// Legacy path is unaffected — these wire types stay unused for
-// max_parallel_scanners == 1.
-
-type workUnit struct {
-	ID              string `json:"id"`
-	ScanID          string `json:"scan_id"`
-	Path            string `json:"path"`
-	Status          string `json:"status"`
-	LeaseExpiresAt  string `json:"lease_expires_at"`
-}
-
-type splitReq struct {
-	ParentUnitID *string  `json:"parent_unit_id,omitempty"`
-	ChildPaths   []string `json:"child_paths"`
-}
-
-type splitResp struct {
-	Created int `json:"created"`
-	Skipped int `json:"skipped"`
-}
-
-type failReq struct {
-	ErrorMessage string `json:"error_message,omitempty"`
-	// v0.34.0 — requeue the unit (status back to pending) for retry
-	// instead of failing it permanently. Set on a transient SMB stall.
-	Requeue bool `json:"requeue,omitempty"`
-}
+// Legacy path is unaffected.
 
 // errNoWork is returned by leaseUnit when /work/lease replies 204 — no
 // unit is available right now. The scan is NOT necessarily over; sibling
@@ -61,114 +38,87 @@ var errScanTerminal = errors.New("scan reached a terminal state")
 
 func leaseUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID string,
-) (*workUnit, error) {
-	auth, err := authHeader(cfg, priv)
+	priv ed25519.PrivateKey, scanID uuid.UUID,
+) (*apiclient.WorkUnitOut, error) {
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/v1/scans/%s/work/lease", cfg.APIBase, scanID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
+	resp, err := api.LeaseUnitWithResponse(ctx, scanID)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNoContent {
+	switch resp.StatusCode() {
+	case http.StatusNoContent:
 		return nil, errNoWork
-	}
-	if resp.StatusCode == http.StatusConflict {
-		raw, _ := io.ReadAll(resp.Body)
+	case http.StatusConflict:
 		// Two kinds of 409: the scan itself is terminal (detail.reason ==
 		// "scan-terminal" — exit the loop) vs. max_parallel_scanners cap
 		// reached (units exist, no slot yet — sleep and retry).
-		var body struct {
-			Detail struct {
-				Reason string `json:"reason"`
-			} `json:"detail"`
-		}
-		if json.Unmarshal(raw, &body) == nil && body.Detail.Reason == "scan-terminal" {
+		if detailString(resp.JSON409, "reason") == "scan-terminal" {
 			return nil, errScanTerminal
 		}
-		return nil, fmt.Errorf("%w: %s", errLeaseCap, string(raw))
+		return nil, fmt.Errorf("%w: %s", errLeaseCap, string(resp.Body))
+	case http.StatusOK:
+		if resp.JSON200 != nil {
+			return resp.JSON200, nil
+		}
 	}
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("lease unit HTTP %d: %s", resp.StatusCode, string(raw))
-	}
-	var u workUnit
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
-		return nil, fmt.Errorf("decode unit: %w", err)
-	}
-	return &u, nil
+	return nil, httpError("lease unit", resp.StatusCode(), resp.Body)
 }
 
 func splitUnits(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID string, parent *string, childPaths []string,
-) (*splitResp, error) {
-	auth, err := authHeader(cfg, priv)
+	priv ed25519.PrivateKey, scanID uuid.UUID, parent *uuid.UUID, childPaths []string,
+) (*apiclient.SplitResponse, error) {
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/v1/scans/%s/work/split", cfg.APIBase, scanID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth, splitReq{
-		ParentUnitID: parent, ChildPaths: childPaths,
+	resp, err := api.SplitUnitsWithResponse(ctx, scanID, apiclient.SplitRequest{
+		ParentUnitId: parent, ChildPaths: &childPaths,
 	})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("split HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return nil, httpError("split", resp.StatusCode(), resp.Body)
 	}
-	var sr splitResp
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-		return nil, fmt.Errorf("decode split: %w", err)
-	}
-	return &sr, nil
+	return resp.JSON200, nil
 }
 
 func heartbeatUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, unitID string,
+	priv ed25519.PrivateKey, scanID, unitID uuid.UUID,
 ) error {
-	auth, err := authHeader(cfg, priv)
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/heartbeat",
-		cfg.APIBase, scanID, unitID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
+	resp, err := api.HeartbeatUnitWithResponse(ctx, scanID, unitID)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("heartbeat unit HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusOK {
+		return httpError("heartbeat unit", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
 
 func completeUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, unitID string,
+	priv ed25519.PrivateKey, scanID, unitID uuid.UUID,
 ) error {
-	auth, err := authHeader(cfg, priv)
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/complete",
-		cfg.APIBase, scanID, unitID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
+	resp, err := api.CompleteUnitWithResponse(ctx, scanID, unitID)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("complete unit HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusNoContent {
+		return httpError("complete unit", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -177,25 +127,22 @@ func completeUnit(
 // puts the unit back on the queue for retry (up to a bounded attempt
 // count) instead of marking it permanently failed — used for a transient
 // SMB stall so a flaky share doesn't drop the subtree from the index.
+// v0.34.0.
 func failUnit(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, unitID, errMsg string, requeue bool,
+	priv ed25519.PrivateKey, scanID, unitID uuid.UUID, errMsg string, requeue bool,
 ) error {
-	auth, err := authHeader(cfg, priv)
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/fail",
-		cfg.APIBase, scanID, unitID)
-	resp, err := doJSON(ctx, httpc, "POST", url, auth,
-		failReq{ErrorMessage: errMsg, Requeue: requeue})
+	resp, err := api.FailUnitWithResponse(ctx, scanID, unitID,
+		apiclient.CompleteUnitRequest{ErrorMessage: wire.Str(errMsg), Requeue: wire.To(requeue)})
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("fail unit HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusNoContent {
+		return httpError("fail unit", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }

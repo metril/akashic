@@ -17,22 +17,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestSendBatch_GzipsLargeBody(t *testing.T) {
 	// Build a batch with enough entries that the JSON marshaled body
 	// is well over the 1 KB threshold. ~50 entries of ~50 bytes each
 	// puts us comfortably above.
-	entries := make([]models.EntryRecord, 50)
+	entries := make([]apiclient.EntryIn, 50)
 	for i := range entries {
-		entries[i] = models.EntryRecord{
+		entries[i] = apiclient.EntryIn{
 			Path: "/some/longer/path/to/keep/each/entry/over/40/bytes/" + strings.Repeat("a", 32),
-			Kind: "file",
+			Kind: wire.To(apiclient.File),
 		}
 	}
-	batch := models.ScanBatch{
-		SourceID: "src", ScanID: "scan", Entries: entries,
+	batch := apiclient.ScanBatchIn{
+		SourceId: testSource, ScanId: testScan, Entries: entries,
 	}
 
 	var sawEncoding string
@@ -55,7 +56,7 @@ func TestSendBatch_GzipsLargeBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "test-jwt")
+	c := newTestClient(t, srv.URL, "test-jwt")
 	if _, err := c.SendBatch(context.Background(), batch); err != nil {
 		t.Fatalf("SendBatch: %v", err)
 	}
@@ -76,9 +77,9 @@ func TestSendBatch_PlainBelowGzipThreshold(t *testing.T) {
 	// A trivially small batch (one entry) is well under 1 KB and
 	// should NOT be gzipped — compression overhead would exceed the
 	// bandwidth savings.
-	batch := models.ScanBatch{
-		SourceID: "s", ScanID: "x",
-		Entries: []models.EntryRecord{{Path: "/a", Kind: "file"}},
+	batch := apiclient.ScanBatchIn{
+		SourceId: testSource, ScanId: testScan,
+		Entries: []apiclient.EntryIn{{Path: "/a", Kind: wire.To(apiclient.File)}},
 	}
 
 	var sawEncoding string
@@ -88,7 +89,7 @@ func TestSendBatch_PlainBelowGzipThreshold(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "test-jwt")
+	c := newTestClient(t, srv.URL, "test-jwt")
 	if _, err := c.SendBatch(context.Background(), batch); err != nil {
 		t.Fatalf("SendBatch: %v", err)
 	}

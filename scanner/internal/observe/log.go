@@ -1,13 +1,12 @@
 package observe
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 )
 
 // logDrainBatchSize / logDrainInterval — flush whenever EITHER fires.
@@ -20,17 +19,10 @@ const (
 	logDrainInterval = 500 * time.Millisecond
 )
 
-// LogLine is the wire shape of one structured log entry.
-type LogLine struct {
-	Timestamp time.Time `json:"ts"`
-	Level     string    `json:"level"` // "info" | "warn" | "error"
-	Message   string    `json:"message"`
-}
-
 // LogSink is the writer side of the log channel. The drain goroutine
 // reads from `ch` and POSTs in batches.
 type LogSink struct {
-	ch     chan LogLine
+	ch     chan apiclient.LogLineIn
 	once   sync.Once
 	closed chan struct{}
 
@@ -43,19 +35,19 @@ type LogSink struct {
 
 func newLogSink() *LogSink {
 	return &LogSink{
-		ch:     make(chan LogLine, logBufferCap),
+		ch:     make(chan apiclient.LogLineIn, logBufferCap),
 		closed: make(chan struct{}),
 	}
 }
 
-func (s *LogSink) emit(level, format string, args ...any) {
+func (s *LogSink) emit(level apiclient.LogLineInLevel, format string, args ...any) {
 	if s == nil {
 		return
 	}
-	line := LogLine{
-		Timestamp: time.Now().UTC(),
-		Level:     level,
-		Message:   fmt.Sprintf(format, args...),
+	line := apiclient.LogLineIn{
+		Ts:      time.Now().UTC(),
+		Level:   level,
+		Message: fmt.Sprintf(format, args...),
 	}
 	select {
 	case s.ch <- line:
@@ -69,9 +61,9 @@ func (s *LogSink) emit(level, format string, args ...any) {
 	}
 }
 
-func (s *LogSink) Info(format string, args ...any)  { s.emit("info", format, args...) }
-func (s *LogSink) Warn(format string, args ...any)  { s.emit("warn", format, args...) }
-func (s *LogSink) Error(format string, args ...any) { s.emit("error", format, args...) }
+func (s *LogSink) Info(format string, args ...any)  { s.emit(apiclient.Info, format, args...) }
+func (s *LogSink) Warn(format string, args ...any)  { s.emit(apiclient.Warn, format, args...) }
+func (s *LogSink) Error(format string, args ...any) { s.emit(apiclient.Error, format, args...) }
 
 func (s *LogSink) close() {
 	s.once.Do(func() { close(s.closed) })
@@ -94,14 +86,14 @@ func (r *Reporter) runLogDrain(ctx context.Context) {
 	t := time.NewTicker(logDrainInterval)
 	defer t.Stop()
 
-	pending := make([]LogLine, 0, logDrainBatch)
+	pending := make([]apiclient.LogLineIn, 0, logDrainBatch)
 
 	flushWith := func(c context.Context) {
 		if dropped := r.logSink.takeDropped(); dropped > 0 {
-			pending = append(pending, LogLine{
-				Timestamp: time.Now().UTC(),
-				Level:     "warn",
-				Message:   fmt.Sprintf("log overflow: %d lines dropped (channel saturated)", dropped),
+			pending = append(pending, apiclient.LogLineIn{
+				Ts:      time.Now().UTC(),
+				Level:   apiclient.Warn,
+				Message: fmt.Sprintf("log overflow: %d lines dropped (channel saturated)", dropped),
 			})
 		}
 		if len(pending) == 0 {
@@ -147,20 +139,8 @@ func (r *Reporter) runLogDrain(ctx context.Context) {
 	}
 }
 
-func (r *Reporter) postLogBatch(ctx context.Context, lines []LogLine) {
-	body, err := json.Marshal(map[string]any{"lines": lines})
-	if err != nil {
-		return
-	}
-	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/log"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+r.apiKey)
-
-	resp, err := r.httpClient.Do(req)
+func (r *Reporter) postLogBatch(ctx context.Context, lines []apiclient.LogLineIn) {
+	resp, err := r.api.PostLogBatch(ctx, r.scanID, apiclient.LogBatchIn{Lines: lines})
 	if err != nil {
 		return
 	}

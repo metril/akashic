@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestStripExt(t *testing.T) {
@@ -54,16 +55,16 @@ func TestImmichBuildEntry(t *testing.T) {
 	if entry.Path != "/All Photos/2024/09/IMG_1234-abc12345.jpg" {
 		t.Errorf("Path = %q, want /All Photos/2024/09/IMG_1234-abc12345.jpg", entry.Path)
 	}
-	if entry.Kind != "file" {
-		t.Errorf("Kind = %q, want file", entry.Kind)
+	if wire.Deref(entry.Kind) != apiclient.File {
+		t.Errorf("Kind = %q, want file", wire.Deref(entry.Kind))
 	}
-	if entry.Extension != "jpg" {
-		t.Errorf("Extension = %q, want jpg", entry.Extension)
+	if wire.Deref(entry.Extension) != "jpg" {
+		t.Errorf("Extension = %q, want jpg", wire.Deref(entry.Extension))
 	}
-	if entry.ContentHash != "sha1:sha256" {
-		t.Errorf("ContentHash = %q, want sha1:sha256 (immich connector now namespaces the checksum)", entry.ContentHash)
+	if wire.Deref(entry.ContentHash) != "sha1:sha256" {
+		t.Errorf("ContentHash = %q, want sha1:sha256 (immich connector now namespaces the checksum)", wire.Deref(entry.ContentHash))
 	}
-	dm := entry.DomainMetadata
+	dm := wire.Deref(entry.DomainMetadata)
 	if dm["immich_id"] != "abc12345-uuid-here" {
 		t.Errorf("immich_id = %v, want abc12345-uuid-here", dm["immich_id"])
 	}
@@ -93,7 +94,7 @@ func TestImmichBuildEntryNoExif(t *testing.T) {
 	if !strings.HasPrefix(entry.Path, "/All Photos/Undated/00/") {
 		t.Errorf("expected /All Photos/Undated/00/ prefix, got %q", entry.Path)
 	}
-	dm := entry.DomainMetadata
+	dm := wire.Deref(entry.DomainMetadata)
 	if dm["original_filename"] != "file.heic" {
 		t.Errorf("original_filename missing: %+v", dm)
 	}
@@ -192,8 +193,8 @@ func TestImmichWalkAgainstFakeServer(t *testing.T) {
 		t.Errorf("assetAlbums[asset-B] = %v, want [Pets]", got)
 	}
 
-	var entries []*models.EntryRecord
-	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		entries = append(entries, e)
 		return nil
 	})
@@ -209,7 +210,7 @@ func TestImmichWalkAgainstFakeServer(t *testing.T) {
 	}
 	dirs, files := 0, 0
 	for _, e := range entries {
-		if e.Kind == "directory" {
+		if wire.Deref(e.Kind) == apiclient.Directory {
 			dirs++
 		} else {
 			files++
@@ -225,8 +226,8 @@ func TestImmichWalkAgainstFakeServer(t *testing.T) {
 	if err := c2.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect 2: %v", err)
 	}
-	var filtered []*models.EntryRecord
-	_, err = c2.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var filtered []*apiclient.EntryIn
+	_, err = c2.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		filtered = append(filtered, e)
 		return nil
 	})
@@ -362,8 +363,8 @@ func TestImmichWalkSkipsSinglePoisonedPage(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	var emitted []*models.EntryRecord
-	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var emitted []*apiclient.EntryIn
+	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		emitted = append(emitted, e)
 		return nil
 	})
@@ -372,7 +373,7 @@ func TestImmichWalkSkipsSinglePoisonedPage(t *testing.T) {
 	}
 	files := 0
 	for _, e := range emitted {
-		if e.Kind == "file" {
+		if wire.Deref(e.Kind) == apiclient.File {
 			files++
 		}
 	}
@@ -429,7 +430,7 @@ func TestImmichWalkAbortsAfterConsecutivePageFailures(t *testing.T) {
 	if err := c.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error { return nil })
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error { return nil })
 	if err == nil {
 		t.Fatalf("Walk should fail after %d consecutive page failures", immichMaxConsecutivePageFailures)
 	}
@@ -466,7 +467,7 @@ func TestImmichWalkFirstPage5xxStillFatal(t *testing.T) {
 	if err := c.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error { return nil })
+	stats, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error { return nil })
 	if err == nil {
 		t.Fatalf("Walk should fail on first-page 5xx, not skip-and-continue")
 	}

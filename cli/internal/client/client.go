@@ -1,275 +1,48 @@
+// Package client is the CLI's API transport: a thin layer over the generated
+// apiclient that adds bearer auth (a user JWT or an `akp_` API token) and
+// turns non-2xx replies into *APIError carrying the status and the server's
+// error envelope. Wire shapes come from apiclient.
 package client
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/cli/internal/apiclient"
 )
 
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	api *apiclient.ClientWithResponses
 }
 
-type SearchResults struct {
-	Results []FileEntry `json:"items"`
-	Total   int         `json:"total"`
-	Query   string      `json:"query"`
-}
-
-type FileEntry struct {
-	ID        string `json:"id"`
-	SourceID  string `json:"source_id"`
-	Path      string `json:"path"`
-	Filename  string `json:"filename"`
-	Extension string `json:"extension"`
-	SizeBytes int64  `json:"size_bytes"`
-	MimeType  string `json:"mime_type"`
-	IsDeleted bool   `json:"is_deleted"`
-}
-
-type Source struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Status     string `json:"status"`
-	LastScanAt string `json:"last_scan_at"`
-}
-
-type SearchParams struct {
-	SourceID  string
-	Extension string
-	MinSize   int64
-	MaxSize   int64
-}
-
-type Scan struct {
-	ID         string `json:"id"`
-	SourceID   string `json:"source_id"`
-	Status     string `json:"status"`
-	FilesFound int    `json:"files_found"`
-	StartedAt  string `json:"started_at"`
-}
-
-type DuplicateGroup struct {
-	ContentHash string `json:"content_hash"`
-	Count       int    `json:"count"`
-	TotalSize   int64  `json:"total_size"`
-	FileSize    int64  `json:"file_size"`
-	WastedBytes int64  `json:"wasted_bytes"`
-}
-
-type Tag struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
-}
-
-func New(baseURL, apiKey string) *Client {
-	return &Client{
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-func (c *Client) post(ctx context.Context, path string, body interface{}) (*http.Response, error) {
-	var buf bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			return nil, err
-		}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
+// New builds a client for baseURL authenticating with apiKey. It fails only
+// when baseURL is not a valid URL.
+func New(baseURL, apiKey string) (*Client, error) {
+	api, err := apiclient.NewClientWithResponses(baseURL,
+		apiclient.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+		apiclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			return nil
+		}),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("api client for %q: %w", baseURL, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	return c.httpClient.Do(req)
+	return &Client{api: api}, nil
 }
 
-func (c *Client) get(ctx context.Context, path string, params url.Values) (*http.Response, error) {
-	u := c.baseURL + path
-	if len(params) > 0 {
-		u += "?" + params.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+// ParseID parses a user-supplied UUID argument.
+func ParseID(kind, s string) (uuid.UUID, error) {
+	id, err := uuid.Parse(s)
 	if err != nil {
-		return nil, err
+		return uuid.Nil, fmt.Errorf("invalid %s %q: not a UUID", kind, s)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	return c.httpClient.Do(req)
-}
-
-func (c *Client) Search(ctx context.Context, query string, params *SearchParams) (*SearchResults, error) {
-	v := url.Values{"q": {query}}
-	if params != nil {
-		if params.SourceID != "" {
-			v.Set("source_id", params.SourceID)
-		}
-		if params.Extension != "" {
-			v.Set("extension", params.Extension)
-		}
-	}
-	resp, err := c.get(ctx, "/api/v1/search", v)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
-	}
-
-	var results SearchResults
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	return &results, nil
-}
-
-func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
-	resp, err := c.get(ctx, "/api/v1/sources", nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
-	}
-
-	var sources []Source
-	if err := json.NewDecoder(resp.Body).Decode(&sources); err != nil {
-		return nil, err
-	}
-	return sources, nil
-}
-
-// checkStatus returns an error carrying the response body when the
-// server answered with a 4xx/5xx status.
-func checkStatus(resp *http.Response) error {
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
-	}
-	return nil
-}
-
-func (c *Client) CreateSource(ctx context.Context, name, sourceType string, config map[string]string) (*Source, error) {
-	body := map[string]interface{}{
-		"name":   name,
-		"type":   sourceType,
-		"connection_config": config,
-	}
-	resp, err := c.post(ctx, "/api/v1/sources", body)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if err := checkStatus(resp); err != nil {
-		return nil, err
-	}
-
-	var source Source
-	if err := json.NewDecoder(resp.Body).Decode(&source); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	return &source, nil
-}
-
-func (c *Client) TriggerScan(ctx context.Context, sourceName string) error {
-	body := map[string]string{"source_name": sourceName}
-	resp, err := c.post(ctx, "/api/v1/scans/trigger", body)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
-	params := url.Values{}
-	if limit > 0 {
-		params.Set("limit", fmt.Sprintf("%d", limit))
-	}
-	resp, err := c.get(ctx, "/api/v1/scans", params)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
-	}
-
-	var page struct {
-		Items []Scan `json:"items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-		return nil, err
-	}
-	return page.Items, nil
-}
-
-// GetScan fetches a single scan by ID. Returns an APIError with
-// Status=404 when the scan doesn't exist; callers can branch on that.
-func (c *Client) GetScan(ctx context.Context, scanID string) (*Scan, error) {
-	resp, err := c.get(ctx, "/api/v1/scans/"+scanID, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
-	}
-	var s Scan
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	return &s, nil
-}
-
-// CancelScan marks a running scan as cancelled. Idempotent — cancelling
-// an already-terminal scan returns success.
-func (c *Client) CancelScan(ctx context.Context, scanID string) error {
-	resp, err := c.post(ctx, "/api/v1/scans/"+scanID+"/cancel", nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return &APIError{Status: resp.StatusCode, Body: string(body)}
-	}
-	return nil
-}
-
-// apiMessage returns the `message` of the API's error envelope
-// ({code, message, detail?, request_id}), or the raw body when it isn't one.
-func apiMessage(body string) string {
-	var env struct {
-		Message string `json:"message"`
-	}
-	if json.Unmarshal([]byte(body), &env) == nil && env.Message != "" {
-		return env.Message
-	}
-	return body
+	return id, nil
 }
 
 // APIError carries the HTTP status alongside the server's response body
@@ -284,92 +57,192 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("API error %d: %s", e.Status, apiMessage(e.Body))
 }
 
-func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]DuplicateGroup, error) {
-	params := url.Values{}
+// apiMessage returns the `message` of the API's error envelope
+// ({code, message, detail?, request_id}), or the raw body when it isn't one.
+func apiMessage(body string) string {
+	var env struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(body), &env) == nil && env.Message != "" {
+		return env.Message
+	}
+	return body
+}
+
+// check returns an *APIError for any non-2xx status.
+func check(status int, body []byte) error {
+	if status >= 200 && status < 300 {
+		return nil
+	}
+	return &APIError{Status: status, Body: string(body)}
+}
+
+// missingBody reports a 2xx reply that did not carry the documented JSON body.
+func missingBody(status int, body []byte) error {
+	return fmt.Errorf("API returned %d without the expected JSON body: %s", status, string(body))
+}
+
+// Search runs a full-text search. SourceID and Extension filter when set.
+func (c *Client) Search(ctx context.Context, query string, params apiclient.SearchParams) (*apiclient.SearchPage, error) {
+	params.Q = &query
+	resp, err := c.api.SearchWithResponse(ctx, &params)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
+func (c *Client) ListSources(ctx context.Context) ([]apiclient.SourceListResponse, error) {
+	resp, err := c.api.ListSourcesWithResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return *resp.JSON200, nil
+}
+
+func (c *Client) CreateSource(ctx context.Context, name, sourceType string, config map[string]string) (*apiclient.SourceResponse, error) {
+	cfg := make(map[string]interface{}, len(config))
+	for k, v := range config {
+		cfg[k] = v
+	}
+	resp, err := c.api.CreateSourceWithResponse(ctx, apiclient.SourceCreate{
+		Name: name, Type: sourceType, ConnectionConfig: cfg,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON201 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON201, nil
+}
+
+func (c *Client) TriggerScan(ctx context.Context, sourceName string) error {
+	resp, err := c.api.TriggerScanWithResponse(ctx, apiclient.ScanTriggerRequest{SourceName: &sourceName})
+	if err != nil {
+		return err
+	}
+	return check(resp.StatusCode(), resp.Body)
+}
+
+func (c *Client) ListScans(ctx context.Context, limit int) ([]apiclient.ScanResponse, error) {
+	params := &apiclient.ListScansParams{}
+	if limit > 0 {
+		params.Limit = &limit
+	}
+	resp, err := c.api.ListScansWithResponse(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200.Items, nil
+}
+
+// GetScan fetches a single scan by ID. Returns an APIError with
+// Status=404 when the scan doesn't exist; callers can branch on that.
+func (c *Client) GetScan(ctx context.Context, scanID uuid.UUID) (*apiclient.ScanResponse, error) {
+	resp, err := c.api.GetScanWithResponse(ctx, scanID)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
+// CancelScan marks a running scan as cancelled. Idempotent — cancelling
+// an already-terminal scan returns success.
+func (c *Client) CancelScan(ctx context.Context, scanID uuid.UUID) error {
+	resp, err := c.api.CancelScanWithResponse(ctx, scanID)
+	if err != nil {
+		return err
+	}
+	return check(resp.StatusCode(), resp.Body)
+}
+
+func (c *Client) ListDuplicates(ctx context.Context, minSize int) ([]apiclient.DuplicateGroup, error) {
+	params := &apiclient.ListDuplicatesParams{}
 	if minSize > 0 {
-		params.Set("min_size", fmt.Sprintf("%d", minSize))
+		params.MinSize = &minSize
 	}
-	resp, err := c.get(ctx, "/api/v1/duplicates", params)
+	resp, err := c.api.ListDuplicatesWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
-	}
-
-	var page struct {
-		Items []DuplicateGroup `json:"items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
 		return nil, err
 	}
-	return page.Items, nil
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200.Items, nil
 }
 
-func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
-	resp, err := c.get(ctx, "/api/v1/tags", nil)
+func (c *Client) ListTags(ctx context.Context) ([]apiclient.TagResponse, error) {
+	resp, err := c.api.ListTagsWithResponse(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
-	}
-
-	var tags []Tag
-	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
 		return nil, err
 	}
-	return tags, nil
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return *resp.JSON200, nil
 }
 
-func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
-	body := map[string]string{"name": name}
-	resp, err := c.post(ctx, "/api/v1/tags", body)
+func (c *Client) CreateTag(ctx context.Context, name string) (*apiclient.TagResponse, error) {
+	resp, err := c.api.CreateTagWithResponse(ctx, apiclient.TagCreate{Name: name})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if err := checkStatus(resp); err != nil {
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
 		return nil, err
 	}
-
-	var tag Tag
-	if err := json.NewDecoder(resp.Body).Decode(&tag); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+	if resp.JSON201 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
 	}
-	return &tag, nil
+	return resp.JSON201, nil
 }
 
 // TagFile applies the named tag to an entry (POST /entries/{id}/tags, 204).
-func (c *Client) TagFile(ctx context.Context, entryID, tagName string) error {
-	path := fmt.Sprintf("/api/v1/entries/%s/tags", entryID)
-	resp, err := c.post(ctx, path, map[string][]string{"tags": {tagName}})
+func (c *Client) TagFile(ctx context.Context, entryID uuid.UUID, tagName string) error {
+	resp, err := c.api.ApplyTagsToEntryWithResponse(ctx, entryID, apiclient.ApplyTagsToEntryJSONRequestBody{Tags: []string{tagName}})
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
-	}
-	return nil
+	return check(resp.StatusCode(), resp.Body)
 }
 
-func (c *Client) PurgeSource(ctx context.Context, sourceID string) error {
-	path := fmt.Sprintf("/api/v1/purge/source/%s", sourceID)
-	resp, err := c.post(ctx, path, nil)
+func (c *Client) PurgeSource(ctx context.Context, sourceID uuid.UUID) error {
+	resp, err := c.api.PurgeSourceWithResponse(ctx, sourceID)
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
-	}
-	return nil
+	return check(resp.StatusCode(), resp.Body)
 }

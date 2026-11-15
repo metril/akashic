@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -16,6 +17,8 @@ import (
 
 	"crypto/x509"
 	"encoding/pem"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/google/uuid"
 )
 
 // writePEMKey serialises an Ed25519 private key as PKCS8 PEM and
@@ -93,7 +96,7 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	var sawAgentVersion string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/scanners/handshake" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, http.StatusOK, map[string]any{
 				"accepted": true, "server_protocol_version": 2,
 				"accepted_min": 1, "accepted_max": 1,
 			})
@@ -120,7 +123,7 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 
 	cfg := Config{
 		APIBase:   srv.URL,
-		ScannerID: "test-scanner",
+		ScannerID: testScannerID,
 		KeyPath:   keyPath,
 		LeasePoll: 50 * time.Millisecond,
 		Hostname:  "host",
@@ -147,29 +150,33 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	}
 }
 
-// TestAuthHeader_MintsFreshJWTPerCall is the regression for v0.27.1.
-// Pre-fix authHeader cached one signed JWT for ~4 minutes and reused
+// TestSignEditor_MintsFreshJWTPerCall is the regression for v0.27.1.
+// Pre-fix the auth header cached one signed JWT for ~4 minutes and reused
 // it across calls — but the API enforces one-time JTI replay
 // protection (services/scanner_jti.py), so every call after the first
 // returned 401 "token replay detected" and the agent claimed no work.
 // Fix: mint a fresh JWT per call (each gets a unique jti via
 // MintJWT). This test asserts two consecutive calls produce
 // different headers (different jti → different signature).
-func TestAuthHeader_MintsFreshJWTPerCall(t *testing.T) {
+func TestSignEditor_MintsFreshJWTPerCall(t *testing.T) {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{ScannerID: "scanner-x"}
+	cfg := Config{ScannerID: testScannerID}
 
-	first, err := authHeader(cfg, priv)
-	if err != nil {
-		t.Fatal(err)
+	editor := SignEditor(priv, cfg.ScannerID.String())
+	mint := func() string {
+		req, err := http.NewRequest(http.MethodGet, "http://api.test/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := editor(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		return req.Header.Get("Authorization")
 	}
-	second, err := authHeader(cfg, priv)
-	if err != nil {
-		t.Fatal(err)
-	}
+	first, second := mint(), mint()
 	if first == "" {
 		t.Fatal("empty header")
 	}
@@ -215,8 +222,7 @@ func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/scanners/handshake" {
-			w.WriteHeader(http.StatusUpgradeRequired)
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, http.StatusUpgradeRequired, map[string]any{
 				"accepted": false, "server_protocol_version": 2,
 				"accepted_min": 2, "accepted_max": 2,
 				"reason": "agent too old",
@@ -229,7 +235,7 @@ func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 
 	cfg := Config{
 		APIBase:   srv.URL,
-		ScannerID: "test-scanner",
+		ScannerID: testScannerID,
 		KeyPath:   keyPath,
 		LeasePoll: 50 * time.Millisecond,
 	}
@@ -243,6 +249,22 @@ func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 }
 
 // — small helpers —
+
+var (
+	testScannerID = uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	testScanID    = uuid.MustParse("55555555-5555-4555-8555-555555555555")
+	testUnitID    = uuid.MustParse("66666666-6666-4666-8666-666666666666")
+	testSourceID  = uuid.MustParse("77777777-7777-4777-8777-777777777777")
+	testRequestID = uuid.MustParse("88888888-8888-4888-8888-888888888888")
+)
+
+// writeJSON answers like the real API: a JSON content type, which the
+// generated client needs to decode the body.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
 
 func newCancelCtx() (ctxlike, func()) {
 	return newContextHelper()
@@ -300,13 +322,13 @@ func TestTerminalDisposition(t *testing.T) {
 // API-delivered config: Live wins over static fields; units floor at 1.
 func TestConfigRemote_LiveOverridesStatic(t *testing.T) {
 	cfg := Config{TikaURL: "http://static", ExtractWorkers: 2}
-	if got := cfg.Remote(); got.TikaURL != "http://static" || got.MaxConcurrentUnits != 1 {
+	if got := cfg.Remote(); got.TikaUrl != "http://static" || got.MaxConcurrentUnits != 1 {
 		t.Errorf("static fallback: %+v", got)
 	}
 	cfg.Live = &LiveConfig{}
-	cfg.Live.Set(RemoteConfig{TikaURL: "http://live", ExtractWorkers: 8, MaxConcurrentUnits: 0})
+	cfg.Live.Set(apiclient.ScannerEffectiveConfig{TikaUrl: "http://live", ExtractWorkers: 8, MaxConcurrentUnits: 0})
 	got := cfg.Remote()
-	if got.TikaURL != "http://live" || got.ExtractWorkers != 8 || got.MaxConcurrentUnits != 1 {
+	if got.TikaUrl != "http://live" || got.ExtractWorkers != 8 || got.MaxConcurrentUnits != 1 {
 		t.Errorf("live: %+v", got)
 	}
 }

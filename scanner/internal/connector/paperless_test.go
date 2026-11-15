@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestPathBaseAndAncestors(t *testing.T) {
@@ -33,15 +34,15 @@ func TestPathBaseAndAncestors(t *testing.T) {
 
 func TestSafeSegment(t *testing.T) {
 	cases := map[string]string{
-		"":                 "_",
-		"   ":              "_",
-		"plain":            "plain",
-		"with space":       "with space",
-		"slash/in/it":      "slash_in_it",
-		"back\\slash":      "back_slash",
-		"control\x00null":  "control_null",
-		"unicode-naïve":    "unicode-naïve",
-		"  trim me  ":      "trim me",
+		"":                "_",
+		"   ":             "_",
+		"plain":           "plain",
+		"with space":      "with space",
+		"slash/in/it":     "slash_in_it",
+		"back\\slash":     "back_slash",
+		"control\x00null": "control_null",
+		"unicode-naïve":   "unicode-naïve",
+		"  trim me  ":     "trim me",
 	}
 	for in, want := range cases {
 		if got := safeSegment(in); got != want {
@@ -88,16 +89,16 @@ func TestBuildEntry(t *testing.T) {
 	created := time.Date(2024, 4, 14, 10, 0, 0, 0, time.UTC)
 	mod := time.Date(2024, 4, 15, 10, 0, 0, 0, time.UTC)
 	doc := paperlessDocument{
-		ID:                  42,
-		Title:               "W-2",
-		Tags:                []int{10, 11},
-		Correspondent:       &corrID,
-		DocumentType:        &dtID,
-		Created:             created,
-		Modified:            &mod,
-		OriginalFileName:    "w2-2024.pdf",
-		ContentChecksum:     "abc123",
-		Content:             "Wages, tips, other compensation: $50,000",
+		ID:               42,
+		Title:            "W-2",
+		Tags:             []int{10, 11},
+		Correspondent:    &corrID,
+		DocumentType:     &dtID,
+		Created:          created,
+		Modified:         &mod,
+		OriginalFileName: "w2-2024.pdf",
+		ContentChecksum:  "abc123",
+		Content:          "Wages, tips, other compensation: $50,000",
 	}
 	entry := c.buildEntry(doc, c.resolveTags(doc.Tags))
 	if entry.Path != "/IRS/Tax form/2024/W-2.pdf" {
@@ -106,22 +107,22 @@ func TestBuildEntry(t *testing.T) {
 	if entry.Name != "W-2.pdf" {
 		t.Errorf("Name = %q, want W-2.pdf", entry.Name)
 	}
-	if entry.Kind != "file" {
-		t.Errorf("Kind = %q, want file", entry.Kind)
+	if wire.Deref(entry.Kind) != apiclient.File {
+		t.Errorf("Kind = %q, want file", wire.Deref(entry.Kind))
 	}
-	if entry.Extension != "pdf" {
-		t.Errorf("Extension = %q, want pdf", entry.Extension)
+	if wire.Deref(entry.Extension) != "pdf" {
+		t.Errorf("Extension = %q, want pdf", wire.Deref(entry.Extension))
 	}
-	if entry.ModifiedAt == nil || !entry.ModifiedAt.Equal(mod) {
-		t.Errorf("ModifiedAt = %v, want %v", entry.ModifiedAt, mod)
+	if entry.FsModifiedAt == nil || !entry.FsModifiedAt.Equal(mod) {
+		t.Errorf("ModifiedAt = %v, want %v", entry.FsModifiedAt, mod)
 	}
-	if entry.ContentHash != "abc123" {
-		t.Errorf("ContentHash = %q, want abc123", entry.ContentHash)
+	if wire.Deref(entry.ContentHash) != "abc123" {
+		t.Errorf("ContentHash = %q, want abc123", wire.Deref(entry.ContentHash))
 	}
 	if entry.DomainMetadata == nil {
 		t.Fatalf("DomainMetadata is nil")
 	}
-	dm := entry.DomainMetadata
+	dm := wire.Deref(entry.DomainMetadata)
 	if dm["correspondent"] != "IRS" || dm["document_type"] != "Tax form" {
 		t.Errorf("metadata correspondent/document_type wrong: %+v", dm)
 	}
@@ -236,8 +237,8 @@ func TestPaperlessWalkAgainstFakeServer(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	var entries []*models.EntryRecord
-	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		entries = append(entries, e)
 		return nil
 	})
@@ -251,7 +252,7 @@ func TestPaperlessWalkAgainstFakeServer(t *testing.T) {
 	}
 	dirs, files := 0, 0
 	for _, e := range entries {
-		if e.Kind == "directory" {
+		if wire.Deref(e.Kind) == apiclient.Directory {
 			dirs++
 		} else {
 			files++
@@ -266,8 +267,8 @@ func TestPaperlessWalkAgainstFakeServer(t *testing.T) {
 	if err := c2.Connect(context.Background()); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	var filtered []*models.EntryRecord
-	_, err = c2.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var filtered []*apiclient.EntryIn
+	_, err = c2.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		filtered = append(filtered, e)
 		return nil
 	})
@@ -294,10 +295,10 @@ func TestPaperlessAuthRejection(t *testing.T) {
 	}
 }
 
-func entriesForLog(entries []*models.EntryRecord) []string {
+func entriesForLog(entries []*apiclient.EntryIn) []string {
 	out := make([]string, len(entries))
 	for i, e := range entries {
-		out[i] = e.Kind + ":" + e.Path
+		out[i] = string(wire.Deref(e.Kind)) + ":" + e.Path
 	}
 	return out
 }

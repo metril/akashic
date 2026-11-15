@@ -13,16 +13,17 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // DropboxConfig is the connection_config shape for a Dropbox source.
 //
 // Path is optional. Empty string == "scan from the root of the user's
 // Dropbox" (which is the literal Dropbox API requirement: empty
-// string, not ``"/"`` — that's the one path call that's NOT slash-
-// rooted). Non-empty values must start with ``/`` and identify a
+// string, not “"/"“ — that's the one path call that's NOT slash-
+// rooted). Non-empty values must start with “/“ and identify a
 // folder under the root.
 type DropboxConfig struct {
 	AccessToken string
@@ -33,16 +34,16 @@ type DropboxConfig struct {
 //
 // Differences from the Graph/Drive connectors:
 //
-//  - All endpoints are POST with a JSON body — even read-only listings.
-//  - The walk is a single ``list_folder`` call with ``recursive=true``
-//    plus ``list_folder/continue`` pagination, rather than per-folder
-//    BFS. Substantially fewer round-trips on big drives.
-//  - Path is the canonical addressing primitive — no opaque-id juggling
-//    like Drive. ``path_display`` is what the user sees and what the
-//    walker emits as the entry path.
-//  - ``content_hash`` is Dropbox's block-based SHA-256, prefixed
-//    ``dropbox:`` so it doesn't collide with the regular ``sha256:``
-//    hashes from OneDrive.
+//   - All endpoints are POST with a JSON body — even read-only listings.
+//   - The walk is a single “list_folder“ call with “recursive=true“
+//     plus “list_folder/continue“ pagination, rather than per-folder
+//     BFS. Substantially fewer round-trips on big drives.
+//   - Path is the canonical addressing primitive — no opaque-id juggling
+//     like Drive. “path_display“ is what the user sees and what the
+//     walker emits as the entry path.
+//   - “content_hash“ is Dropbox's block-based SHA-256, prefixed
+//     “dropbox:“ so it doesn't collide with the regular “sha256:“
+//     hashes from OneDrive.
 //
 // Sharing → cloud_drive ACL is NOT wired for v0.17.0 — surfacing the
 // per-file/per-folder member list takes one extra API call per
@@ -82,8 +83,8 @@ func (c *DropboxConnector) Connect(ctx context.Context) error {
 	}
 	defer body.Close()
 	var account struct {
-		Email   string `json:"email"`
-		Name    struct {
+		Email string `json:"email"`
+		Name  struct {
 			DisplayName string `json:"display_name"`
 		} `json:"name"`
 	}
@@ -101,7 +102,7 @@ func (c *DropboxConnector) Walk(
 	excludePatterns []string,
 	computeHash bool,
 	fullScan bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	stats := walker.WalkStats{}
 
@@ -115,12 +116,12 @@ func (c *DropboxConnector) Walk(
 	body, err := c.do(ctx,
 		"https://api.dropboxapi.com/2/files/list_folder",
 		map[string]any{
-			"path":                                 rootPath,
-			"recursive":                            true,
-			"include_deleted":                      false,
-			"include_has_explicit_shared_members":  true,
-			"include_mounted_folders":              true,
-			"limit":                                2000,
+			"path":                                rootPath,
+			"recursive":                           true,
+			"include_deleted":                     false,
+			"include_has_explicit_shared_members": true,
+			"include_mounted_folders":             true,
+			"limit":                               2000,
 		})
 	if err != nil {
 		return stats, err
@@ -180,7 +181,7 @@ func (c *DropboxConnector) WalkShallow(
 	root string,
 	excludePatterns []string,
 	computeHash bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	rootPath := strings.TrimSpace(c.cfg.Path)
 	if rootPath == "/" {
@@ -214,7 +215,7 @@ func (c *DropboxConnector) WalkShallow(
 			if matchExcludes(excludePatterns, rec.Path) {
 				continue
 			}
-			if rec.IsDir() {
+			if wire.IsDir(rec) {
 				subdirs = append(subdirs, rec.Path)
 				continue
 			}
@@ -243,8 +244,8 @@ func (c *DropboxConnector) WalkShallow(
 }
 
 // ReadFile downloads a Dropbox file's content. The download endpoint
-// lives on a different host (``content.dropboxapi.com``) and takes
-// the path via the ``Dropbox-API-Arg`` header rather than a body.
+// lives on a different host (“content.dropboxapi.com“) and takes
+// the path via the “Dropbox-API-Arg“ header rather than a body.
 func (c *DropboxConnector) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 	apiArg, err := json.Marshal(map[string]string{"path": p})
 	if err != nil {
@@ -301,18 +302,18 @@ func (c *DropboxConnector) Delete(ctx context.Context, p string) error {
 // ── Internal helpers ─────────────────────────────────────────────────────
 
 type dropboxEntry struct {
-	Tag                          string `json:".tag"` // file | folder | deleted
-	Name                         string `json:"name"`
-	PathLower                    string `json:"path_lower"`
-	PathDisplay                  string `json:"path_display"`
-	ID                           string `json:"id"`
-	ClientModified               string `json:"client_modified"`
-	ServerModified               string `json:"server_modified"`
-	Size                         int64  `json:"size"`
-	ContentHash                  string `json:"content_hash"`
-	Rev                          string `json:"rev"`
-	HasExplicitSharedMembers     bool   `json:"has_explicit_shared_members"`
-	SharingInfo                  *struct {
+	Tag                      string `json:".tag"` // file | folder | deleted
+	Name                     string `json:"name"`
+	PathLower                string `json:"path_lower"`
+	PathDisplay              string `json:"path_display"`
+	ID                       string `json:"id"`
+	ClientModified           string `json:"client_modified"`
+	ServerModified           string `json:"server_modified"`
+	Size                     int64  `json:"size"`
+	ContentHash              string `json:"content_hash"`
+	Rev                      string `json:"rev"`
+	HasExplicitSharedMembers bool   `json:"has_explicit_shared_members"`
+	SharingInfo              *struct {
 		ParentSharedFolderID string `json:"parent_shared_folder_id"`
 		SharedFolderID       string `json:"shared_folder_id"`
 		ReadOnly             bool   `json:"read_only"`
@@ -328,7 +329,7 @@ type dropboxListPage struct {
 // dropboxMember is one user / group entry returned by sharing/list_*
 // _members. Both the user-shaped and group-shaped responses fit; the
 // fields that aren't applicable stay zero. Pending invitees come back
-// in a separate ``invitees`` slice we don't surface — they don't have
+// in a separate “invitees“ slice we don't surface — they don't have
 // access yet.
 type dropboxMember struct {
 	User *struct {
@@ -361,8 +362,8 @@ func decodeListFolderPage(body io.Reader) (dropboxListPage, error) {
 }
 
 // do issues an authenticated POST with a JSON body. Dropbox uses
-// ``application/json`` for everything; even calls with no parameters
-// expect a literal ``null`` body. ``body=nil`` here sends ``null`` to
+// “application/json“ for everything; even calls with no parameters
+// expect a literal “null“ body. “body=nil“ here sends “null“ to
 // keep the API happy.
 func (c *DropboxConnector) do(ctx context.Context, url string, body any) (io.ReadCloser, error) {
 	var payload []byte
@@ -415,8 +416,8 @@ func (c *DropboxConnector) do(ctx context.Context, url string, body any) (io.Rea
 }
 
 // fetchFolderMembers / fetchFileMembers pull the explicit-share list
-// for an item that ``sharing_info`` flagged as shared. Pagination is
-// supported via ``list_*_members/continue`` in the Dropbox API but
+// for an item that “sharing_info“ flagged as shared. Pagination is
+// supported via “list_*_members/continue“ in the Dropbox API but
 // in practice the default first-page limit (100) is plenty — items
 // shared with > 100 named principals are exceedingly rare and
 // truncating there is acceptable for v0.18.1. A future pass can
@@ -444,9 +445,9 @@ func (c *DropboxConnector) fetchFileMembers(
 	body, err := c.do(ctx,
 		"https://api.dropboxapi.com/2/sharing/list_file_members",
 		map[string]any{
-			"file":                  fileID,
-			"include_inherited":     true,
-			"limit":                 100,
+			"file":              fileID,
+			"include_inherited": true,
+			"limit":             100,
 		})
 	if err != nil {
 		return nil, err
@@ -467,26 +468,26 @@ func (c *DropboxConnector) fetchFileMembers(
 //	viewer            -> reader
 //	viewer_no_comment -> reader
 //
-// Inherited grants survive the round-trip via ``IsInherited``.
-func buildDropboxACL(resp *dropboxMembersResponse) *models.ACL {
+// Inherited grants survive the round-trip via “IsInherited“.
+func buildDropboxACL(resp *dropboxMembersResponse) *apiclient.ACLInput {
 	if resp == nil {
 		return nil
 	}
-	grants := make([]models.CloudDriveGrant, 0, len(resp.Users)+len(resp.Groups))
+	grants := make([]apiclient.CloudDriveGrantInput, 0, len(resp.Users)+len(resp.Groups))
 	for _, m := range resp.Users {
 		role := mapDropboxAccessType(m.AccessType.Tag)
 		if role == "" || m.User == nil {
 			continue
 		}
-		grants = append(grants, models.CloudDriveGrant{
-			Principal: models.CloudDrivePrincipal{
-				Type:  "user",
-				ID:    m.User.AccountID,
-				Email: m.User.Email,
-				Name:  m.User.DisplayName,
+		grants = append(grants, apiclient.CloudDriveGrantInput{
+			Principal: apiclient.CloudDrivePrincipalInput{
+				Type:  apiclient.CloudDrivePrincipalInputTypeUser,
+				Id:    m.User.AccountID,
+				Email: wire.Str(m.User.Email),
+				Name:  wire.Str(m.User.DisplayName),
 			},
-			Role:      role,
-			Inherited: m.IsInherited,
+			Role:      apiclient.CloudDriveGrantInputRole(role),
+			Inherited: wire.To(m.IsInherited),
 		})
 	}
 	for _, m := range resp.Groups {
@@ -494,20 +495,20 @@ func buildDropboxACL(resp *dropboxMembersResponse) *models.ACL {
 		if role == "" || m.Group == nil {
 			continue
 		}
-		grants = append(grants, models.CloudDriveGrant{
-			Principal: models.CloudDrivePrincipal{
-				Type: "group",
-				ID:   m.Group.GroupID,
-				Name: m.Group.GroupName,
+		grants = append(grants, apiclient.CloudDriveGrantInput{
+			Principal: apiclient.CloudDrivePrincipalInput{
+				Type: apiclient.CloudDrivePrincipalInputTypeGroup,
+				Id:   m.Group.GroupID,
+				Name: wire.Str(m.Group.GroupName),
 			},
-			Role:      role,
-			Inherited: m.IsInherited,
+			Role:      apiclient.CloudDriveGrantInputRole(role),
+			Inherited: wire.To(m.IsInherited),
 		})
 	}
 	if len(grants) == 0 {
 		return nil
 	}
-	return &models.ACL{Type: "cloud_drive", CloudDriveGrants: grants}
+	return wire.CloudDriveACL(grants, "")
 }
 
 func mapDropboxAccessType(tag string) string {
@@ -528,7 +529,7 @@ func mapDropboxAccessType(tag string) string {
 // (we'd rather keep the entry with no ACL than fail the whole walk
 // over a transient sharing API hiccup).
 func (c *DropboxConnector) enrichDropboxACL(
-	ctx context.Context, e dropboxEntry, rec *models.EntryRecord,
+	ctx context.Context, e dropboxEntry, rec *apiclient.EntryIn,
 ) {
 	if rec == nil || e.SharingInfo == nil {
 		return
@@ -563,7 +564,7 @@ func (c *DropboxConnector) enrichDropboxACL(
 // EntryRecord shape. Returns nil for ".deleted" entries (we don't
 // emit those — the api's deletion-detection layer notices missing
 // entries on the next scan).
-func buildDropboxEntry(e dropboxEntry, computeHash bool) *models.EntryRecord {
+func buildDropboxEntry(e dropboxEntry, computeHash bool) *apiclient.EntryIn {
 	if e.Tag == "deleted" {
 		return nil
 	}
@@ -574,19 +575,19 @@ func buildDropboxEntry(e dropboxEntry, computeHash bool) *models.EntryRecord {
 	if display == "" || e.Name == "" {
 		return nil
 	}
-	rec := &models.EntryRecord{
+	rec := &apiclient.EntryIn{
 		Path:     display,
 		Name:     e.Name,
-		NativeID: e.ID,
+		NativeId: wire.Str(e.ID),
 	}
 	switch e.Tag {
 	case "folder":
-		rec.Kind = "directory"
+		rec.Kind = wire.To(apiclient.Directory)
 	case "file":
-		rec.Kind = "file"
+		rec.Kind = wire.To(apiclient.File)
 		ext := path.Ext(e.Name)
 		if ext != "" {
-			rec.Extension = strings.TrimPrefix(ext, ".")
+			rec.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 		}
 	default:
 		// Unknown tag — skip rather than emit a malformed entry.
@@ -594,22 +595,22 @@ func buildDropboxEntry(e dropboxEntry, computeHash bool) *models.EntryRecord {
 	}
 	if e.Tag == "file" && e.Size > 0 {
 		s := e.Size
-		rec.SizeBytes = &s
+		rec.SizeBytes = wire.To(int(s))
 	}
 	// Dropbox content_hash is a block-based SHA-256 — prefix it so
 	// dedup queries don't accidentally collide it with a normal
 	// SHA-256 from another source type.
 	if computeHash && e.ContentHash != "" {
-		rec.ContentHash = "dropbox:" + e.ContentHash
+		rec.ContentHash = wire.Str("dropbox:" + e.ContentHash)
 	}
 	if e.ServerModified != "" {
 		if t, err := time.Parse(time.RFC3339, e.ServerModified); err == nil {
-			rec.ModifiedAt = &t
+			rec.FsModifiedAt = &t
 		}
 	}
 	if e.ClientModified != "" {
 		if t, err := time.Parse(time.RFC3339, e.ClientModified); err == nil {
-			rec.CreatedAt = &t // Dropbox doesn't expose true creation time;
+			rec.FsCreatedAt = &t // Dropbox doesn't expose true creation time;
 			// client_modified is the closest analog (when the client
 			// uploaded the file). Better than nothing.
 		}

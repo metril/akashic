@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/akashic-project/akashic/cli/internal/apiclient"
 	"github.com/akashic-project/akashic/cli/internal/client"
 )
 
@@ -17,14 +18,36 @@ func NewSearchCmd(c *client.Client) *cobra.Command {
 		Short: "Search indexed files",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			params := &client.SearchParams{SourceID: sourceID, Extension: extension}
+			var params apiclient.SearchParams
+			if sourceID != "" {
+				id, err := client.ParseID("source id", sourceID)
+				if err != nil {
+					return &ExitErr{Code: ExitUserErr, Err: err}
+				}
+				params.SourceId = &id
+			}
+			if extension != "" {
+				params.Extension = &extension
+			}
 			results, err := c.Search(context.Background(), args[0], params)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Found %d results for '%s'\n\n", results.Total, results.Query)
-			for _, f := range results.Results {
-				fmt.Printf("  %s  (%d bytes)  %s\n", f.Path, f.SizeBytes, f.SourceID)
+			total := len(results.Items)
+			if results.Total != nil {
+				total = *results.Total
+			}
+			fmt.Printf("Found %d results for '%s'\n\n", total, results.Query)
+			for _, f := range results.Items {
+				var size int
+				if f.SizeBytes != nil {
+					size = *f.SizeBytes
+				}
+				source := ""
+				if f.SourceId != nil {
+					source = f.SourceId.String()
+				}
+				fmt.Printf("  %s  (%d bytes)  %s\n", f.Path, size, source)
 			}
 			return nil
 		},

@@ -22,7 +22,11 @@ func main() {
 		os.Exit(commands.ExitUserErr)
 	}
 
-	c := client.New(apiURL, apiKey)
+	c, err := client.New(apiURL, apiKey)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(commands.ExitUserErr)
+	}
 
 	rootCmd := &cobra.Command{
 		Use:   "akashic",

@@ -25,11 +25,7 @@ func NewSourcesCmd(c *client.Client) *cobra.Command {
 			}
 			fmt.Printf("%-20s  %-8s  %-10s  %s\n", "NAME", "TYPE", "STATUS", "LAST SCAN")
 			for _, s := range sources {
-				lastScan := s.LastScanAt
-				if lastScan == "" {
-					lastScan = "never"
-				}
-				fmt.Printf("%-20s  %-8s  %-10s  %s\n", s.Name, s.Type, s.Status, lastScan)
+				fmt.Printf("%-20s  %-8s  %-10s  %s\n", s.Name, s.Type, s.Status, formatTime(s.LastScanAt, "never"))
 			}
 			return nil
 		},
@@ -51,7 +47,7 @@ func NewSourcesCmd(c *client.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Created source %s (id: %s)\n", source.Name, source.ID)
+			fmt.Printf("Created source %s (id: %s)\n", source.Name, source.Id)
 			return nil
 		},
 	}
@@ -72,11 +68,7 @@ func NewSourcesCmd(c *client.Client) *cobra.Command {
 			}
 			fmt.Printf("%-36s  %-20s  %-8s  %-10s  %s\n", "ID", "NAME", "TYPE", "STATUS", "LAST SCAN")
 			for _, s := range sources {
-				lastScan := s.LastScanAt
-				if lastScan == "" {
-					lastScan = "never"
-				}
-				fmt.Printf("%-36s  %-20s  %-8s  %-10s  %s\n", s.ID, s.Name, s.Type, s.Status, lastScan)
+				fmt.Printf("%-36s  %-20s  %-8s  %-10s  %s\n", s.Id, s.Name, s.Type, s.Status, formatTime(s.LastScanAt, "never"))
 			}
 			return nil
 		},

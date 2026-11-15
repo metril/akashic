@@ -6,8 +6,8 @@
 // dedicated sender goroutine; the walker continues immediately after
 // pushing a batch onto the channel. These tests verify the model:
 //
-//   * A slow stub SendBatch doesn't pin the walker between batches.
-//   * Errors from the sender propagate back: Run() returns a non-nil
+//   - A slow stub SendBatch doesn't pin the walker between batches.
+//   - Errors from the sender propagate back: Run() returns a non-nil
 //     "send batch" error and the scan terminates cleanly.
 package scanner
 
@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // stubConn satisfies connector.Connector with synthetic file emission.
@@ -43,15 +43,15 @@ func (s *stubConn) ReadFile(_ context.Context, _ string) (io.ReadCloser, error) 
 }
 func (s *stubConn) Walk(
 	ctx context.Context, _ string, _ []string, _ bool, _ bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	for i := 0; i < s.entries; i++ {
 		if err := ctx.Err(); err != nil {
 			return walker.WalkStats{}, err
 		}
 		path := fmt.Sprintf("/file-%05d", i)
-		if err := fn(&models.EntryRecord{
-			Path: path, Kind: "file",
+		if err := fn(&apiclient.EntryIn{
+			Path: path, Kind: wire.To(apiclient.File),
 		}); err != nil {
 			return walker.WalkStats{}, err
 		}
@@ -70,12 +70,12 @@ func TestPipelineWalkerProgressesWhileSenderIsSlow(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := client.New(srv.URL, "test-jwt")
+	c := mustClient(t, srv.URL, "test-jwt")
 	conn := &stubConn{entries: entryCount}
 
 	start := time.Now()
 	s := New(c, conn, Options{
-		SourceID: "src", ScanID: "scan-pl",
+		SourceID: testSource, ScanID: testScan,
 		Root: "/", BatchSize: 10,
 	})
 	_, err := s.Run(context.Background())
@@ -108,10 +108,10 @@ func TestPipelineSenderErrorPropagatesToRun(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := client.New(srv.URL, "test-jwt")
+	c := mustClient(t, srv.URL, "test-jwt")
 	conn := &stubConn{entries: 100}
 	s := New(c, conn, Options{
-		SourceID: "src", ScanID: "scan-err",
+		SourceID: testSource, ScanID: testScan,
 		Root: "/", BatchSize: 10,
 	})
 	_, err := s.Run(context.Background())
@@ -140,11 +140,11 @@ func TestPipelineFinalBatchReachesSender(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := client.New(srv.URL, "test-jwt")
+	c := mustClient(t, srv.URL, "test-jwt")
 	// 5 entries with batch=10 → only one batch, which IS the final.
 	conn := &stubConn{entries: 5}
 	s := New(c, conn, Options{
-		SourceID: "src", ScanID: "scan-fin",
+		SourceID: testSource, ScanID: testScan,
 		Root: "/", BatchSize: 10,
 	})
 	_, err := s.Run(context.Background())

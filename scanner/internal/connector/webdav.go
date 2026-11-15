@@ -13,8 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // WebDAVConnector indexes a WebDAV-spoken endpoint. v0.11.0 / Tier 4 PR 1.
@@ -41,10 +42,10 @@ import (
 // extension that returns an opaque permission string, but mapping
 // that into akashic's ACL model is meaningful work beyond v0.11.0.
 type WebDAVConnector struct {
-	baseURL    string // e.g. https://nextcloud.example.com/remote.php/dav/files/admin/
-	username   string
-	password   string
-	tlsVerify  bool
+	baseURL   string // e.g. https://nextcloud.example.com/remote.php/dav/files/admin/
+	username  string
+	password  string
+	tlsVerify bool
 
 	httpClient *http.Client
 	// Path of the parsed baseURL — kept so PROPFIND href responses
@@ -99,7 +100,7 @@ func (c *WebDAVConnector) Connect(ctx context.Context) error {
 // and we never list the same path twice.
 func (c *WebDAVConnector) Walk(
 	ctx context.Context, root string, excludePatterns []string, _ bool, _ bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	var stats walker.WalkStats
 	if c.httpClient == nil {
@@ -158,7 +159,7 @@ func (c *WebDAVConnector) Walk(
 // returned as basenames so the caller can fan them out as work units.
 func (c *WebDAVConnector) WalkShallow(
 	ctx context.Context, root string, excludePatterns []string, _ bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	if c.httpClient == nil {
 		return nil, fmt.Errorf("webdav: not connected")
@@ -388,36 +389,36 @@ func (c *WebDAVConnector) applyAuth(req *http.Request) {
 	}
 }
 
-func buildWebDAVEntry(e webdavEntry) *models.EntryRecord {
-	entry := &models.EntryRecord{
+func buildWebDAVEntry(e webdavEntry) *apiclient.EntryIn {
+	entry := &apiclient.EntryIn{
 		Path: "/" + e.relPath,
 		Name: path.Base(e.relPath),
 	}
 	if e.isDir {
-		entry.Kind = "directory"
+		entry.Kind = wire.To(apiclient.Directory)
 	} else {
-		entry.Kind = "file"
+		entry.Kind = wire.To(apiclient.File)
 		if e.size > 0 {
 			s := e.size
-			entry.SizeBytes = &s
+			entry.SizeBytes = wire.To(int(s))
 		}
 		if ext := path.Ext(entry.Name); ext != "" {
-			entry.Extension = strings.TrimPrefix(ext, ".")
+			entry.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 		}
 		if e.contentType != "" {
-			entry.MimeType = e.contentType
+			entry.MimeType = wire.Str(e.contentType)
 		}
 		if e.etag != "" {
-			entry.ContentHash = "etag:" + e.etag
+			entry.ContentHash = wire.Str("etag:" + e.etag)
 		}
 	}
 	if !e.modified.IsZero() {
 		t := e.modified
-		entry.ModifiedAt = &t
+		entry.FsModifiedAt = &t
 	}
 	if !e.created.IsZero() {
 		t := e.created
-		entry.CreatedAt = &t
+		entry.FsCreatedAt = &t
 	}
 	return entry
 }

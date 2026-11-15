@@ -1,8 +1,9 @@
 package metadata
 
 import (
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/metadata/sddl"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // SidNamer is implemented by Phase 9's LSARPC resolver. Phase 8 passes nil and
@@ -13,37 +14,34 @@ type SidNamer interface {
 
 // SDToNtACL converts a binary security descriptor to a wrapped NT ACL.
 // `namer` is optional — when nil, only well-known SIDs are resolved.
-func SDToNtACL(sd []byte, namer SidNamer) (*models.ACL, error) {
+func SDToNtACL(sd []byte, namer SidNamer) (*apiclient.ACLInput, error) {
 	parsed, err := sddl.ParseSecurityDescriptor(sd)
 	if err != nil {
 		return nil, err
 	}
-	out := &models.ACL{
-		Type:    "nt",
-		Control: parsed.Control,
-	}
+	out := apiclient.NtACLInput{Control: wire.Strs(parsed.Control)}
 	if parsed.OwnerSID != "" {
-		out.Owner = &models.NtPrincipal{
+		out.Owner = &apiclient.NtPrincipalInput{
 			Sid:  parsed.OwnerSID,
-			Name: resolveSID(parsed.OwnerSID, namer),
+			Name: wire.Str(resolveSID(parsed.OwnerSID, namer)),
 		}
 	}
 	if parsed.GroupSID != "" {
-		out.Group = &models.NtPrincipal{
+		out.Group = &apiclient.NtPrincipalInput{
 			Sid:  parsed.GroupSID,
-			Name: resolveSID(parsed.GroupSID, namer),
+			Name: wire.Str(resolveSID(parsed.GroupSID, namer)),
 		}
 	}
 	for _, ace := range parsed.DaclEntries {
-		out.NtEntries = append(out.NtEntries, models.NtACE{
+		out.Entries = append(out.Entries, apiclient.NtACEInput{
 			Sid:     ace.SID,
-			Name:    resolveSID(ace.SID, namer),
-			AceType: ace.AceType,
-			Flags:   ace.Flags,
-			Mask:    ace.Mask,
+			Name:    wire.Str(resolveSID(ace.SID, namer)),
+			AceType: apiclient.NtACEInputAceType(ace.AceType),
+			Flags:   wire.Strs(ace.Flags),
+			Mask:    wire.Strs(ace.Mask),
 		})
 	}
-	return out, nil
+	return wire.NtACL(out), nil
 }
 
 func resolveSID(sid string, namer SidNamer) string {

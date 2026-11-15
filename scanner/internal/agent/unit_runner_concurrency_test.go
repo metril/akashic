@@ -12,6 +12,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
+	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +61,7 @@ func TestRunUnitCoordinated_WorkersDrainQueueConcurrently(t *testing.T) {
 				mu.Unlock()
 				// Queue drained — the scan is terminal. leaseUnit maps
 				// this 409 to errScanTerminal and the worker exits.
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)
 				_, _ = w.Write([]byte(
 					`{"code":"conflict","message":"scan ended","request_id":"r","detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
@@ -80,8 +84,8 @@ func TestRunUnitCoordinated_WorkersDrainQueueConcurrently(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(fmt.Sprintf(
-				`{"id":%q,"scan_id":"scan-1","path":%q,"status":"running"}`,
-				"unit-"+p, p)))
+				`{"id":%q,"scan_id":%q,"path":%q,"status":"running"}`,
+				uuid.New(), testScanID, p)))
 		case strings.HasSuffix(path, "/complete"):
 			completes.Add(1)
 			w.WriteHeader(http.StatusNoContent)
@@ -97,18 +101,19 @@ func TestRunUnitCoordinated_WorkersDrainQueueConcurrently(t *testing.T) {
 			// ingest/batch, heartbeat — accept with a minimal body.
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(
-				`{"files_processed":0,"scan_id":"scan-1","extract_candidates":[]}`))
+				`{"files_processed":0,"scan_id":"55555555-5555-4555-8555-555555555555","extract_candidates":[]}`))
 		}
 	}))
 	defer srv.Close()
 
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1", MaxConcurrentUnits: 3}
-	leased := &leasedScan{
-		ScanID:   "scan-1",
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID, MaxConcurrentUnits: 3}
+	leased := &apiclient.LeasedScan{
+		ScanId:   testScanID,
 		ScanType: "incremental",
-		Source: leasedSource{
-			ID:                  "src-1",
+		ApiJwt:   wire.To("jwt"),
+		Source: apiclient.LeasedSource{
+			Id:                  testSourceID,
 			Type:                "local",
 			ConnectionConfig:    map[string]any{"path": dir},
 			MaxParallelScanners: 4,
@@ -147,10 +152,10 @@ func TestLeasedSource_DecodesScanChunkSize(t *testing.T) {
 	// The API resolves scan_chunk_size (source ?? host ?? default) and
 	// sends a concrete int; the agent must decode it into ScanChunkSize
 	// so runUnitWalk can pass it as the shallow-split budget.
-	const body = `{"scan_id":"s","scan_type":"full","api_jwt":"j","source":` +
-		`{"id":"src","type":"local","connection_config":{},` +
+	const body = `{"scan_id":"55555555-5555-4555-8555-555555555555","scan_type":"full","api_jwt":"j","source":` +
+		`{"id":"77777777-7777-4777-8777-777777777777","type":"local","connection_config":{},` +
 		`"max_parallel_scanners":3,"scan_chunk_size":500}}`
-	var ls leasedScan
+	var ls apiclient.LeasedScan
 	if err := json.Unmarshal([]byte(body), &ls); err != nil {
 		t.Fatalf("decode leasedScan: %v", err)
 	}
@@ -159,9 +164,9 @@ func TestLeasedSource_DecodesScanChunkSize(t *testing.T) {
 	}
 	// An older API omits the field — it must decode to 0 so scanner.Run
 	// falls back to its own default.
-	var ls2 leasedScan
+	var ls2 apiclient.LeasedScan
 	if err := json.Unmarshal([]byte(
-		`{"scan_id":"s","source":{"id":"x","type":"local","max_parallel_scanners":2}}`,
+		`{"scan_id":"55555555-5555-4555-8555-555555555555","scan_type":"full","source":{"id":"77777777-7777-4777-8777-777777777777","type":"local","connection_config":{},"max_parallel_scanners":2}}`,
 	), &ls2); err != nil {
 		t.Fatalf("decode legacy leasedScan: %v", err)
 	}

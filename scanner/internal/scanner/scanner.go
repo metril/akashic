@@ -9,18 +9,21 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 type Options struct {
-	SourceID          string
-	ScanID            string
+	SourceID          uuid.UUID
+	ScanID            uuid.UUID
 	Root              string
 	BatchSize         int
 	Hash              bool
@@ -135,7 +138,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	defer s.connector.Close()
 	s.info("connected; preparing to walk")
 
-	var bucketSecurity *models.SourceSecurityMetadata
+	var bucketSecurity *apiclient.SourceSecurityMetadataInput
 	if s3c, ok := s.connector.(*connector.S3Connector); ok {
 		if s.opts.CaptureObjectACLs {
 			s3c.SetCaptureObjectACLs(true)
@@ -194,7 +197,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// 422. The bug had existed since the scanner first emitted final
 	// batches; v0.29.2's pipelined refactor surfaced it later than
 	// the prior synchronous path but didn't fix it.
-	batch := []models.EntryRecord{}
+	batch := []apiclient.EntryIn{}
 	firstBatch := true
 
 	// Progress-log throttle: emit a "scanned N files (current path)" line
@@ -224,7 +227,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// (if any). The InaccessibleDirs/Files counts that v0.5.11 only
 	// attached to the final batch still ride on it — the walker
 	// stamps them on the final batch before the close.
-	batchCh := make(chan models.ScanBatch, 3)
+	batchCh := make(chan apiclient.ScanBatchIn, 3)
 	senderDone := make(chan struct{})
 	scanCtx, cancelScan := context.WithCancel(ctx)
 	defer cancelScan()
@@ -234,7 +237,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// accumulated across batch responses. Only the sender goroutine
 	// appends; Run reads it after `<-senderDone` (the channel close
 	// establishes the happens-before), so no lock is needed.
-	var extractCandidates []models.ExtractCandidate
+	var extractCandidates []apiclient.ExtractCandidate
 
 	// v0.29.2 — seed the State with the initial batch size so the
 	// very first heartbeat carries it (without this, the Live Log
@@ -293,14 +296,14 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			// large scan where most files are images/video/binaries.
 			if resp != nil && s.opts.Extractor != nil {
 				for _, cand := range resp.ExtractCandidates {
-					if extract.IsEligible(cand.MimeType, cand.SizeBytes) {
+					if extract.IsEligible(cand.MimeType, int64(cand.SizeBytes)) {
 						extractCandidates = append(extractCandidates, cand)
 					}
 				}
 			}
 			log.Printf("scan %s: batch %d sent (%d entries, final=%v) in %s",
 				s.opts.ScanID, result.BatchesSent, len(scanBatch.Entries),
-				scanBatch.IsFinal, elapsed.Round(time.Millisecond))
+				wire.Deref(scanBatch.IsFinal), elapsed.Round(time.Millisecond))
 		}
 	}()
 
@@ -318,24 +321,24 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		// to the same after each enqueue, but a future refactor
 		// could re-introduce nil; this guard catches that too.
 		if batch == nil {
-			batch = []models.EntryRecord{}
+			batch = []apiclient.EntryIn{}
 		}
-		scanBatch := models.ScanBatch{
-			SourceID: s.opts.SourceID,
-			ScanID:   s.opts.ScanID,
+		scanBatch := apiclient.ScanBatchIn{
+			SourceId: s.opts.SourceID,
+			ScanId:   s.opts.ScanID,
 			Entries:  batch,
 			// v0.31.5 — a unit-coordinated walk suppresses the wire
 			// IsFinal flag: "last batch of this walk" must not read as
 			// "scan complete" when sibling units are still running.
-			IsFinal: final && !s.opts.SuppressScanFinal,
+			IsFinal: wire.To(final && !s.opts.SuppressScanFinal),
 		}
 		if firstBatch {
 			scanBatch.SourceSecurityMetadata = bucketSecurity
 			firstBatch = false
 		}
 		if final {
-			scanBatch.InaccessibleDirs = result.InaccessibleDirs
-			scanBatch.InaccessibleFiles = result.InaccessibleFiles
+			scanBatch.InaccessibleDirs = wire.To(int(result.InaccessibleDirs))
+			scanBatch.InaccessibleFiles = wire.To(int(result.InaccessibleFiles))
 		}
 		select {
 		case batchCh <- scanBatch:
@@ -344,7 +347,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 		}
 		// Fresh non-nil slice so a follow-up enqueue (e.g., the
 		// final flush after a normal walk) ships `[]` not `null`.
-		batch = []models.EntryRecord{}
+		batch = []apiclient.EntryIn{}
 		return nil
 	}
 
@@ -357,8 +360,8 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// walkFn processes one entry — counting, incremental rehash, progress
 	// logging, adaptive batching. Shared verbatim by the recursive Walk
 	// and the budgeted shallow walk.
-	walkFn := func(entry *models.EntryRecord) error {
-		if entry.IsDir() {
+	walkFn := func(entry *apiclient.EntryIn) error {
+		if wire.IsDir(entry) {
 			result.DirsFound++
 			if s.opts.State != nil {
 				s.opts.State.IncDirWalked()
@@ -369,18 +372,18 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 			if s.opts.State != nil {
 				s.opts.State.IncFile()
 				if entry.SizeBytes != nil {
-					s.opts.State.AddBytes(*entry.SizeBytes)
+					s.opts.State.AddBytes(int64(*entry.SizeBytes))
 				}
 				s.opts.State.SetCurrent(entry.Path, "")
 			}
 
-			if incremental && entry.ModifiedAt != nil && !entry.ModifiedAt.Before(*s.opts.LastScanTime) {
+			if incremental && entry.FsModifiedAt != nil && !entry.FsModifiedAt.Before(*s.opts.LastScanTime) {
 				r, err := s.connector.ReadFile(scanCtx, entry.Path)
 				if err == nil {
 					hash, herr := metadata.HashReader(r)
 					r.Close()
 					if herr == nil {
-						entry.ContentHash = hash
+						entry.ContentHash = &hash
 					}
 				}
 			}
@@ -557,7 +560,7 @@ type warnHookSetter interface {
 // stall (the connector force-closed itself, v0.32.2) aborts the walk so
 // the unit can be requeued.
 func (s *Scanner) runShallowBFS(
-	ctx context.Context, walkHash bool, walkFn func(*models.EntryRecord) error,
+	ctx context.Context, walkHash bool, walkFn func(*apiclient.EntryIn) error,
 ) ([]string, walker.WalkStats, error) {
 	var stats walker.WalkStats
 	sw, ok := s.connector.(connector.ShallowWalker)
@@ -608,7 +611,7 @@ func (s *Scanner) runShallowBFS(
 		}
 
 		subdirs, werr := sw.WalkShallow(ctx, absDir, s.opts.ExcludePatterns, walkHash,
-			func(e *models.EntryRecord) error {
+			func(e *apiclient.EntryIn) error {
 				emitted++
 				return walkFn(e)
 			})

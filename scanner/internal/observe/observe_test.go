@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // fakeAPI captures heartbeat/log/stderr POSTs so tests can assert against
@@ -24,6 +26,17 @@ type fakeAPI struct {
 }
 
 func newFakeAPI() *fakeAPI { return &fakeAPI{} }
+
+var testScan = uuid.MustParse("22222222-2222-4222-8222-222222222222")
+
+func newTestReporter(t *testing.T, apiURL string, state *State) *Reporter {
+	t.Helper()
+	r, err := New(apiURL, "tok", testScan, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
 func (f *fakeAPI) handler() http.Handler {
 	mux := http.NewServeMux()
@@ -71,7 +84,7 @@ func TestHeartbeatPostsSnapshot(t *testing.T) {
 	state.SetCurrent("/foo/bar", "walk")
 	state.SetTotalEstimated(42)
 
-	r := New(srv.URL, "tok", "scan-uuid", state)
+	r := newTestReporter(t, srv.URL, state)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.Start(ctx)
 
@@ -117,7 +130,7 @@ func TestLogSinkBatchesByCount(t *testing.T) {
 	srv := httptest.NewServer(api.handler())
 	defer srv.Close()
 
-	r := New(srv.URL, "tok", "scan-uuid", NewState())
+	r := newTestReporter(t, srv.URL, NewState())
 	ctx, cancel := context.WithCancel(context.Background())
 	r.Start(ctx)
 
@@ -168,7 +181,7 @@ func TestLogSinkBatchesByCount(t *testing.T) {
 // failures were silently dropped instead of being posted as
 // /complete?status=failed.
 func TestUserCancelFiredOnlyWhenSignalCancelInvoked(t *testing.T) {
-	r := New("http://test", "tok", "scan-uuid", NewState())
+	r := newTestReporter(t, "http://test", NewState())
 	var fired atomic.Bool
 	r.SetUserCancel(func() { fired.Store(true) })
 
@@ -200,7 +213,7 @@ func TestLogSinkDropsWhenFullAndReportsOverflow(t *testing.T) {
 	srv := httptest.NewServer(api.handler())
 	defer srv.Close()
 
-	r := New(srv.URL, "tok", "scan-uuid", NewState())
+	r := newTestReporter(t, srv.URL, NewState())
 	// Don't Start the reporter: with no drain goroutine, the channel
 	// fills and we exercise the drop path. This test verifies emit() is
 	// non-blocking even when nothing is reading.

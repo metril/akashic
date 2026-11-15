@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // fakeDropboxServer mocks /2/users/get_current_account, /2/files/list_folder,
@@ -136,9 +137,9 @@ func TestDropboxWalkSinglePage(t *testing.T) {
 	defer fs.Close()
 	c := newDropboxTestConnector(fs)
 
-	emitted := []*models.EntryRecord{}
+	emitted := []*apiclient.EntryIn{}
 	_, err := c.Walk(context.Background(), "/", nil, true, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			emitted = append(emitted, r)
 			return nil
 		})
@@ -148,17 +149,17 @@ func TestDropboxWalkSinglePage(t *testing.T) {
 	if len(emitted) != 2 {
 		t.Fatalf("want 2 entries (deleted skipped), got %d", len(emitted))
 	}
-	if emitted[0].Path != "/Reports" || emitted[0].Kind != "directory" {
+	if emitted[0].Path != "/Reports" || wire.Deref(emitted[0].Kind) != apiclient.Directory {
 		t.Errorf("Reports: %+v", emitted[0])
 	}
-	if emitted[0].NativeID != "id:fld-1" {
-		t.Errorf("Reports native_id: %q", emitted[0].NativeID)
+	if wire.Deref(emitted[0].NativeId) != "id:fld-1" {
+		t.Errorf("Reports native_id: %q", wire.Deref(emitted[0].NativeId))
 	}
 	if emitted[1].Path != "/Reports/Q1.pdf" {
 		t.Errorf("Q1: %+v", emitted[1])
 	}
-	if emitted[1].ContentHash != "dropbox:abc123" {
-		t.Errorf("Q1 hash: %q (want dropbox: prefix)", emitted[1].ContentHash)
+	if wire.Deref(emitted[1].ContentHash) != "dropbox:abc123" {
+		t.Errorf("Q1 hash: %q (want dropbox: prefix)", wire.Deref(emitted[1].ContentHash))
 	}
 }
 
@@ -181,9 +182,9 @@ func TestDropboxWalkPaginates(t *testing.T) {
 	fs := newFakeDropboxServer(t, pages)
 	defer fs.Close()
 	c := newDropboxTestConnector(fs)
-	emitted := []*models.EntryRecord{}
+	emitted := []*apiclient.EntryIn{}
 	_, err := c.Walk(context.Background(), "/", nil, false, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			emitted = append(emitted, r)
 			return nil
 		})
@@ -210,7 +211,7 @@ func TestDropboxBuildEntryHashOmittedWhenComputeHashFalse(t *testing.T) {
 		Tag: "file", Name: "x.txt", PathDisplay: "/x.txt",
 		ContentHash: "abc",
 	}, false)
-	if rec == nil || rec.ContentHash != "" {
+	if rec == nil || wire.Deref(rec.ContentHash) != "" {
 		t.Errorf("expected empty hash when computeHash=false, got %+v", rec)
 	}
 }
@@ -248,7 +249,7 @@ func TestDropboxRefreshOn401(t *testing.T) {
 	})
 
 	_, err := c.Walk(context.Background(), "/", nil, false, false,
-		func(*models.EntryRecord) error { return nil })
+		func(*apiclient.EntryIn) error { return nil })
 	if err != nil {
 		t.Fatalf("Walk after refresh: %v", err)
 	}
@@ -266,7 +267,9 @@ func TestDropboxBuildACLMapsAccessTypes(t *testing.T) {
 					Email       string `json:"email"`
 					DisplayName string `json:"display_name"`
 				}{AccountID: "acc-1", Email: "alice@example.com", DisplayName: "Alice"},
-				AccessType:  struct{ Tag string `json:".tag"` }{Tag: "owner"},
+				AccessType: struct {
+					Tag string `json:".tag"`
+				}{Tag: "owner"},
 				IsInherited: false,
 			},
 			{
@@ -275,7 +278,9 @@ func TestDropboxBuildACLMapsAccessTypes(t *testing.T) {
 					Email       string `json:"email"`
 					DisplayName string `json:"display_name"`
 				}{AccountID: "acc-2", Email: "bob@example.com"},
-				AccessType:  struct{ Tag string `json:".tag"` }{Tag: "editor"},
+				AccessType: struct {
+					Tag string `json:".tag"`
+				}{Tag: "editor"},
 				IsInherited: true,
 			},
 			{
@@ -284,7 +289,9 @@ func TestDropboxBuildACLMapsAccessTypes(t *testing.T) {
 					Email       string `json:"email"`
 					DisplayName string `json:"display_name"`
 				}{AccountID: "acc-3", Email: "carol@example.com"},
-				AccessType: struct{ Tag string `json:".tag"` }{Tag: "viewer_no_comment"},
+				AccessType: struct {
+					Tag string `json:".tag"`
+				}{Tag: "viewer_no_comment"},
 			},
 		},
 		Groups: []dropboxMember{
@@ -293,30 +300,32 @@ func TestDropboxBuildACLMapsAccessTypes(t *testing.T) {
 					GroupID   string `json:"group_id"`
 					GroupName string `json:"group_name"`
 				}{GroupID: "g-1", GroupName: "Marketing"},
-				AccessType: struct{ Tag string `json:".tag"` }{Tag: "viewer"},
+				AccessType: struct {
+					Tag string `json:".tag"`
+				}{Tag: "viewer"},
 			},
 		},
 	}
 	acl := buildDropboxACL(resp)
-	if acl == nil || acl.Type != "cloud_drive" {
+	if acl == nil || aclType(acl) != "cloud_drive" {
 		t.Fatalf("acl: %+v", acl)
 	}
-	if len(acl.CloudDriveGrants) != 4 {
-		t.Fatalf("want 4 grants (3 users + 1 group), got %d", len(acl.CloudDriveGrants))
+	if len(cloudGrants(t, acl)) != 4 {
+		t.Fatalf("want 4 grants (3 users + 1 group), got %d", len(cloudGrants(t, acl)))
 	}
-	if acl.CloudDriveGrants[0].Role != "owner" {
-		t.Errorf("owner role: %q", acl.CloudDriveGrants[0].Role)
+	if cloudGrants(t, acl)[0].Role != "owner" {
+		t.Errorf("owner role: %q", cloudGrants(t, acl)[0].Role)
 	}
-	if acl.CloudDriveGrants[1].Role != "writer" || !acl.CloudDriveGrants[1].Inherited {
-		t.Errorf("editor (inherited): %+v", acl.CloudDriveGrants[1])
+	if cloudGrants(t, acl)[1].Role != "writer" || !wire.Deref(cloudGrants(t, acl)[1].Inherited) {
+		t.Errorf("editor (inherited): %+v", cloudGrants(t, acl)[1])
 	}
-	if acl.CloudDriveGrants[2].Role != "reader" {
+	if cloudGrants(t, acl)[2].Role != "reader" {
 		t.Errorf("viewer_no_comment should map to reader, got %q",
-			acl.CloudDriveGrants[2].Role)
+			cloudGrants(t, acl)[2].Role)
 	}
-	if acl.CloudDriveGrants[3].Principal.Type != "group" ||
-		acl.CloudDriveGrants[3].Role != "reader" {
-		t.Errorf("group grant: %+v", acl.CloudDriveGrants[3])
+	if cloudGrants(t, acl)[3].Principal.Type != "group" ||
+		cloudGrants(t, acl)[3].Role != "reader" {
+		t.Errorf("group grant: %+v", cloudGrants(t, acl)[3])
 	}
 }
 
@@ -363,7 +372,9 @@ func TestDropboxEnrichACLOnlySharedFolders(t *testing.T) {
 						Email       string `json:"email"`
 						DisplayName string `json:"display_name"`
 					}{AccountID: "u", Email: "alice@example.com"},
-					AccessType: struct{ Tag string `json:".tag"` }{Tag: "owner"},
+					AccessType: struct {
+						Tag string `json:".tag"`
+					}{Tag: "owner"},
 				},
 			},
 		})
@@ -402,9 +413,9 @@ func TestDropboxEnrichACLOnlySharedFolders(t *testing.T) {
 			fakeURL: srv.URL,
 		},
 	}
-	emitted := []*models.EntryRecord{}
+	emitted := []*apiclient.EntryIn{}
 	_, err := c.Walk(context.Background(), "/", nil, false, false,
-		func(r *models.EntryRecord) error {
+		func(r *apiclient.EntryIn) error {
 			emitted = append(emitted, r)
 			return nil
 		})

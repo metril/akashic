@@ -18,12 +18,11 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 )
 
 // scanJoinLoop is started in Run alongside the heartbeat,
@@ -65,9 +64,9 @@ func scanJoinLoop(
 		// We joined a cooperative scan. Run it through the same
 		// unit-coordinated path the original lease holder uses.
 		log.Printf("scan %s: joining via scan_join channel source=%s type=%s",
-			leased.ScanID, leased.Source.ID, leased.Source.Type)
+			leased.ScanId, leased.Source.Id, leased.Source.Type)
 		if err := runUnitCoordinated(ctx, httpc, cfg, priv, leased); err != nil {
-			log.Printf("joined scan %s failed: %v", leased.ScanID, err)
+			log.Printf("joined scan %s failed: %v", leased.ScanId, err)
 		}
 	}
 }
@@ -76,34 +75,20 @@ func scanJoinLoop(
 // payload arrives or the server times out (204).
 func waitForJoin(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
-) (*leasedScan, error) {
-	auth, err := authHeader(cfg, priv)
+) (*apiclient.LeasedScan, error) {
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/v1/scanners/%s/scans/long-poll",
-		cfg.APIBase, cfg.ScannerID)
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	resp, err := api.LongPollScanJoinsWithResponse(ctx, cfg.ScannerID)
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Authorization", auth)
-	resp, err := httpc.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode() == http.StatusNoContent {
 		return nil, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("scans long-poll HTTP %d: %s",
-			resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return nil, httpError("scans long-poll", resp.StatusCode(), resp.Body)
 	}
-	var ls leasedScan
-	if err := json.NewDecoder(resp.Body).Decode(&ls); err != nil {
-		return nil, fmt.Errorf("decode join payload: %w", err)
-	}
-	return &ls, nil
+	return resp.JSON200, nil
 }

@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // nextcloud-shaped multistatus body for the parser. Captures the
@@ -136,30 +137,30 @@ func TestBuildWebDAVEntryFile(t *testing.T) {
 	if entry.Name != "report.pdf" {
 		t.Errorf("Name = %q, want report.pdf", entry.Name)
 	}
-	if entry.Kind != "file" {
-		t.Errorf("Kind = %q, want file", entry.Kind)
+	if wire.Deref(entry.Kind) != apiclient.File {
+		t.Errorf("Kind = %q, want file", wire.Deref(entry.Kind))
 	}
-	if entry.Extension != "pdf" {
-		t.Errorf("Extension = %q, want pdf", entry.Extension)
+	if wire.Deref(entry.Extension) != "pdf" {
+		t.Errorf("Extension = %q, want pdf", wire.Deref(entry.Extension))
 	}
-	if entry.MimeType != "application/pdf" {
-		t.Errorf("MimeType = %q", entry.MimeType)
+	if wire.Deref(entry.MimeType) != "application/pdf" {
+		t.Errorf("MimeType = %q", wire.Deref(entry.MimeType))
 	}
-	if entry.ContentHash != "etag:v17" {
-		t.Errorf("ContentHash = %q, want etag:v17", entry.ContentHash)
+	if wire.Deref(entry.ContentHash) != "etag:v17" {
+		t.Errorf("ContentHash = %q, want etag:v17", wire.Deref(entry.ContentHash))
 	}
 	if entry.SizeBytes == nil || *entry.SizeBytes != 2048 {
 		t.Errorf("SizeBytes = %v, want 2048", entry.SizeBytes)
 	}
-	if !entry.ModifiedAt.Equal(mod) {
-		t.Errorf("ModifiedAt = %v", entry.ModifiedAt)
+	if !entry.FsModifiedAt.Equal(mod) {
+		t.Errorf("ModifiedAt = %v", entry.FsModifiedAt)
 	}
 }
 
 func TestBuildWebDAVEntryDirectory(t *testing.T) {
 	e := webdavEntry{relPath: "Photos", isDir: true}
 	entry := buildWebDAVEntry(e)
-	if entry.Path != "/Photos" || entry.Kind != "directory" {
+	if entry.Path != "/Photos" || wire.Deref(entry.Kind) != apiclient.Directory {
 		t.Errorf("dir entry wrong: %+v", entry)
 	}
 	if entry.SizeBytes != nil {
@@ -204,8 +205,8 @@ func TestWebDAVWalkAgainstFakeServer(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	var entries []*models.EntryRecord
-	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
 		entries = append(entries, e)
 		return nil
 	})
@@ -224,7 +225,7 @@ func TestWebDAVWalkAgainstFakeServer(t *testing.T) {
 	}
 	dirs, files := 0, 0
 	for _, e := range entries {
-		if e.Kind == "directory" {
+		if wire.Deref(e.Kind) == apiclient.Directory {
 			dirs++
 		} else {
 			files++

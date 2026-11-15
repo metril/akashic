@@ -1,6 +1,8 @@
 """Discriminated-union ACL schemas — one shape per ACL model."""
 from typing import Annotated, Literal, Union
 
+from typing_extensions import TypeAliasType
+
 from akashic.schemas.base import ApiModel
 from pydantic import Field, field_validator
 
@@ -146,7 +148,13 @@ class CloudDriveACL(ApiModel):
 
 # ---- Discriminated union ----
 
-ACL = Annotated[
-    Union[PosixACL, NfsV4ACL, NtACL, S3ACL, CloudDriveACL],
-    Field(discriminator="type"),
-]
+# A TypeAliasType (not a bare Annotated alias) so the spec carries one named
+# `ACL` union component instead of an anonymous oneOf inlined at every use;
+# generated clients can then give the union a real type.
+ACL = TypeAliasType(
+    "ACL",
+    Annotated[
+        Union[PosixACL, NfsV4ACL, NtACL, S3ACL, CloudDriveACL],
+        Field(discriminator="type"),
+    ],
+)

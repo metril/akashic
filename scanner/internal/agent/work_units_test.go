@@ -24,12 +24,13 @@ func leaseTestCfg(t *testing.T, url string) (Config, ed25519.PrivateKey) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Config{APIBase: url, ScannerID: "scanner-1"}, priv
+	return Config{APIBase: url, ScannerID: testScannerID}, priv
 }
 
 func TestLeaseUnit_ScanTerminal409_MapsToErrScanTerminal(t *testing.T) {
 	// 409 whose detail.reason is "scan-terminal" → the scan is over.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(
 			`{"code":"conflict","message":"scan ended","request_id":"r","detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
@@ -37,7 +38,7 @@ func TestLeaseUnit_ScanTerminal409_MapsToErrScanTerminal(t *testing.T) {
 	defer srv.Close()
 
 	cfg, priv := leaseTestCfg(t, srv.URL)
-	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, "scan-1")
+	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, testScanID)
 	if !errors.Is(err, errScanTerminal) {
 		t.Fatalf("scan-terminal 409 should map to errScanTerminal, got %v", err)
 	}
@@ -50,13 +51,14 @@ func TestLeaseUnit_Cap409_MapsToErrLeaseCap(t *testing.T) {
 	// 409 whose detail is a plain string (the max_parallel_scanners cap)
 	// → units exist, just no slot. Must stay errLeaseCap, not terminal.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"code":"conflict","message":"max_parallel_scanners cap (2) reached","detail":null,"request_id":"r"}`))
 	}))
 	defer srv.Close()
 
 	cfg, priv := leaseTestCfg(t, srv.URL)
-	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, "scan-1")
+	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, testScanID)
 	if !errors.Is(err, errLeaseCap) {
 		t.Fatalf("cap 409 should map to errLeaseCap, got %v", err)
 	}
@@ -72,7 +74,7 @@ func TestLeaseUnit_204_MapsToErrNoWork(t *testing.T) {
 	defer srv.Close()
 
 	cfg, priv := leaseTestCfg(t, srv.URL)
-	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, "scan-1")
+	_, err := leaseUnit(context.Background(), srv.Client(), cfg, priv, testScanID)
 	if !errors.Is(err, errNoWork) {
 		t.Fatalf("204 should map to errNoWork, got %v", err)
 	}
@@ -92,7 +94,7 @@ func TestFailUnit_CarriesRequeueFlag(t *testing.T) {
 
 		cfg, priv := leaseTestCfg(t, srv.URL)
 		err := failUnit(context.Background(), srv.Client(), cfg, priv,
-			"scan-1", "unit-1", "smb stalled", requeue)
+			testScanID, testUnitID, "smb stalled", requeue)
 		srv.Close()
 		if err != nil {
 			t.Fatalf("failUnit(requeue=%v): %v", requeue, err)

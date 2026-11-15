@@ -17,7 +17,7 @@ func NewDuplicatesCmd(c *client.Client) *cobra.Command {
 		Short: "Manage duplicate files",
 	}
 
-	var listMinSize int64
+	var listMinSize int
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List duplicate file groups",
@@ -33,7 +33,7 @@ func NewDuplicatesCmd(c *client.Client) *cobra.Command {
 			return nil
 		},
 	}
-	listCmd.Flags().Int64Var(&listMinSize, "min-size", 0, "Minimum file size in bytes")
+	listCmd.Flags().IntVar(&listMinSize, "min-size", 0, "Minimum file size in bytes")
 
 	var reportFormat string
 	reportCmd := &cobra.Command{

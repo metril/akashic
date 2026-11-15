@@ -13,11 +13,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
+	"github.com/google/uuid"
 )
 
+var (
+	testSource = uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	testScan   = uuid.MustParse("22222222-2222-4222-8222-222222222222")
+)
+
+func newTestClient(t *testing.T, baseURL, key string) *Client {
+	t.Helper()
+	c, err := New(baseURL, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func TestClient_SendBatch(t *testing.T) {
-	var received models.ScanBatch
+	var received apiclient.ScanBatchIn
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/ingest/batch" {
@@ -32,12 +48,12 @@ func TestClient_SendBatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c := New(server.URL, "test-key")
-	batch := models.ScanBatch{
-		SourceID: "src-1",
-		ScanID:   "scan-1",
-		Entries: []models.EntryRecord{
-			{Path: "/a.txt", Name: "a.txt", Kind: "file"},
+	c := newTestClient(t, server.URL, "test-key")
+	batch := apiclient.ScanBatchIn{
+		SourceId: testSource,
+		ScanId:   testScan,
+		Entries: []apiclient.EntryIn{
+			{Path: "/a.txt", Name: "a.txt", Kind: wire.To(apiclient.File)},
 		},
 	}
 
@@ -65,10 +81,10 @@ func TestClient_SendBatch_RetriesOn5xx(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c := New(server.URL, "k")
+	c := newTestClient(t, server.URL, "k")
 	c.backoffBase = 1 * time.Millisecond // keep test fast
 
-	if _, err := c.SendBatch(context.Background(), models.ScanBatch{}); err != nil {
+	if _, err := c.SendBatch(context.Background(), apiclient.ScanBatchIn{}); err != nil {
 		t.Fatalf("expected success after retry, got %v", err)
 	}
 	if got := calls.Load(); got != 3 {
@@ -86,10 +102,10 @@ func TestClient_SendBatch_DoesNotRetry4xx(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c := New(server.URL, "k")
+	c := newTestClient(t, server.URL, "k")
 	c.backoffBase = 1 * time.Millisecond
 
-	if _, err := c.SendBatch(context.Background(), models.ScanBatch{}); err == nil {
+	if _, err := c.SendBatch(context.Background(), apiclient.ScanBatchIn{}); err == nil {
 		t.Fatal("expected error on 400")
 	}
 	if got := calls.Load(); got != 1 {
@@ -100,19 +116,19 @@ func TestClient_SendBatch_DoesNotRetry4xx(t *testing.T) {
 // decodeBatch reads a possibly gzip-encoded request body into a
 // ScanBatch — split tests send batches on both sides of the gzip
 // threshold, so the fake API must handle either encoding.
-func decodeBatch(t *testing.T, r *http.Request) models.ScanBatch {
+func decodeBatch(t *testing.T, r *http.Request) apiclient.ScanBatchIn {
 	t.Helper()
 	var src io.Reader = r.Body
 	if r.Header.Get("Content-Encoding") == "gzip" {
 		gr, err := gzip.NewReader(r.Body)
 		if err != nil {
 			t.Errorf("server gzip.NewReader: %v", err)
-			return models.ScanBatch{}
+			return apiclient.ScanBatchIn{}
 		}
 		defer gr.Close()
 		src = gr
 	}
-	var b models.ScanBatch
+	var b apiclient.ScanBatchIn
 	if err := json.NewDecoder(src).Decode(&b); err != nil {
 		t.Errorf("server decode batch: %v", err)
 	}
@@ -140,28 +156,29 @@ func TestClient_SendBatch_SplitsOn413(t *testing.T) {
 		for _, e := range b.Entries {
 			gotPaths = append(gotPaths, e.Path)
 		}
-		if b.IsFinal {
+		if wire.Deref(b.IsFinal) {
 			finals++
 		}
 		mu.Unlock()
-		cands := make([]models.ExtractCandidate, 0, len(b.Entries))
+		cands := make([]apiclient.ExtractCandidate, 0, len(b.Entries))
 		for _, e := range b.Entries {
-			cands = append(cands, models.ExtractCandidate{Path: e.Path})
+			cands = append(cands, apiclient.ExtractCandidate{Path: e.Path})
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(models.BatchResponse{ExtractCandidates: cands})
+		json.NewEncoder(w).Encode(apiclient.ScanBatchResponse{ExtractCandidates: cands})
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "k")
+	c := newTestClient(t, srv.URL, "k")
 	c.backoffBase = 1 * time.Millisecond
 
-	entries := make([]models.EntryRecord, 8)
+	entries := make([]apiclient.EntryIn, 8)
 	for i := range entries {
-		entries[i] = models.EntryRecord{Path: fmt.Sprintf("/f%d.txt", i), Kind: "file"}
+		entries[i] = apiclient.EntryIn{Path: fmt.Sprintf("/f%d.txt", i), Kind: wire.To(apiclient.File)}
 	}
-	resp, err := c.SendBatch(context.Background(), models.ScanBatch{
-		SourceID: "s", ScanID: "sc", Entries: entries, IsFinal: true,
+	resp, err := c.SendBatch(context.Background(), apiclient.ScanBatchIn{
+		SourceId: testSource, ScanId: testScan, Entries: entries, IsFinal: wire.To(true),
 	})
 	if err != nil {
 		t.Fatalf("SendBatch should recover from 413, got %v", err)
@@ -193,19 +210,19 @@ func TestClient_SendBatch_DropsUnsplittableEntry(t *testing.T) {
 			http.Error(w, "too big", http.StatusRequestEntityTooLarge)
 			return
 		}
-		if b.IsFinal {
+		if wire.Deref(b.IsFinal) {
 			sawFinal.Store(true)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "k")
+	c := newTestClient(t, srv.URL, "k")
 	c.backoffBase = 1 * time.Millisecond
-	resp, err := c.SendBatch(context.Background(), models.ScanBatch{
-		SourceID: "s", ScanID: "sc",
-		Entries: []models.EntryRecord{{Path: "/huge.txt", Kind: "file"}},
-		IsFinal: true,
+	resp, err := c.SendBatch(context.Background(), apiclient.ScanBatchIn{
+		SourceId: testSource, ScanId: testScan,
+		Entries: []apiclient.EntryIn{{Path: "/huge.txt", Kind: wire.To(apiclient.File)}},
+		IsFinal: wire.To(true),
 	})
 	if err != nil {
 		t.Fatalf("a single oversized entry must be dropped, not fail the scan: %v", err)

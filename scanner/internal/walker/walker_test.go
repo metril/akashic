@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func setupTestTree(t *testing.T) string {
@@ -27,8 +28,8 @@ func setupTestTree(t *testing.T) string {
 func TestWalk_AllEntries(t *testing.T) {
 	dir := setupTestTree(t)
 
-	var entries []*models.EntryRecord
-	_, err := Walk(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := Walk(context.Background(), dir, nil, false, func(entry *apiclient.EntryIn) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -42,7 +43,7 @@ func TestWalk_AllEntries(t *testing.T) {
 
 	files, dirs := 0, 0
 	for _, e := range entries {
-		if e.IsDir() {
+		if wire.IsDir(e) {
 			dirs++
 		} else {
 			files++
@@ -59,8 +60,8 @@ func TestWalk_AllEntries(t *testing.T) {
 func TestWalk_ExcludePatterns(t *testing.T) {
 	dir := setupTestTree(t)
 
-	var entries []*models.EntryRecord
-	_, err := Walk(context.Background(), dir, []string{".git"}, false, func(entry *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := Walk(context.Background(), dir, []string{".git"}, false, func(entry *apiclient.EntryIn) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -79,8 +80,8 @@ func TestWalk_WithHash(t *testing.T) {
 	dir := setupTestTree(t)
 
 	var hashed int
-	_, err := Walk(context.Background(), dir, nil, true, func(entry *models.EntryRecord) error {
-		if !entry.IsDir() && entry.ContentHash != "" {
+	_, err := Walk(context.Background(), dir, nil, true, func(entry *apiclient.EntryIn) error {
+		if !wire.IsDir(entry) && wire.Deref(entry.ContentHash) != "" {
 			hashed++
 		}
 		return nil
@@ -124,9 +125,9 @@ func TestWalk_PostOrderSubtreeTotals(t *testing.T) {
 	must(os.WriteFile(filepath.Join(dir, "a", "y.txt"), []byte("world"), 0o644))
 	must(os.WriteFile(filepath.Join(dir, "b", "c", "z.bin"), []byte("12345678"), 0o644))
 
-	dirs := map[string]*models.EntryRecord{}
-	_, werr := Walk(context.Background(), dir, nil, false, func(e *models.EntryRecord) error {
-		if e.IsDir() {
+	dirs := map[string]*apiclient.EntryIn{}
+	_, werr := Walk(context.Background(), dir, nil, false, func(e *apiclient.EntryIn) error {
+		if wire.IsDir(e) {
 			dirs[filepath.Base(e.Path)] = e
 		}
 		return nil
@@ -189,7 +190,7 @@ func TestWalk_HonoursContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var seen atomic.Int64
-	_, err := Walk(ctx, dir, nil, false, func(e *models.EntryRecord) error {
+	_, err := Walk(ctx, dir, nil, false, func(e *apiclient.EntryIn) error {
 		// Cancel as soon as the first entry comes through. The next
 		// directory boundary should bail out.
 		if seen.Add(1) == 1 {
@@ -226,7 +227,7 @@ func TestWalk_AccountsInaccessibleDirs(t *testing.T) {
 	must(os.Chmod(filepath.Join(dir, "denied"), 0o000))
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dir, "denied"), 0o755) })
 
-	stats, err := Walk(context.Background(), dir, nil, false, func(*models.EntryRecord) error {
+	stats, err := Walk(context.Background(), dir, nil, false, func(*apiclient.EntryIn) error {
 		return nil
 	})
 	if err != nil {
@@ -243,8 +244,8 @@ func TestWalk_AccountsInaccessibleDirs(t *testing.T) {
 func TestWalkShallow_FilesEmittedSubdirsReturned(t *testing.T) {
 	dir := setupTestTree(t)
 
-	var entries []*models.EntryRecord
-	res, err := WalkShallow(context.Background(), dir, nil, false, func(entry *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	res, err := WalkShallow(context.Background(), dir, nil, false, func(entry *apiclient.EntryIn) error {
 		entries = append(entries, entry)
 		return nil
 	})
@@ -281,7 +282,7 @@ func TestWalkShallow_HonoursExcludePatterns(t *testing.T) {
 	res, err := WalkShallow(
 		context.Background(), dir,
 		[]string{"skip.txt", "node_modules"}, false,
-		func(e *models.EntryRecord) error {
+		func(e *apiclient.EntryIn) error {
 			emitted = append(emitted, filepath.Base(e.Path))
 			return nil
 		},
@@ -301,7 +302,7 @@ func TestWalkShallow_UnreadableRootReturnsZero(t *testing.T) {
 	res, err := WalkShallow(
 		context.Background(), "/no/such/path/akashic",
 		nil, false,
-		func(*models.EntryRecord) error { return nil },
+		func(*apiclient.EntryIn) error { return nil },
 	)
 	if err != nil {
 		t.Fatalf("expected nil err on unreadable root (parity with Walk), got %v", err)

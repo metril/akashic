@@ -3,12 +3,12 @@ package observe
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
-	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 )
 
 const (
@@ -140,23 +140,9 @@ func (r *Reporter) postStderrChunk(ctx context.Context, chunk string) {
 	if chunk == "" {
 		return
 	}
-	body, err := json.Marshal(map[string]any{
-		"chunks": []map[string]any{
-			{"ts": time.Now().UTC(), "chunk": chunk},
-		},
+	resp, err := r.api.PostStderrBatch(ctx, r.scanID, apiclient.StderrBatchIn{
+		Chunks: []apiclient.StderrChunkIn{{Ts: time.Now().UTC(), Chunk: chunk}},
 	})
-	if err != nil {
-		return
-	}
-	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/stderr"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+r.apiKey)
-
-	resp, err := r.httpClient.Do(req)
 	if err != nil {
 		return
 	}

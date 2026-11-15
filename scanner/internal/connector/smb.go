@@ -15,10 +15,10 @@ import (
 
 	"github.com/hirochachacha/go-smb2"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/lsarpc"
 	"github.com/akashic-project/akashic/scanner/internal/metadata"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 // sdFetcher is the narrow interface for fetching raw NT security descriptor
@@ -30,25 +30,25 @@ type sdFetcher interface {
 }
 
 type SMBConnector struct {
-	host      string
-	port      int
-	username  string
-	password  string
-	share     string
+	host     string
+	port     int
+	username string
+	password string
+	share    string
 	// v0.29.5 — explicit opt-in for empty-password sessions. Defaults
 	// to false; Connect() refuses an empty password unless the caller
 	// explicitly flips this. Lab/anonymous-share configs can set it
 	// via SetAllowEmptyPassword.
 	allowEmptyPassword bool
-	conn      net.Conn
-	session   *smb2.Session
-	smbShare  *smb2.Share
-	ipcShare  *smb2.Share
-	lsaClient *lsarpc.Client
-	resolver  *metadata.SIDResolver
+	conn               net.Conn
+	session            *smb2.Session
+	smbShare           *smb2.Share
+	ipcShare           *smb2.Share
+	lsaClient          *lsarpc.Client
+	resolver           *metadata.SIDResolver
 	// sdSource provides raw security descriptor bytes for each path.
 	// Populated from smbShare after Connect(); can be overridden in tests.
-	sdSource  sdFetcher
+	sdSource sdFetcher
 	// v0.32.2 — guard support. ctx is the connect-time (scan) context
 	// every guard() bounds its SMB op against; stalled latches once an
 	// SMB op was force-aborted because the server stopped responding.
@@ -326,7 +326,7 @@ func (c *SMBConnector) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error) {
+func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, _ bool, fn func(*apiclient.EntryIn) error) (walker.WalkStats, error) {
 	if c.smbShare == nil {
 		return walker.WalkStats{}, fmt.Errorf("not connected")
 	}
@@ -340,7 +340,7 @@ func (c *SMBConnector) Walk(ctx context.Context, root string, excludePatterns []
 	return stats, err
 }
 
-func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*models.EntryRecord) error, stats *walker.WalkStats) error {
+func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[string]bool, computeHash bool, fn func(*apiclient.EntryIn) error, stats *walker.WalkStats) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -373,7 +373,7 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 
 		if computeHash && !info.IsDir() {
 			if hash, err := c.hashRemoteFile(path); err == nil {
-				entry.ContentHash = hash
+				entry.ContentHash = &hash
 			}
 		}
 
@@ -404,7 +404,7 @@ func (c *SMBConnector) walkDir(ctx context.Context, dir string, excludeSet map[s
 // split off as work units.
 func (c *SMBConnector) WalkShallow(
 	ctx context.Context, root string, excludePatterns []string,
-	computeHash bool, fn func(*models.EntryRecord) error,
+	computeHash bool, fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	if c.smbShare == nil {
 		return nil, fmt.Errorf("not connected")
@@ -442,7 +442,7 @@ func (c *SMBConnector) WalkShallow(
 		entry := fileInfoToEntry(ctx, p, info, false, nil)
 		if computeHash {
 			if hash, herr := c.hashRemoteFile(p); herr == nil {
-				entry.ContentHash = hash
+				entry.ContentHash = &hash
 			}
 		}
 		if sd, sderr := c.querySecurityDescriptor(p); sderr == nil && len(sd) > 0 {
@@ -459,7 +459,7 @@ func (c *SMBConnector) WalkShallow(
 
 // StatRoot implements connector.ShallowWalker — the directory record for
 // `path` itself, which the budgeted shallow walk emits per directory.
-func (c *SMBConnector) StatRoot(ctx context.Context, path string) (*models.EntryRecord, error) {
+func (c *SMBConnector) StatRoot(ctx context.Context, path string) (*apiclient.EntryIn, error) {
 	if c.smbShare == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -507,13 +507,14 @@ func (c *SMBConnector) hashRemoteFile(path string) (string, error) {
 // redirects the module via a replace directive.
 //
 // Upstream PR that inspired the patch:
-//   https://github.com/hirochachacha/go-smb2/pull/65 (elimity-com, open as of 2026-04)
+//
+//	https://github.com/hirochachacha/go-smb2/pull/65 (elimity-com, open as of 2026-04)
 //
 // To drop the vendor copy:
-//   1. Wait for upstream to merge & tag a release with GetSecurityDescriptorBytes
-//      (or equivalent raw-bytes API).
-//   2. Remove the replace directive from scanner/go.mod.
-//   3. Delete scanner/internal/vendor/go-smb2/.
+//  1. Wait for upstream to merge & tag a release with GetSecurityDescriptorBytes
+//     (or equivalent raw-bytes API).
+//  2. Remove the replace directive from scanner/go.mod.
+//  3. Delete scanner/internal/vendor/go-smb2/.
 func (c *SMBConnector) querySecurityDescriptor(path string) ([]byte, error) {
 	if c.sdSource == nil {
 		return nil, fmt.Errorf("not connected")

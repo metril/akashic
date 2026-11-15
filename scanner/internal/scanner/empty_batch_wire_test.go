@@ -22,9 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 // emptyWalkConn is a Connector that emits zero entries.
@@ -41,7 +40,7 @@ func (emptyWalkConn) ReadFile(_ context.Context, _ string) (io.ReadCloser, error
 }
 func (emptyWalkConn) Walk(
 	_ context.Context, _ string, _ []string, _ bool, _ bool,
-	_ func(*models.EntryRecord) error,
+	_ func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	return walker.WalkStats{}, nil
 }
@@ -67,9 +66,9 @@ func TestRun_EmptyWalk_SendsEntriesAsEmptyList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := client.New(srv.URL, "k")
+	c := mustClient(t, srv.URL, "k")
 	s := New(c, emptyWalkConn{}, Options{
-		SourceID: "src", ScanID: "scan-empty",
+		SourceID: testSource, ScanID: testScan,
 		Root: "/", BatchSize: 10,
 	})
 	if _, err := s.Run(context.Background()); err != nil {
@@ -112,9 +111,9 @@ func TestRun_EmptyWalk_RoundTripsThroughPydanticShape(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := client.New(srv.URL, "k")
+	c := mustClient(t, srv.URL, "k")
 	s := New(c, emptyWalkConn{}, Options{
-		SourceID: "src", ScanID: "scan-rt",
+		SourceID: testSource, ScanID: testScan,
 		Root: "/", BatchSize: 10,
 	})
 	if _, err := s.Run(context.Background()); err != nil {
@@ -131,4 +130,3 @@ func TestRun_EmptyWalk_RoundTripsThroughPydanticShape(t *testing.T) {
 		t.Errorf("entries is not a JSON array: %T %v", entries, entries)
 	}
 }
-

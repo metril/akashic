@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 type Connector interface {
@@ -16,7 +16,7 @@ type Connector interface {
 	// the api can surface "N inaccessible items skipped" instead of
 	// pretending the scan was clean. Connectors that don't use the
 	// local walker (s3, smb's own walker) return zero stats.
-	Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*models.EntryRecord) error) (walker.WalkStats, error)
+	Walk(ctx context.Context, root string, excludePatterns []string, computeHash bool, fullScan bool, fn func(*apiclient.EntryIn) error) (walker.WalkStats, error)
 	ReadFile(ctx context.Context, path string) (io.ReadCloser, error)
 	// Delete removes a single regular file at `path`. Implementations
 	// must NOT recurse into directories — bulk-delete is for the Duplicates
@@ -44,7 +44,7 @@ type ShallowWalker interface {
 		root string,
 		excludePatterns []string,
 		computeHash bool,
-		fn func(*models.EntryRecord) error,
+		fn func(*apiclient.EntryIn) error,
 	) (subdirs []string, err error)
 
 	// StatRoot returns an EntryRecord for the directory at `path` itself
@@ -54,7 +54,7 @@ type ShallowWalker interface {
 	// FILES, so the unit must emit the directory's own record itself.
 	// Connectors where a directory has no meaningful record (S3 — a
 	// prefix is not an object) return (nil, nil).
-	StatRoot(ctx context.Context, path string) (*models.EntryRecord, error)
+	StatRoot(ctx context.Context, path string) (*apiclient.EntryIn, error)
 }
 
 // TransientStaller is implemented by connectors that can report whether

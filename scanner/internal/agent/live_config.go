@@ -1,22 +1,20 @@
 package agent
 
-import "sync"
+import (
+	"sync"
 
-// RemoteConfig is the per-scanner config the API delivers (handshake +
-// every heartbeat). The scanner has no local env/flag for these.
-type RemoteConfig struct {
-	TikaURL            string `json:"tika_url"`
-	ExtractWorkers     int    `json:"extract_workers"`
-	MaxConcurrentUnits int    `json:"max_concurrent_units"`
-}
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+)
 
-// LiveConfig holds the latest RemoteConfig; safe for concurrent use.
+// LiveConfig holds the latest per-scanner config the API delivers
+// (handshake + every heartbeat); the scanner has no local env/flag for
+// these. Safe for concurrent use.
 type LiveConfig struct {
 	mu sync.RWMutex
-	c  RemoteConfig
+	c  apiclient.ScannerEffectiveConfig
 }
 
-func (l *LiveConfig) Set(c RemoteConfig) {
+func (l *LiveConfig) Set(c apiclient.ScannerEffectiveConfig) {
 	if c.MaxConcurrentUnits < 1 {
 		c.MaxConcurrentUnits = 1
 	}
@@ -25,7 +23,7 @@ func (l *LiveConfig) Set(c RemoteConfig) {
 	l.mu.Unlock()
 }
 
-func (l *LiveConfig) Get() RemoteConfig {
+func (l *LiveConfig) Get() apiclient.ScannerEffectiveConfig {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.c
@@ -33,7 +31,7 @@ func (l *LiveConfig) Get() RemoteConfig {
 
 // Remote returns the current effective config: the live (API-delivered)
 // one when present, else the static Config fields (used by tests).
-func (c Config) Remote() RemoteConfig {
+func (c Config) Remote() apiclient.ScannerEffectiveConfig {
 	if c.Live != nil {
 		return c.Live.Get()
 	}
@@ -41,5 +39,5 @@ func (c Config) Remote() RemoteConfig {
 	if u < 1 {
 		u = 1
 	}
-	return RemoteConfig{TikaURL: c.TikaURL, ExtractWorkers: c.ExtractWorkers, MaxConcurrentUnits: u}
+	return apiclient.ScannerEffectiveConfig{TikaUrl: c.TikaURL, ExtractWorkers: c.ExtractWorkers, MaxConcurrentUnits: u}
 }

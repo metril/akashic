@@ -3,14 +3,15 @@ package metadata
 import (
 	"strings"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // ParseRemotePosixDump consumes concatenated `getfacl` output (one stanza per
 // file, separated by blank lines, each starting with `# file: <path>`).
 // Returns a map keyed by absolute path.
-func ParseRemotePosixDump(raw string) map[string]*models.ACL {
-	out := make(map[string]*models.ACL)
+func ParseRemotePosixDump(raw string) map[string]*apiclient.ACLInput {
+	out := make(map[string]*apiclient.ACLInput)
 	for _, stanza := range splitStanzas(raw) {
 		path, body := extractPathAndBody(stanza)
 		if path == "" {
@@ -20,19 +21,15 @@ func ParseRemotePosixDump(raw string) map[string]*models.ACL {
 		if access == nil && defaults == nil {
 			continue
 		}
-		out[path] = &models.ACL{
-			Type:           "posix",
-			Entries:        access,
-			DefaultEntries: defaults,
-		}
+		out[path] = wire.PosixACL(access, defaults)
 	}
 	return out
 }
 
 // ParseRemoteNfs4Dump consumes concatenated `nfs4_getfacl` output prefixed by
 // `# file: <path>` lines emitted from the remote driver script.
-func ParseRemoteNfs4Dump(raw string) map[string]*models.ACL {
-	out := make(map[string]*models.ACL)
+func ParseRemoteNfs4Dump(raw string) map[string]*apiclient.ACLInput {
+	out := make(map[string]*apiclient.ACLInput)
 	for _, stanza := range splitStanzas(raw) {
 		path, body := extractPathAndBody(stanza)
 		if path == "" {
@@ -42,10 +39,7 @@ func ParseRemoteNfs4Dump(raw string) map[string]*models.ACL {
 		if len(entries) == 0 {
 			continue
 		}
-		out[path] = &models.ACL{
-			Type:         "nfsv4",
-			NfsV4Entries: entries,
-		}
+		out[path] = wire.NfsV4ACL(entries)
 	}
 	return out
 }

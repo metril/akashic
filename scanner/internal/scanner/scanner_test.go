@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
-func newTestServer(t *testing.T, onBatch func(models.ScanBatch)) *httptest.Server {
+func newTestServer(t *testing.T, onBatch func(apiclient.ScanBatchIn)) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if onBatch != nil {
@@ -36,7 +36,7 @@ func newTestServer(t *testing.T, onBatch func(models.ScanBatch)) *httptest.Serve
 				defer gz.Close()
 				bodyReader = gz
 			}
-			var b models.ScanBatch
+			var b apiclient.ScanBatchIn
 			if err := json.NewDecoder(bodyReader).Decode(&b); err == nil {
 				onBatch(b)
 			}
@@ -55,22 +55,22 @@ func TestScanner_ScanLocal(t *testing.T) {
 
 	var batchCount atomic.Int32
 	var sawDirectory atomic.Bool
-	server := newTestServer(t, func(b models.ScanBatch) {
+	server := newTestServer(t, func(b apiclient.ScanBatchIn) {
 		batchCount.Add(1)
 		for _, e := range b.Entries {
-			if e.Kind == "directory" {
+			if wire.Deref(e.Kind) == apiclient.Directory {
 				sawDirectory.Store(true)
 			}
 		}
 	})
 	defer server.Close()
 
-	apiClient := client.New(server.URL, "key")
+	apiClient := mustClient(t, server.URL, "key")
 	conn := connector.NewLocalConnector()
 
 	s := New(apiClient, conn, Options{
-		SourceID:  "test-source",
-		ScanID:    "test-scan",
+		SourceID:  testSource,
+		ScanID:    testScan,
 		Root:      dir,
 		BatchSize: 2,
 		Hash:      true,
@@ -101,16 +101,16 @@ func TestScanner_Incremental_PastLastScan(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
 
-	var received []models.EntryRecord
-	server := newTestServer(t, func(b models.ScanBatch) {
+	var received []apiclient.EntryIn
+	server := newTestServer(t, func(b apiclient.ScanBatchIn) {
 		received = append(received, b.Entries...)
 	})
 	defer server.Close()
 
 	past := time.Now().Add(-24 * time.Hour)
-	s := New(client.New(server.URL, "key"), connector.NewLocalConnector(), Options{
-		SourceID:     "src",
-		ScanID:       "scan",
+	s := New(mustClient(t, server.URL, "key"), connector.NewLocalConnector(), Options{
+		SourceID:     testSource,
+		ScanID:       testScan,
 		Root:         dir,
 		BatchSize:    100,
 		Hash:         true,
@@ -127,10 +127,10 @@ func TestScanner_Incremental_PastLastScan(t *testing.T) {
 	}
 
 	for _, entry := range received {
-		if entry.IsDir() {
+		if wire.IsDir(&entry) {
 			continue
 		}
-		if entry.ContentHash == "" {
+		if wire.Deref(entry.ContentHash) == "" {
 			t.Errorf("file %s: expected non-empty hash (mtime after last scan), got empty", entry.Path)
 		}
 	}
@@ -141,16 +141,16 @@ func TestScanner_Incremental_FutureLastScan(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha"), 0644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("beta"), 0644)
 
-	var received []models.EntryRecord
-	server := newTestServer(t, func(b models.ScanBatch) {
+	var received []apiclient.EntryIn
+	server := newTestServer(t, func(b apiclient.ScanBatchIn) {
 		received = append(received, b.Entries...)
 	})
 	defer server.Close()
 
 	future := time.Now().Add(24 * time.Hour)
-	s := New(client.New(server.URL, "key"), connector.NewLocalConnector(), Options{
-		SourceID:     "src",
-		ScanID:       "scan",
+	s := New(mustClient(t, server.URL, "key"), connector.NewLocalConnector(), Options{
+		SourceID:     testSource,
+		ScanID:       testScan,
 		Root:         dir,
 		BatchSize:    100,
 		Hash:         true,
@@ -167,11 +167,11 @@ func TestScanner_Incremental_FutureLastScan(t *testing.T) {
 	}
 
 	for _, entry := range received {
-		if entry.IsDir() {
+		if wire.IsDir(&entry) {
 			continue
 		}
-		if entry.ContentHash != "" {
-			t.Errorf("file %s: expected empty hash (mtime before last scan), got %s", entry.Path, entry.ContentHash)
+		if wire.Deref(entry.ContentHash) != "" {
+			t.Errorf("file %s: expected empty hash (mtime before last scan), got %s", entry.Path, wire.Deref(entry.ContentHash))
 		}
 	}
 }

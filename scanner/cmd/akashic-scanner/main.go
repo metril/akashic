@@ -146,11 +146,20 @@ func main() {
 		excludePatterns = strings.Split(*excludes, ",")
 	}
 
-	apiClient := client.New(cfg.APIUrl, cfg.APIKey)
+	apiClient, err := client.New(cfg.APIUrl, cfg.APIKey)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	sid := *scanID
-	if sid == "" {
-		sid = uuid.New().String()
+	sid := uuid.New()
+	if *scanID != "" {
+		if sid, err = uuid.Parse(*scanID); err != nil {
+			log.Fatalf("--scan-id is not a UUID: %v", err)
+		}
+	}
+	srcID, err := uuid.Parse(*sourceID)
+	if err != nil {
+		log.Fatalf("--source-id is not a UUID: %v", err)
 	}
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
@@ -167,7 +176,10 @@ func main() {
 	)
 	if !*noObserve && cfg.APIKey != "" {
 		state = observe.NewState()
-		reporter = observe.New(cfg.APIUrl, cfg.APIKey, sid, state)
+		reporter, err = observe.New(cfg.APIUrl, cfg.APIKey, sid, state)
+		if err != nil {
+			log.Fatal(err)
+		}
 		// User-cancel: a 409 from heartbeat means the user pressed Stop
 		// in the UI. Cancel the outer context so the connector and
 		// walker both unwind. scanner.Run returns ctx.Err() which we
@@ -184,7 +196,7 @@ func main() {
 	}
 
 	s := scanner.New(apiClient, conn, scanner.Options{
-		SourceID:        *sourceID,
+		SourceID:        srcID,
 		ScanID:          sid,
 		Root:            *root,
 		BatchSize:       *batchSize,

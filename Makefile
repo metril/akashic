@@ -75,11 +75,13 @@ logs:
 ps:
 	docker compose ps
 
-# Regenerate the committed OpenAPI spec (openapi.json at the repo root) and
-# the TypeScript schema built from it (web/src/api/schema.d.ts). The spec
-# needs the api package installed (`pip install -e "api[dev]"`); no DB or
-# Redis. The TS step runs under node:20-alpine (musl) like the web image.
-# CI fails if either committed file is stale.
+# Regenerate the committed OpenAPI spec (openapi.json at the repo root), the
+# TypeScript schema built from it (web/src/api/schema.d.ts) and the Go clients
+# (scanner/internal/apiclient, cli/internal/apiclient). The spec needs the api
+# package installed (`pip install -e "api[dev]"`); no DB or Redis. The TS step
+# runs under node:20-alpine (musl) like the web image; the Go step runs under
+# golang:1.25 with oapi-codegen pinned by each module's go.mod `tool` directive.
+# CI fails if any committed output is stale.
 openapi:
 	python api/scripts/dump_openapi.py
 	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/w node:20-alpine sh -c '\
@@ -87,3 +89,7 @@ openapi:
 		cp /w/web/package.json /w/web/package-lock.json /tmp/gen/web/ && cd /tmp/gen/web && \
 		npm ci --no-audit --no-fund && npm run generate:api && \
 		cp src/api/schema.d.ts /w/web/src/api/schema.d.ts'
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOMODCACHE=/tmp/gomod -v $(CURDIR):/src golang:1.25 sh -c '\
+		for m in scanner cli; do \
+			(cd /src/$$m && go tool oapi-codegen -config internal/apiclient/oapi-codegen.yaml ../openapi.json) || exit 1; \
+		done'

@@ -145,6 +145,13 @@ jobs:
           cache-dependency-path: |
             scanner/go.sum
             cli/go.sum
+      - name: Generated Go clients are current
+        run: |
+          for m in scanner cli; do
+            (cd "$m" && go tool oapi-codegen -config internal/apiclient/oapi-codegen.yaml ../openapi.json)
+          done
+          git diff --exit-code -- scanner/internal/apiclient cli/internal/apiclient \
+            || { echo "::error::Go API clients are stale; run 'make openapi' and commit them"; exit 1; }
       - name: Run go test
         working-directory: scanner
         run: go test ./...

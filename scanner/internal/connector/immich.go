@@ -15,8 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // v0.39.0 — retry knobs for fetchJSON. Mirrors client.SendBatch
@@ -204,7 +205,7 @@ func (c *ImmichConnector) Connect(ctx context.Context) error {
 // on the source.
 func (c *ImmichConnector) Walk(
 	ctx context.Context, root string, _ []string, _ bool, _ bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	var stats walker.WalkStats
 	if c.httpClient == nil {
@@ -217,10 +218,10 @@ func (c *ImmichConnector) Walk(
 			return nil
 		}
 		emittedDirs[dirPath] = true
-		return fn(&models.EntryRecord{
+		return fn(&apiclient.EntryIn{
 			Path: dirPath,
 			Name: pathBase(dirPath),
-			Kind: "directory",
+			Kind: wire.To(apiclient.Directory),
 		})
 	}
 
@@ -343,7 +344,7 @@ func (c *ImmichConnector) Close() error { return nil }
 
 // ----- helpers -----
 
-func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *models.EntryRecord {
+func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *apiclient.EntryIn {
 	// Path keying: "fileCreatedAt" is the file system mtime as Immich
 	// recorded it on import. Falls back to "exifInfo.dateTimeOriginal"
 	// (camera shutter time) when fileCreatedAt is missing. Falls back
@@ -380,25 +381,25 @@ func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *mo
 	parentPath := "/All Photos/" + safeSegment(year) + "/" + safeSegment(month)
 	fullPath := parentPath + "/" + safeSegment(base)
 
-	entry := &models.EntryRecord{
+	entry := &apiclient.EntryIn{
 		Path:      fullPath,
 		Name:      safeSegment(base),
-		Kind:      "file",
-		Extension: strings.ToLower(ext),
+		Kind:      wire.To(apiclient.File),
+		Extension: wire.Str(strings.ToLower(ext)),
 	}
 	if !when.IsZero() {
 		t := when
-		entry.ModifiedAt = &t
+		entry.FsModifiedAt = &t
 	}
 	if !asset.FileCreatedAt.IsZero() {
 		t := asset.FileCreatedAt
-		entry.CreatedAt = &t
+		entry.FsCreatedAt = &t
 	}
 	if asset.Checksum != "" {
 		// Immich stores SHA1 of the file. Prefix to match the
 		// namespace convention used elsewhere (sha1:, md5:, sha256:,
 		// etag:, dropbox:, quickxor:) — review notable.
-		entry.ContentHash = "sha1:" + strings.ToLower(asset.Checksum)
+		entry.ContentHash = wire.Str("sha1:" + strings.ToLower(asset.Checksum))
 	}
 
 	dm := map[string]interface{}{
@@ -441,7 +442,7 @@ func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *mo
 			dm["person"] = names
 		}
 	}
-	entry.DomainMetadata = dm
+	entry.DomainMetadata = &dm
 	return entry
 }
 
@@ -583,18 +584,18 @@ func stripExt(s string) string {
 
 type immichSearchResponse struct {
 	Assets struct {
-		NextPage string         `json:"nextPage"`
-		Items    []immichAsset  `json:"items"`
+		NextPage string        `json:"nextPage"`
+		Items    []immichAsset `json:"items"`
 	} `json:"assets"`
 }
 
 type immichAsset struct {
-	ID               string           `json:"id"`
-	OriginalFileName string           `json:"originalFileName"`
-	OriginalPath     string           `json:"originalPath"`
-	FileCreatedAt    time.Time        `json:"fileCreatedAt"`
-	Checksum         string           `json:"checksum"`
-	ExifInfo         *immichExifInfo  `json:"exifInfo"`
+	ID               string            `json:"id"`
+	OriginalFileName string            `json:"originalFileName"`
+	OriginalPath     string            `json:"originalPath"`
+	FileCreatedAt    time.Time         `json:"fileCreatedAt"`
+	Checksum         string            `json:"checksum"`
+	ExifInfo         *immichExifInfo   `json:"exifInfo"`
 	People           []immichPersonRef `json:"people"`
 }
 
@@ -619,8 +620,8 @@ type immichAlbumRef struct {
 }
 
 type immichAlbumDetail struct {
-	ID        string         `json:"id"`
-	AlbumName string         `json:"albumName"`
+	ID        string          `json:"id"`
+	AlbumName string          `json:"albumName"`
 	Assets    []immichAssetID `json:"assets"`
 }
 

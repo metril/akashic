@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
 )
 
 // fakeConn is a minimal connector.Connector for pool tests: ReadFile
@@ -22,7 +22,7 @@ type fakeConn struct {
 }
 
 func (f *fakeConn) Connect(context.Context) error { return nil }
-func (f *fakeConn) Walk(context.Context, string, []string, bool, bool, func(*models.EntryRecord) error) (walker.WalkStats, error) {
+func (f *fakeConn) Walk(context.Context, string, []string, bool, bool, func(*apiclient.EntryIn) error) (walker.WalkStats, error) {
 	return walker.WalkStats{}, nil
 }
 func (f *fakeConn) ReadFile(_ context.Context, path string) (io.ReadCloser, error) {

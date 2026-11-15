@@ -25,8 +25,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/client"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestAdaptiveBatcher_HalvesOnly_OnLoadSignal(t *testing.T) {
@@ -49,10 +50,10 @@ func TestAdaptiveBatcher_HalvesOnly_OnLoadSignal(t *testing.T) {
 				w.WriteHeader(tc.status)
 			}))
 			defer srv.Close()
-			c := client.New(srv.URL, "k")
-			_, err := c.SendBatch(context.Background(), models.ScanBatch{
-				SourceID: "s", ScanID: "sc",
-				Entries: []models.EntryRecord{{Path: "/a", Kind: "file"}},
+			c := mustClient(t, srv.URL, "k")
+			_, err := c.SendBatch(context.Background(), apiclient.ScanBatchIn{
+				SourceId: testSource, ScanId: testScan,
+				Entries: []apiclient.EntryIn{{Path: "/a", Kind: wire.To(apiclient.File)}},
 			})
 			if err == nil {
 				t.Fatal("expected error from SendBatch")

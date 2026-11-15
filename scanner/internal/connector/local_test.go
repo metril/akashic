@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 func TestLocalConnector_Walk(t *testing.T) {
@@ -22,8 +23,8 @@ func TestLocalConnector_Walk(t *testing.T) {
 	}
 	defer c.Close()
 
-	var entries []*models.EntryRecord
-	_, err := c.Walk(context.Background(), dir, nil, true, true, func(e *models.EntryRecord) error {
+	var entries []*apiclient.EntryIn
+	_, err := c.Walk(context.Background(), dir, nil, true, true, func(e *apiclient.EntryIn) error {
 		entries = append(entries, e)
 		return nil
 	})
@@ -33,9 +34,9 @@ func TestLocalConnector_Walk(t *testing.T) {
 
 	fileCount := 0
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !wire.IsDir(e) {
 			fileCount++
-			if e.ContentHash == "" {
+			if wire.Deref(e.ContentHash) == "" {
 				t.Errorf("expected hash for %s", e.Path)
 			}
 		}
@@ -110,7 +111,7 @@ func TestLocalConnector_WalkShallow_SubdirsReturnedFilesEmitted(t *testing.T) {
 
 	var files []string
 	subdirs, err := c.WalkShallow(context.Background(), dir, nil, false,
-		func(e *models.EntryRecord) error {
+		func(e *apiclient.EntryIn) error {
 			files = append(files, filepath.Base(e.Path))
 			return nil
 		})

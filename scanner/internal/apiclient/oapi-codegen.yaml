@@ -1,0 +1,11 @@
+# Regenerate: make openapi   (go tool oapi-codegen -config internal/apiclient/oapi-codegen.yaml ../openapi.json)
+package: apiclient
+output: internal/apiclient/apiclient.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  include-tags:
+    - Scanner protocol (internal)
+  skip-prune: false
+  response-type-suffix: Reply

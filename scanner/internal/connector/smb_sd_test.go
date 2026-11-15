@@ -89,17 +89,21 @@ func TestQuerySecurityDescriptor_IntegrationWithSDToNtACL(t *testing.T) {
 		t.Fatalf("querySecurityDescriptor: %v", err)
 	}
 
-	acl, err := metadata.SDToNtACL(raw, c.resolver)
+	wrapped, err := metadata.SDToNtACL(raw, c.resolver)
 	if err != nil {
 		t.Fatalf("SDToNtACL: %v", err)
 	}
-	if acl.Type != "nt" {
-		t.Errorf("ACL type: got %q want \"nt\"", acl.Type)
+	if got := aclType(wrapped); got != "nt" {
+		t.Errorf("ACL type: got %q want \"nt\"", got)
+	}
+	acl, err := wrapped.AsNtACLInput()
+	if err != nil {
+		t.Fatalf("not an nt ACL: %v", err)
 	}
 	if acl.Owner == nil || acl.Owner.Sid == "" {
 		t.Error("expected non-empty owner SID")
 	}
-	if len(acl.NtEntries) == 0 {
+	if len(acl.Entries) == 0 {
 		t.Error("expected at least one DACL ACE")
 	}
 }

@@ -13,9 +13,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // inaccessibleWalkConn emits zero entries but reports a non-zero
@@ -25,23 +25,23 @@ type inaccessibleWalkConn struct{ emptyWalkConn }
 
 func (inaccessibleWalkConn) Walk(
 	_ context.Context, _ string, _ []string, _ bool, _ bool,
-	_ func(*models.EntryRecord) error,
+	_ func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	return walker.WalkStats{InaccessibleDirs: 2, InaccessibleFiles: 3}, nil
 }
 
-func runCapturingLastBatch(t *testing.T, suppress bool) models.ScanBatch {
+func runCapturingLastBatch(t *testing.T, suppress bool) apiclient.ScanBatchIn {
 	t.Helper()
-	var last models.ScanBatch
+	var last apiclient.ScanBatchIn
 	var seen bool
-	srv := newTestServer(t, func(b models.ScanBatch) {
+	srv := newTestServer(t, func(b apiclient.ScanBatchIn) {
 		last = b
 		seen = true
 	})
 	defer srv.Close()
 
-	s := New(client.New(srv.URL, "k"), inaccessibleWalkConn{}, Options{
-		SourceID: "src", ScanID: "scan", Root: "/", BatchSize: 10,
+	s := New(mustClient(t, srv.URL, "k"), inaccessibleWalkConn{}, Options{
+		SourceID: testSource, ScanID: testScan, Root: "/", BatchSize: 10,
 		SuppressScanFinal: suppress,
 	})
 	if _, err := s.Run(context.Background()); err != nil {
@@ -55,20 +55,20 @@ func runCapturingLastBatch(t *testing.T, suppress bool) models.ScanBatch {
 
 func TestSuppressScanFinal_ForcesIsFinalFalse(t *testing.T) {
 	b := runCapturingLastBatch(t, true)
-	if b.IsFinal {
+	if wire.Deref(b.IsFinal) {
 		t.Error("SuppressScanFinal=true: final batch still wired IsFinal=true")
 	}
 	// The inaccessible-count totals must still ride the last batch —
 	// they are decoupled from the wire IsFinal flag.
-	if b.InaccessibleDirs != 2 || b.InaccessibleFiles != 3 {
+	if wire.Deref(b.InaccessibleDirs) != 2 || wire.Deref(b.InaccessibleFiles) != 3 {
 		t.Errorf("inaccessible counts lost on suppressed final batch: dirs=%d files=%d",
-			b.InaccessibleDirs, b.InaccessibleFiles)
+			wire.Deref(b.InaccessibleDirs), wire.Deref(b.InaccessibleFiles))
 	}
 }
 
 func TestSuppressScanFinal_DefaultSendsIsFinalTrue(t *testing.T) {
 	b := runCapturingLastBatch(t, false)
-	if !b.IsFinal {
+	if !wire.Deref(b.IsFinal) {
 		t.Error("SuppressScanFinal=false: final batch should wire IsFinal=true")
 	}
 }

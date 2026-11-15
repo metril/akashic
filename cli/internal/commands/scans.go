@@ -100,7 +100,11 @@ func NewScanCmd(c *client.Client) *cobra.Command {
 		Short: "Cancel a running scan",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := c.CancelScan(context.Background(), args[0]); err != nil {
+			id, err := client.ParseID("scan id", args[0])
+			if err != nil {
+				return &ExitErr{Code: ExitUserErr, Err: err}
+			}
+			if err := c.CancelScan(context.Background(), id); err != nil {
 				return classifyAPIError(err)
 			}
 			fmt.Printf("Cancelled scan %s\n", args[0])
@@ -115,21 +119,25 @@ func NewScanCmd(c *client.Client) *cobra.Command {
 		Short: "Block until a scan reaches a terminal state",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := client.ParseID("scan id", args[0])
+			if err != nil {
+				return &ExitErr{Code: ExitUserErr, Err: err}
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)
 			defer cancel()
 			ticker := time.NewTicker(waitInterval)
 			defer ticker.Stop()
 			for {
-				scan, err := c.GetScan(ctx, args[0])
+				scan, err := c.GetScan(ctx, id)
 				if err != nil {
 					return classifyAPIError(err)
 				}
 				if terminalScanStatuses[scan.Status] {
-					fmt.Printf("scan %s -> %s\n", scan.ID, scan.Status)
+					fmt.Printf("scan %s -> %s\n", scan.Id, scan.Status)
 					if scan.Status == "failed" {
 						return &ExitErr{
 							Code: ExitScanFailed,
-							Err:  fmt.Errorf("scan %s failed", scan.ID),
+							Err:  fmt.Errorf("scan %s failed", scan.Id),
 						}
 					}
 					return nil
@@ -160,7 +168,15 @@ func runListScans(c *client.Client, limit int) error {
 	}
 	fmt.Printf("%-36s  %-36s  %-10s  %-12s  %s\n", "ID", "SOURCE ID", "STATUS", "FILES FOUND", "STARTED AT")
 	for _, s := range scans {
-		fmt.Printf("%-36s  %-36s  %-10s  %-12d  %s\n", s.ID, s.SourceID, s.Status, s.FilesFound, s.StartedAt)
+		fmt.Printf("%-36s  %-36s  %-10s  %-12d  %s\n", s.Id, s.SourceId, s.Status, s.FilesFound, formatTime(s.StartedAt, ""))
 	}
 	return nil
+}
+
+// formatTime renders an optional timestamp as RFC 3339, or `none` when unset.
+func formatTime(t *time.Time, none string) string {
+	if t == nil {
+		return none
+	}
+	return t.Format(time.RFC3339)
 }

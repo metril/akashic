@@ -21,6 +21,64 @@
         "title": "ACEReference",
         "type": "object"
       },
+      "ACL-Input": {
+        "discriminator": {
+          "mapping": {
+            "cloud_drive": "#/components/schemas/CloudDriveACL-Input",
+            "nfsv4": "#/components/schemas/NfsV4ACL-Input",
+            "nt": "#/components/schemas/NtACL-Input",
+            "posix": "#/components/schemas/PosixACL-Input",
+            "s3": "#/components/schemas/S3ACL-Input"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PosixACL-Input"
+          },
+          {
+            "$ref": "#/components/schemas/NfsV4ACL-Input"
+          },
+          {
+            "$ref": "#/components/schemas/NtACL-Input"
+          },
+          {
+            "$ref": "#/components/schemas/S3ACL-Input"
+          },
+          {
+            "$ref": "#/components/schemas/CloudDriveACL-Input"
+          }
+        ]
+      },
+      "ACL-Output": {
+        "discriminator": {
+          "mapping": {
+            "cloud_drive": "#/components/schemas/CloudDriveACL-Output",
+            "nfsv4": "#/components/schemas/NfsV4ACL-Output",
+            "nt": "#/components/schemas/NtACL-Output",
+            "posix": "#/components/schemas/PosixACL-Output",
+            "s3": "#/components/schemas/S3ACL-Output"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PosixACL-Output"
+          },
+          {
+            "$ref": "#/components/schemas/NfsV4ACL-Output"
+          },
+          {
+            "$ref": "#/components/schemas/NtACL-Output"
+          },
+          {
+            "$ref": "#/components/schemas/S3ACL-Output"
+          },
+          {
+            "$ref": "#/components/schemas/CloudDriveACL-Output"
+          }
+        ]
+      },
       "AccessPrincipal": {
         "description": "The principal that was looked up.",
         "properties": {
@@ -3359,40 +3417,13 @@
           "acl": {
             "anyOf": [
               {
-                "discriminator": {
-                  "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL-Output",
-                    "nfsv4": "#/components/schemas/NfsV4ACL-Output",
-                    "nt": "#/components/schemas/NtACL-Output",
-                    "posix": "#/components/schemas/PosixACL-Output",
-                    "s3": "#/components/schemas/S3ACL-Output"
-                  },
-                  "propertyName": "type"
-                },
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/PosixACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NfsV4ACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NtACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/S3ACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/CloudDriveACL-Output"
-                  }
-                ]
+                "$ref": "#/components/schemas/ACL-Output"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none.",
-            "title": "Acl"
+            "description": "Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none."
           },
           "content_hash": {
             "anyOf": [
@@ -3705,40 +3736,13 @@
           "acl": {
             "anyOf": [
               {
-                "discriminator": {
-                  "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL-Input",
-                    "nfsv4": "#/components/schemas/NfsV4ACL-Input",
-                    "nt": "#/components/schemas/NtACL-Input",
-                    "posix": "#/components/schemas/PosixACL-Input",
-                    "s3": "#/components/schemas/S3ACL-Input"
-                  },
-                  "propertyName": "type"
-                },
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/PosixACL-Input"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NfsV4ACL-Input"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NtACL-Input"
-                  },
-                  {
-                    "$ref": "#/components/schemas/S3ACL-Input"
-                  },
-                  {
-                    "$ref": "#/components/schemas/CloudDriveACL-Input"
-                  }
-                ]
+                "$ref": "#/components/schemas/ACL-Input"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Access control list as read from the storage system; null when it reports none.",
-            "title": "Acl"
+            "description": "Access control list as read from the storage system; null when it reports none."
           },
           "content_hash": {
             "anyOf": [
@@ -4299,40 +4303,13 @@
           "acl": {
             "anyOf": [
               {
-                "discriminator": {
-                  "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL-Output",
-                    "nfsv4": "#/components/schemas/NfsV4ACL-Output",
-                    "nt": "#/components/schemas/NtACL-Output",
-                    "posix": "#/components/schemas/PosixACL-Output",
-                    "s3": "#/components/schemas/S3ACL-Output"
-                  },
-                  "propertyName": "type"
-                },
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/PosixACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NfsV4ACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/NtACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/S3ACL-Output"
-                  },
-                  {
-                    "$ref": "#/components/schemas/CloudDriveACL-Output"
-                  }
-                ]
+                "$ref": "#/components/schemas/ACL-Output"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "ACL at the time of this version; null when none was recorded.",
-            "title": "Acl"
+            "description": "ACL at the time of this version; null when none was recorded."
           },
           "content_hash": {
             "anyOf": [

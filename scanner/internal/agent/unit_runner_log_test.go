@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
@@ -40,19 +41,22 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	// when the log sink has buffered lines, so >=1 proves logs flowed.
 	var logPosts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/scans/scan-1/log" {
+		if r.URL.Path == "/api/v1/scans/"+testScanID.String()+"/log" {
 			logPosts.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		// ingest/batch, heartbeat, etc. — accept with a minimal body.
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"files_processed":0,"scan_id":"scan-1","extract_candidates":[]}`))
+		_, _ = w.Write([]byte(`{"files_processed":0,"scan_id":"55555555-5555-4555-8555-555555555555","extract_candidates":[]}`))
 	}))
 	defer srv.Close()
 
 	state := observe.NewState()
-	reporter := observe.New(srv.URL, "key", "scan-1", state)
+	reporter, err := observe.New(srv.URL, "key", testScanID, state)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reporter.Start(context.Background())
 
 	var conn connector.Connector = connector.NewLocalConnector()
@@ -61,17 +65,21 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	}
 
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	cfg := Config{APIBase: srv.URL, ScannerID: "scanner-1"}
-	leased := &leasedScan{
-		ScanID:   "scan-1",
+	cfg := Config{APIBase: srv.URL, ScannerID: testScannerID}
+	leased := &apiclient.LeasedScan{
+		ScanId:   testScanID,
 		ScanType: "incremental",
-		Source:   leasedSource{ID: "src-1", Type: "local"},
+		Source:   apiclient.LeasedSource{Id: testSourceID, Type: "local"},
 	}
-	unit := &workUnit{ID: "unit-1", ScanID: "scan-1", Path: "sub"}
+	unit := &apiclient.WorkUnitOut{Id: testUnitID, ScanId: testScanID, Path: "sub"}
 
-	err := runUnitWalk(
+	apiClient, err := client.New(srv.URL, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runUnitWalk(
 		context.Background(), srv.Client(), cfg, priv,
-		client.New(srv.URL, "key"), conn,
+		apiClient, conn,
 		leased, dir, unit, state, reporter,
 		nil /*excludes*/, nil /*extractor*/, nil /*extractFactory*/, 0,
 	)

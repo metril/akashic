@@ -15,8 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/walker"
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // v0.22.0 — concurrent /permissions fetches per directory's children
@@ -42,16 +43,16 @@ type OneDriveConfig struct {
 // v1.0 API. Same shape as gdrive.go: BFS by item ID, plain net/http +
 // JSON (no msgraph-sdk-go dep — the surface we use is small enough).
 //
-// Path synthesis: Graph's DriveItem carries a ``parentReference.path``
-// of the form ``/drive/root:/Documents/Reports`` — strip the
-// ``/drive/root:`` prefix to get akashic's display path. OneDrive
+// Path synthesis: Graph's DriveItem carries a “parentReference.path“
+// of the form “/drive/root:/Documents/Reports“ — strip the
+// “/drive/root:“ prefix to get akashic's display path. OneDrive
 // enforces unique sibling names so we don't need Drive's
-// `` (id)`` collision suffix.
+// “ (id)“ collision suffix.
 //
-// Hash: ``file.hashes.sha1Hash`` is the most universally available;
-// emit ``sha1:<hex>`` so content_hash plays nicely with the existing
-// prefix-tagged hash vocabulary. Fall back to ``file.hashes.quickXorHash``
-// (consumer OneDrive only) prefixed ``quickxor:`` when sha1 is absent.
+// Hash: “file.hashes.sha1Hash“ is the most universally available;
+// emit “sha1:<hex>“ so content_hash plays nicely with the existing
+// prefix-tagged hash vocabulary. Fall back to “file.hashes.quickXorHash“
+// (consumer OneDrive only) prefixed “quickxor:“ when sha1 is absent.
 type OneDriveConnector struct {
 	cfg                *OneDriveConfig
 	httpClient         *http.Client
@@ -107,7 +108,7 @@ func (c *OneDriveConnector) Walk(
 	excludePatterns []string,
 	computeHash bool,
 	fullScan bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) (walker.WalkStats, error) {
 	stats := walker.WalkStats{}
 
@@ -125,11 +126,11 @@ func (c *OneDriveConnector) Walk(
 	}
 	rootPath := "/" + rootName
 
-	if err := fn(&models.EntryRecord{
+	if err := fn(&apiclient.EntryIn{
 		Path:     rootPath,
 		Name:     rootName,
-		Kind:     "directory",
-		NativeID: c.cfg.ItemID,
+		Kind:     wire.To(apiclient.Directory),
+		NativeId: wire.Str(c.cfg.ItemID),
 	}); err != nil {
 		return stats, err
 	}
@@ -223,18 +224,18 @@ func (c *OneDriveConnector) Walk(
 		for i, k := range keepers {
 			rec := buildOneDriveEntry(k.item, k.path)
 			if !computeHash {
-				rec.ContentHash = ""
+				rec.ContentHash = nil
 			}
 			pr := results[i]
 			if pr.err == nil {
 				rec.Acl = buildOneDriveACL(pr.perms)
-			} else if !rec.IsDir() {
+			} else if !wire.IsDir(rec) {
 				stats.InaccessibleFiles++
 			}
 			if err := fn(rec); err != nil {
 				return stats, err
 			}
-			if rec.IsDir() {
+			if wire.IsDir(rec) {
 				queue = append(queue, queued{id: k.item.ID, path: k.path})
 			}
 		}
@@ -247,7 +248,7 @@ func (c *OneDriveConnector) WalkShallow(
 	root string,
 	excludePatterns []string,
 	computeHash bool,
-	fn func(*models.EntryRecord) error,
+	fn func(*apiclient.EntryIn) error,
 ) ([]string, error) {
 	rootID := c.cfg.ItemID
 	if rootID == "" {
@@ -262,11 +263,11 @@ func (c *OneDriveConnector) WalkShallow(
 		rootName = name
 	}
 	rootPath := "/" + rootName
-	if err := fn(&models.EntryRecord{
+	if err := fn(&apiclient.EntryIn{
 		Path:     rootPath,
 		Name:     rootName,
-		Kind:     "directory",
-		NativeID: c.cfg.ItemID,
+		Kind:     wire.To(apiclient.Directory),
+		NativeId: wire.Str(c.cfg.ItemID),
 	}); err != nil {
 		return nil, err
 	}
@@ -337,7 +338,7 @@ func (c *OneDriveConnector) WalkShallow(
 	for i, k := range fileKeepers {
 		rec := buildOneDriveEntry(k.item, k.path)
 		if !computeHash {
-			rec.ContentHash = ""
+			rec.ContentHash = nil
 		}
 		if results[i].err == nil {
 			rec.Acl = buildOneDriveACL(results[i].perms)
@@ -383,10 +384,10 @@ type driveItem struct {
 	File                 *struct {
 		MimeType string `json:"mimeType"`
 		Hashes   struct {
-			SHA1Hash      string `json:"sha1Hash"`
-			SHA256Hash    string `json:"sha256Hash"`
-			QuickXorHash  string `json:"quickXorHash"`
-			Crc32Hash     string `json:"crc32Hash"`
+			SHA1Hash     string `json:"sha1Hash"`
+			SHA256Hash   string `json:"sha256Hash"`
+			QuickXorHash string `json:"quickXorHash"`
+			Crc32Hash    string `json:"crc32Hash"`
 		} `json:"hashes"`
 	} `json:"file,omitempty"`
 	Folder *struct {
@@ -455,10 +456,10 @@ type driveItemPermissionPage struct {
 }
 
 type driveItemPermission struct {
-	ID            string                       `json:"id"`
-	Roles         []string                     `json:"roles"`
+	ID            string                         `json:"id"`
+	Roles         []string                       `json:"roles"`
 	GrantedToV2   *driveItemGrantedToIdentitySet `json:"grantedToV2,omitempty"`
-	Link          *driveItemSharingLink        `json:"link,omitempty"`
+	Link          *driveItemSharingLink          `json:"link,omitempty"`
 	InheritedFrom *struct {
 		ID   string `json:"id"`
 		Path string `json:"path"`
@@ -478,8 +479,8 @@ type driveItemGrantedToIdentitySet struct {
 }
 
 type driveItemSharingLink struct {
-	Type  string `json:"type"`  // view | edit | embed
-	Scope string `json:"scope"` // anonymous | users | organization
+	Type   string `json:"type"`  // view | edit | embed
+	Scope  string `json:"scope"` // anonymous | users | organization
 	WebURL string `json:"webUrl"`
 }
 
@@ -597,47 +598,47 @@ func (c *OneDriveConnector) do(ctx context.Context, method, url string, body []b
 
 // ── Wire-shape mappers ────────────────────────────────────────────────────
 
-func buildOneDriveEntry(item driveItem, displayPath string) *models.EntryRecord {
-	rec := &models.EntryRecord{
+func buildOneDriveEntry(item driveItem, displayPath string) *apiclient.EntryIn {
+	rec := &apiclient.EntryIn{
 		Path:     displayPath,
 		Name:     item.Name,
-		NativeID: item.ID,
+		NativeId: wire.Str(item.ID),
 	}
 	if item.Folder != nil {
-		rec.Kind = "directory"
+		rec.Kind = wire.To(apiclient.Directory)
 	} else {
-		rec.Kind = "file"
+		rec.Kind = wire.To(apiclient.File)
 		ext := path.Ext(item.Name)
 		if ext != "" {
-			rec.Extension = strings.TrimPrefix(ext, ".")
+			rec.Extension = wire.Str(strings.TrimPrefix(ext, "."))
 		}
 	}
 	if item.File != nil {
-		rec.MimeType = item.File.MimeType
+		rec.MimeType = wire.Str(item.File.MimeType)
 		// Prefer SHA-1 (most universally available across consumer +
 		// business OneDrive). Fall back to QuickXorHash (consumer-
 		// only, but stable enough for dedup).
 		switch {
 		case item.File.Hashes.SHA1Hash != "":
-			rec.ContentHash = "sha1:" + strings.ToLower(item.File.Hashes.SHA1Hash)
+			rec.ContentHash = wire.Str("sha1:" + strings.ToLower(item.File.Hashes.SHA1Hash))
 		case item.File.Hashes.SHA256Hash != "":
-			rec.ContentHash = "sha256:" + strings.ToLower(item.File.Hashes.SHA256Hash)
+			rec.ContentHash = wire.Str("sha256:" + strings.ToLower(item.File.Hashes.SHA256Hash))
 		case item.File.Hashes.QuickXorHash != "":
-			rec.ContentHash = "quickxor:" + item.File.Hashes.QuickXorHash
+			rec.ContentHash = wire.Str("quickxor:" + item.File.Hashes.QuickXorHash)
 		}
 	}
 	if item.Size > 0 {
 		s := item.Size
-		rec.SizeBytes = &s
+		rec.SizeBytes = wire.To(int(s))
 	}
 	if item.LastModifiedDateTime != "" {
 		if t, err := time.Parse(time.RFC3339, item.LastModifiedDateTime); err == nil {
-			rec.ModifiedAt = &t
+			rec.FsModifiedAt = &t
 		}
 	}
 	if item.CreatedDateTime != "" {
 		if t, err := time.Parse(time.RFC3339, item.CreatedDateTime); err == nil {
-			rec.CreatedAt = &t
+			rec.FsCreatedAt = &t
 		}
 	}
 	return rec
@@ -646,68 +647,68 @@ func buildOneDriveEntry(item driveItem, displayPath string) *models.EntryRecord 
 // buildOneDriveACL maps a DriveItem's permissions[] into the
 // cloud_drive ACL discriminator. Graph permission shapes:
 //
-//  - User grant:  ``grantedToV2.user.{id,email,displayName}`` + roles[]
-//  - Group grant: ``grantedToV2.group.{id,displayName}`` + roles[]
-//  - Sharing link: ``link.{type,scope}`` — scope=anonymous → "anyone"
-//                  with link, scope=organization → "domain", scope=users
-//                  is per-named-user (covered by the user grant in the
-//                  same permission entry).
+//   - User grant:  “grantedToV2.user.{id,email,displayName}“ + roles[]
+//   - Group grant: “grantedToV2.group.{id,displayName}“ + roles[]
+//   - Sharing link: “link.{type,scope}“ — scope=anonymous → "anyone"
+//     with link, scope=organization → "domain", scope=users
+//     is per-named-user (covered by the user grant in the
+//     same permission entry).
 //
-// Roles map: ``read`` → reader, ``write`` → writer, ``owner`` → owner.
+// Roles map: “read“ → reader, “write“ → writer, “owner“ → owner.
 // Graph doesn't have commenter/file_organizer; we leave those Drive-
 // specific.
-func buildOneDriveACL(perms []driveItemPermission) *models.ACL {
+func buildOneDriveACL(perms []driveItemPermission) *apiclient.ACLInput {
 	if len(perms) == 0 {
 		return nil
 	}
-	grants := make([]models.CloudDriveGrant, 0, len(perms))
+	grants := make([]apiclient.CloudDriveGrantInput, 0, len(perms))
 	for _, p := range perms {
 		role := mapOneDriveRole(p.Roles)
 		if role == "" {
 			continue
 		}
-		var principal models.CloudDrivePrincipal
-		var link *models.CloudDriveLink
+		var principal apiclient.CloudDrivePrincipalInput
+		var link *apiclient.CloudDriveLink
 		if p.Link != nil && p.Link.Scope == "anonymous" {
-			principal = models.CloudDrivePrincipal{Type: "anyone", ID: "anyone"}
-			link = &models.CloudDriveLink{ID: p.ID, Scope: "anyone"}
+			principal = apiclient.CloudDrivePrincipalInput{Type: apiclient.CloudDrivePrincipalInputTypeAnyone, Id: "anyone"}
+			link = &apiclient.CloudDriveLink{Id: p.ID, Scope: apiclient.CloudDriveLinkScopeAnyone}
 		} else if p.Link != nil && p.Link.Scope == "organization" {
-			principal = models.CloudDrivePrincipal{Type: "domain", ID: "organization"}
-			link = &models.CloudDriveLink{ID: p.ID, Scope: "domain"}
+			principal = apiclient.CloudDrivePrincipalInput{Type: apiclient.CloudDrivePrincipalInputTypeDomain, Id: "organization"}
+			link = &apiclient.CloudDriveLink{Id: p.ID, Scope: apiclient.CloudDriveLinkScopeDomain}
 		} else if p.GrantedToV2 != nil && p.GrantedToV2.User != nil {
 			u := p.GrantedToV2.User
-			principal = models.CloudDrivePrincipal{
-				Type:  "user",
-				ID:    u.ID,
-				Email: u.Email,
-				Name:  u.DisplayName,
+			principal = apiclient.CloudDrivePrincipalInput{
+				Type:  apiclient.CloudDrivePrincipalInputTypeUser,
+				Id:    u.ID,
+				Email: wire.Str(u.Email),
+				Name:  wire.Str(u.DisplayName),
 			}
 		} else if p.GrantedToV2 != nil && p.GrantedToV2.Group != nil {
 			g := p.GrantedToV2.Group
-			principal = models.CloudDrivePrincipal{
-				Type: "group",
-				ID:   g.ID,
-				Name: g.DisplayName,
+			principal = apiclient.CloudDrivePrincipalInput{
+				Type: apiclient.CloudDrivePrincipalInputTypeGroup,
+				Id:   g.ID,
+				Name: wire.Str(g.DisplayName),
 			}
 		} else {
 			continue // unknown shape — skip rather than emit a malformed grant
 		}
-		grant := models.CloudDriveGrant{
+		grant := apiclient.CloudDriveGrantInput{
 			Principal: principal,
-			Role:      role,
+			Role:      apiclient.CloudDriveGrantInputRole(role),
 			Link:      link,
 		}
 		if p.InheritedFrom != nil {
-			grant.Inherited = true
-			grant.InheritedFromID = p.InheritedFrom.ID
-			grant.InheritedFromPath = p.InheritedFrom.Path
+			grant.Inherited = wire.To(true)
+			grant.InheritedFromId = wire.Str(p.InheritedFrom.ID)
+			grant.InheritedFromPath = wire.Str(p.InheritedFrom.Path)
 		}
 		grants = append(grants, grant)
 	}
 	if len(grants) == 0 {
 		return nil
 	}
-	return &models.ACL{Type: "cloud_drive", CloudDriveGrants: grants}
+	return wire.CloudDriveACL(grants, "")
 }
 
 func mapOneDriveRole(roles []string) string {

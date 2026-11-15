@@ -13,14 +13,15 @@ import (
 
 	"github.com/zeebo/blake3"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // Collect builds an EntryRecord for `path` by calling Lstat. Use this when you
 // don't already have a fs.FileInfo (for example when revisiting a path).
 //
 // The OwnerResolver may be nil; ACL/xattr capture happens unconditionally.
-func Collect(path string, computeHash bool, owners *OwnerResolver) (*models.EntryRecord, error) {
+func Collect(path string, computeHash bool, owners *OwnerResolver) (*apiclient.EntryIn, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
@@ -30,28 +31,24 @@ func Collect(path string, computeHash bool, owners *OwnerResolver) (*models.Entr
 
 // CollectFromInfo builds an EntryRecord from an existing fs.FileInfo. Used by
 // the walker which already has DirEntry/Info from filepath.WalkDir.
-func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *OwnerResolver) (*models.EntryRecord, error) {
-	entry := &models.EntryRecord{
+func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *OwnerResolver) (*apiclient.EntryIn, error) {
+	isDir := info.IsDir()
+	entry := &apiclient.EntryIn{
 		Path: path,
 		Name: info.Name(),
-	}
-	if info.IsDir() {
-		entry.Kind = "directory"
-	} else {
-		entry.Kind = "file"
+		Kind: wire.KindOf(isDir),
 	}
 
-	if entry.Kind == "file" {
+	if !isDir {
 		ext := filepath.Ext(info.Name())
 		if ext != "" {
-			entry.Extension = strings.TrimPrefix(ext, ".")
+			entry.Extension = wire.To(strings.TrimPrefix(ext, "."))
 		}
-		size := info.Size()
-		entry.SizeBytes = &size
+		entry.SizeBytes = wire.To(int(info.Size()))
 	}
 
 	modTime := info.ModTime()
-	entry.ModifiedAt = &modTime
+	entry.FsModifiedAt = &modTime
 
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		// Use the native st_mode (16-bit POSIX value) rather than
@@ -60,46 +57,42 @@ func CollectFromInfo(path string, info fs.FileInfo, computeHash bool, owners *Ow
 		// >2^31 that overflow the API's INT32 mode column. The native
 		// st_mode is what users see in `stat -c %f` and what fits the
 		// schema.
-		mode := uint32(stat.Mode)
-		entry.Mode = &mode
-		uid := stat.Uid
-		gid := stat.Gid
-		entry.Uid = &uid
-		entry.Gid = &gid
+		entry.Mode = wire.To(int(uint32(stat.Mode)))
+		entry.Uid = wire.To(int(stat.Uid))
+		entry.Gid = wire.To(int(stat.Gid))
 		if owners != nil {
-			entry.OwnerName = owners.User(uid)
-			entry.GroupName = owners.Group(gid)
+			entry.OwnerName = wire.Str(owners.User(stat.Uid))
+			entry.GroupName = wire.Str(owners.Group(stat.Gid))
 		}
 		atime := time.Unix(stat.Atim.Sec, stat.Atim.Nsec)
-		entry.AccessedAt = &atime
+		entry.FsAccessedAt = &atime
 		ctime := time.Unix(stat.Ctim.Sec, stat.Ctim.Nsec)
-		entry.CreatedAt = &ctime
+		entry.FsCreatedAt = &ctime
 	} else {
 		// Non-Linux fallback (tests on macOS/Windows, or remote
 		// connectors that don't expose Stat_t). SafeMode masks Go's
 		// high-bit flags down to the 12 POSIX bits so we don't ship a
 		// value that overflows INT32 on the api side.
-		mode := SafeMode(info)
-		entry.Mode = &mode
+		entry.Mode = wire.To(int(SafeMode(info)))
 	}
 
-	if entry.Kind == "file" {
-		entry.MimeType = detectMIME(path)
+	if !isDir {
+		entry.MimeType = wire.To(detectMIME(path))
 	}
 
 	if acl, err := CollectACL(path); err == nil && acl != nil {
 		entry.Acl = acl
 	}
 	if xattrs, err := CollectXattrs(path); err == nil && xattrs != nil {
-		entry.Xattrs = xattrs
+		entry.Xattrs = &xattrs
 	}
 
-	if computeHash && entry.Kind == "file" {
+	if computeHash && !isDir {
 		hash, err := hashFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("hash %s: %w", path, err)
 		}
-		entry.ContentHash = hash
+		entry.ContentHash = &hash
 	}
 
 	return entry, nil

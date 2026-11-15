@@ -17,10 +17,17 @@ package observe
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/client"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // State holds the counters the heartbeat snapshots. All fields are atomic
@@ -71,36 +78,26 @@ func (s *State) SetCurrent(path, phase string) {
 	s.mu.Unlock()
 }
 
-type snapshot struct {
-	CurrentPath      string `json:"current_path,omitempty"`
-	FilesScanned     int64  `json:"files_scanned"`
-	BytesScanned     int64  `json:"bytes_scanned"`
-	FilesSkipped     int64  `json:"files_skipped"`
-	DirsWalked       int64  `json:"dirs_walked"`
-	DirsQueued       int64  `json:"dirs_queued"`
-	TotalEstimated   *int64 `json:"total_estimated,omitempty"`
-	Phase            string `json:"phase,omitempty"`
-	CurrentBatchSize *int64 `json:"current_batch_size,omitempty"`
-}
-
-func (s *State) snapshot() snapshot {
+func (s *State) snapshot() apiclient.HeartbeatIn {
 	s.mu.RLock()
 	cp, ph := s.currentPath, s.phase
 	s.mu.RUnlock()
-	out := snapshot{
-		CurrentPath:  cp,
-		FilesScanned: s.filesScanned.Load(),
-		BytesScanned: s.bytesScanned.Load(),
-		FilesSkipped: s.filesSkipped.Load(),
-		DirsWalked:   s.dirsWalked.Load(),
-		DirsQueued:   s.dirsQueued.Load(),
-		Phase:        ph,
+	out := apiclient.HeartbeatIn{
+		CurrentPath:  wire.Str(cp),
+		FilesScanned: wire.To(int(s.filesScanned.Load())),
+		BytesScanned: wire.To(int(s.bytesScanned.Load())),
+		FilesSkipped: wire.To(int(s.filesSkipped.Load())),
+		DirsWalked:   wire.To(int(s.dirsWalked.Load())),
+		DirsQueued:   wire.To(int(s.dirsQueued.Load())),
+	}
+	if ph != "" {
+		out.Phase = wire.To(apiclient.HeartbeatInPhase(ph))
 	}
 	if t := s.totalEstimated.Load(); t > 0 {
-		out.TotalEstimated = &t
+		out.TotalEstimated = wire.To(int(t))
 	}
 	if b := s.currentBatchSize.Load(); b > 0 {
-		out.CurrentBatchSize = &b
+		out.CurrentBatchSize = wire.To(int(b))
 	}
 	return out
 }
@@ -108,13 +105,10 @@ func (s *State) snapshot() snapshot {
 // Reporter coordinates the three goroutines. Start() launches them,
 // Stop() drains and waits.
 type Reporter struct {
-	apiURL  string
-	apiKey  string
-	scanID  string
+	api     *apiclient.Client
+	scanID  uuid.UUID
 	state   *State
 	logSink *LogSink
-
-	httpClient *http.Client
 
 	// Stop coordination.
 	cancel context.CancelFunc
@@ -131,9 +125,9 @@ type Reporter struct {
 	// itself on a walk error). The agent uses this to tell
 	// "api-driven termination, don't post /complete" apart from
 	// "scanner-side failure, do post /complete with status=failed".
-	userCancel       func()
-	cancelOnce       sync.Once
-	userCancelFired  atomic.Bool
+	userCancel      func()
+	cancelOnce      sync.Once
+	userCancelFired atomic.Bool
 }
 
 // New builds a Reporter. apiURL is the base (e.g., "http://api:8000"),
@@ -141,18 +135,21 @@ type Reporter struct {
 // caller still has to start the goroutines via Start(); split so callers
 // can grab the LogSink before goroutines run (so early log lines aren't
 // lost in a startup race).
-func New(apiURL, apiKey, scanID string, state *State) *Reporter {
+func New(apiURL, apiKey string, scanID uuid.UUID, state *State) (*Reporter, error) {
+	api, err := apiclient.NewClient(apiURL,
+		apiclient.WithHTTPClient(&http.Client{Timeout: 10 * time.Second}),
+		apiclient.WithRequestEditorFn(client.BearerEditor(apiKey)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("observe: api client for %q: %w", apiURL, err)
+	}
 	return &Reporter{
-		apiURL:  apiURL,
-		apiKey:  apiKey,
+		api:     api,
 		scanID:  scanID,
 		state:   state,
 		logSink: newLogSink(),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		done: make(chan struct{}),
-	}
+		done:    make(chan struct{}),
+	}, nil
 }
 
 // LogSink returns the sink that callers should use for structured log

@@ -6,7 +6,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 var getfaclMissing atomic.Bool
@@ -14,7 +15,7 @@ var getfaclMissing atomic.Bool
 // CollectPosixACL returns the access + default POSIX ACL for a path by shelling
 // out to `getfacl`. Returns nil (no error) when getfacl is unavailable or the
 // filesystem doesn't carry ACLs.
-func CollectPosixACL(path string) (*models.ACL, error) {
+func CollectPosixACL(path string) (*apiclient.ACLInput, error) {
 	if getfaclMissing.Load() {
 		return nil, nil
 	}
@@ -32,14 +33,10 @@ func CollectPosixACL(path string) (*models.ACL, error) {
 	if access == nil && defaults == nil {
 		return nil, nil
 	}
-	return &models.ACL{
-		Type:           "posix",
-		Entries:        access,
-		DefaultEntries: defaults,
-	}, nil
+	return wire.PosixACL(access, defaults), nil
 }
 
-func parsePosixACL(raw string) (access, defaults []models.PosixACE) {
+func parsePosixACL(raw string) (access, defaults []apiclient.PosixACEInput) {
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -63,7 +60,7 @@ func parsePosixACL(raw string) (access, defaults []models.PosixACE) {
 				tag = "group_obj"
 			}
 		}
-		ace := models.PosixACE{Tag: tag, Qualifier: qualifier, Perms: perms}
+		ace := apiclient.PosixACEInput{Tag: tag, Qualifier: wire.Str(qualifier), Perms: perms}
 		if isDefault {
 			defaults = append(defaults, ace)
 		} else {

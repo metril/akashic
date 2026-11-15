@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,7 +17,7 @@ func TestUnitPool_RegrowsAfterShrink(t *testing.T) {
 	var done atomic.Bool
 	var started sync.Map
 
-	run := func(idx int, _ *workUnit, retire func(int) bool) error {
+	run := func(idx int, _ *apiclient.WorkUnitOut, retire func(int) bool) error {
 		if _, dup := started.LoadOrStore(idx, true); dup {
 			started.Store(idx, true)
 		}

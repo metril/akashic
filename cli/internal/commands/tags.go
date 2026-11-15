@@ -22,7 +22,11 @@ func NewTagCmd(c *client.Client) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			// The server creates the catalogue tag on demand when applying by name.
-			if err := c.TagFile(ctx, addFileID, addTagName); err != nil {
+			fileID, err := client.ParseID("file id", addFileID)
+			if err != nil {
+				return &ExitErr{Code: ExitUserErr, Err: err}
+			}
+			if err := c.TagFile(ctx, fileID, addTagName); err != nil {
 				return fmt.Errorf("tag file: %w", err)
 			}
 			fmt.Printf("Tagged file %s with tag %q\n", addFileID, addTagName)
@@ -44,7 +48,11 @@ func NewTagCmd(c *client.Client) *cobra.Command {
 			}
 			fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "COLOR")
 			for _, t := range tags {
-				fmt.Printf("%-36s  %-20s  %s\n", t.ID, t.Name, t.Color)
+				color := ""
+				if t.Color != nil {
+					color = *t.Color
+				}
+				fmt.Printf("%-36s  %-20s  %s\n", t.Id, t.Name, color)
 			}
 			return nil
 		},

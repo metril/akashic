@@ -6,12 +6,13 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/akashic-project/akashic/scanner/pkg/models"
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 var nfs4GetfaclMissing atomic.Bool
 
-func CollectNfsV4ACL(path string) (*models.ACL, error) {
+func CollectNfsV4ACL(path string) (*apiclient.ACLInput, error) {
 	if nfs4GetfaclMissing.Load() {
 		return nil, nil
 	}
@@ -29,10 +30,7 @@ func CollectNfsV4ACL(path string) (*models.ACL, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
-	return &models.ACL{
-		Type:         "nfsv4",
-		NfsV4Entries: entries,
-	}, nil
+	return wire.NfsV4ACL(entries), nil
 }
 
 var aceTypeMap = map[byte]string{
@@ -70,8 +68,8 @@ var aceMaskLookup = map[byte]string{
 	'y': "synchronize",
 }
 
-func parseNfsV4ACL(raw string) []models.NfsV4ACE {
-	var out []models.NfsV4ACE
+func parseNfsV4ACL(raw string) []apiclient.NfsV4ACEInput {
+	var out []apiclient.NfsV4ACEInput
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -105,11 +103,11 @@ func parseNfsV4ACL(raw string) []models.NfsV4ACE {
 				mask = append(mask, name)
 			}
 		}
-		out = append(out, models.NfsV4ACE{
+		out = append(out, apiclient.NfsV4ACEInput{
 			Principal: principal,
-			AceType:   aceType,
-			Flags:     flags,
-			Mask:      mask,
+			AceType:   apiclient.NfsV4ACEInputAceType(aceType),
+			Flags:     wire.Strs(flags),
+			Mask:      wire.Strs(mask),
 		})
 	}
 	return out

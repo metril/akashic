@@ -7,13 +7,10 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -22,19 +19,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/akashic-project/akashic/scanner/internal/apiclient"
 	"github.com/akashic-project/akashic/scanner/internal/client"
 	"github.com/akashic-project/akashic/scanner/internal/connector"
 	"github.com/akashic-project/akashic/scanner/internal/extract"
 	"github.com/akashic-project/akashic/scanner/internal/observe"
 	"github.com/akashic-project/akashic/scanner/internal/protocol"
 	"github.com/akashic-project/akashic/scanner/internal/scanner"
+	"github.com/akashic-project/akashic/scanner/internal/wire"
 )
 
 // Config holds the agent's runtime configuration. KeyPath is read at
 // startup; the in-memory ed25519.PrivateKey is reloaded on SIGHUP.
 type Config struct {
-	APIBase   string // e.g. https://api.example.com
-	ScannerID string // matches scanners.id on the api
+	APIBase   string    // e.g. https://api.example.com
+	ScannerID uuid.UUID // matches scanners.id on the api
 	KeyPath   string
 	LeasePoll time.Duration // jittered ±20%
 	Hostname  string        // self-reported on handshake
@@ -65,7 +66,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	cfg.Live = &LiveConfig{}
-	cfg.Live.Set(RemoteConfig{ExtractWorkers: 0, MaxConcurrentUnits: 1})
+	cfg.Live.Set(apiclient.ScannerEffectiveConfig{ExtractWorkers: 0, MaxConcurrentUnits: 1})
 
 	// 1) Handshake — single-shot. Out-of-range protocol → fatal.
 	if err := handshake(ctx, httpc, cfg, priv); err != nil {
@@ -115,7 +116,7 @@ func Run(ctx context.Context, cfg Config) error {
 			// don't call /api/v1/scans/{id}/complete ourselves (that would
 			// overwrite the auto-finalization).
 			if err := runUnitCoordinated(ctx, httpc, cfg, priv, leased); err != nil {
-				log.Printf("unit-scan %s failed: %v", leased.ScanID, err)
+				log.Printf("unit-scan %s failed: %v", leased.ScanId, err)
 				sleepWithJitter(ctx, cfg.LeasePoll)
 			}
 			continue
@@ -130,12 +131,12 @@ func Run(ctx context.Context, cfg Config) error {
 			// agent always posted "cancelled", overwriting watchdog
 			// "failed" / sibling "completed". The accurate reason was
 			// already logged by the heartbeat poster's decodeCancelMessage.
-			log.Printf("scan %s stopped (API reported it terminal)", leased.ScanID)
+			log.Printf("scan %s stopped (API reported it terminal)", leased.ScanId)
 		} else if runErr != nil {
-			log.Printf("scan %s failed: %v", leased.ScanID, runErr)
-			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, status, runErr.Error())
+			log.Printf("scan %s failed: %v", leased.ScanId, runErr)
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanId, status, runErr.Error())
 		} else {
-			_ = complete(ctx, httpc, cfg, priv, leased.ScanID, status, "")
+			_ = complete(ctx, httpc, cfg, priv, leased.ScanId, status, "")
 		}
 	}
 }
@@ -145,7 +146,7 @@ func Run(ctx context.Context, cfg Config) error {
 // the runner type-asserts ShallowWalker on the built connector and
 // falls back to legacy if a future connector hasn't implemented it.
 // All shipped connectors (local, nfs, smb, s3) implement it.
-func shouldUseUnits(leased *leasedScan) bool {
+func shouldUseUnits(leased *apiclient.LeasedScan) bool {
 	return leased.Source.MaxParallelScanners > 1
 }
 
@@ -171,7 +172,7 @@ func newKeepaliveTransport() *http.Transport {
 //
 // Setting FLOOR == CEILING pins the size — useful for ops who want
 // reproducible behaviour while we tune defaults.
-func newAdaptiveBatcher(scanID string) *scanner.AdaptiveBatchSize {
+func newAdaptiveBatcher(scanID uuid.UUID) *scanner.AdaptiveBatchSize {
 	initial := envInt("AKASHIC_INGEST_BATCH_SIZE_INITIAL", 1000)
 	floor := envInt("AKASHIC_INGEST_BATCH_SIZE_FLOOR", 250)
 	ceiling := envInt("AKASHIC_INGEST_BATCH_SIZE_CEILING", 5000)
@@ -202,128 +203,35 @@ func envInt(key string, dflt int) int {
 	return n
 }
 
-// ── Wire types ───────────────────────────────────────────────────────────
-
-type leasedSource struct {
-	ID                  string         `json:"id"`
-	Type                string         `json:"type"`
-	ConnectionConfig    map[string]any `json:"connection_config"`
-	ExcludePatterns     []string       `json:"exclude_patterns"`
-	MaxParallelScanners int            `json:"max_parallel_scanners"`
-	// v0.35.0 — work-unit entry budget, resolved API-side through host
-	// inheritance. 0 (an older API that omits the field) → the scanner
-	// falls back to its own default in scanner.Run.
-	ScanChunkSize int `json:"scan_chunk_size"`
-}
-
-type leasedScan struct {
-	ScanID   string       `json:"scan_id"`
-	ScanType string       `json:"scan_type"`
-	Source   leasedSource `json:"source"`
-	APIJWT   string       `json:"api_jwt"`
-}
-
-type handshakeReq struct {
-	ProtocolVersion int    `json:"protocol_version"`
-	Version         string `json:"version,omitempty"`
-	Hostname        string `json:"hostname,omitempty"`
-}
-
-type handshakeResp struct {
-	Config                *RemoteConfig `json:"config"`
-	Accepted              bool          `json:"accepted"`
-	ServerProtocolVersion int           `json:"server_protocol_version"`
-	AcceptedMin           int           `json:"accepted_min"`
-	AcceptedMax           int           `json:"accepted_max"`
-	Reason                string        `json:"reason,omitempty"`
-}
-
-type completeReq struct {
-	Status       string `json:"status"`
-	ErrorMessage string `json:"error_message,omitempty"`
-}
-
-// ── HTTP helpers ─────────────────────────────────────────────────────────
-
-// authHeader mints a fresh JWT per call. Each token carries a unique
-// `jti` (random 16-byte UUID, see MintJWT); the API enforces one-time
-// JTI replay protection in services/scanner_jti.py, so reusing a
-// cached token would 401-replay every call after the first.
-//
-// The pre-v0.27.1 implementation cached one signed header for ~4 min
-// to "save a few microseconds per call" — but Ed25519 signatures are
-// genuinely microsecond-cheap and the cache silently broke the
-// replay guard. Lease/heartbeat/reachability all serialise the same
-// jti, so only the first call per cache cycle succeeded; everything
-// after returned 401 and the agent claimed no work.
-func authHeader(cfg Config, priv ed25519.PrivateKey) (string, error) {
-	tok, err := MintJWT(priv, cfg.ScannerID)
-	if err != nil {
-		return "", err
-	}
-	return "Bearer " + tok, nil
-}
-
-func doJSON(
-	ctx context.Context,
-	httpc *http.Client,
-	method, url string,
-	auth string,
-	body any,
-) (*http.Response, error) {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
-	if err != nil {
-		return nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if auth != "" {
-		req.Header.Set("Authorization", auth)
-	}
-	return httpc.Do(req)
-}
-
 // ── Handshake / heartbeat / lease / complete ─────────────────────────────
 
 func handshake(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 ) error {
-	auth, err := authHeader(cfg, priv)
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return err
 	}
-	body := handshakeReq{
+	resp, err := api.HandshakeWithResponse(ctx, apiclient.HandshakeRequest{
 		ProtocolVersion: protocol.Version,
-		Version:         cfg.Version,
-		Hostname:        cfg.Hostname,
-	}
-	resp, err := doJSON(ctx, httpc, "POST",
-		cfg.APIBase+"/api/v1/scanners/handshake", auth, body)
+		Version:         wire.Str(cfg.Version),
+		Hostname:        wire.Str(cfg.Hostname),
+	})
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUpgradeRequired {
-		var hr handshakeResp
-		_ = json.NewDecoder(resp.Body).Decode(&hr)
+	if resp.StatusCode() == http.StatusUpgradeRequired {
+		var hr apiclient.HandshakeResponse
+		if resp.JSON426 != nil {
+			hr = *resp.JSON426
+		}
 		return fmt.Errorf("api rejected protocol_version=%d (server accepts [%d,%d]): %s",
-			protocol.Version, hr.AcceptedMin, hr.AcceptedMax, hr.Reason)
+			protocol.Version, hr.AcceptedMin, hr.AcceptedMax, wire.Deref(hr.Reason))
 	}
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("handshake HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return httpError("handshake", resp.StatusCode(), resp.Body)
 	}
-	var hr handshakeResp
-	if err := json.NewDecoder(resp.Body).Decode(&hr); err == nil && hr.Config != nil && cfg.Live != nil {
+	if hr := resp.JSON200; hr.Config != nil && cfg.Live != nil {
 		cfg.Live.Set(*hr.Config)
 	}
 	log.Printf("handshake ok: scanner_id=%s protocol=%d hostname=%s",
@@ -334,93 +242,76 @@ func handshake(
 func heartbeatLoop(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
 ) {
+	api, err := newAPI(httpc, cfg, priv)
+	if err != nil {
+		log.Printf("heartbeat: %v", err)
+		return
+	}
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	url := fmt.Sprintf("%s/api/v1/scanners/%s/heartbeat", cfg.APIBase, cfg.ScannerID)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
-		auth, err := authHeader(cfg, priv)
-		if err != nil {
-			log.Printf("heartbeat: sign failed: %v", err)
-			continue
-		}
-		resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
+		resp, err := api.ScannerHeartbeatWithResponse(ctx, cfg.ScannerID)
 		if err != nil {
 			log.Printf("heartbeat: %v", err)
 			continue
 		}
-		var rc RemoteConfig
-		if resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&rc) == nil && cfg.Live != nil {
+		if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil && cfg.Live != nil {
+			rc := *resp.JSON200
 			if prev := cfg.Live.Get(); prev != rc {
 				log.Printf("config updated from api: tika=%q extract_workers=%d max_concurrent_units=%d",
-					rc.TikaURL, rc.ExtractWorkers, rc.MaxConcurrentUnits)
+					rc.TikaUrl, rc.ExtractWorkers, rc.MaxConcurrentUnits)
 			}
 			cfg.Live.Set(rc)
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusUnauthorized {
+		if resp.StatusCode() == http.StatusUnauthorized {
 			log.Printf("heartbeat: 401 (key may have rotated; SIGHUP to reload)")
 		}
 	}
 }
 
-// leaseReq is the POST body for /api/v1/scans/lease. v0.30.2 — carries
-// the running build version so the API keeps scanners.version fresh
-// after an in-place upgrade (it's otherwise only set at claim time).
-type leaseReq struct {
-	AgentVersion string `json:"agent_version"`
-}
-
+// lease asks for a scan. v0.30.2 — it carries the running build version so
+// the API keeps scanners.version fresh after an in-place upgrade (it's
+// otherwise only set at claim time). Returns (nil, nil) when none is queued.
 func lease(
 	ctx context.Context, httpc *http.Client, cfg Config, priv ed25519.PrivateKey,
-) (*leasedScan, error) {
-	auth, err := authHeader(cfg, priv)
+) (*apiclient.LeasedScan, error) {
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := doJSON(ctx, httpc, "POST",
-		cfg.APIBase+"/api/v1/scans/lease", auth, leaseReq{AgentVersion: cfg.Version})
+	resp, err := api.LeaseScanWithResponse(ctx, apiclient.LeaseRequest{AgentVersion: wire.Str(cfg.Version)})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode() == http.StatusNoContent {
 		return nil, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("lease HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusOK || resp.JSON200 == nil {
+		return nil, httpError("lease", resp.StatusCode(), resp.Body)
 	}
-	var ls leasedScan
-	if err := json.NewDecoder(resp.Body).Decode(&ls); err != nil {
-		return nil, fmt.Errorf("decode lease: %w", err)
-	}
-	return &ls, nil
+	return resp.JSON200, nil
 }
 
 func complete(
 	ctx context.Context, httpc *http.Client, cfg Config,
-	priv ed25519.PrivateKey, scanID, status, errMsg string,
+	priv ed25519.PrivateKey, scanID uuid.UUID, status, errMsg string,
 ) error {
-	auth, err := authHeader(cfg, priv)
+	api, err := newAPI(httpc, cfg, priv)
 	if err != nil {
 		return err
 	}
-	resp, err := doJSON(ctx, httpc, "POST",
-		fmt.Sprintf("%s/api/v1/scans/%s/complete", cfg.APIBase, scanID),
-		auth, completeReq{Status: status, ErrorMessage: errMsg})
+	resp, err := api.CompleteScanWithResponse(ctx, scanID,
+		apiclient.CompleteRequest{Status: status, ErrorMessage: wire.Str(errMsg)})
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("complete HTTP %d: %s", resp.StatusCode, string(raw))
+	if resp.StatusCode() != http.StatusNoContent {
+		return httpError("complete", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -436,7 +327,7 @@ func runLeasedScan(
 	ctx context.Context,
 	cfg Config,
 	_ ed25519.PrivateKey,
-	leased *leasedScan,
+	leased *apiclient.LeasedScan,
 ) error {
 	conn, err := connectorFromLeased(leased.Source)
 	if err != nil {
@@ -454,15 +345,25 @@ func runLeasedScan(
 	// shows what's happening without needing the Live Log UI open.
 	scanStart := time.Now()
 	log.Printf("scan %s: started source=%s type=%s root=%q",
-		leased.ScanID, leased.Source.ID, leased.Source.Type, root)
+		leased.ScanId, leased.Source.Id, leased.Source.Type, root)
 	defer func() {
 		log.Printf("scan %s: exited in %s",
-			leased.ScanID, time.Since(scanStart).Round(time.Millisecond))
+			leased.ScanId, time.Since(scanStart).Round(time.Millisecond))
 	}()
-	apiClient := client.New(cfg.APIBase, leased.APIJWT)
+	token, err := ingestToken(leased)
+	if err != nil {
+		return err
+	}
+	apiClient, err := client.New(cfg.APIBase, token)
+	if err != nil {
+		return err
+	}
 
 	state := observe.NewState()
-	reporter := observe.New(cfg.APIBase, leased.APIJWT, leased.ScanID, state)
+	reporter, err := observe.New(cfg.APIBase, token, leased.ScanId, state)
+	if err != nil {
+		return err
+	}
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	reporter.SetUserCancel(cancel)
@@ -476,20 +377,20 @@ func runLeasedScan(
 	// current source + API + proxy stack can sustain. AIMD logging
 	// fires through OnAdjust into the agent's stdout (visible via
 	// `docker compose logs scanner`).
-	batcher := newAdaptiveBatcher(leased.ScanID)
+	batcher := newAdaptiveBatcher(leased.ScanId)
 	s := scanner.New(apiClient, conn, scanner.Options{
-		SourceID:        leased.Source.ID,
-		ScanID:          leased.ScanID,
+		SourceID:        leased.Source.Id,
+		ScanID:          leased.ScanId,
 		Root:            root,
 		BatchSize:       500,
 		AdaptiveBatcher: batcher,
 		Hash:            leased.ScanType == "full",
-		ExcludePatterns: leased.Source.ExcludePatterns,
+		ExcludePatterns: wire.Deref(leased.Source.ExcludePatterns),
 		Reporter:        reporter,
 		State:           state,
 		// v0.30.0 — content extraction. A dedicated connector instance
 		// per extraction pass keeps SMB sessions clear of the walk.
-		Extractor: extract.NewExtractor(cfg.Remote().TikaURL),
+		Extractor: extract.NewExtractor(cfg.Remote().TikaUrl),
 		ExtractConnectorFactory: func() (connector.Connector, error) {
 			return connectorFromLeased(leased.Source)
 		},
@@ -535,7 +436,16 @@ func terminalDisposition(runErr error) (status string, postComplete bool) {
 	}
 }
 
-func connectorFromLeased(src leasedSource) (connector.Connector, error) {
+// ingestToken returns the short-lived ingest JWT the lease response carries;
+// a lease without one cannot authenticate its ingest/heartbeat calls.
+func ingestToken(leased *apiclient.LeasedScan) (string, error) {
+	if leased.ApiJwt == nil || *leased.ApiJwt == "" {
+		return "", fmt.Errorf("scan %s: lease carried no api_jwt", leased.ScanId)
+	}
+	return *leased.ApiJwt, nil
+}
+
+func connectorFromLeased(src apiclient.LeasedSource) (connector.Connector, error) {
 	cfg := src.ConnectionConfig
 	switch src.Type {
 	case "local":
