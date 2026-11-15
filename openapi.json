@@ -12543,16 +12543,6 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12695,16 +12685,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -12757,16 +12737,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -12944,6 +12914,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests."
           },
           "500": {
             "content": {
@@ -14051,16 +14031,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -14109,16 +14079,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -14214,16 +14174,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "422": {
             "content": {
@@ -14423,16 +14373,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "422": {
             "content": {
@@ -14672,16 +14612,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "422": {
             "content": {
@@ -17267,6 +17197,16 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -17353,6 +17293,16 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
           },
           "404": {
             "content": {
@@ -17782,6 +17732,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "429": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests."
           }
         },
         "summary": "OAuth redirect target",
@@ -19173,6 +19133,16 @@
             },
             "description": "Malformed or unacceptable request."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
           "409": {
             "content": {
               "application/json": {
@@ -19183,6 +19153,16 @@
             },
             "description": "Conflicts with the current resource state."
           },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource is gone or expired."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -19192,6 +19172,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests."
           }
         },
         "summary": "Claim With Token",
@@ -19253,6 +19243,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests."
           }
         },
         "summary": "Discover Scanner",
@@ -19359,6 +19359,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client must upgrade."
           }
         },
         "security": [
@@ -20853,6 +20863,16 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -21073,6 +21093,16 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -21144,6 +21174,16 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -21210,6 +21250,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "204": {
+            "description": "No work unit available right now; keep polling."
           },
           "401": {
             "content": {
@@ -22297,16 +22340,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -22461,16 +22494,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "422": {
             "content": {
@@ -23097,16 +23120,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "422": {
             "content": {
@@ -23750,16 +23763,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -23952,16 +23955,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -24019,16 +24012,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -24174,16 +24157,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           }
         },
         "security": [
@@ -24448,6 +24421,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too many requests."
           }
         },
         "summary": "Login",

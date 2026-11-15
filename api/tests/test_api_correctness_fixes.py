@@ -402,3 +402,23 @@ async def test_purge_deleted_counts_all_kinds(
     assert len(removed) == 3
     left = (await db_session.execute(select(Entry))).scalars().all()
     assert left == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("make", [
+    lambda c: "garbage",
+    lambda c: c({"kf": 0}),  # missing keys
+    lambda c: c([1, 2]),  # JSON list
+    lambda c: c({"kf": 1, "s": "x", "id": str(uuid.uuid4()), "sort": "size", "order": "asc"}),  # non-numeric size
+    lambda c: c({"kf": 1, "s": "x", "id": str(uuid.uuid4()), "sort": "name", "order": "desc"}),  # other order
+])
+async def test_browse_malformed_cursor_is_422(client: AsyncClient, db_session: AsyncSession, make):
+    from akashic.schemas.common import encode_cursor
+    user, source = await _admin_and_source(db_session)
+    h = {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
+    cur = make(encode_cursor)
+    r = await client.get(
+        f"/api/v1/browse?source_id={source.id}&sort=size&order=asc",
+        params={"cursor": cur}, headers=h,
+    )
+    assert r.status_code == 422, r.text

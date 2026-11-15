@@ -2,6 +2,7 @@ import pytest
 from pydantic import BaseModel
 
 from akashic.schemas.common import (
+    MAX_OFFSET,
     Page, decode_cursor, decode_offset_cursor, encode_cursor, encode_offset_cursor,
 )
 
@@ -30,12 +31,13 @@ def test_cursor_roundtrip_is_opaque_urlsafe():
 
 
 def test_offset_cursor():
+    assert decode_offset_cursor(encode_offset_cursor(MAX_OFFSET)) == MAX_OFFSET
     assert decode_offset_cursor(None) == 0
     assert decode_offset_cursor("") == 0
     assert decode_offset_cursor(encode_offset_cursor(250)) == 250
 
 
-@pytest.mark.parametrize("bad", ["!!!", "bm90LWpzb24", encode_cursor({"x": 1}), encode_offset_cursor(-1)])
+@pytest.mark.parametrize("bad", ["!!!", "bm90LWpzb24", encode_cursor({"x": 1}), encode_offset_cursor(-1), encode_offset_cursor(MAX_OFFSET + 1)])
 def test_bad_offset_cursor_rejected(bad):
     with pytest.raises(ValueError):
         decode_offset_cursor(bad)

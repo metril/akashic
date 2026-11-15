@@ -261,7 +261,10 @@ async def _broadcast_terminal(
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.post("/scans/{scan_id}/work/lease")
+@router.post(
+    "/scans/{scan_id}/work/lease",
+    responses={204: {"description": "No work unit available right now; keep polling."}},
+)
 async def lease_unit(
     scan_id: uuid.UUID,
     response: Response,

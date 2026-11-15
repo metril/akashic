@@ -7,7 +7,7 @@ import json
 from typing import Any, Generic, TypeVar
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 T = TypeVar("T")
 
@@ -44,7 +44,7 @@ class Page(BaseModel, Generic[T]):
 
 def encode_cursor(payload: dict[str, Any]) -> str:
     """Pack a JSON-serialisable position into an opaque URL-safe cursor."""
-    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str).encode()
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
@@ -60,6 +60,19 @@ def decode_cursor(cursor: str) -> dict[str, Any]:
     return payload
 
 
+def parse_cursor(cursor: str, model: type[BaseModel]) -> Any:
+    """Decode ``cursor`` and validate it against ``model``; HTTP 422 on any malformed cursor."""
+    try:
+        return model.model_validate(decode_cursor(cursor))
+    except (ValueError, ValidationError):  # ValidationError is a ValueError; listed for clarity
+        raise HTTPException(status_code=422, detail="invalid cursor") from None
+
+
+# Offsets beyond this are refused: far past any real result set, and well inside
+# Postgres' bigint OFFSET range.
+MAX_OFFSET = 10_000_000
+
+
 def encode_offset_cursor(offset: int) -> str:
     """Cursor for routes that page by offset internally."""
     return encode_cursor({"o": offset})
@@ -70,7 +83,7 @@ def decode_offset_cursor(cursor: str | None) -> int:
     if not cursor:
         return 0
     offset = decode_cursor(cursor).get("o")
-    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+    if not isinstance(offset, int) or isinstance(offset, bool) or not 0 <= offset <= MAX_OFFSET:
         raise ValueError("invalid cursor")
     return offset
 

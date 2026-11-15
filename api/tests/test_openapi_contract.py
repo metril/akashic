@@ -358,3 +358,50 @@ def test_error_responses_are_derived_per_route(spec):
     assert codes("/api/v1/scanner-discovery-requests/{discovery_id}/approve", "post") >= {"401", "403", "404", "409", "410", "422"}
     assert "409" not in codes("/api/v1/entries", "get")
     assert "404" in codes("/api/v1/entries", "get")  # source-scoped: out-of-scope sources answer 404
+
+
+from fastapi import HTTPException as _HTTPException
+
+from akashic import routing as _routing
+from akashic.errors import ApiHTTPException as _ApiHTTPException
+
+
+def _boom(code: int):
+    raise _HTTPException(status_code=code)
+
+
+class _Gate:
+    def check(self):
+        raise _ApiHTTPException(429, "slow down", code="rate_limited")
+
+
+_gate = _Gate()
+
+
+@pytest.fixture
+def scan_this_module(monkeypatch):
+    monkeypatch.setattr(_routing, "SCANNED_MODULE_PREFIXES", ("akashic", __name__))
+
+
+def test_dynamic_status_requires_explicit_errors(scan_this_module):
+    """Fail closed: a handler raising with a non-literal status must declare its codes."""
+    router = _routing.ApiRouter()
+    with pytest.raises(RuntimeError, match="non-literal status"):
+        @router.get("/x")
+        def bad():
+            _boom(500)
+
+    @router.get("/y", responses=_routing.errors(418))
+    def ok():
+        _boom(418)
+    assert 418 in router.routes[-1].responses
+
+
+def test_helpers_reached_through_attributes_and_subclasses_are_scanned(scan_this_module):
+    router = _routing.ApiRouter()
+
+    @router.get("/z")
+    def z():
+        _gate.check()
+
+    assert 429 in router.routes[-1].responses

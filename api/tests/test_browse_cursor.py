@@ -1,69 +1,55 @@
-"""Cursor encode/decode round-trip + invalid-cursor handling for the
-v0.4.11 Phase 5 browse pagination.
+"""Browse cursor: round trip through the shared helpers, and every malformed
+shape answering 422 (never 500)."""
+import uuid
 
-Pure-function tests against `_encode_cursor` / `_decode_cursor` in
-api/akashic/routers/browse.py. Full-stack pagination behaviour
-(seekable predicates, page boundaries, server-side `q=` filter) is
-covered by the existing browse integration tests + manual smoke;
-those need a postgres fixture.
-"""
 import pytest
 from fastapi import HTTPException
 
-from akashic.routers.browse import _decode_cursor, _encode_cursor
+from akashic.routers.browse import BrowseCursor
+from akashic.schemas.common import encode_cursor, parse_cursor
+
+_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _ok(**over):
+    p = {"kf": 1, "s": "Final.mkv", "id": _ID, "sort": "name", "order": "asc"}
+    p.update(over)
+    return p
 
 
 def test_cursor_round_trips():
-    payload = {
-        "kf": 1,
-        "s": "Final.mkv",
-        "id": "00000000-0000-0000-0000-000000000001",
-        "sort": "name",
-        "order": "asc",
-    }
-    enc = _encode_cursor(payload)
-    dec = _decode_cursor(enc)
-    assert dec == payload
+    c = parse_cursor(encode_cursor(_ok()), BrowseCursor)
+    assert c.s == "Final.mkv" and c.id == uuid.UUID(_ID) and c.kf == 1
 
 
 def test_cursor_handles_special_chars():
-    # Names with quotes / backslashes / unicode shouldn't break the
-    # base64+JSON pipeline.
-    payload = {
-        "kf": 0,
-        "s": 'tricky "name" with \\ and 漢字',
-        "id": "deadbeef-dead-beef-dead-beefdeadbeef",
-        "sort": "name",
-        "order": "desc",
-    }
-    enc = _encode_cursor(payload)
-    dec = _decode_cursor(enc)
-    assert dec["s"] == payload["s"]
+    s = 'tricky "name" with \\ and 漢字'
+    assert parse_cursor(encode_cursor(_ok(s=s, kf=0, order="desc")), BrowseCursor).s == s
 
 
 def test_cursor_handles_null_sort_value():
-    # fs_modified_at can be null — encoded as JSON null and round-trips.
-    payload = {
-        "kf": 1,
-        "s": None,
-        "id": "00000000-0000-0000-0000-000000000002",
-        "sort": "modified",
-        "order": "desc",
-    }
-    enc = _encode_cursor(payload)
-    dec = _decode_cursor(enc)
-    assert dec["s"] is None
+    assert parse_cursor(encode_cursor(_ok(s=None, sort="modified")), BrowseCursor).s is None
 
 
-def test_decode_garbage_raises_400():
+def test_size_and_modified_cursors_accept_their_types():
+    assert parse_cursor(encode_cursor(_ok(s=123, sort="size")), BrowseCursor).s == 123
+    assert parse_cursor(encode_cursor(_ok(s="2024-01-02T03:04:05+00:00", sort="modified")), BrowseCursor)
+
+
+@pytest.mark.parametrize("cursor", [
+    "not-a-valid-cursor!!!",
+    encode_cursor(_ok())[:5],  # truncated
+    encode_cursor([1, 2]),  # JSON list, not an object
+    encode_cursor({"kf": 1}),  # missing keys
+    encode_cursor(_ok(kf=7)),
+    encode_cursor(_ok(id="not-a-uuid")),
+    encode_cursor(_ok(sort="bogus")),
+    encode_cursor(_ok(s="abc", sort="size")),  # non-numeric size
+    encode_cursor(_ok(s=5, sort="name")),
+    encode_cursor(_ok(s="not a date", sort="modified")),
+    encode_cursor(_ok(extra=1)),
+])
+def test_malformed_cursor_is_422(cursor):
     with pytest.raises(HTTPException) as exc:
-        _decode_cursor("not-a-valid-cursor!!!")
-    assert exc.value.status_code == 400
-
-
-def test_decode_truncated_b64_raises_400():
-    # Truncate a valid cursor — the json layer should fail.
-    valid = _encode_cursor({"kf": 0, "s": "x", "id": "u", "sort": "name", "order": "asc"})
-    with pytest.raises(HTTPException) as exc:
-        _decode_cursor(valid[:5])
-    assert exc.value.status_code == 400
+        parse_cursor(cursor, BrowseCursor)
+    assert exc.value.status_code == 422

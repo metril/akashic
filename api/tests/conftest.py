@@ -153,3 +153,64 @@ async def seed_scan(db_session, source_id, *, status: str = "pending"):
     )
     await db_session.commit()
     return sid
+
+
+# ── Runtime check of documented responses ─────────────────────────────────
+# Every HTTP response produced during the run (any test, any client) is
+# recorded as (method, matched route template, status). At session end each
+# observed status must be declared in that route's OpenAPI responses, so the
+# existing tests double as evidence that the spec lists what routes return.
+# Requests matching no route (unknown paths, middleware-level refusals) are
+# not recorded.
+_OBSERVED: set[tuple[str, str, str, int]] = set()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _documented_responses_audit():
+    from fastapi import FastAPI
+
+    original = FastAPI.__call__
+
+    async def recording_call(self, scope, receive, send):
+        status_box: list[int] = []
+
+        async def recording_send(message):
+            if message["type"] == "http.response.start":
+                status_box.append(message["status"])
+            await send(message)
+
+        try:
+            await original(self, scope, receive, recording_send)
+        finally:
+            route = scope.get("route")
+            path = getattr(route, "path", None)
+            if scope["type"] == "http" and path and status_box and scope["method"] not in ("HEAD", "OPTIONS"):
+                _OBSERVED.add((scope["method"], path, scope["path"], status_box[0]))
+
+    FastAPI.__call__ = recording_call
+    yield
+    FastAPI.__call__ = original
+
+    spec = create_app().openapi()
+    import re
+
+    def template_for(method: str, route_path: str, concrete: str):
+        """Full spec path for a matched route (its own `path` may lack the router prefix)."""
+        for tpl, ops in spec["paths"].items():
+            if method.lower() in ops and tpl.endswith(route_path):
+                if re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", tpl), concrete):
+                    return tpl
+        return None
+
+    problems = []
+    matched = 0
+    for method, route_path, concrete, status in sorted(_OBSERVED):
+        tpl = template_for(method, route_path, concrete)
+        if tpl is None:  # not part of the schema (include_in_schema=False)
+            continue
+        matched += 1
+        responses = spec["paths"][tpl][method.lower()]["responses"]
+        if str(status) not in responses and "default" not in responses:
+            problems.append(f"{method} {tpl} -> {status} (documented: {sorted(responses)})")
+    assert matched or not _OBSERVED, "runtime audit matched no observed responses to the spec"
+    assert not problems, "responses observed in tests but not documented in OpenAPI:\n  " + "\n  ".join(sorted(set(problems)))

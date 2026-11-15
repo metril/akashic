@@ -1,6 +1,4 @@
 from datetime import datetime
-import base64
-import json
 import logging
 import os
 import uuid
@@ -8,6 +6,7 @@ from typing import Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +16,7 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.schemas.common import encode_cursor, parse_cursor
 from akashic.schemas.entry import BrowseEntry, BrowsePage
 from akashic.services.access_query import (
     user_has_any_bindings,
@@ -40,22 +40,30 @@ _DEFAULT_PAGE_SIZE = 500
 _MAX_PAGE_SIZE = 5000
 
 
-def _encode_cursor(payload: dict[str, Any]) -> str:
-    """JSON-encode + base64url so the cursor is safe in a URL query."""
-    raw = json.dumps(payload, default=str).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+class BrowseCursor(BaseModel):
+    """Keyset position of the last row of the previous page."""
 
+    model_config = ConfigDict(extra="forbid")
 
-def _decode_cursor(cursor: str) -> dict[str, Any]:
-    """Inverse of _encode_cursor. Raises HTTPException(400) on garbage."""
-    try:
-        # Re-pad — base64.urlsafe_b64decode requires correct padding.
-        pad = "=" * (-len(cursor) % 4)
-        raw = base64.urlsafe_b64decode(cursor + pad)
-        return json.loads(raw.decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.info("browse: bad cursor=%s err=%s", cursor[:32], exc)
-        raise HTTPException(status_code=400, detail="invalid cursor")
+    kf: Literal[0, 1]  # 0 directory, 1 file (directories sort first)
+    s: str | int | None  # last row's sort value; type depends on `sort`
+    id: uuid.UUID
+    sort: Literal["name", "size", "modified"]
+    order: Literal["asc", "desc"]
+
+    @model_validator(mode="after")
+    def _sort_value_matches_sort(self) -> "BrowseCursor":
+        if self.s is not None:
+            if self.sort == "size" and (isinstance(self.s, str) or isinstance(self.s, bool)):
+                raise ValueError("size cursor needs an integer")
+            if self.sort == "name" and not isinstance(self.s, str):
+                raise ValueError("name cursor needs a string")
+            if self.sort == "modified":
+                if not isinstance(self.s, str):
+                    raise ValueError("modified cursor needs a timestamp")
+                datetime.fromisoformat(self.s)  # ValueError -> invalid cursor
+        return self
+
 
 router = ApiRouter(prefix="/browse", tags=["browse"])
 
@@ -172,27 +180,20 @@ async def browse(
     cursor_sort_val: Any = None
     cursor_id: uuid.UUID | None = None
     if cursor is not None:
-        c = _decode_cursor(cursor)
-        # Re-validate the cursor's sort/order match this request — a
-        # cursor minted under sort=name|asc isn't valid against
-        # sort=size|desc; bounce as 400 rather than silently returning
-        # a misordered page.
-        if c.get("sort") != sort or c.get("order") != order:
+        c = parse_cursor(cursor, BrowseCursor)
+        # A cursor minted under sort=name|asc isn't valid against sort=size|desc;
+        # refuse rather than silently return a misordered page.
+        if c.sort != sort or c.order != order:
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail="cursor was minted under a different sort/order; restart pagination",
             )
-        cursor_kind_is_file = int(c["kf"])
-        cursor_sort_val = c["s"]
-        try:
-            cursor_id = uuid.UUID(c["id"])
-            if sort == "modified" and cursor_sort_val is not None:
-                # JSON carries the timestamp as a string; asyncpg won't
-                # bind a str to timestamptz.
-                cursor_sort_val = datetime.fromisoformat(str(cursor_sort_val))
-        except (ValueError, TypeError, KeyError) as exc:
-            logger.info("browse: bad cursor payload: %s", exc)
-            raise HTTPException(status_code=400, detail="invalid cursor")
+        cursor_kind_is_file = c.kf
+        cursor_id = c.id
+        # JSON carries the timestamp as a string; asyncpg won't bind a str to timestamptz.
+        cursor_sort_val = (
+            datetime.fromisoformat(c.s) if sort == "modified" and c.s is not None else c.s
+        )
 
     # Stable ordering with seekable cursor. Three-tier comparison:
     # (kind_is_file, sort_col, Entry.id), matching the ORDER BY exactly.
@@ -279,7 +280,7 @@ async def browse(
             last_sort_val = last.size_bytes
         else:
             last_sort_val = last.fs_modified_at
-        next_cursor = _encode_cursor({
+        next_cursor = encode_cursor({
             "kf": 0 if last.kind == "directory" else 1,
             "s": last_sort_val,
             "id": str(last.id),
