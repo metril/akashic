@@ -31,6 +31,7 @@ const SettingsServer     = lazy(() => import("./pages/SettingsServer"));
 const SettingsOAuth      = lazy(() => import("./pages/SettingsOAuth"));
 const ApiTokens          = lazy(() => import("./pages/ApiTokens"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
+const AdminUsers         = lazy(() => import("./pages/AdminUsers"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 const AdminSystemStatus  = lazy(() => import("./pages/AdminSystemStatus"));
 const AdminMaintenance   = lazy(() => import("./pages/AdminMaintenance"));
@@ -274,6 +275,16 @@ export default function App() {
             <ScopeRoute scope="audit:read">
               <Suspense fallback={<PageLoader />}>
                 <AdminAudit />
+              </Suspense>
+            </ScopeRoute>
+          }
+        />
+        <Route
+          path="admin/users"
+          element={
+            <ScopeRoute scope="users:read">
+              <Suspense fallback={<PageLoader />}>
+                <AdminUsers />
               </Suspense>
             </ScopeRoute>
           }

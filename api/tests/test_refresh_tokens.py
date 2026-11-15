@@ -23,7 +23,7 @@ from akashic.models.user import User
 from akashic.routers.auth import REFRESH_COOKIE
 
 
-async def _seed_user(db: AsyncSession, *, role: str = "user") -> User:
+async def _seed_user(db: AsyncSession, *, role: str = "viewer") -> User:
     user = User(
         id=uuid.uuid4(), username=f"user_{uuid.uuid4().hex[:6]}",
         email="u@e", password_hash=hash_password("hunter2hunter2"), role=role,

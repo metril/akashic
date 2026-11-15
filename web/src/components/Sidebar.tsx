@@ -46,6 +46,7 @@ const sections: NavSection[] = [
   {
     label: "Admin",
     items: [
+      { to: "/admin/users", label: "Users", iconName: "user", scope: "users:read" },
       { to: "/admin/access", label: "Access", iconName: "shield", scope: "access:read" },
       { to: "/admin/audit", label: "Audit log", iconName: "audit-log", scope: "audit:read" },
       { to: "/admin/system-status", label: "System status", iconName: "database", scope: "health:read" },

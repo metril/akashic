@@ -260,3 +260,40 @@ func (c *Client) PurgeSource(ctx context.Context, sourceID uuid.UUID) error {
 	}
 	return check(resp.StatusCode(), resp.Body)
 }
+
+// ListUsers returns every user account.
+func (c *Client) ListUsers(ctx context.Context) ([]apiclient.UserResponse, error) {
+	resp, err := c.api.ListUsersWithResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return *resp.JSON200, nil
+}
+
+// SetUserRole sets a user's role. Setting a role pins it unless unpin is true,
+// which hands the role back to IdP group mapping.
+func (c *Client) SetUserRole(ctx context.Context, userID uuid.UUID, role string, unpin bool) (*apiclient.UserResponse, error) {
+	r := apiclient.UserRoleUpdateRole(role)
+	body := apiclient.UpdateUserRoleJSONRequestBody{Role: &r}
+	if unpin {
+		f := false
+		body.RolePinned = &f
+	}
+	resp, err := c.api.UpdateUserRoleWithResponse(ctx, userID, body)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}

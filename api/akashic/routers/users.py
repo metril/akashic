@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
@@ -13,7 +14,9 @@ from akashic.database import get_db
 from akashic.models.user import User
 from akashic.routers.auth import _set_refresh_cookie
 from akashic.services.rate_limit import make_limiter
-from akashic.schemas.user import MeResponse, UserCreate, UserLogin, UserResponse, TokenResponse
+from akashic.schemas.user import MeResponse, UserCreate, UserLogin, UserResponse, UserRoleUpdate, TokenResponse
+from akashic.services.audit import record_event
+from akashic.services.role_sync import lock_roles, other_admin_exists
 
 router = ApiRouter(prefix="/users", tags=["users"])
 
@@ -70,7 +73,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     summary="Create a user",
     description=(
-        "Creates a new account with the `viewer` role.\n"
+        "Creates a new local account with the given role (`viewer` unless `role` says otherwise).\n"
         "Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid "
         "username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 "
         "bytes)."
@@ -89,7 +92,8 @@ async def create_user(
         username=data.username,
         email=data.email,
         password_hash=hash_password(data.password),
-        role="viewer",
+        role=data.role,
+        role_pinned=data.role == "admin",
     )
     db.add(user)
     await db.commit()
@@ -150,6 +154,52 @@ async def list_users(
     principal: Principal = require_scope("users:read"),
 ) -> list[User]:
     return list((await db.execute(select(User).order_by(User.username))).scalars().all())
+
+
+@router.patch(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Change a user's role",
+    description=(
+        "Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the "
+        "user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping "
+        "(`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP "
+        "at the next login. Takes effect immediately, API tokens included. Recorded as a "
+        "`user_role_changed` audit event.\n"
+        "Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave "
+        "no admin; 422 when neither `role` nor `role_pinned` is given."
+    ),
+)
+async def update_user_role(
+    user_id: uuid.UUID,
+    data: UserRoleUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = require_scope("users:write"),
+) -> User:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    await lock_roles(db, user)
+    old_role = user.role
+    new_role = data.role or old_role
+    if old_role == "admin" and new_role != "admin" and not await other_admin_exists(db, user):
+        raise HTTPException(status_code=409, detail="Cannot demote the last admin")
+    pinned = data.role_pinned if data.role_pinned is not None else (True if data.role else user.role_pinned)
+    changed = new_role != old_role or pinned != user.role_pinned
+    user.role = new_role
+    user.role_pinned = pinned
+    if changed:
+        await record_event(
+            db=db, user=principal.user, event_type="user_role_changed", request=request, commit=False,
+            payload={
+                "target_user_id": str(user.id), "username": user.username,
+                "old": old_role, "new": new_role, "pinned": pinned, "via": "manual",
+            },
+        )
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.get(

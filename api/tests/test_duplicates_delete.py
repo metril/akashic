@@ -62,7 +62,7 @@ async def test_delete_copies_requires_admin(client, db_session):
     admin_token = await _register_login(client, username="admin")
     await client.post(
         "/api/v1/users/create",
-        json={"username": "regular", "password": "testpass123", "role": "user"},
+        json={"username": "regular", "password": "testpass123"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(

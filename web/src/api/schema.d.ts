@@ -2905,7 +2905,7 @@ export interface paths {
         put?: never;
         /**
          * Create a user
-         * @description Creates a new account with the `viewer` role.
+         * @description Creates a new local account with the given role (`viewer` unless `role` says otherwise).
          *     Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
          */
         post: operations["create_user"];
@@ -2975,6 +2975,27 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a user's role
+         * @description Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+         *     Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+         */
+        patch: operations["update_user_role"];
         trace?: never;
     };
     "/api/v1/webhooks": {
@@ -6632,6 +6653,11 @@ export interface components {
         /** MeResponse */
         MeResponse: {
             /**
+             * Auth Provider
+             * @description Where the account authenticates: `local`, `oidc` or `ldap`.
+             */
+            auth_provider: string;
+            /**
              * Created At
              * Format: date-time
              * @description When the account was created.
@@ -6649,10 +6675,21 @@ export interface components {
              */
             id: string;
             /**
+             * Last Login At
+             * @description Last successful login, if any.
+             */
+            last_login_at: string | null;
+            /**
              * Role
              * @description Role bundle: `admin` or `viewer`.
+             * @enum {string}
              */
-            role: string;
+            role: "viewer" | "admin";
+            /**
+             * Role Pinned
+             * @description True when an admin set the role by hand, so IdP group mapping leaves it alone.
+             */
+            role_pinned: boolean;
             /**
              * Scopes
              * @description Effective scopes of the calling credential, sorted.
@@ -10539,6 +10576,13 @@ export interface components {
              */
             password: string;
             /**
+             * Role
+             * @description Role of the new account: `viewer` (default) or `admin`.
+             * @default viewer
+             * @enum {string}
+             */
+            role?: "viewer" | "admin";
+            /**
              * Username
              * @description Login name, 3-64 characters.
              * @example alice
@@ -10567,6 +10611,11 @@ export interface components {
         /** UserResponse */
         UserResponse: {
             /**
+             * Auth Provider
+             * @description Where the account authenticates: `local`, `oidc` or `ldap`.
+             */
+            auth_provider: string;
+            /**
              * Created At
              * Format: date-time
              * @description When the account was created.
@@ -10584,15 +10633,47 @@ export interface components {
              */
             id: string;
             /**
+             * Last Login At
+             * @description Last successful login, if any.
+             */
+            last_login_at: string | null;
+            /**
              * Role
              * @description Role bundle: `admin` or `viewer`.
+             * @enum {string}
              */
-            role: string;
+            role: "viewer" | "admin";
+            /**
+             * Role Pinned
+             * @description True when an admin set the role by hand, so IdP group mapping leaves it alone.
+             */
+            role_pinned: boolean;
             /**
              * Username
              * @description Login name.
              */
             username: string;
+        };
+        /**
+         * UserRoleUpdate
+         * @example {
+         *       "role": "admin"
+         *     }
+         * @example {
+         *       "role_pinned": false
+         *     }
+         */
+        UserRoleUpdate: {
+            /**
+             * Role
+             * @description New role. Setting it pins the user unless `role_pinned` is also given.
+             */
+            role?: ("viewer" | "admin") | null;
+            /**
+             * Role Pinned
+             * @description Pin the role (true) or hand it back to IdP group mapping (false).
+             */
+            role_pinned?: boolean | null;
         };
         /** WatchdogOut */
         WatchdogOut: {
@@ -20676,6 +20757,77 @@ export interface operations {
             };
             /** @description Authenticated but not permitted. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicts with the current resource state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request failed validation. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_user_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

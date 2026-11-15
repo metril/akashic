@@ -5,6 +5,24 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.50.0 — 2026-11-15
+
+**Admins can now change user roles, and OIDC or LDAP group membership can grant the admin role automatically, so you no longer need raw SQL to make anyone but the first user an admin.**
+
+### Added
+
+- **`PATCH /api/v1/users/{id}`** (scope `users:write`) sets a user's `role` and/or `role_pinned`; `POST /users/create` accepts an optional `role`. `UserResponse` gains `role_pinned`, `auth_provider` and `last_login_at`.
+- **Admin → Users** page and `akashic users list` / `akashic users set-role <id|username> <admin|viewer> [--unpin]`.
+- **`oidc_admin_groups` and `ldap_admin_groups`** settings: members become admin and non-members viewer at every login (case-insensitive; names, DNs or SIDs). Empty disables the mapping. LDAP login now reads `memberOf`.
+- A manual role change **pins** the user so group mapping leaves it alone; "Return to IdP control" / `--unpin` hands it back.
+- **Last-admin guard** for manual changes (409) and group sync (demotion skipped, warning logged).
+- `user_role_changed` audit event.
+
+### Changed
+
+- **Upgrade note**: the migration pins every existing OIDC/LDAP admin (they were promoted by hand), so group mapping never demotes them; use "Return to IdP control" to hand one back.
+- Migration `0046_user_roles` makes `users.role` NOT NULL, limits `users.role` to `viewer` or `admin` (any other legacy value becomes `viewer`) and adds `role_pinned`.
+
 ## v0.49.0 — 2026-11-15
 
 **OIDC users whose identity provider sends group names only now get a real Windows SID, so SMB sources finally filter search and browse for them.**

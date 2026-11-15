@@ -33,7 +33,7 @@ const ADMIN = [...VIEWER, "sources:write", "settings:write", "settings:read", "a
   "maintenance:write", "credentials:read", "scanners:read", "tags:write", "tokens:admin"];
 
 function me(scopes: string[]): CurrentUser {
-  return { id: "u", username: "u", email: null, role: "x", created_at: "", scopes };
+  return { id: "u", username: "u", email: null, role: "viewer", role_pinned: false, auth_provider: "local", created_at: "", last_login_at: null, scopes };
 }
 
 function withApp(ui: React.ReactElement, scopes: string[], withCatalog = true) {

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Index, func, text
+from sqlalchemy import Boolean, CheckConstraint, String, DateTime, ForeignKey, Index, func, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,7 @@ from akashic.database import Base
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
+        CheckConstraint("role IN ('viewer', 'admin')", name="ck_users_role"),
         # One local row per (IdP, subject). Partial: local users have no external_id.
         Index(
             "uq_users_provider_ext", "auth_provider", "external_id",
@@ -22,7 +23,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-    role: Mapped[str] = mapped_column(String, default="viewer")
+    role: Mapped[str] = mapped_column(String, nullable=False, default="viewer")
+    # True once an admin set the role by hand: IdP group sync then leaves it alone.
+    role_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     auth_provider: Mapped[str] = mapped_column(String, default="local")
     external_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

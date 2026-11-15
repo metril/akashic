@@ -20,6 +20,7 @@ to admins at `GET /api/v1/admin/audit` and rendered in the UI's
 | `binding_added` | OIDC/LDAP login provisioning | user_id, source_id, identity, confidence |
 | `binding_removed` | Settings → Users | same |
 | `groups_auto_resolved` | Group resolver service | user_id, source_id, count, strategy |
+| `user_role_changed` | Admin → Users, `PATCH /users/{id}`, OIDC/LDAP group mapping | target_user_id, username, old, new, pinned, via |
 | `duplicate_copy_deleted` | Duplicates bulk-delete | entry_id, content_hash, scanner_outcome |
 | `duplicate_copy_delete_failed` | same | entry_id, content_hash, step, message |
 

@@ -32,7 +32,7 @@ files into the `secrets` volume on first run (idempotent), and the
 
 | Group | Covers |
 |-------|--------|
-| Authentication | OIDC (discovery URL, client, claims, strategy), LDAP, local login, token TTLs. See [authentication.md](authentication.md). |
+| Authentication | OIDC (discovery URL, client, claims, strategy, `oidc_admin_groups`), LDAP (`ldap_admin_groups`), local login, token TTLs. The admin-group settings map IdP groups to the admin role; see [authentication.md](authentication.md#assigning-roles). |
 | Network | CORS origins, frontend URL, redirect URI. |
 | Permissions | Group cache TTL, Browse ACL enforcement. See [permissions-model.md](permissions-model.md). |
 | Audit | Retention days. See [admin.md](admin.md). |

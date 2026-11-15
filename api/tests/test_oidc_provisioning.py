@@ -545,7 +545,7 @@ async def test_unbound_endpoint_self_scope_for_non_admin(client, db_session):
     # Make a regular user.
     await client.post(
         "/api/v1/users/create",
-        json={"username": "regular", "password": "testpass123", "role": "user"},
+        json={"username": "regular", "password": "testpass123"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(

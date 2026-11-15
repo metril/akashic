@@ -300,9 +300,12 @@ def _assert_closed_1008(app, path: str, token: str) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", _WS_PATHS)
-async def test_ws_unknown_role_is_closed(app, setup_db, fixture_scan, path):
+async def test_ws_unknown_role_is_closed(app, setup_db, fixture_scan, monkeypatch, path):
+    from akashic.auth import dependencies
+    # The DB constrains role to viewer/admin, so simulate a role with no scopes.
+    monkeypatch.setattr(dependencies, "scopes_for_role", lambda role: frozenset())
     async with setup_db() as s:
-        u = User(id=uuid.uuid4(), username="ghost", email=None, password_hash="x", role="nobody")
+        u = User(id=uuid.uuid4(), username="ghost", email=None, password_hash="x", role="viewer")
         s.add(u)
         await s.commit()
     token = create_access_token({"sub": str(u.id)})

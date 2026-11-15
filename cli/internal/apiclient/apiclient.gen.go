@@ -18,6 +18,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for MeResponseRole.
+const (
+	MeResponseRoleAdmin  MeResponseRole = "admin"
+	MeResponseRoleViewer MeResponseRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the MeResponseRole enum.
+func (e MeResponseRole) Valid() bool {
+	switch e {
+	case MeResponseRoleAdmin:
+		return true
+	case MeResponseRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ScanTriggerRequestScanType.
 const (
 	Full        ScanTriggerRequestScanType = "full"
@@ -57,6 +75,60 @@ func (e TestResultStep) Valid() bool {
 	case List:
 		return true
 	case Mount:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserCreateRole.
+const (
+	UserCreateRoleAdmin  UserCreateRole = "admin"
+	UserCreateRoleViewer UserCreateRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the UserCreateRole enum.
+func (e UserCreateRole) Valid() bool {
+	switch e {
+	case UserCreateRoleAdmin:
+		return true
+	case UserCreateRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserResponseRole.
+const (
+	UserResponseRoleAdmin  UserResponseRole = "admin"
+	UserResponseRoleViewer UserResponseRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the UserResponseRole enum.
+func (e UserResponseRole) Valid() bool {
+	switch e {
+	case UserResponseRoleAdmin:
+		return true
+	case UserResponseRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserRoleUpdateRole.
+const (
+	UserRoleUpdateRoleAdmin  UserRoleUpdateRole = "admin"
+	UserRoleUpdateRoleViewer UserRoleUpdateRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the UserRoleUpdateRole enum.
+func (e UserRoleUpdateRole) Valid() bool {
+	switch e {
+	case UserRoleUpdateRoleAdmin:
+		return true
+	case UserRoleUpdateRoleViewer:
 		return true
 	default:
 		return false
@@ -335,6 +407,39 @@ type LogEntryOut struct {
 	// Ts When the line was produced.
 	Ts time.Time `json:"ts"`
 }
+
+// MeResponse defines model for MeResponse.
+type MeResponse struct {
+	// AuthProvider Where the account authenticates: `local`, `oidc` or `ldap`.
+	AuthProvider string `json:"auth_provider"`
+
+	// CreatedAt When the account was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Email Contact address, if set.
+	Email *string `json:"email"`
+
+	// Id User id.
+	Id openapi_types.UUID `json:"id"`
+
+	// LastLoginAt Last successful login, if any.
+	LastLoginAt *time.Time `json:"last_login_at"`
+
+	// Role Role bundle: `admin` or `viewer`.
+	Role MeResponseRole `json:"role"`
+
+	// RolePinned True when an admin set the role by hand, so IdP group mapping leaves it alone.
+	RolePinned bool `json:"role_pinned"`
+
+	// Scopes Effective scopes of the calling credential, sorted.
+	Scopes []string `json:"scopes"`
+
+	// Username Login name.
+	Username string `json:"username"`
+}
+
+// MeResponseRole Role bundle: `admin` or `viewer`.
+type MeResponseRole string
 
 // OrphanMatchCount defines model for OrphanMatchCount.
 type OrphanMatchCount struct {
@@ -1083,6 +1188,15 @@ type TestSourceRequest struct {
 	Type string `json:"type"`
 }
 
+// TokenResponse Examples: {"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...","token_type":"bearer"}
+type TokenResponse struct {
+	// AccessToken Short-lived JWT access token; send it as a bearer token.
+	AccessToken string `json:"access_token"`
+
+	// TokenType Always `bearer`.
+	TokenType string `json:"token_type"`
+}
+
 // TreeNode A node of the nested treemap.
 type TreeNode struct {
 	// Children Child nodes, largest first.
@@ -1106,6 +1220,77 @@ type TreeNode struct {
 	// SizeBytes Node size in bytes.
 	SizeBytes int `json:"size_bytes"`
 }
+
+// UserCreate Examples: {"email":"alice@example.com","password":"correct horse battery staple","username":"alice"}
+type UserCreate struct {
+	// Email Optional contact address.
+	Email *string `json:"email,omitempty"`
+
+	// Password Password, 8-128 characters and at most 72 UTF-8 bytes (bcrypt's limit).
+	Password string `json:"password"`
+
+	// Role Role of the new account: `viewer` (default) or `admin`.
+	Role *UserCreateRole `json:"role,omitempty"`
+
+	// Username Login name, 3-64 characters.
+	//
+	// Examples: alice
+	Username string `json:"username"`
+}
+
+// UserCreateRole Role of the new account: `viewer` (default) or `admin`.
+type UserCreateRole string
+
+// UserLogin Examples: {"password":"correct horse battery staple","username":"alice"}
+type UserLogin struct {
+	// Password Account password.
+	Password string `json:"password"`
+
+	// Username Login name.
+	Username string `json:"username"`
+}
+
+// UserResponse defines model for UserResponse.
+type UserResponse struct {
+	// AuthProvider Where the account authenticates: `local`, `oidc` or `ldap`.
+	AuthProvider string `json:"auth_provider"`
+
+	// CreatedAt When the account was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Email Contact address, if set.
+	Email *string `json:"email"`
+
+	// Id User id.
+	Id openapi_types.UUID `json:"id"`
+
+	// LastLoginAt Last successful login, if any.
+	LastLoginAt *time.Time `json:"last_login_at"`
+
+	// Role Role bundle: `admin` or `viewer`.
+	Role UserResponseRole `json:"role"`
+
+	// RolePinned True when an admin set the role by hand, so IdP group mapping leaves it alone.
+	RolePinned bool `json:"role_pinned"`
+
+	// Username Login name.
+	Username string `json:"username"`
+}
+
+// UserResponseRole Role bundle: `admin` or `viewer`.
+type UserResponseRole string
+
+// UserRoleUpdate Examples: {"role":"admin"}, {"role_pinned":false}
+type UserRoleUpdate struct {
+	// Role New role. Setting it pins the user unless `role_pinned` is also given.
+	Role *UserRoleUpdateRole `json:"role,omitempty"`
+
+	// RolePinned Pin the role (true) or hand it back to IdP group mapping (false).
+	RolePinned *bool `json:"role_pinned,omitempty"`
+}
+
+// UserRoleUpdateRole defines model for UserRoleUpdate.Role.
+type UserRoleUpdateRole string
 
 // UnderscoreBulkApplyBody Examples: {"entry_ids":["3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10"],"tags":["invoice"]}
 type UnderscoreBulkApplyBody struct {
@@ -1314,6 +1499,18 @@ type CreateTagJSONRequestBody = TagCreate
 
 // BulkApplyJSONRequestBody defines body for BulkApply for application/json ContentType.
 type BulkApplyJSONRequestBody = UnderscoreBulkApplyBody
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = UserCreate
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = UserLogin
+
+// RegisterJSONRequestBody defines body for Register for application/json ContentType.
+type RegisterJSONRequestBody = UserCreate
+
+// UpdateUserRoleJSONRequestBody defines body for UpdateUserRole for application/json ContentType.
+type UpdateUserRoleJSONRequestBody = UserRoleUpdate
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1797,6 +1994,101 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /api/v1/tags/{tag_id} (the `DeleteTagCatalogue` operationId).
 	DeleteTagCatalogue(ctx context.Context, tagId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUsers List users
+	//
+	// Every user account, ordered by username, with its role. Password hashes are never returned. Not paginated.
+	// Requires scope `users:read`. Not available to source-limited tokens.
+	//
+	// Corresponds with GET /api/v1/users (the `ListUsers` operationId).
+	ListUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUserWithBody Create a user
+	//
+	// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+	// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+	CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUser Create a user
+	//
+	// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+	// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+	CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LoginWithBody Log in with a password
+	//
+	// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+	// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+	LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Login Log in with a password
+	//
+	// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+	// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+	Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMe Get the calling user
+	//
+	// The authenticated user and the effective scopes of the credential used. Requires authentication but no particular scope.
+	//
+	// Corresponds with GET /api/v1/users/me (the `GetMe` operationId).
+	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RegisterWithBody Register the first admin
+	//
+	// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+	// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+	RegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Register Register the first admin
+	//
+	// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+	// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+	Register(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUserRoleWithBody Change a user's role
+	//
+	// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+	// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+	UpdateUserRoleWithBody(ctx context.Context, userId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUserRole Change a user's role
+	//
+	// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+	// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+	UpdateUserRole(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListDuplicates List duplicate groups
@@ -2648,6 +2940,201 @@ func (c *Client) ListTagUsage(ctx context.Context, reqEditors ...RequestEditorFn
 // Corresponds with DELETE /api/v1/tags/{tag_id} (the `DeleteTagCatalogue` operationId).
 func (c *Client) DeleteTagCatalogue(ctx context.Context, tagId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteTagCatalogueRequest(c.Server, tagId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListUsers List users
+//
+// Every user account, ordered by username, with its role. Password hashes are never returned. Not paginated.
+// Requires scope `users:read`. Not available to source-limited tokens.
+//
+// Corresponds with GET /api/v1/users (the `ListUsers` operationId).
+func (c *Client) ListUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUsersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUserWithBody Create a user
+//
+// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+func (c *Client) CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUser Create a user
+//
+// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+func (c *Client) CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LoginWithBody Log in with a password
+//
+// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+func (c *Client) LoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Login Log in with a password
+//
+// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+func (c *Client) Login(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMe Get the calling user
+//
+// The authenticated user and the effective scopes of the credential used. Requires authentication but no particular scope.
+//
+// Corresponds with GET /api/v1/users/me (the `GetMe` operationId).
+func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RegisterWithBody Register the first admin
+//
+// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+func (c *Client) RegisterWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Register Register the first admin
+//
+// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+func (c *Client) Register(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUserRoleWithBody Change a user's role
+//
+// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+func (c *Client) UpdateUserRoleWithBody(ctx context.Context, userId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRoleRequestWithBody(c.Server, userId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUserRole Change a user's role
+//
+// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+func (c *Client) UpdateUserRole(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRoleRequest(c.Server, userId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4387,6 +4874,227 @@ func NewDeleteTagCatalogueRequest(server string, tagId openapi_types.UUID) (*htt
 	return req, nil
 }
 
+// NewListUsersRequest constructs an http.Request for the ListUsers method
+func NewListUsersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateUserRequest calls the generic CreateUser builder with application/json body
+func NewCreateUserRequest(server string, body CreateUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateUserRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateUserRequestWithBody constructs an http.Request for the CreateUser method, with any body, and a specified content type
+func NewCreateUserRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/create")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewLoginRequest calls the generic Login builder with application/json body
+func NewLoginRequest(server string, body LoginJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLoginRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewLoginRequestWithBody constructs an http.Request for the Login method, with any body, and a specified content type
+func NewLoginRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/login")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetMeRequest constructs an http.Request for the GetMe method
+func NewGetMeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRegisterRequest calls the generic Register builder with application/json body
+func NewRegisterRequest(server string, body RegisterJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRegisterRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRegisterRequestWithBody constructs an http.Request for the Register method, with any body, and a specified content type
+func NewRegisterRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/register")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewUpdateUserRoleRequest calls the generic UpdateUserRole builder with application/json body
+func NewUpdateUserRoleRequest(server string, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateUserRoleRequestWithBody(server, userId, "application/json", bodyReader)
+}
+
+// NewUpdateUserRoleRequestWithBody constructs an http.Request for the UpdateUserRole method, with any body, and a specified content type
+func NewUpdateUserRoleRequestWithBody(server string, userId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "user_id", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -4885,6 +5593,105 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /api/v1/tags/{tag_id} (the `DeleteTagCatalogue` operationId).
 	DeleteTagCatalogueWithResponse(ctx context.Context, tagId openapi_types.UUID, reqEditors ...RequestEditorFn) (*DeleteTagCatalogueReply, error)
+
+	// ListUsersWithResponse List users
+	//
+	// Every user account, ordered by username, with its role. Password hashes are never returned. Not paginated.
+	// Requires scope `users:read`. Not available to source-limited tokens.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/users (the `ListUsers` operationId).
+	ListUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUsersReply, error)
+
+	// CreateUserWithBodyWithResponse Create a user
+	//
+	// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+	// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+	CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserReply, error)
+
+	// CreateUserWithResponse Create a user
+	//
+	// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+	// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+	CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserReply, error)
+
+	// LoginWithBodyWithResponse Log in with a password
+	//
+	// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+	// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+	LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginReply, error)
+
+	// LoginWithResponse Log in with a password
+	//
+	// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+	// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+	LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginReply, error)
+
+	// GetMeWithResponse Get the calling user
+	//
+	// The authenticated user and the effective scopes of the credential used. Requires authentication but no particular scope.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/users/me (the `GetMe` operationId).
+	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeReply, error)
+
+	// RegisterWithBodyWithResponse Register the first admin
+	//
+	// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+	// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+	RegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterReply, error)
+
+	// RegisterWithResponse Register the first admin
+	//
+	// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+	// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+	RegisterWithResponse(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterReply, error)
+
+	// UpdateUserRoleWithBodyWithResponse Change a user's role
+	//
+	// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+	// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+	UpdateUserRoleWithBodyWithResponse(ctx context.Context, userId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error)
+
+	// UpdateUserRoleWithResponse Change a user's role
+	//
+	// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+	// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+	UpdateUserRoleWithResponse(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error)
 }
 
 type ListDuplicatesReply struct {
@@ -7177,6 +7984,378 @@ func (r DeleteTagCatalogueReply) ContentType() string {
 	return ""
 }
 
+type ListUsersReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]UserResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUsersReply) GetJSON200() *[]UserResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListUsersReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListUsersReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUsersReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUsersReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUsersReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUsersReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateUserReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *UserResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateUserReply) GetJSON201() *UserResponse {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateUserReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateUserReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateUserReply) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateUserReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateUserReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateUserReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateUserReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateUserReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LoginReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TokenResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r LoginReply) GetJSON200() *TokenResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r LoginReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r LoginReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r LoginReply) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r LoginReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LoginReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LoginReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LoginReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetMeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetMeReply) GetJSON200() *MeResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetMeReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r GetMeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetMeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetMeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetMeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RegisterReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *UserResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r RegisterReply) GetJSON201() *UserResponse {
+	return r.JSON201
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RegisterReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RegisterReply) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RegisterReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r RegisterReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RegisterReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RegisterReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RegisterReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateUserRoleReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateUserRoleReply) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateUserRoleReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateUserRoleReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateUserRoleReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateUserRoleReply) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r UpdateUserRoleReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateUserRoleReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateUserRoleReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateUserRoleReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateUserRoleReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListDuplicatesWithResponse List duplicate groups
 //
 // Groups of non-deleted files that share a content hash (two or more copies), largest combined size first. `wasted_bytes` is what keeping a single copy would reclaim. Files hidden by per-user ACL filtering are not counted.
@@ -7900,6 +9079,165 @@ func (c *ClientWithResponses) DeleteTagCatalogueWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseDeleteTagCatalogueReply(rsp)
+}
+
+// ListUsersWithResponse List users
+//
+// Every user account, ordered by username, with its role. Password hashes are never returned. Not paginated.
+// Requires scope `users:read`. Not available to source-limited tokens.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/users (the `ListUsers` operationId).
+func (c *ClientWithResponses) ListUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUsersReply, error) {
+	rsp, err := c.ListUsers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUsersReply(rsp)
+}
+
+// CreateUserWithBodyWithResponse Create a user
+//
+// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+func (c *ClientWithResponses) CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserReply, error) {
+	rsp, err := c.CreateUserWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserReply(rsp)
+}
+
+// CreateUserWithResponse Create a user
+//
+// Creates a new local account with the given role (`viewer` unless `role` says otherwise).
+// Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/create (the `CreateUser` operationId).
+func (c *ClientWithResponses) CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserReply, error) {
+	rsp, err := c.CreateUser(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserReply(rsp)
+}
+
+// LoginWithBodyWithResponse Log in with a password
+//
+// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginReply, error) {
+	rsp, err := c.LoginWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginReply(rsp)
+}
+
+// LoginWithResponse Log in with a password
+//
+// Verifies a local username and password. Returns a short-lived JWT access token and sets the `akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` exchanges for new access tokens. Public.
+// Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or wrong password; 422 for a malformed body; 429 when rate limited.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/login (the `Login` operationId).
+func (c *ClientWithResponses) LoginWithResponse(ctx context.Context, body LoginJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginReply, error) {
+	rsp, err := c.Login(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginReply(rsp)
+}
+
+// GetMeWithResponse Get the calling user
+//
+// The authenticated user and the effective scopes of the credential used. Requires authentication but no particular scope.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/users/me (the `GetMe` operationId).
+func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeReply, error) {
+	rsp, err := c.GetMe(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMeReply(rsp)
+}
+
+// RegisterWithBodyWithResponse Register the first admin
+//
+// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+func (c *ClientWithResponses) RegisterWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterReply, error) {
+	rsp, err := c.RegisterWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRegisterReply(rsp)
+}
+
+// RegisterWithResponse Register the first admin
+//
+// Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but only works while no user exists; afterwards registration is closed and accounts are created by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes admin.
+// Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/users/register (the `Register` operationId).
+func (c *ClientWithResponses) RegisterWithResponse(ctx context.Context, body RegisterJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterReply, error) {
+	rsp, err := c.Register(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRegisterReply(rsp)
+}
+
+// UpdateUserRoleWithBodyWithResponse Change a user's role
+//
+// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+func (c *ClientWithResponses) UpdateUserRoleWithBodyWithResponse(ctx context.Context, userId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error) {
+	rsp, err := c.UpdateUserRoleWithBody(ctx, userId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserRoleReply(rsp)
+}
+
+// UpdateUserRoleWithResponse Change a user's role
+//
+// Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+// Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
+func (c *ClientWithResponses) UpdateUserRoleWithResponse(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error) {
+	rsp, err := c.UpdateUserRole(ctx, userId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserRoleReply(rsp)
 }
 
 // ParseListDuplicatesReply parses an HTTP response from a ListDuplicatesWithResponse call
@@ -9684,6 +11022,288 @@ func ParseDeleteTagCatalogueReply(rsp *http.Response) (*DeleteTagCatalogueReply,
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUsersReply parses an HTTP response from a ListUsersWithResponse call
+func ParseListUsersReply(rsp *http.Response) (*ListUsersReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUsersReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateUserReply parses an HTTP response from a CreateUserWithResponse call
+func ParseCreateUserReply(rsp *http.Response) (*CreateUserReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateUserReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLoginReply parses an HTTP response from a LoginWithResponse call
+func ParseLoginReply(rsp *http.Response) (*LoginReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LoginReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetMeReply parses an HTTP response from a GetMeWithResponse call
+func ParseGetMeReply(rsp *http.Response) (*GetMeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetMeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRegisterReply parses an HTTP response from a RegisterWithResponse call
+func ParseRegisterReply(rsp *http.Response) (*RegisterReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RegisterReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateUserRoleReply parses an HTTP response from a UpdateUserRoleWithResponse call
+func ParseUpdateUserRoleReply(rsp *http.Response) (*UpdateUserRoleReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateUserRoleReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest ErrorResponse

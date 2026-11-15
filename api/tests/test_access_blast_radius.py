@@ -62,7 +62,7 @@ async def test_admin_only(client):
     admin_token = await _register_login(client)
     await client.post(
         "/api/v1/users/create",
-        json={"username": "viewer1", "password": "testpass123", "role": "user"},
+        json={"username": "viewer1", "password": "testpass123"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(

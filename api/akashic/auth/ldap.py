@@ -58,7 +58,7 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
             rt().ldap_user_base,
             ldap.SCOPE_SUBTREE,
             search_filter,
-            ["dn", "uid", "mail", "cn", "sAMAccountName", "userPrincipalName"],
+            ["dn", "uid", "mail", "cn", "sAMAccountName", "userPrincipalName", "memberOf"],
         )
 
         if not results:
@@ -94,6 +94,10 @@ def authenticate_ldap(username: str, password: str) -> dict | None:
             "uid": uid,
             "email": _first("mail"),
             "display_name": _first("cn"),
+            "groups": [
+                v.decode() if isinstance(v, bytes) else v
+                for v in (attrs.get("memberOf") or [])
+            ],
         }
 
     except ldap.INVALID_CREDENTIALS:
@@ -177,4 +181,9 @@ async def get_or_create_user(db: AsyncSession, ldap_info: dict) -> User:
         else:
             raise RuntimeError("could not provision user: username allocation kept colliding")
 
+    from akashic.services.role_sync import apply_group_role
+
+    await apply_group_role(
+        db, user, set(ldap_info.get("groups") or []), rt().ldap_admin_groups, "ldap_groups",
+    )
     return user

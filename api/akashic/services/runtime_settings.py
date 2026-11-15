@@ -71,6 +71,7 @@ _S = [
     _s("oidc_uid_claim", str, "uidNumber", "oidc", "POSIX UID claim.", "str"),
     _s("oidc_groups_claim", str, "groups", "oidc", "Groups claim.", "str"),
     _s("oidc_groups_format", Literal["sid", "name", "dn"], "sid", "oidc", "Format of values in the groups claim.", "enum"),
+    _s("oidc_admin_groups", list[str], [], "oidc", "Groups whose members get the admin role at every login (names, DNs or SIDs, case-insensitive). Empty = no group mapping.", "list[str]"),
     _s("oidc_dn_claim", str, "ldap_dn", "oidc", "LDAP DN claim (used by ldap_fallback).", "str"),
     # LDAP
     _s("ldap_enabled", bool, False, "ldap", "Enable LDAP login.", "bool"),
@@ -79,6 +80,7 @@ _S = [
     _s("ldap_bind_password", str, "", "ldap", "Bind password.", "str", secret=True),
     _s("ldap_user_base", str, "", "ldap", "User search base DN.", "str"),
     _s("ldap_user_filter", str, "(uid={username})", "ldap", "User search filter ({username} placeholder).", "str"),
+    _s("ldap_admin_groups", list[str], [], "ldap", "Group DNs (memberOf values) whose members get the admin role at every login. Empty = no group mapping.", "list[str]"),
     # Search & content
     _s("tika_url", str, "http://tika:9998", "search", "Apache Tika server URL.", "str"),
     _s("fetch_concurrency", int, 10, "search", "Max simultaneous content-fetch subprocesses per API process.", "int", legacy_env="AKASHIC_FETCH_CONCURRENCY"),

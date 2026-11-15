@@ -226,7 +226,7 @@ async def test_timeseries_open_to_regular_user(client, db_session):
     # Make a regular user.
     await client.post(
         "/api/v1/users/create",
-        json={"username": "regular", "password": "testpass123", "role": "user"},
+        json={"username": "regular", "password": "testpass123"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(

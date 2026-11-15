@@ -9,9 +9,9 @@ from AD.
 
 | Mode | When to use | Env flag | Identity-aware ACL filtering? |
 |------|-------------|----------|--------------------------------|
-| Local users | Default; small teams; demos | (always on) | No — viewer role only |
+| Local users | Default; small teams; demos | (always on) | No — role set by an admin |
 | OIDC | SSO via Keycloak / Authentik / Auth0 / etc. | `OIDC_ENABLED=true` | Yes — provisions `FsBindings` from claims |
-| Direct LDAP | Username/password against AD without an IdP | `LDAP_ENABLED=true` | No — viewer role only |
+| Direct LDAP | Username/password against AD without an IdP | `LDAP_ENABLED=true` | No — viewer by default; admin via group mapping |
 
 OIDC is the recommended production mode because it's the only
 path that resolves a user's group memberships into `FsBindings`,
@@ -34,8 +34,8 @@ docker compose exec postgres psql -U akashic -d akashic \
   -c "UPDATE users SET password_hash = '<paste hash>' WHERE username = 'admin';"
 ```
 
-Subsequent users are viewers; an admin promotes them via
-**Settings → Users**.
+Subsequent users are viewers; an admin promotes them under
+**Admin → Users** (see [Assigning roles](#assigning-roles)).
 
 ## OIDC
 
@@ -129,8 +129,9 @@ Failures redirect to `/login?error=<code>`:
 
 For deployments where there is no OIDC IdP and you just want users
 to log in with their AD credentials. **No identity resolution into
-`FsBindings`** — every LDAP user gets the viewer role and sees
-what the role allows, the same as a local user.
+`FsBindings`** — every LDAP user starts as a viewer (or an admin, see
+[Assigning roles](#assigning-roles)) and sees what the role allows,
+the same as a local user.
 
 ### Required env vars
 
@@ -221,6 +222,32 @@ long-lived refresh token (`REFRESH_TOKEN_EXPIRE_DAYS`, default 30)
 delivered as an HttpOnly cookie scoped to `/api/v1/auth`. Replay of
 a rotated refresh token revokes the entire chain — see
 [permissions-model.md](permissions-model.md#refresh-tokens).
+
+## Assigning roles
+
+Roles are `viewer` and `admin`. New OIDC and LDAP users start as
+viewers. Role is read from the database on every request, so a change
+takes effect immediately, API tokens included.
+
+- **Manually**: **Admin → Users** in the web UI, `akashic users
+  set-role <id|username> <admin|viewer>` in the CLI, or
+  `PATCH /api/v1/users/{id}` with `{"role": "admin"}` (scope
+  `users:write`). A manual change **pins** the user.
+- **From IdP groups**: set `oidc_admin_groups` and/or
+  `ldap_admin_groups` in **Settings → Server**. At every login a
+  member of one of the groups becomes `admin` and a non-member becomes
+  `viewer`. Matching is case-insensitive and accepts whatever the IdP
+  sends: group names, DNs or SIDs for OIDC; `memberOf` DNs for LDAP.
+  Empty (the default) disables the mapping.
+- **Pinning**: a pinned user is never touched by group mapping. Use
+  **Return to IdP control** (or `--unpin`, or `{"role_pinned": false}`)
+  to hand the role back at the next login.
+- **Last-admin guard**: a change that would leave no admin is refused
+  (409 for manual changes). Group sync skips the demotion and logs a
+  warning. Demoting yourself works only while another admin remains.
+
+Every change is recorded as a `user_role_changed` audit event
+(`via`: `manual`, `oidc_groups` or `ldap_groups`).
 
 ## Scopes and API tokens
 

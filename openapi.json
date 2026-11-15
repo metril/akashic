@@ -6308,6 +6308,11 @@
       },
       "MeResponse": {
         "properties": {
+          "auth_provider": {
+            "description": "Where the account authenticates: `local`, `oidc` or `ldap`.",
+            "title": "Auth Provider",
+            "type": "string"
+          },
           "created_at": {
             "description": "When the account was created.",
             "format": "date-time",
@@ -6332,10 +6337,32 @@
             "title": "Id",
             "type": "string"
           },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last successful login, if any.",
+            "title": "Last Login At"
+          },
           "role": {
             "description": "Role bundle: `admin` or `viewer`.",
+            "enum": [
+              "viewer",
+              "admin"
+            ],
             "title": "Role",
             "type": "string"
+          },
+          "role_pinned": {
+            "description": "True when an admin set the role by hand, so IdP group mapping leaves it alone.",
+            "title": "Role Pinned",
+            "type": "boolean"
           },
           "scopes": {
             "description": "Effective scopes of the calling credential, sorted.",
@@ -6356,7 +6383,10 @@
           "username",
           "email",
           "role",
+          "role_pinned",
+          "auth_provider",
           "created_at",
+          "last_login_at",
           "scopes"
         ],
         "title": "MeResponse",
@@ -13094,6 +13124,16 @@
             "title": "Password",
             "type": "string"
           },
+          "role": {
+            "default": "viewer",
+            "description": "Role of the new account: `viewer` (default) or `admin`.",
+            "enum": [
+              "viewer",
+              "admin"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
           "username": {
             "description": "Login name, 3-64 characters.",
             "examples": [
@@ -13140,6 +13180,11 @@
       },
       "UserResponse": {
         "properties": {
+          "auth_provider": {
+            "description": "Where the account authenticates: `local`, `oidc` or `ldap`.",
+            "title": "Auth Provider",
+            "type": "string"
+          },
           "created_at": {
             "description": "When the account was created.",
             "format": "date-time",
@@ -13164,10 +13209,32 @@
             "title": "Id",
             "type": "string"
           },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last successful login, if any.",
+            "title": "Last Login At"
+          },
           "role": {
             "description": "Role bundle: `admin` or `viewer`.",
+            "enum": [
+              "viewer",
+              "admin"
+            ],
             "title": "Role",
             "type": "string"
+          },
+          "role_pinned": {
+            "description": "True when an admin set the role by hand, so IdP group mapping leaves it alone.",
+            "title": "Role Pinned",
+            "type": "boolean"
           },
           "username": {
             "description": "Login name.",
@@ -13180,9 +13247,54 @@
           "username",
           "email",
           "role",
-          "created_at"
+          "role_pinned",
+          "auth_provider",
+          "created_at",
+          "last_login_at"
         ],
         "title": "UserResponse",
+        "type": "object"
+      },
+      "UserRoleUpdate": {
+        "examples": [
+          {
+            "role": "admin"
+          },
+          {
+            "role_pinned": false
+          }
+        ],
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "viewer",
+                  "admin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New role. Setting it pins the user unless `role_pinned` is also given.",
+            "title": "Role"
+          },
+          "role_pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pin the role (true) or hand it back to IdP group mapping (false).",
+            "title": "Role Pinned"
+          }
+        },
+        "title": "UserRoleUpdate",
         "type": "object"
       },
       "WatchdogOut": {
@@ -14756,7 +14868,7 @@
   "info": {
     "description": "Universal file index: sources, scans, search, permissions and administration.",
     "title": "Akashic",
-    "version": "0.49.0"
+    "version": "0.50.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -28318,7 +28430,7 @@
     },
     "/api/v1/users/create": {
       "post": {
-        "description": "Creates a new account with the `viewer` role.\nRequires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).",
+        "description": "Creates a new local account with the given role (`viewer` unless `role` says otherwise).\nRequires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).",
         "operationId": "create_user",
         "requestBody": {
           "content": {
@@ -28551,6 +28663,107 @@
           }
         },
         "summary": "Register the first admin",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "patch": {
+        "description": "Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.\nRequires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.",
+        "operationId": "update_user_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRoleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflicts with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "users:write"
+            ]
+          }
+        ],
+        "summary": "Change a user's role",
         "tags": [
           "users"
         ]

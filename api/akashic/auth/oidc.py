@@ -309,4 +309,11 @@ async def get_or_create_user(db: AsyncSession, id_token_claims: dict) -> User:
     await sync_fs_bindings_from_claims(db, user, id_token_claims, rt())
     await db.commit()
 
+    from akashic.auth.oidc_provisioning import claim_group_values
+    from akashic.services.role_sync import apply_group_role
+
+    await apply_group_role(
+        db, user, claim_group_values(id_token_claims, rt()), rt().oidc_admin_groups, "oidc_groups",
+    )
+
     return user

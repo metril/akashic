@@ -176,6 +176,18 @@ def _from_claim_strategy(
     return out
 
 
+def claim_group_values(claims: dict, settings: Settings) -> set[str]:
+    """Every group value the token carries: the raw claim strings plus the
+    parsed form (decoded SIDs), so names, DNs and SIDs all match."""
+    raw = claims.get(settings.oidc_groups_claim) or []
+    if not isinstance(raw, list):
+        raw = [raw]
+    out = {str(v) for v in raw if v}
+    for ident in _from_claim_strategy(claims, settings):
+        out.update(ident.groups)
+    return out
+
+
 # ── Strategy: ldap_fallback ────────────────────────────────────────────────
 
 

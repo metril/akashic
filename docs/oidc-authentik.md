@@ -136,6 +136,10 @@ OIDC_EMAIL_CLAIM=email
 OIDC_SID_CLAIM=onprem_sid
 OIDC_GROUPS_CLAIM=groups
 OIDC_GROUPS_FORMAT=sid
+
+# Optional: members of these groups become Akashic admins at every login
+# (names, DNs or SIDs matching OIDC_GROUPS_FORMAT; case-insensitive).
+OIDC_ADMIN_GROUPS=akashic-admins
 ```
 
 Save; no restart is needed.

@@ -1,7 +1,7 @@
 <!-- Generated from openapi.json by api/scripts/render_api_md.py. Do not edit; run `make openapi`. -->
 # Akashic API reference
 
-Version 0.49.0. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
+Version 0.50.0. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
 
 Universal file index: sources, scans, search, permissions and administration.
 
@@ -382,6 +382,7 @@ User accounts and registration.
 - `POST /api/v1/users/login`: Log in with a password
 - `GET /api/v1/users/me`: Get the calling user
 - `POST /api/v1/users/register`: Register the first admin
+- `PATCH /api/v1/users/{user_id}`: Change a user's role
 
 <a id="op-list-users"></a>
 #### `GET /api/v1/users`
@@ -406,7 +407,7 @@ Requires scope `users:read`. Not available to source-limited tokens.
 
 Auth: `userJWT`, scope `users:write`
 
-Creates a new account with the `viewer` role.
+Creates a new local account with the given role (`viewer` unless `role` says otherwise).
 Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes).
 
 **Request body** (required)
@@ -471,6 +472,32 @@ Errors: 403 once any user exists; 409 if the username is taken; 422 for an inval
 | --- | --- | --- |
 | 201 | Successful Response | `application/json`: [`UserResponse`](#schema-userresponse) |
 | 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 409 | Conflicts with the current resource state. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
+<a id="op-update-user-role"></a>
+#### `PATCH /api/v1/users/{user_id}`
+
+**Change a user's role** (`update_user_role`)
+
+Auth: `userJWT`, scope `users:write`
+
+Sets a user's role (`viewer` or `admin`) and/or whether it is pinned. Setting `role` pins the user unless `role_pinned` is also given; a pinned role is never changed by IdP group mapping (`oidc_admin_groups`, `ldap_admin_groups`). `role_pinned: false` hands the role back to the IdP at the next login. Takes effect immediately, API tokens included. Recorded as a `user_role_changed` audit event.
+Requires scope `users:write`. Errors: 404 for an unknown user; 409 when the change would leave no admin; 422 when neither `role` nor `role_pinned` is given.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `user_id` | path | `string` (`uuid`) | yes |  |
+
+**Request body** (required)
+- `application/json`: [`UserRoleUpdate`](#schema-userroleupdate)
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 200 | Successful Response | `application/json`: [`UserResponse`](#schema-userresponse) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 409 | Conflicts with the current resource state. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 
@@ -5365,10 +5392,13 @@ Up to 200 lines per request — the scanner debounces 10 lines or 500 ms.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `auth_provider` | `string` | yes | Where the account authenticates: `local`, `oidc` or `ldap`. |
 | `created_at` | `string` (`date-time`) | yes | When the account was created. |
 | `email` | `string` \| `null` | yes | Contact address, if set. |
 | `id` | `string` (`uuid`) | yes | User id. |
-| `role` | `string` | yes | Role bundle: `admin` or `viewer`. |
+| `last_login_at` | `string` (`date-time`) \| `null` | yes | Last successful login, if any. |
+| `role` | `"viewer"` \| `"admin"` | yes | Role bundle: `admin` or `viewer`. |
+| `role_pinned` | `boolean` | yes | True when an admin set the role by hand, so IdP group mapping leaves it alone. |
 | `scopes` | array of `string` | yes | Effective scopes of the calling credential, sorted. |
 | `username` | `string` | yes | Login name. |
 
@@ -6856,6 +6886,7 @@ A node of the nested treemap.
 | --- | --- | --- | --- |
 | `email` | `string` \| `null` | no | Optional contact address. |
 | `password` | `string` | yes | Password, 8-128 characters and at most 72 UTF-8 bytes (bcrypt's limit). |
+| `role` | `"viewer"` \| `"admin"` | no | Role of the new account: `viewer` (default) or `admin`. |
 | `username` | `string` | yes | Login name, 3-64 characters. |
 
 <a id="schema-userlogin"></a>
@@ -6871,11 +6902,22 @@ A node of the nested treemap.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `auth_provider` | `string` | yes | Where the account authenticates: `local`, `oidc` or `ldap`. |
 | `created_at` | `string` (`date-time`) | yes | When the account was created. |
 | `email` | `string` \| `null` | yes | Contact address, if set. |
 | `id` | `string` (`uuid`) | yes | User id. |
-| `role` | `string` | yes | Role bundle: `admin` or `viewer`. |
+| `last_login_at` | `string` (`date-time`) \| `null` | yes | Last successful login, if any. |
+| `role` | `"viewer"` \| `"admin"` | yes | Role bundle: `admin` or `viewer`. |
+| `role_pinned` | `boolean` | yes | True when an admin set the role by hand, so IdP group mapping leaves it alone. |
 | `username` | `string` | yes | Login name. |
+
+<a id="schema-userroleupdate"></a>
+### UserRoleUpdate
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `role` | `"viewer"` \| `"admin"` \| `null` | no | New role. Setting it pins the user unless `role_pinned` is also given. |
+| `role_pinned` | `boolean` \| `null` | no | Pin the role (true) or hand it back to IdP group mapping (false). |
 
 <a id="schema-watchdogout"></a>
 ### WatchdogOut

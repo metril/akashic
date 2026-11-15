@@ -22,6 +22,7 @@ async def record_event(
     payload: dict,
     request: Any | None = None,
     source_id: Any | None = None,
+    commit: bool = True,
 ) -> None:
     try:
         request_ip = ""
@@ -41,9 +42,9 @@ async def record_event(
             payload=payload,
         )
         db.add(evt)
-        commit = getattr(db, "commit", None)
-        if commit is not None:
-            await commit()
+        do_commit = getattr(db, "commit", None) if commit else None
+        if do_commit is not None:
+            await do_commit()
     except Exception as exc:  # noqa: BLE001
         logger.warning("audit: failed to record %s: %s", event_type, exc)
         # Try to roll back so the session isn't left in a broken state.
