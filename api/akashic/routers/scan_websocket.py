@@ -51,10 +51,6 @@ async def _resolve_principal(token: str, db: AsyncSession, scope: str) -> tuple[
     return principal, None
 
 
-async def _user_can_read_source(user: User, source_id: uuid.UUID, db: AsyncSession) -> bool:
-    return True  # any authenticated user can subscribe to the read-only stream
-
-
 def _scan_snapshot(scan: Scan) -> dict:
     return {
         "kind": "snapshot",
@@ -122,9 +118,6 @@ async def scan_stream(
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="scan not found")
             return
 
-        if not await _user_can_read_source(user, scan.source_id, db):
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="forbidden")
-            return
 
         # Build the snapshot synchronously (last 100 lines newest-first
         # then reversed so the client can append in order). scanner_name

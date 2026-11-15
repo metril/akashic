@@ -21,6 +21,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.jwt import create_ingest_token
+from akashic.auth.scopes import roles_with_scope
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
 from akashic.models.scan import Scan
@@ -330,7 +331,7 @@ async def _mint_ingest_jwt(
     a compromised scanner host can't pivot from ingest to admin (review
     A-C1)."""
     res = await db.execute(
-        select(User).where(User.role == "admin").order_by(User.created_at).limit(1)
+        select(User).where(User.role.in_(roles_with_scope("sources:write"))).order_by(User.created_at).limit(1)
     )
     admin = res.scalar_one_or_none()
     if admin is None:

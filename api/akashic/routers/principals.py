@@ -82,7 +82,7 @@ async def resolve(
     # source's entries can already SEE the SIDs in their ACLs, so
     # there's no information-disclosure asymmetry from letting them
     # name those SIDs.
-    await check_source_access(body.source_id, principal, db, required_level="read")
+    await check_source_access(body.source_id, principal, db)
 
     if len(body.sids) > _MAX_SIDS_PER_REQUEST:
         raise HTTPException(

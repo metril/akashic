@@ -23,7 +23,6 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.scopes import ACL_BYPASS_SCOPE
 from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -117,7 +116,7 @@ async def access_query(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    caller: Principal = require_scope("identities:read"),
+    caller: Principal = require_scope("access:read"),
 ):
     """Single endpoint, two modes.
 
@@ -131,8 +130,6 @@ async def access_query(
 
     Exactly one of `principal` / `file` is required. Both at once or
     neither produces a 400."""
-    # The report spans every principal's ACLs, so it needs the ACL-bypass capability.
-    caller.ensure(ACL_BYPASS_SCOPE)
     if (principal is None) == (file is None):
         raise HTTPException(
             status_code=400,

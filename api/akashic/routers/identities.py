@@ -297,9 +297,9 @@ async def list_unbound(
     is more important than hiding them. Ordered by last-seen
     descending."""
     user = principal.user
-    is_admin = principal.has("users:read")
+    sees_all_users = principal.has("users:read")
 
-    if user_id is not None and not is_admin and user_id != user.id:
+    if user_id is not None and not sees_all_users and user_id != user.id:
         raise HTTPException(
             status_code=403,
             detail="Only admins can view another user's unbound identities",
@@ -308,7 +308,7 @@ async def list_unbound(
     stmt = select(FsUnboundIdentity).order_by(FsUnboundIdentity.last_seen_at.desc())
     if user_id is not None:
         stmt = stmt.where(FsUnboundIdentity.user_id == user_id)
-    elif not is_admin:
+    elif not sees_all_users:
         # Non-admin without explicit user_id sees their own only.
         stmt = stmt.where(FsUnboundIdentity.user_id == user.id)
     rows = (await db.execute(stmt)).scalars().all()

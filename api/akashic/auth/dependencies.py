@@ -139,9 +139,9 @@ async def get_ingest_user(
 ) -> User:
     """Resolve the user from a token minted by create_ingest_token.
 
-    Distinct from get_current_user so an ingest-scoped token (handed
-    to the scanner agent) cannot be presented to admin endpoints, and
-    a regular user token cannot satisfy the ingest dependency.
+    Distinct from get_principal so an ingest-scoped token (handed to the
+    scanner agent) cannot be presented to user endpoints, and a regular
+    user token cannot satisfy the ingest dependency.
 
     The user identity is still loaded — ingest needs an authenticated
     actor for ACL/audit purposes — but the audience boundary keeps
@@ -201,10 +201,7 @@ async def check_source_access(
     source_id: uuid.UUID,
     principal: Principal,
     db: AsyncSession,
-    required_level: str = "read",
 ) -> None:
-    """Any caller with a read scope may read any source; write/admin levels
-    additionally need ``sources:write``. (File-level visibility is narrowed
-    by filesystem-ACL filtering, not by per-source grants.)"""
-    if required_level in ("write", "admin"):
-        principal.ensure("sources:write")
+    """Per-source access hook. Authorisation is the route's declared scope
+    alone; this adds no scope requirement of its own. (File-level visibility
+    is narrowed by filesystem-ACL filtering, not by per-source grants.)"""

@@ -24,6 +24,7 @@ SCOPES: dict[str, str] = {
     "hosts:read": "Read hosts and their scanner reachability.",
     "hosts:write": "Create, change and remove hosts, and test or add their shares.",
     "identities:read": "Read identities, bindings, principals, effective permissions and access reports.",
+    "access:read": "Run access reports: who can access what, across every principal's ACLs.",
     "identities:write": "Manage identities and bindings, and resolve their groups.",
     "webhooks:read": "List webhooks.",
     "webhooks:write": "Create and delete webhooks.",
@@ -56,6 +57,11 @@ ROLE_SCOPES: dict[str, frozenset[str]] = {
     }),
     "admin": frozenset(SCOPES),
 }
+
+
+def roles_with_scope(scope: str) -> list[str]:
+    """Roles whose bundle contains ``scope``, sorted."""
+    return sorted(r for r, scopes in ROLE_SCOPES.items() if scope in scopes)
 
 
 def scopes_for_role(role: str | None) -> frozenset[str]:

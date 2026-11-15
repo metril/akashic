@@ -326,7 +326,7 @@ async def get_source_audit(
     needs an exact total later we can add an opt-in flag.
     """
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="read")
+    await check_source_access(source_id, principal, db)
 
     from sqlalchemy import or_
     stmt = (
@@ -626,7 +626,7 @@ async def get_source_entry_count(
     radius. Excludes soft-deleted entries (`is_deleted = true`)
     since those wouldn't be visibly affected by the delete."""
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="read")
+    await check_source_access(source_id, principal, db)
     cnt = (await db.execute(
         select(func.count())
         .select_from(Entry)
@@ -859,7 +859,7 @@ async def test_source_scanners(
     later via the source-reachability WS channel.
     """
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="write")
+    await check_source_access(source_id, principal, db)
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -939,7 +939,7 @@ async def get_source_reachability_summary(
     reachability proof — the scanner just walked the source.
     """
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="read")
+    await check_source_access(source_id, principal, db)
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -1022,7 +1022,7 @@ async def get_source_reachability_history(
     principal: Principal = require_scope("sources:read"),
 ):
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="read")
+    await check_source_access(source_id, principal, db)
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -1090,7 +1090,7 @@ async def list_source_scanner_reachability(
     and includes a small history slice for the per-row disclosure.
     """
     user = principal.user
-    await check_source_access(source_id, principal, db, required_level="read")
+    await check_source_access(source_id, principal, db)
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()

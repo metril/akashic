@@ -69,7 +69,7 @@ async def trigger_scan(
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    await check_source_access(source.id, principal, db, required_level="write")
+    await check_source_access(source.id, principal, db)
 
     # v0.4.4: idempotent re-trigger. If a scan for this source is
     # already pending or running, return its id instead of stacking
@@ -286,6 +286,6 @@ async def cancel_scan(
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    await check_source_access(scan.source_id, principal, db, required_level="write")
+    await check_source_access(scan.source_id, principal, db)
     status = await cancel_scan_core(db, scan, reason="user")
     return CancelResponse(scan_id=scan.id, status=status)

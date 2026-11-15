@@ -280,3 +280,44 @@ async def test_ws_404_for_unknown_scan(app, admin_user):
                 f"/ws/v1/scans/{uuid.uuid4()}?token={token}"
             ) as ws:
                 ws.receive_json()
+
+
+# ── scope enforcement on the streams ────────────────────────────────────────
+
+
+_WS_PATHS = ("/ws/v1/scans/{scan}", "/ws/v1/scans", "/ws/v1/scanners")
+
+
+def _assert_closed_1008(app, path: str, token: str) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect(f"{path}?token={token}") as ws:
+                ws.receive_json()
+    assert exc.value.code == 1008
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", _WS_PATHS)
+async def test_ws_unknown_role_is_closed(app, setup_db, fixture_scan, path):
+    async with setup_db() as s:
+        u = User(id=uuid.uuid4(), username="ghost", email=None, password_hash="x", role="nobody")
+        s.add(u)
+        await s.commit()
+    token = create_access_token({"sub": str(u.id)})
+    _assert_closed_1008(app, path.format(scan=fixture_scan.id), token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,missing", [
+    ("/ws/v1/scans/{scan}", "scans:read"), ("/ws/v1/scans", "scans:read"),
+    ("/ws/v1/scanners", "scanners:read"),
+])
+async def test_ws_reduced_scope_is_closed(app, admin_user, fixture_scan, monkeypatch, path, missing):
+    from akashic.auth import dependencies
+    from akashic.auth.scopes import SCOPES
+
+    monkeypatch.setattr(dependencies, "scopes_for_role", lambda role: frozenset(SCOPES) - {missing})
+    token = create_access_token({"sub": str(admin_user.id)})
+    _assert_closed_1008(app, path.format(scan=fixture_scan.id), token)

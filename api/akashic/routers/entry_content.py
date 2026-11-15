@@ -64,7 +64,7 @@ async def _load_entry_and_source(
             status_code=404,
             detail="entry's source has been deleted; content is no longer fetchable",
         )
-    await check_source_access(entry.source_id, principal, db, "read")
+    await check_source_access(entry.source_id, principal, db)
     # Phase-5 per-user ACL trim — content/preview must respect the same
     # filter as Browse and the entry detail. 404 (not 403) so an
     # unviewable entry's existence isn't leaked through the status code.

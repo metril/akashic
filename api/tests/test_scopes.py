@@ -119,6 +119,27 @@ async def test_viewer_cannot_touch_another_users_identities_or_webhooks(make_cli
     assert (await client.delete(f"/api/v1/webhooks/{uuid.uuid4()}", headers=h)).status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_scans_write_alone_can_trigger_and_cancel(make_client, setup_db):
+    """The route's declared scope is the only gate: scans:write needs no sources:write."""
+    from akashic.models.scan import Scan
+    from akashic.models.source import Source
+
+    async with setup_db() as s:
+        src = Source(id=uuid.uuid4(), name="s", type="local", connection_config={"path": "/tmp"}, status="online")
+        s.add(src)
+        await s.flush()
+        scan = Scan(id=uuid.uuid4(), source_id=src.id, scan_type="full", status="pending")
+        s.add(scan)
+        await s.commit()
+    only = frozenset({"scans:write"})
+    client = await make_client(as_principal(_user("admin"), scopes=only))
+    r = await client.post("/api/v1/scans/trigger", json={"source_id": str(src.id)})
+    assert r.status_code not in (401, 403), r.text
+    r = await client.post(f"/api/v1/scans/{scan.id}/cancel")
+    assert r.status_code not in (401, 403), r.text
+
+
 def test_viewer_bundle_matches_previous_admin_boundary():
     viewer = ROLE_SCOPES["viewer"]
     for admin_only in (

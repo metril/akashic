@@ -54,8 +54,7 @@ async def _load_scan_with_write(
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
     await check_source_access(
-        scan.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
-    )
+        scan.source_id, Principal.for_user(user, via="ingest"), db)
     return scan
 
 
@@ -370,7 +369,7 @@ async def get_log(
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
-    await check_source_access(scan.source_id, principal, db, required_level="read")
+    await check_source_access(scan.source_id, principal, db)
 
     stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:

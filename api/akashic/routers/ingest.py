@@ -9,6 +9,7 @@ from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.auth.scopes import roles_with_scope
 from akashic.auth.dependencies import Principal, check_source_access, get_ingest_user
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
@@ -137,7 +138,7 @@ async def _write_scan_snapshot(scan_id: str, source_id: str, db_url: str):
 async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_url: str):
     """Background task: dispatch webhooks for scan events.
 
-    Scoped to admin webhook owners (viewers have no webhook-bearing source grants).
+    Scoped to webhook owners whose role may manage scans (`scans:write`).
     """
     from akashic.models.user import User
     from akashic.models.webhook import Webhook
@@ -147,7 +148,7 @@ async def _dispatch_scan_webhooks(scan_id: str, source_id: str, status: str, db_
     try:
         async with _bg_session(db_url)() as db:
             admin_ids_result = await db.execute(
-                select(User.id).where(User.role == "admin")
+                select(User.id).where(User.role.in_(roles_with_scope("scans:write")))
             )
             admin_ids = [row[0] for row in admin_ids_result.all()]
 
@@ -352,8 +353,7 @@ async def ingest_batch(
             detail=f"batch exceeds {_MAX_BATCH_ENTRIES} entries; split and retry",
         )
     await check_source_access(
-        batch.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
-    )
+        batch.source_id, Principal.for_user(user, via="ingest"), db)
 
     # Dedupe by path (last wins): a duplicate path would insert twice /
     # trip ON CONFLICT and double-count. dict preserves first-seen order.
@@ -916,8 +916,7 @@ async def ingest_content(
     batch-ingest flush owns.
     """
     await check_source_access(
-        batch.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
-    )
+        batch.source_id, Principal.for_user(user, via="ingest"), db)
     if not batch.items:
         return ContentBatchResponse(items_indexed=0, scan_id=batch.scan_id)
 
