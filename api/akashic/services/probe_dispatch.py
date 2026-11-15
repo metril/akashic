@@ -7,10 +7,10 @@ Redis channels, which the agents consume via long-poll.
 
 OAuth-shaped sources (gdrive, onedrive, dropbox) get a freshly minted
 access token injected into the published `connection_config` so the
-agent doesn't need to call back to /api/scanners/oauth/access-token
+agent doesn't need to call back to /api/v1/scanners/oauth/access-token
 just to start a probe.
 
-The host /api/hosts/{id}/online-check endpoint is the only "API can
+The host /api/v1/hosts/{id}/online-check endpoint is the only "API can
 do this" path — and it's a TCP probe, not reachability.
 
 Why long-poll over websockets: the agent already talks HTTP-only

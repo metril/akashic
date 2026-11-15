@@ -39,7 +39,7 @@ async def test_ingest_persists_source_security_metadata(
         },
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text

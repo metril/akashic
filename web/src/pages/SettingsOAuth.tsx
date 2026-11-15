@@ -86,7 +86,7 @@ export default function SettingsOAuth() {
               Register an OAuth app with each provider's developer console
               and paste the client credentials. Set the redirect URI to{" "}
               <code className="text-[11px]">
-                {window.location.origin}/api/oauth/callback
+                {window.location.origin}/api/v1/oauth/callback
               </code>
               .
             </p>

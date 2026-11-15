@@ -16,7 +16,7 @@ import (
 )
 
 // SendContent posts a batch of extracted-text records to
-// /api/ingest/content with the same retry / gzip / auth behaviour as
+// /api/v1/ingest/content with the same retry / gzip / auth behaviour as
 // SendBatch. v0.30.0.
 //
 // A content-send failure is non-fatal to a scan: the metadata is
@@ -101,7 +101,7 @@ func (c *Client) sendContentOnce(ctx context.Context, body []byte) error {
 		}
 	}
 	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, c.baseURL+"/api/ingest/content", bytes.NewReader(reqBody),
+		ctx, http.MethodPost, c.baseURL+"/api/v1/ingest/content", bytes.NewReader(reqBody),
 	)
 	if err != nil {
 		return terminalError{fmt.Errorf("create request: %w", err)}

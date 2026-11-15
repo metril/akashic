@@ -1,7 +1,7 @@
 """Service health + activity endpoints (v0.29.0).
 
-The new `/api/health/services` is admin-only liveness; the new
-`/api/health/services/activity` is admin-only rich activity (queue
+The new `/api/v1/health/services` is admin-only liveness; the new
+`/api/v1/health/services/activity` is admin-only rich activity (queue
 depth, doc counts, last-activity timestamps).
 
 Covers:
@@ -88,13 +88,13 @@ def clear_router_cache():
 
 @pytest.mark.asyncio
 async def test_services_health_requires_auth(unauth_client):
-    r = await unauth_client.get("/api/health/services")
+    r = await unauth_client.get("/api/v1/health/services")
     assert r.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_services_activity_requires_auth(unauth_client):
-    r = await unauth_client.get("/api/health/services/activity")
+    r = await unauth_client.get("/api/v1/health/services/activity")
     assert r.status_code == 401
 
 
@@ -114,7 +114,7 @@ async def test_services_health_returns_per_service_shape(
     monkeypatch.setattr(health_services, "_probe_meilisearch", fake_meili)
     monkeypatch.setattr(health_services, "_probe_tika", fake_tika)
 
-    r = await admin_client.get("/api/health/services")
+    r = await admin_client.get("/api/v1/health/services")
     assert r.status_code == 200, r.text
     body = r.json()
     for key in ("postgres", "redis", "meilisearch", "tika"):
@@ -137,8 +137,8 @@ async def test_services_health_is_cached_for_5s(admin_client, monkeypatch):
 
     monkeypatch.setattr(health_services, "_probe_meilisearch", counting_meili)
 
-    a = await admin_client.get("/api/health/services")
-    b = await admin_client.get("/api/health/services")
+    a = await admin_client.get("/api/v1/health/services")
+    b = await admin_client.get("/api/v1/health/services")
     assert a.status_code == 200
     assert b.status_code == 200
     assert calls["meili"] == 1
@@ -146,7 +146,7 @@ async def test_services_health_is_cached_for_5s(admin_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tika_activity_reads_redis_counters(admin_client):
-    """Seed the Redis counters the /api/ingest/content endpoint
+    """Seed the Redis counters the /api/v1/ingest/content endpoint
     bumps (v0.30.0), then call the activity endpoint and assert they
     surface."""
     from akashic.services.scan_pubsub import _client as redis_client
@@ -164,7 +164,7 @@ async def test_tika_activity_reads_redis_counters(admin_client):
     await redis.delete(f"akashic:tika:extracted:{bucket}")
     await redis.set(f"akashic:tika:extracted:{bucket}", 7)
 
-    r = await admin_client.get("/api/health/services/activity")
+    r = await admin_client.get("/api/v1/health/services/activity")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["tika"]["ok"] is True
@@ -202,7 +202,7 @@ async def test_meili_activity_degrades_gracefully(admin_client, monkeypatch):
                 "extracted_last_5min": 0, "last_extracted_at": None}
     monkeypatch.setattr(health_services, "_tika_activity", fake_tika_act)
 
-    r = await admin_client.get("/api/health/services/activity")
+    r = await admin_client.get("/api/v1/health/services/activity")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["meilisearch"]["ok"] is False

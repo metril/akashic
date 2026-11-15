@@ -29,7 +29,7 @@ This module replaces that with a per-source dirty set in Redis:
 
 v0.30.0 — `flush` uses Meilisearch partial updates (update_documents),
 not full add_documents. The scanner extracts file text and posts it
-to /api/ingest/content, which partial-updates the doc's content_text.
+to /api/v1/ingest/content, which partial-updates the doc's content_text.
 A metadata flush here that did a full replace would wipe that text;
 partial updates from both writers merge cleanly by id.
 """
@@ -195,7 +195,7 @@ async def flush(source_id: uuid.UUID | str) -> int:
                 # replace). build_entry_doc emits only metadata fields
                 # (no content_text), so a replace would wipe the
                 # extracted text the scanner posted via
-                # /api/ingest/content. update_documents merges by id:
+                # /api/v1/ingest/content. update_documents merges by id:
                 # metadata fields are overwritten, content_text is
                 # left intact. The two writers (metadata flush here +
                 # content endpoint) are independent and order-safe.

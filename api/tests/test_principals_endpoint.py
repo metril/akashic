@@ -1,4 +1,4 @@
-"""HTTP-level tests for POST /api/principals/resolve.
+"""HTTP-level tests for POST /api/v1/principals/resolve.
 
 Service-level cache + spawn behavior is covered by
 test_principal_resolver.py; this file pins down the API contract:
@@ -15,12 +15,12 @@ from akashic.services import principal_resolver
 
 
 async def _register_and_login(client, username="admin", password="hunter2hunter2"):
-    await client.post("/api/users/register", json={
+    await client.post("/api/v1/users/register", json={
         "username": username,
         "email": f"{username}@local",
         "password": password,
     })
-    resp = await client.post("/api/users/login", json={
+    resp = await client.post("/api/v1/users/login", json={
         "username": username, "password": password,
     })
     return resp.json()["access_token"]
@@ -28,7 +28,7 @@ async def _register_and_login(client, username="admin", password="hunter2hunter2
 
 async def _make_smb_source(client, token, name="anime"):
     resp = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "name": name,
@@ -47,7 +47,7 @@ async def _make_smb_source(client, token, name="anime"):
 @pytest.mark.asyncio
 async def test_resolve_requires_auth(client):
     resp = await client.post(
-        "/api/principals/resolve",
+        "/api/v1/principals/resolve",
         json={"source_id": str(uuid.uuid4()), "sids": ["S-1-5-32-544"]},
     )
     assert resp.status_code == 401
@@ -72,7 +72,7 @@ async def test_resolve_returns_resolved_map(client, monkeypatch):
     source_id = await _make_smb_source(client, token)
 
     resp = await client.post(
-        "/api/principals/resolve",
+        "/api/v1/principals/resolve",
         headers={"Authorization": f"Bearer {token}"},
         json={"source_id": source_id, "sids": ["S-1-5-32-544"]},
     )
@@ -96,7 +96,7 @@ async def test_resolve_rejects_too_many_sids(client):
 
     sids = [f"S-1-5-21-1-2-3-{i}" for i in range(300)]
     resp = await client.post(
-        "/api/principals/resolve",
+        "/api/v1/principals/resolve",
         headers={"Authorization": f"Bearer {token}"},
         json={"source_id": source_id, "sids": sids},
     )
@@ -117,7 +117,7 @@ async def test_resolve_unknown_source_returns_error_status(client, monkeypatch):
     token = await _register_and_login(client)
     # Bogus UUID — no source row exists.
     resp = await client.post(
-        "/api/principals/resolve",
+        "/api/v1/principals/resolve",
         headers={"Authorization": f"Bearer {token}"},
         json={"source_id": str(uuid.uuid4()), "sids": ["S-1-5-32-544"]},
     )

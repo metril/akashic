@@ -6,7 +6,7 @@
  * stats. Every tile asks "is anything wrong?" or "what's growing?";
  * none of them are dead-ends.
  *
- * The full state lives in one /api/dashboard/summary round-trip — old
+ * The full state lives in one /api/v1/dashboard/summary round-trip — old
  * Dashboard fired four parallel queries which hit the API harder and
  * still left the user staring at four independently-loading panels.
  */
@@ -98,7 +98,7 @@ export default function Dashboard() {
     staleTime: 10_000,
     refetchOnWindowFocus: false,
     // v0.33.0: poll as a backstop. useDashboardLiveRefresh covers the
-    // instant case via /ws/scans events + snapshot re-sync, but a
+    // instant case via /ws/v1/scans events + snapshot re-sync, but a
     // genuinely-lost event (scan_pubsub publishes are fire-and-forget)
     // would otherwise leave the tiles stale until a manual reload.
     refetchInterval: 30_000,
@@ -116,7 +116,7 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   });
 
-  // Phase-2 multi-scanner: tiles refresh on /ws/scans events instead
+  // Phase-2 multi-scanner: tiles refresh on /ws/v1/scans events instead
   // of waiting for a manual reload.
   useDashboardLiveRefresh();
 

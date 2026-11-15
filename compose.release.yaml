@@ -197,7 +197,7 @@ services:
     depends_on:
       api:
         # Wait for /health, not just for the container to start.
-        # Without this the scanner POSTs to /api/scanners/discover
+        # Without this the scanner POSTs to /api/v1/scanners/discover
         # before uvicorn is bound and gets connection-refused on
         # first try. The retry-with-backoff in `auto`/discover/claim
         # would still recover, but waiting up front is cleaner.

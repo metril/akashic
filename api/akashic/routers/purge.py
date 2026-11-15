@@ -15,7 +15,7 @@ from akashic.models.webhook import PurgeLog
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/purge", tags=["purge"])
+router = APIRouter(prefix="/purge", tags=["purge"])
 
 _PURGE_CHUNK = 5000
 

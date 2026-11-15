@@ -81,7 +81,7 @@ func TestMintJWT_HasExpectedShape(t *testing.T) {
 //
 // Stand up a fake api that:
 //   - accepts the handshake with 200 OK
-//   - returns 204 on /api/scans/lease (no work)
+//   - returns 204 on /api/v1/scans/lease (no work)
 //
 // The agent should poll, see 204, sleep, and be cancellable by the
 // caller's context.
@@ -92,14 +92,14 @@ func TestAgentLeaseLoop_HandlesEmptyLeases(t *testing.T) {
 	leases := 0
 	var sawAgentVersion string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/scanners/handshake" {
+		if r.URL.Path == "/api/v1/scanners/handshake" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accepted": true, "server_protocol_version": 1,
+				"accepted": true, "server_protocol_version": 2,
 				"accepted_min": 1, "accepted_max": 1,
 			})
 			return
 		}
-		if r.URL.Path == "/api/scans/lease" {
+		if r.URL.Path == "/api/v1/scans/lease" {
 			leases++
 			// v0.30.2 — the lease body reports the running build so
 			// the API can keep scanners.version fresh.
@@ -214,7 +214,7 @@ func TestAgentHandshake_RejectsOutOfRangeProtocol(t *testing.T) {
 	keyPath := writePEMKey(t, priv)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/scanners/handshake" {
+		if r.URL.Path == "/api/v1/scanners/handshake" {
 			w.WriteHeader(http.StatusUpgradeRequired)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"accepted": false, "server_protocol_version": 2,

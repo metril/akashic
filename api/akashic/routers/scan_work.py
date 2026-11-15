@@ -17,7 +17,7 @@ same scan simultaneously. Default 1 preserves legacy behaviour
 
 Backwards compatibility: scans that don't use the unit machinery work
 exactly as today — the unit table is empty for them and the legacy
-``/api/scans/{id}/complete`` endpoint still drives the terminal state.
+``/api/v1/scans/{id}/complete`` endpoint still drives the terminal state.
 """
 from __future__ import annotations
 
@@ -168,7 +168,7 @@ async def _maybe_finalize_scan(
     now = datetime.now(timezone.utc)
     scan.status = new_status
     # v0.31.4 — record why the scan ended. The legacy single-scanner
-    # /api/scans/{id}/complete endpoint sets cancellation_reason; this
+    # /api/v1/scans/{id}/complete endpoint sets cancellation_reason; this
     # multi-scanner finalize path didn't, leaving it NULL. A scanner
     # still heartbeating after finalize then gets a 409 with reason=null,
     # which the Go decoder maps to "scan cancelled by user" — a false
@@ -260,7 +260,7 @@ async def _broadcast_terminal(
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.post("/api/scans/{scan_id}/work/lease")
+@router.post("/scans/{scan_id}/work/lease")
 async def lease_unit(
     scan_id: uuid.UUID,
     response: Response,
@@ -358,7 +358,7 @@ async def lease_unit(
     })
 
     # First unit-claim of the scan: bump the scan to 'running' so the
-    # legacy /api/scans/{id}/complete contract (only the scan's own
+    # legacy /api/v1/scans/{id}/complete contract (only the scan's own
     # lease holder may terminate) doesn't apply to unit-driven scans.
     if scan.status == "pending":
         scan.status = "running"
@@ -372,7 +372,7 @@ async def lease_unit(
 
 
 @router.post(
-    "/api/scans/{scan_id}/work/{unit_id}/heartbeat",
+    "/scans/{scan_id}/work/{unit_id}/heartbeat",
     response_model=WorkUnitOut,
 )
 async def heartbeat_unit(
@@ -409,7 +409,7 @@ async def heartbeat_unit(
 
 
 @router.post(
-    "/api/scans/{scan_id}/work/{unit_id}/complete",
+    "/scans/{scan_id}/work/{unit_id}/complete",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def complete_unit(
@@ -421,7 +421,7 @@ async def complete_unit(
 ):
     """Mark a unit completed. If it's the last terminal-pending unit,
     transition the scan itself to 'completed' atomically and fire the
-    same side-effects as the legacy /api/scans/{id}/complete handler
+    same side-effects as the legacy /api/v1/scans/{id}/complete handler
     (source.status = online, last_scan_at, is_reachable, broadcast).
 
     On scan finalization (review notable) also enqueue the same
@@ -483,7 +483,7 @@ async def complete_unit(
 
 
 @router.post(
-    "/api/scans/{scan_id}/work/{unit_id}/fail",
+    "/scans/{scan_id}/work/{unit_id}/fail",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def fail_unit(
@@ -553,7 +553,7 @@ async def fail_unit(
 
 
 @router.post(
-    "/api/scans/{scan_id}/work/split",
+    "/scans/{scan_id}/work/split",
     response_model=SplitResponse,
 )
 async def split_units(
@@ -606,8 +606,8 @@ async def split_units(
 
     # v0.29.0 — push-based multi-scanner cooperation. Once units exist
     # on the queue, notify every other eligible scanner so they can
-    # join via /api/scans/{id}/work/lease without having to first
-    # discover the scan via /api/scans/lease (which filters out scans
+    # join via /api/v1/scans/{id}/work/lease without having to first
+    # discover the scan via /api/v1/scans/lease (which filters out scans
     # that already have an assigned_scanner_id).
     #
     # Only fired when the source allows >1 cooperating scanner; the

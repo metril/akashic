@@ -1,4 +1,4 @@
-"""Pydantic schemas for /api/credential-profiles.
+"""Pydantic schemas for /api/v1/credential-profiles.
 
 Reuses the same secret-scrubbing rules from schemas/source.py
 (_scrub_config / _SECRET_KEYS) so passwords and keys are masked as

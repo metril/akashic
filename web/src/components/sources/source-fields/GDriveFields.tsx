@@ -7,7 +7,7 @@
  * keyed by source_id (set later, when the source row is created).
  *
  * The form holds the ``oauth_credential_id`` returned from
- * ``/api/oauth/start`` in mode=associate. Until that's set, save is
+ * ``/api/v1/oauth/start`` in mode=associate. Until that's set, save is
  * blocked by ``validateSourceConfig``.
  *
  * Folder scope: optional. When empty, the scanner walks My Drive

@@ -5,6 +5,21 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.48.0 — unreleased
+
+**Every HTTP endpoint now lives under `/api/v1` and every WebSocket under `/ws/v1`, so the API can evolve without silently breaking integrations.**
+
+### Breaking
+
+- **Scanners must be upgraded to v0.48.0 before the API.** The scanner protocol moves to version 2 and the handshake rejects older agents (426 once they reach it; unversioned paths answer 410). Upgrade all scanners together with the API.
+- **Unversioned `/api/*` returns 410** with error code `api_version_required`, and unversioned `/ws/*` is refused. Update scripts, CLI wrappers and integrations to `/api/v1/...` and `/ws/v1/...`. The in-repo web UI, CLI, scanner and Home Assistant integration are already migrated. Swagger stays at `/api/docs`; the spec moved to `/api/v1/openapi.json`.
+- **OIDC and source-OAuth callback URIs changed** to `https://<host>/api/v1/auth/oidc/callback` and `https://<host>/api/v1/oauth/callback`. Update the redirect URIs registered at your identity provider and at Google, Microsoft and Dropbox. Old URIs get a temporary 308 redirect so sign-in keeps working in the meantime; the redirect will be removed in a later release. The `oidc_redirect_uri` default changed too; set it explicitly in Settings → Server if you rely on the default.
+- **The refresh cookie path is now `/api/v1/auth`.** Everyone is signed out once and must log in again.
+
+### Changed
+
+- Scanner-agent endpoints (claim, handshake, heartbeat, leases, ingest, discovery) are tagged "Scanner protocol (internal)" in the API docs and live in their own router module.
+
 ## v0.47.0 — 2026-11-14
 
 **Configuration moves out of env vars and into the web UI, viewers can finally see indexed data, and admin-only controls are hidden from everyone else.**

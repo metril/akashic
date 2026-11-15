@@ -19,7 +19,7 @@ from akashic.services.search import delete_file_from_index
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/duplicates", tags=["duplicates"])
+router = APIRouter(prefix="/duplicates", tags=["duplicates"])
 
 
 @router.get("")

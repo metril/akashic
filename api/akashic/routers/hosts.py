@@ -39,14 +39,14 @@ from akashic.services.source_merge import (
 )
 from akashic.services.source_tester import TestResult
 
-router = APIRouter(prefix="/api/hosts", tags=["hosts"])
+router = APIRouter(prefix="/hosts", tags=["hosts"])
 
 
 _HOST_TYPES = {"smb", "nfs", "s3"}
 
 
 async def _publish_host_changed(host_id: uuid.UUID) -> None:
-    """Notify /ws/scans subscribers that a host row changed so the Hosts
+    """Notify /ws/v1/scans subscribers that a host row changed so the Hosts
     page refreshes without polling. Rides the sources channel (hosts and
     sources are the same domain) — fire-and-forget like the source events."""
     from akashic.services import scan_pubsub
@@ -284,7 +284,7 @@ async def delete_host(
 
 
 class OnlineCheckResponse(BaseModel):
-    """Result of POST /api/hosts/{id}/online-check.
+    """Result of POST /api/v1/hosts/{id}/online-check.
 
     Pure TCP probe from the API process — opens a socket to the
     server's port (SMB→445, NFS→2049) or HEADs the S3 endpoint. No
@@ -293,7 +293,7 @@ class OnlineCheckResponse(BaseModel):
     fails (so the user can tell DNS/firewall apart from credentials).
 
     Reachability proper is what the scanners report — see
-    `POST /api/sources/{id}/test-scanners`.
+    `POST /api/v1/sources/{id}/test-scanners`.
     """
 
     result: TestResult
@@ -364,7 +364,7 @@ async def host_online_check(
     """TCP "is it online?" probe. v0.28.1 renamed from /test-connection
     to make the API's role explicit: the API can only check whether the
     server responds on the network. Credentialed reachability is a
-    scanner-side fact and lives on /api/sources/{id}/test-scanners.
+    scanner-side fact and lives on /api/v1/sources/{id}/test-scanners.
     """
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:

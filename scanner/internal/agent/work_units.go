@@ -67,7 +67,7 @@ func leaseUnit(
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/scans/%s/work/lease", cfg.APIBase, scanID)
+	url := fmt.Sprintf("%s/api/v1/scans/%s/work/lease", cfg.APIBase, scanID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func splitUnits(
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/scans/%s/work/split", cfg.APIBase, scanID)
+	url := fmt.Sprintf("%s/api/v1/scans/%s/work/split", cfg.APIBase, scanID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth, splitReq{
 		ParentUnitID: parent, ChildPaths: childPaths,
 	})
@@ -137,7 +137,7 @@ func heartbeatUnit(
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/scans/%s/work/%s/heartbeat",
+	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/heartbeat",
 		cfg.APIBase, scanID, unitID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
 	if err != nil {
@@ -159,7 +159,7 @@ func completeUnit(
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/scans/%s/work/%s/complete",
+	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/complete",
 		cfg.APIBase, scanID, unitID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth, struct{}{})
 	if err != nil {
@@ -185,7 +185,7 @@ func failUnit(
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/scans/%s/work/%s/fail",
+	url := fmt.Sprintf("%s/api/v1/scans/%s/work/%s/fail",
 		cfg.APIBase, scanID, unitID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth,
 		failReq{ErrorMessage: errMsg, Requeue: requeue})

@@ -1,4 +1,4 @@
-"""Schemas for POST /api/ingest/content (v0.30.0).
+"""Schemas for POST /api/v1/ingest/content (v0.30.0).
 
 The scanner extracts file text (plain decode / Apache Tika) and ships
 it back on this channel, keyed by (source_id, path). The API resolves

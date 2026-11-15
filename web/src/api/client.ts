@@ -1,4 +1,5 @@
-const API_BASE = "/api";
+export const API_BASE = "/api/v1/v1";
+export const WS_BASE = "/ws/v1/v1";
 
 // Access JWT lives in memory only (review W-C1). A stored JWT in
 // localStorage is readable by any same-origin script — including any
@@ -89,7 +90,7 @@ interface RequestOptions {
 }
 
 // In-flight refresh promise so a burst of concurrent 401s collapses
-// into one /api/auth/refresh call. Without this, opening the app to a
+// into one /api/v1/auth/refresh call. Without this, opening the app to a
 // page that fires N parallel queries with a stale token would mint N
 // new chains and revoke N-1 of them as replays.
 let inflightRefresh: Promise<string | null> | null = null;
@@ -99,7 +100,7 @@ async function silentRefresh(): Promise<string | null> {
     const doRefresh = async (): Promise<string | null> => {
       try {
         // The refresh cookie rides on this fetch automatically because
-        // it's HttpOnly + Path=/api/auth + same-origin.
+        // it's HttpOnly + Path=/api/v1/auth + same-origin.
         const r = await fetch(`${API_BASE}/auth/refresh`, {
           method: "POST",
           credentials: "include",

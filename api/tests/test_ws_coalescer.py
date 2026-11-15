@@ -1,6 +1,6 @@
 """Unit tests for the per-WebSocket scan-event coalescer (v0.4.3).
 
-The coalescer wraps each /ws/scans connection's egress so a busy
+The coalescer wraps each /ws/v1/scans connection's egress so a busy
 scan doesn't drown the browser in heartbeats. Tests target the
 class directly — easier to control timing than threading through
 a real WS roundtrip.

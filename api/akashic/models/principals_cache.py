@@ -1,4 +1,4 @@
-"""On-demand SID-to-principal cache populated by /api/principals/resolve.
+"""On-demand SID-to-principal cache populated by /api/v1/principals/resolve.
 
 Distinct from `principal_groups_cache` (which records group-membership
 of an already-known principal). This table answers "what is the human

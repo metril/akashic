@@ -1,9 +1,9 @@
 // Package agent runs the long-poll lease loop that turns a scanner
-// host into a remote worker. The agent calls /api/scanners/handshake
+// host into a remote worker. The agent calls /api/v1/scanners/handshake
 // at startup (versions out of range → exit 1), then loops
-// /api/scans/lease to claim work. Each leased scan runs with the
+// /api/v1/scans/lease to claim work. Each leased scan runs with the
 // existing scanner.Run code path; on completion the agent calls
-// /api/scans/{id}/complete to release the lease and re-polls.
+// /api/v1/scans/{id}/complete to release the lease and re-polls.
 package agent
 
 import (
@@ -77,7 +77,7 @@ func Run(ctx context.Context, cfg Config) error {
 	go heartbeatLoop(ctx, httpc, cfg, priv)
 
 	// 2a) Independent on-demand probe goroutine. Long-polls
-	// /api/scanners/{id}/probes/long-poll for user-triggered probes
+	// /api/v1/scanners/{id}/probes/long-poll for user-triggered probes
 	// dispatched from the API; runs each probe and posts the result.
 	// Decoupled from the scan lease cadence so a long scan doesn't
 	// starve probe delivery. v0.28.0 (replaces the v0.5.7 reachability
@@ -85,7 +85,7 @@ func Run(ctx context.Context, cfg Config) error {
 	go reachabilityLoop(ctx, httpc, cfg, priv)
 
 	// 2b) Independent multi-scanner join goroutine. Long-polls
-	// /api/scanners/{id}/scans/long-poll for join notifications
+	// /api/v1/scanners/{id}/scans/long-poll for join notifications
 	// pushed by the API when another scanner has split units on a
 	// max_parallel_scanners>1 source we're eligible for. Decoupled
 	// from the lease loop so an idle agent picks up cooperative work
@@ -112,7 +112,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if shouldUseUnits(leased) {
 			// Unit-coordinated path: this scan is opted in for parallel
 			// scanning. The work-units API drives terminal status; we
-			// don't call /api/scans/{id}/complete ourselves (that would
+			// don't call /api/v1/scans/{id}/complete ourselves (that would
 			// overwrite the auto-finalization).
 			if err := runUnitCoordinated(ctx, httpc, cfg, priv, leased); err != nil {
 				log.Printf("unit-scan %s failed: %v", leased.ScanID, err)
@@ -307,7 +307,7 @@ func handshake(
 		Hostname:        cfg.Hostname,
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
-		cfg.APIBase+"/api/scanners/handshake", auth, body)
+		cfg.APIBase+"/api/v1/scanners/handshake", auth, body)
 	if err != nil {
 		return err
 	}
@@ -336,7 +336,7 @@ func heartbeatLoop(
 ) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	url := fmt.Sprintf("%s/api/scanners/%s/heartbeat", cfg.APIBase, cfg.ScannerID)
+	url := fmt.Sprintf("%s/api/v1/scanners/%s/heartbeat", cfg.APIBase, cfg.ScannerID)
 	for {
 		select {
 		case <-ctx.Done():
@@ -369,7 +369,7 @@ func heartbeatLoop(
 	}
 }
 
-// leaseReq is the POST body for /api/scans/lease. v0.30.2 — carries
+// leaseReq is the POST body for /api/v1/scans/lease. v0.30.2 — carries
 // the running build version so the API keeps scanners.version fresh
 // after an in-place upgrade (it's otherwise only set at claim time).
 type leaseReq struct {
@@ -384,7 +384,7 @@ func lease(
 		return nil, err
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
-		cfg.APIBase+"/api/scans/lease", auth, leaseReq{AgentVersion: cfg.Version})
+		cfg.APIBase+"/api/v1/scans/lease", auth, leaseReq{AgentVersion: cfg.Version})
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +412,7 @@ func complete(
 		return err
 	}
 	resp, err := doJSON(ctx, httpc, "POST",
-		fmt.Sprintf("%s/api/scans/%s/complete", cfg.APIBase, scanID),
+		fmt.Sprintf("%s/api/v1/scans/%s/complete", cfg.APIBase, scanID),
 		auth, completeReq{Status: status, ErrorMessage: errMsg})
 	if err != nil {
 		return err

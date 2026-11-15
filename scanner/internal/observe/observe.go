@@ -4,11 +4,11 @@
 // Three independent goroutines, all sharing the same Reporter:
 //
 //   - heartbeat: every 1 s, snapshots the State counters and POSTs to
-//     /api/scans/{id}/heartbeat. Cheap; the scan never blocks on it.
+//     /api/v1/scans/{id}/heartbeat. Cheap; the scan never blocks on it.
 //   - log drain: reads from the LogSink's bounded channel, batches
-//     10 lines or 500 ms, POSTs to /api/scans/{id}/log.
+//     10 lines or 500 ms, POSTs to /api/v1/scans/{id}/log.
 //   - stderr relay: reads from a pipe substituted for os.Stderr at scan
-//     start; batches 4 KB or 200 ms, POSTs to /api/scans/{id}/stderr.
+//     start; batches 4 KB or 200 ms, POSTs to /api/v1/scans/{id}/stderr.
 //
 // Failures on any channel are logged and dropped — the scan must never
 // abort because progress reporting hit a transient network blip. The

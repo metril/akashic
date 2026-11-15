@@ -21,7 +21,7 @@ import (
 // for a Google Drive source. ``access_token`` is minted at scan-lease
 // time by ``api.routers.scanners.lease_scan`` from the source's
 // SourceOAuthCredential row; for long scans the scanner re-mints via
-// POST /api/scanners/oauth/access-token.
+// POST /api/v1/scanners/oauth/access-token.
 //
 // FolderID is optional — when empty, the connector walks "My Drive"
 // (the API uses the special "root" alias). When set, the walk is
@@ -53,7 +53,7 @@ type GDriveConnector struct {
 	httpClient *http.Client
 
 	// Refresh callback. The agent installs a closure that POSTs
-	// /api/scanners/oauth/access-token; nil in tests.
+	// /api/v1/scanners/oauth/access-token; nil in tests.
 	refreshAccessToken func(ctx context.Context) (string, error)
 
 	// Atomic so the refresh closure can update without locking.

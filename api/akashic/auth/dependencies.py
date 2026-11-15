@@ -11,7 +11,7 @@ from akashic.models.user import User
 
 security = HTTPBearer(
     scheme_name="userJWT", bearerFormat="JWT",
-    description="Access token from `POST /api/auth/login` or `/api/auth/refresh`.",
+    description="Access token from `POST /api/v1/auth/login` or `/api/v1/auth/refresh`.",
 )
 _ingest_security = HTTPBearer(
     scheme_name="ingestJWT", bearerFormat="JWT",

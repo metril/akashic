@@ -1,4 +1,4 @@
-"""POST /api/scans/{id}/work/* — claim, heartbeat, complete, fail,
+"""POST /api/v1/scans/{id}/work/* — claim, heartbeat, complete, fail,
 split semantics for parallel scanning.
 
 These exercise the API contract only. Scanner-side use of the
@@ -80,7 +80,7 @@ def _scanner_token(sid: str, priv: str) -> str:
 
 async def _mint_scanner(setup_db, admin_user, name: str | None = None) -> dict:
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.post("/api/scanners", json={
+        r = await ac.post("/api/v1/scanners", json={
             "name": name or f"s-{uuid.uuid4().hex[:6]}",
             "pool": "default",
         })
@@ -126,7 +126,7 @@ async def test_lease_with_no_units_returns_204(setup_db, admin_user):
     scn = await _mint_scanner(setup_db, admin_user)
 
     async with _bearer_client(setup_db) as ac:
-        r = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn))
+        r = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn))
     assert r.status_code == 204, r.text
 
 
@@ -137,7 +137,7 @@ async def test_split_then_lease_returns_unit(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         s = await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["", "a", "b"]},
             headers=_auth(scn),
         )
@@ -145,7 +145,7 @@ async def test_split_then_lease_returns_unit(setup_db, admin_user):
         assert s.json()["created"] == 3
         assert s.json()["skipped"] == 0
 
-        r = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn))
+        r = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "running"
@@ -159,12 +159,12 @@ async def test_split_is_idempotent(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         first = await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["", "x"]},
             headers=_auth(scn),
         )
         second = await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["", "x", "y"]},  # "y" is new, "" + "x" repeat
             headers=_auth(scn),
         )
@@ -180,14 +180,14 @@ async def test_lease_serialises_via_skip_locked(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]},
             headers=_auth(scn1),
         )
         # Two scanners race for the single available unit.
         results = await asyncio.gather(
-            ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1)),
-            ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn2)),
+            ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn1)),
+            ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn2)),
         )
     statuses = sorted(r.status_code for r in results)
     # Exactly one wins (200), the other gets 204 (no work) — never both 200.
@@ -209,16 +209,16 @@ async def test_lease_returns_204_not_409_when_capped_but_no_units_left(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]},
             headers=_auth(scn1),
         )
         # scn1 takes the one unit — the scan is now at its cap of 1.
-        r1 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1))
+        r1 = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn1))
         assert r1.status_code == 200, r1.text
         # scn2 polls with no unit free. Must be 204 ("nothing for me"),
         # never 409 ("cap reached") — there is simply no work.
-        r2 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn2))
+        r2 = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn2))
     assert r2.status_code == 204, r2.text
 
 
@@ -231,17 +231,17 @@ async def test_max_parallel_scanners_cap(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["a", "b", "c"]},
             headers=_auth(scn1),
         )
         # First two scanners each lease one unit — now at the cap.
-        r1 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1))
-        r2 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn2))
+        r1 = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn1))
+        r2 = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn2))
         assert r1.status_code == 200
         assert r2.status_code == 200
         # Third scanner refused: cap reached.
-        r3 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn3))
+        r3 = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn3))
     assert r3.status_code == 409
     assert "cap" in r3.json()["message"].lower()
 
@@ -255,15 +255,15 @@ async def test_complete_unit_finalizes_scan_when_last(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]},
             headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         c = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/complete",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/complete",
             headers=_auth(scn),
         )
     assert c.status_code == 204
@@ -309,15 +309,15 @@ async def test_complete_unit_with_siblings_pending_keeps_scan_running(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["a", "b"]},
             headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/complete",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/complete",
             headers=_auth(scn),
         )
 
@@ -337,15 +337,15 @@ async def test_fail_unit_with_no_others_marks_scan_failed(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]},
             headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         f = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/fail",
             json={"error_message": "synthetic"},
             headers=_auth(scn),
         )
@@ -371,18 +371,18 @@ async def test_heartbeat_extends_lease(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["x"]},
             headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         first_expiry = leased["lease_expires_at"]
         # Sleep just a bit so the second timestamp is strictly later.
         await asyncio.sleep(0.05)
         h = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/heartbeat",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/heartbeat",
             headers=_auth(scn),
         )
     assert h.status_code == 200
@@ -397,16 +397,16 @@ async def test_complete_by_non_holder_returns_403(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["x"]},
             headers=_auth(scn1),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn1)
         )).json()
         # scn2 tries to complete scn1's unit.
         c = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/complete",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/complete",
             headers=_auth(scn2),
         )
     assert c.status_code == 403
@@ -420,12 +420,12 @@ async def test_lease_after_expiry_reclaimable(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["x"]},
             headers=_auth(scn1),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn1)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn1)
         )).json()
 
     # Force the lease into the past so the next lease attempt sees it
@@ -438,7 +438,7 @@ async def test_lease_after_expiry_reclaimable(setup_db, admin_user):
         await db.commit()
 
     async with _bearer_client(setup_db) as ac:
-        r = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn2))
+        r = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn2))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["id"] == leased["id"]  # same unit, new holder
@@ -469,15 +469,15 @@ async def test_finalize_sweeps_stale_entries_only_after_last_unit(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["a", "b"]},
             headers=_auth(scn),
         )
         u1 = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         await ac.post(
-            f"/api/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
+            f"/api/v1/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
         )
 
     # First unit done, second still pending — scan not finalized — the
@@ -490,10 +490,10 @@ async def test_finalize_sweeps_stale_entries_only_after_last_unit(
 
     async with _bearer_client(setup_db) as ac:
         u2 = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         await ac.post(
-            f"/api/scans/{scan_id}/work/{u2['id']}/complete", headers=_auth(scn),
+            f"/api/v1/scans/{scan_id}/work/{u2['id']}/complete", headers=_auth(scn),
         )
 
     # Last unit done — scan finalized — the sweep ran exactly once.
@@ -530,21 +530,21 @@ async def test_finalize_does_not_sweep_when_a_unit_failed(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["a", "b"]},
             headers=_auth(scn),
         )
         u1 = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         await ac.post(
-            f"/api/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
+            f"/api/v1/scans/{scan_id}/work/{u1['id']}/complete", headers=_auth(scn),
         )
         u2 = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         await ac.post(
-            f"/api/scans/{scan_id}/work/{u2['id']}/fail",
+            f"/api/v1/scans/{scan_id}/work/{u2['id']}/fail",
             json={"error_message": "synthetic"}, headers=_auth(scn),
         )
 
@@ -581,7 +581,7 @@ async def test_lease_returns_409_scan_terminal_for_terminal_scan(
         await db.commit()
 
     async with _bearer_client(setup_db) as ac:
-        r = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn))
+        r = await ac.post(f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn))
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["reason"] == "scan-terminal"
 
@@ -596,14 +596,14 @@ async def test_fail_unit_requeue_resets_unit_to_pending(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]}, headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         f = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/fail",
             json={"error_message": "smb stalled", "requeue": True},
             headers=_auth(scn),
         )
@@ -637,16 +637,16 @@ async def test_fail_unit_requeue_falls_back_to_failed_at_attempt_budget(
 
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]}, headers=_auth(scn),
         )
         for _ in range(_MAX_UNIT_ATTEMPTS):
             leased = (await ac.post(
-                f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+                f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
             )).json()
             assert "id" in leased, leased
             f = await ac.post(
-                f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+                f"/api/v1/scans/{scan_id}/work/{leased['id']}/fail",
                 json={"error_message": "smb stalled", "requeue": True},
                 headers=_auth(scn),
             )

@@ -14,9 +14,9 @@ from akashic.models.source import Source
 
 
 async def _register_login(client, username="admin", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": username, "password": password},
     )
     return login.json()["access_token"]
@@ -57,7 +57,7 @@ async def test_timeseries_returns_oldest_first(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/timeseries?source_id={src.id}&metric=size&days=30",
+        f"/api/v1/analytics/timeseries?source_id={src.id}&metric=size&days=30",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -74,7 +74,7 @@ async def test_timeseries_metric_count(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/timeseries?source_id={src.id}&metric=count",
+        f"/api/v1/analytics/timeseries?source_id={src.id}&metric=count",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -94,7 +94,7 @@ async def test_forecast_with_insufficient_history_returns_null(client, db_sessio
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/forecast?source_id={src.id}",
+        f"/api/v1/analytics/forecast?source_id={src.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -124,7 +124,7 @@ async def test_forecast_extrapolates_growth(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/forecast?source_id={src.id}&horizon_days=30",
+        f"/api/v1/analytics/forecast?source_id={src.id}&horizon_days=30",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -164,7 +164,7 @@ async def test_extension_trend_pads_missing_buckets_with_zeros(client, db_sessio
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/extension-trend?source_id={src.id}&extensions=pdf,txt&days=30",
+        f"/api/v1/analytics/extension-trend?source_id={src.id}&extensions=pdf,txt&days=30",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -197,7 +197,7 @@ async def test_owner_distribution_returns_latest_snapshot_only(client, db_sessio
     await db_session.commit()
 
     r = await client.get(
-        f"/api/analytics/owner-distribution?source_id={src.id}",
+        f"/api/v1/analytics/owner-distribution?source_id={src.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -212,7 +212,7 @@ async def test_owner_distribution_empty_when_no_snapshots(client, db_session):
     token = await _register_login(client)
     src = await _make_source(db_session)
     r = await client.get(
-        f"/api/analytics/owner-distribution?source_id={src.id}",
+        f"/api/v1/analytics/owner-distribution?source_id={src.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -225,19 +225,19 @@ async def test_timeseries_open_to_regular_user(client, db_session):
     admin_token = await _register_login(client)
     # Make a regular user.
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "regular", "password": "testpass123", "role": "user"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "regular", "password": "testpass123"},
     )
     user_token = login.json()["access_token"]
 
     src = await _make_source(db_session)
     r = await client.get(
-        f"/api/analytics/timeseries?source_id={src.id}",
+        f"/api/v1/analytics/timeseries?source_id={src.id}",
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 200

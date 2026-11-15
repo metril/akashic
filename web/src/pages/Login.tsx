@@ -3,7 +3,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { Card, Input, Button } from "../components/ui";
 import { BrandMark } from "../components/BrandMark";
-import { api } from "../api/client";
+import { API_BASE, api } from "../api/client";
 
 // Mirror api/akashic/schemas/user.py — 12-char floor agrees with the
 // bcrypt-72-byte upper bound on the API and gives an admin password
@@ -270,7 +270,7 @@ export default function Login() {
             </div>
             )}
             <a
-              href="/api/auth/oidc/login"
+              href={`${API_BASE}/auth/oidc/login`}
               className="block w-full text-center rounded-lg bg-surface text-fg border border-line hover:bg-surface-muted px-5 py-2.5 text-sm font-medium"
             >
               Sign in with SSO

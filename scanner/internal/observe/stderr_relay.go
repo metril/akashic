@@ -18,7 +18,7 @@ const (
 
 // StartStderrRelay replaces os.Stderr with the write end of a pipe; reads
 // from the pipe in a goroutine; debounces chunks (4 KB or 200 ms); POSTs
-// to /api/scans/{id}/stderr; and tees back to the original stderr so the
+// to /api/v1/scans/{id}/stderr; and tees back to the original stderr so the
 // console behaviour for users running the scanner directly is unchanged.
 //
 // MUST be called early in main() — anything writing to stderr before this
@@ -148,7 +148,7 @@ func (r *Reporter) postStderrChunk(ctx context.Context, chunk string) {
 	if err != nil {
 		return
 	}
-	url := r.apiURL + "/api/scans/" + r.scanID + "/stderr"
+	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/stderr"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return

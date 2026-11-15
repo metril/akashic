@@ -46,7 +46,7 @@ async def test_browse_applies_grammar_filters(client: AsyncClient, db_session: A
 
     encoded = serialize([OwnerPred(kind="owner", value="alice")])
     resp = await client.get(
-        f"/api/browse?source_id={source.id}&filters={encoded}",
+        f"/api/v1/browse?source_id={source.id}&filters={encoded}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -67,7 +67,7 @@ async def test_browse_rejects_cross_source_predicate(client: AsyncClient, db_ses
 
     encoded = serialize([SourcePred(kind="source", value=str(uuid.uuid4()))])
     resp = await client.get(
-        f"/api/browse?source_id={source.id}&filters={encoded}",
+        f"/api/v1/browse?source_id={source.id}&filters={encoded}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 400
@@ -85,7 +85,7 @@ async def test_browse_rejects_malformed_filters(client: AsyncClient, db_session:
     token = create_access_token({"sub": str(admin.id)})
 
     resp = await client.get(
-        f"/api/browse?source_id={source.id}&filters=NOT_BASE64!!!",
+        f"/api/v1/browse?source_id={source.id}&filters=NOT_BASE64!!!",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 400

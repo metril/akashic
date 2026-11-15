@@ -140,9 +140,9 @@ async def db_session(setup_db):
 
 async def seed_scan(db_session, source_id, *, status: str = "pending"):
     """Pre-create a Scan row and return its UUID. Ingest tests need
-    this since /api/ingest/batch refuses unknown scan_ids
+    this since /api/v1/ingest/batch refuses unknown scan_ids
     (review A-I6) — every batch must reference a Scan row that the
-    api created via /api/scans/trigger or the lease path."""
+    api created via /api/v1/scans/trigger or the lease path."""
     import uuid as _uuid
 
     from akashic.models.scan import Scan

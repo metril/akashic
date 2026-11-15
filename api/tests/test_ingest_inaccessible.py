@@ -53,7 +53,7 @@ async def test_inaccessible_counts_persisted_on_final_batch(
         "inaccessible_files": 7,
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -93,7 +93,7 @@ async def test_inaccessible_counts_accumulate_across_batches(
             "inaccessible_files": f,
         }
         resp = await client.post(
-            "/api/ingest/batch", json=payload,
+            "/api/v1/ingest/batch", json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -122,7 +122,7 @@ async def test_legacy_batch_without_counts_defaults_to_zero(
         "is_final": True,
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text

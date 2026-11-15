@@ -1,4 +1,4 @@
-"""Admin Maintenance router + job runner — /api/admin/maintenance/*."""
+"""Admin Maintenance router + job runner — /api/v1/admin/maintenance/*."""
 from __future__ import annotations
 
 import asyncio
@@ -118,7 +118,7 @@ async def test_overview_counts(setup_db, admin_user, monkeypatch):
     await _add_logs(setup_db, running, 1)   # not purgeable — still running
 
     async with _client(setup_db, admin_user) as ac:
-        r = await ac.get("/api/admin/maintenance/overview")
+        r = await ac.get("/api/v1/admin/maintenance/overview")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["scans_active"] == 3  # 2 running + 1 pending
@@ -139,7 +139,7 @@ def _async_return(value):
 @pytest.mark.asyncio
 async def test_non_admin_gets_403(setup_db, viewer_user):
     async with _client(setup_db, viewer_user) as ac:
-        r = await ac.get("/api/admin/maintenance/overview")
+        r = await ac.get("/api/v1/admin/maintenance/overview")
     assert r.status_code == 403
 
 
@@ -154,7 +154,7 @@ async def test_stuck_scans_lists_only_non_terminal(setup_db, admin_user):
     await _make_scan(setup_db, src, status="failed")
 
     async with _client(setup_db, admin_user) as ac:
-        r = await ac.get("/api/admin/maintenance/scans/stuck")
+        r = await ac.get("/api/v1/admin/maintenance/scans/stuck")
     assert r.status_code == 200, r.text
     ids = {row["scan_id"] for row in r.json()}
     assert ids == {str(pending), str(running)}
@@ -166,7 +166,7 @@ async def test_admin_cancel_transitions_running_to_cancelled(setup_db, admin_use
     scan_id = await _make_scan(setup_db, src, status="running")
 
     async with _client(setup_db, admin_user) as ac:
-        r = await ac.post(f"/api/admin/maintenance/scans/{scan_id}/cancel")
+        r = await ac.post(f"/api/v1/admin/maintenance/scans/{scan_id}/cancel")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "cancelled"
 
@@ -179,7 +179,7 @@ async def test_admin_cancel_transitions_running_to_cancelled(setup_db, admin_use
 @pytest.mark.asyncio
 async def test_cancel_unknown_scan_404(setup_db, admin_user):
     async with _client(setup_db, admin_user) as ac:
-        r = await ac.post(f"/api/admin/maintenance/scans/{uuid.uuid4()}/cancel")
+        r = await ac.post(f"/api/v1/admin/maintenance/scans/{uuid.uuid4()}/cancel")
     assert r.status_code == 404
 
 
@@ -197,7 +197,7 @@ async def test_watchdog_run_fails_a_stale_scan(setup_db, admin_user, monkeypatch
     )
 
     async with _client(setup_db, admin_user) as ac:
-        r = await ac.post("/api/admin/maintenance/watchdog/run")
+        r = await ac.post("/api/v1/admin/maintenance/watchdog/run")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["active_after"] < body["active_before"]
@@ -222,7 +222,7 @@ async def test_purge_logs_by_age(setup_db, admin_user):
 
     async with _client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/admin/maintenance/logs/purge", json={"older_than_days": 0},
+            "/api/v1/admin/maintenance/logs/purge", json={"older_than_days": 0},
         )
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] == 3  # only the terminal scan's logs
@@ -243,7 +243,7 @@ async def test_purge_logs_by_scan_id(setup_db, admin_user):
 
     async with _client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/admin/maintenance/logs/purge", json={"scan_id": str(scan_id)},
+            "/api/v1/admin/maintenance/logs/purge", json={"scan_id": str(scan_id)},
         )
     assert r.status_code == 200, r.text
     assert r.json()["deleted"] == 4
@@ -253,10 +253,10 @@ async def test_purge_logs_by_scan_id(setup_db, admin_user):
 async def test_purge_logs_requires_exactly_one_arg(setup_db, admin_user):
     async with _client(setup_db, admin_user) as ac:
         both = await ac.post(
-            "/api/admin/maintenance/logs/purge",
+            "/api/v1/admin/maintenance/logs/purge",
             json={"older_than_days": 1, "scan_id": str(uuid.uuid4())},
         )
-        neither = await ac.post("/api/admin/maintenance/logs/purge", json={})
+        neither = await ac.post("/api/v1/admin/maintenance/logs/purge", json={})
     assert both.status_code == 400
     assert neither.status_code == 400
 
@@ -276,7 +276,7 @@ async def test_start_job_runs_and_succeeds(setup_db, admin_user, monkeypatch):
 
     async with _client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/admin/maintenance/jobs", json={"kind": "warm_groups"},
+            "/api/v1/admin/maintenance/jobs", json={"kind": "warm_groups"},
         )
         assert r.status_code == 202, r.text
         job = r.json()
@@ -286,7 +286,7 @@ async def test_start_job_runs_and_succeeds(setup_db, admin_user, monkeypatch):
         # The runner task finishes shortly after the response.
         for _ in range(50):
             await asyncio.sleep(0.02)
-            jobs = (await ac.get("/api/admin/maintenance/jobs")).json()
+            jobs = (await ac.get("/api/v1/admin/maintenance/jobs")).json()
             done = next((j for j in jobs if j["id"] == job["id"]), None)
             if done and done["status"] != "running":
                 break
@@ -306,7 +306,7 @@ async def test_duplicate_job_kind_409(setup_db, admin_user):
 
     async with _client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/admin/maintenance/jobs", json={"kind": "reindex_search"},
+            "/api/v1/admin/maintenance/jobs", json={"kind": "reindex_search"},
         )
     assert r.status_code == 409
 
@@ -315,7 +315,7 @@ async def test_duplicate_job_kind_409(setup_db, admin_user):
 async def test_unknown_job_kind_400(setup_db, admin_user):
     async with _client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/admin/maintenance/jobs", json={"kind": "not_a_real_job"},
+            "/api/v1/admin/maintenance/jobs", json={"kind": "not_a_real_job"},
         )
     assert r.status_code == 400
 

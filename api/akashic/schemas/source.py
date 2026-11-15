@@ -65,7 +65,7 @@ class _HostInline(BaseModel):
     """Inline shape carried on a SourceResponse — name + type only.
 
     Full host details (including masked credentials) live behind
-    GET /api/hosts/{id}. Inlining the credentials on every source
+    GET /api/v1/hosts/{id}. Inlining the credentials on every source
     response would be both heavy and a needless surface area.
 
     `credential_profile_id` is included (v0.31.4) so the source detail
@@ -113,7 +113,7 @@ class SourceResponse(BaseModel):
 
 
 class SourceListResponse(BaseModel):
-    """Lean shape for `GET /api/sources`. Drops the heavy fields
+    """Lean shape for `GET /api/v1/sources`. Drops the heavy fields
     (`connection_config`, `security_metadata`, `exclude_patterns`)
     that the Sources list view never reads — but adds a derived
     `summary` string so the per-card "user@host" / "bucket
@@ -124,7 +124,7 @@ class SourceListResponse(BaseModel):
     (e.g. SMB/SFTP with credentials + known-host blobs).
 
     Detail panel still uses the full `SourceResponse` via
-    `GET /api/sources/{id}` for edit / display purposes.
+    `GET /api/v1/sources/{id}` for edit / display purposes.
     """
 
     id: uuid.UUID

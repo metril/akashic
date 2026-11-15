@@ -7,7 +7,7 @@ Covers:
   - principal_domain matching: SIDs whose prefix matches go to bindings,
     others go to fs_unbound_identities
   - sync_fs_bindings_from_claims end-to-end with seeded sources
-  - GET /api/identities/unbound (admin-only)
+  - GET /api/v1/identities/unbound (admin-only)
 
 The actual OIDC code-flow (discovery, JWKS, token decode) is separate
 and hits external services; this file isolates the post-token logic
@@ -525,13 +525,13 @@ async def test_sync_updates_existing_binding_when_groups_change(db_session):
     assert set(bindings[0].groups) == {"S-1-5-21-DOMAIN-NEW1", "S-1-5-21-DOMAIN-NEW2"}
 
 
-# ── /api/identities/unbound endpoint ─────────────────────────────────────
+# ── /api/v1/identities/unbound endpoint ─────────────────────────────────────
 
 
 async def _register_login(client, username="admin", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": username, "password": password},
     )
     return login.json()["access_token"]
@@ -544,19 +544,19 @@ async def test_unbound_endpoint_self_scope_for_non_admin(client, db_session):
     admin_token = await _register_login(client)
     # Make a regular user.
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "regular", "password": "testpass123", "role": "user"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "regular", "password": "testpass123"},
     )
     user_token = login.json()["access_token"]
 
     # Default scope is self; empty list when nothing seeded.
     r = await client.get(
-        "/api/identities/unbound",
+        "/api/v1/identities/unbound",
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 200
@@ -564,7 +564,7 @@ async def test_unbound_endpoint_self_scope_for_non_admin(client, db_session):
 
     # Trying to peek at someone else's unbound is 403.
     r = await client.get(
-        f"/api/identities/unbound?user_id={uuid_module.uuid4()}",
+        f"/api/v1/identities/unbound?user_id={uuid_module.uuid4()}",
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 403
@@ -585,7 +585,7 @@ async def test_unbound_endpoint_lists_unbound_rows(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        "/api/identities/unbound",
+        "/api/v1/identities/unbound",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200
@@ -615,7 +615,7 @@ async def test_unbound_endpoint_filters_by_user(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        f"/api/identities/unbound?user_id={alice.id}",
+        f"/api/v1/identities/unbound?user_id={alice.id}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert r.status_code == 200

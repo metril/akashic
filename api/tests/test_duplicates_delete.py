@@ -13,9 +13,9 @@ from sqlalchemy import select
 
 async def _register_login(client, username="admin", password="testpass123"):
     """First-registered user becomes admin per akashic.routers.users.register."""
-    await client.post("/api/users/register", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
     login = await client.post(
-        "/api/users/login", json={"username": username, "password": password},
+        "/api/v1/users/login", json={"username": username, "password": password},
     )
     return login.json()["access_token"]
 
@@ -61,12 +61,12 @@ async def test_delete_copies_requires_admin(client, db_session):
     # First user is admin; create a regular user via /create.
     admin_token = await _register_login(client, username="admin")
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "regular", "password": "testpass123", "role": "user"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "regular", "password": "testpass123"},
     )
     user_token = login.json()["access_token"]
@@ -75,7 +75,7 @@ async def test_delete_copies_requires_admin(client, db_session):
     keep, victim = entries[0], entries[1]
 
     r = await client.post(
-        f"/api/duplicates/abc123def456/delete-copies",
+        f"/api/v1/duplicates/abc123def456/delete-copies",
         json={
             "keep_entry_id": str(keep.id),
             "delete_entry_ids": [str(victim.id)],
@@ -90,7 +90,7 @@ async def test_delete_copies_rejects_empty_delete_list(client, db_session):
     admin_token = await _register_login(client)
     _, entries = await _make_dup_group(db_session, "hash_empty")
     r = await client.post(
-        "/api/duplicates/hash_empty/delete-copies",
+        "/api/v1/duplicates/hash_empty/delete-copies",
         json={
             "keep_entry_id": str(entries[0].id),
             "delete_entry_ids": [],
@@ -106,7 +106,7 @@ async def test_delete_copies_rejects_keep_in_delete_list(client, db_session):
     _, entries = await _make_dup_group(db_session, "hash_overlap")
     keep_id = str(entries[0].id)
     r = await client.post(
-        "/api/duplicates/hash_overlap/delete-copies",
+        "/api/v1/duplicates/hash_overlap/delete-copies",
         json={
             "keep_entry_id": keep_id,
             "delete_entry_ids": [keep_id],
@@ -123,7 +123,7 @@ async def test_delete_copies_rejects_wrong_hash(client, db_session):
     admin_token = await _register_login(client)
     _, entries = await _make_dup_group(db_session, "real_hash_aa")
     r = await client.post(
-        "/api/duplicates/wrong_hash_bb/delete-copies",
+        "/api/v1/duplicates/wrong_hash_bb/delete-copies",
         json={
             "keep_entry_id": str(entries[0].id),
             "delete_entry_ids": [str(entries[1].id)],
@@ -150,7 +150,7 @@ async def test_delete_copies_happy_path(client, db_session):
     with patch("akashic.routers.duplicates.delete_copy", mock_delete), \
          patch("akashic.routers.duplicates.delete_file_from_index", AsyncMock()):
         r = await client.post(
-            "/api/duplicates/hash_happy/delete-copies",
+            "/api/v1/duplicates/hash_happy/delete-copies",
             json={
                 "keep_entry_id": str(keep.id),
                 "delete_entry_ids": [str(drop1.id), str(drop2.id)],
@@ -203,7 +203,7 @@ async def test_delete_copies_partial_failure(client, db_session):
     with patch("akashic.routers.duplicates.delete_copy", side_effect=selective_delete), \
          patch("akashic.routers.duplicates.delete_file_from_index", AsyncMock()):
         r = await client.post(
-            "/api/duplicates/hash_partial/delete-copies",
+            "/api/v1/duplicates/hash_partial/delete-copies",
             json={
                 "keep_entry_id": str(keep.id),
                 "delete_entry_ids": [str(success.id), str(fail.id)],
@@ -235,7 +235,7 @@ async def test_delete_copies_404_on_missing_entry(client, db_session):
 
     bogus_id = str(uuid.uuid4())
     r = await client.post(
-        "/api/duplicates/hash_404/delete-copies",
+        "/api/v1/duplicates/hash_404/delete-copies",
         json={
             "keep_entry_id": str(entries[0].id),
             "delete_entry_ids": [bogus_id],

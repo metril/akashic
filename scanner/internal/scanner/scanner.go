@@ -42,7 +42,7 @@ type Options struct {
 	// v0.30.0 — content extraction. When Extractor is non-nil, after
 	// the metadata walk the scanner extracts text from the new/changed
 	// files the API flagged in batch responses and posts it to
-	// /api/ingest/content. ExtractConnectorFactory builds a dedicated
+	// /api/v1/ingest/content. ExtractConnectorFactory builds a dedicated
 	// connector instance for extraction reads, kept separate from the
 	// walk's connector so SMB sessions don't contend. ExtractWorkers
 	// bounds the extraction goroutine pool (default 4, clamped low for
@@ -501,7 +501,7 @@ func (s *Scanner) Run(ctx context.Context) (*Result, error) {
 	// fully ingested and queryable by now; extraction is a separate
 	// best-effort phase that reads each new/changed file via a
 	// dedicated connector, extracts text (Tika for documents), and
-	// posts it to /api/ingest/content. A failure here never fails the
+	// posts it to /api/v1/ingest/content. A failure here never fails the
 	// scan — the metadata stands on its own.
 	if s.opts.Extractor != nil && s.opts.ExtractConnectorFactory != nil && len(extractCandidates) > 0 {
 		s.setPhase("extract")

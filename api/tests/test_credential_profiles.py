@@ -61,7 +61,7 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
 @pytest.mark.asyncio
 async def test_create_profile_scrubs_secrets_on_response(client: AsyncClient):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={
             "name": "smb-prod",
             "type": "smb",
@@ -81,7 +81,7 @@ async def test_create_profile_scrubs_secrets_on_response(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_create_unsupported_type_returns_400(client: AsyncClient):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "x", "type": "ftp", "credentials": {}},
     )
     assert r.status_code == 400
@@ -94,12 +94,12 @@ async def test_duplicate_name_returns_409(client: AsyncClient):
     # schemas/credential_profile.py:assert_smb_has_password). Both
     # payloads now carry one.
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "dup", "type": "smb", "credentials": {"username": "u", "password": "p1"}},
     )
     assert r.status_code == 201
     r2 = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "dup", "type": "smb", "credentials": {"username": "v", "password": "p2"}},
     )
     assert r2.status_code == 409
@@ -110,14 +110,14 @@ async def test_list_filters_by_type(client: AsyncClient):
     # SMB requires a password (v0.29.5); NFS profile contents are
     # unconstrained here.
     await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-1", "type": "smb", "credentials": {"username": "u", "password": "p"}},
     )
     await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "nfs-1", "type": "nfs", "credentials": {}},
     )
-    r = await client.get("/api/credential-profiles?type=smb")
+    r = await client.get("/api/v1/credential-profiles?type=smb")
     assert r.status_code == 200
     body = r.json()
     assert all(p["type"] == "smb" for p in body)
@@ -129,7 +129,7 @@ async def test_sentinel_update_preserves_stored_secret(
     client: AsyncClient, setup_db,
 ):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={
             "name": "rotate-me",
             "type": "smb",
@@ -141,7 +141,7 @@ async def test_sentinel_update_preserves_stored_secret(
     # Update with the masked sentinel — password should NOT be replaced
     # by "***" in storage.
     r = await client.patch(
-        f"/api/credential-profiles/{profile_id}",
+        f"/api/v1/credential-profiles/{profile_id}",
         json={"credentials": {"password": "***", "username": "newer"}},
     )
     assert r.status_code == 200, r.text
@@ -164,12 +164,12 @@ async def test_assign_mismatched_profile_to_host_returns_400(
     client: AsyncClient,
 ):
     rp = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "nfs-only", "type": "nfs", "credentials": {"username": "u"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "smb-host",
             "type": "smb",
@@ -186,12 +186,12 @@ async def test_assign_mismatched_profile_to_host_returns_400(
 @pytest.mark.asyncio
 async def test_delete_while_referenced_returns_409(client: AsyncClient):
     rp = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-attached", "type": "smb", "credentials": {"username": "u", "password": "p"}},
     )
     profile_id = rp.json()["id"]
     rh = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "smb-host-2",
             "type": "smb",
@@ -203,6 +203,6 @@ async def test_delete_while_referenced_returns_409(client: AsyncClient):
     )
     assert rh.status_code == 201
 
-    rd = await client.delete(f"/api/credential-profiles/{profile_id}")
+    rd = await client.delete(f"/api/v1/credential-profiles/{profile_id}")
     assert rd.status_code == 409
     assert "host" in rd.json()["message"].lower()

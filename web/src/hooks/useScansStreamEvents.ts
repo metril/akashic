@@ -1,5 +1,5 @@
 /**
- * Reference-counted WebSocket subscription to /ws/scans.
+ * Reference-counted WebSocket subscription to /ws/v1/scans.
  *
  * Multiple consumers (Sources page + Dashboard) share one socket per
  * tab. The first useScansStreamEvents() opens the WS; the last to
@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef } from "react";
 
-import { completeSsoLogin, getToken } from "../api/client";
+import { WS_BASE, completeSsoLogin, getToken } from "../api/client";
 
 export type ScansStreamEvent =
   | { kind: "snapshot"; scans: SnapshotScan[] }
@@ -81,7 +81,7 @@ function buildUrl(): string | null {
   if (!token) return null;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   // The api is reverse-proxied at /api in dev; the WS lives at /ws.
-  return `${proto}//${window.location.host}/ws/scans?token=${encodeURIComponent(token)}`;
+  return `${proto}//${window.location.host}${WS_BASE}/scans?token=${encodeURIComponent(token)}`;
 }
 
 function dispatch(event: ScansStreamEvent) {

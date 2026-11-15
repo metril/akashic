@@ -1,4 +1,4 @@
-"""GET /api/sources returns the lean shape (v0.4.3+).
+"""GET /api/v1/sources returns the lean shape (v0.4.3+).
 
 The list endpoint drops `connection_config`, `security_metadata`,
 and `exclude_patterns` to keep the page-load payload small. Detail
@@ -74,7 +74,7 @@ async def _seed_smb_source(setup_db) -> uuid.UUID:
 async def test_list_endpoint_omits_heavy_fields(setup_db, admin_user):
     await _seed_smb_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get("/api/sources")
+        r = await ac.get("/api/v1/sources")
     assert r.status_code == 200
     [body] = r.json()
     # Heavy fields gone:
@@ -92,7 +92,7 @@ async def test_list_endpoint_omits_heavy_fields(setup_db, admin_user):
 async def test_detail_endpoint_returns_full_config(setup_db, admin_user):
     src_id = await _seed_smb_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get(f"/api/sources/{src_id}")
+        r = await ac.get(f"/api/v1/sources/{src_id}")
     assert r.status_code == 200
     body = r.json()
     assert "connection_config" in body
@@ -134,7 +134,7 @@ async def test_detail_host_carries_credential_profile_id(setup_db, admin_user):
         src_id, profile_id = src.id, profile.id
 
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get(f"/api/sources/{src_id}")
+        r = await ac.get(f"/api/v1/sources/{src_id}")
     assert r.status_code == 200, r.text
     body = r.json()
     # The source itself carries no profile — it inherits the host's.
@@ -165,7 +165,7 @@ async def test_summary_renders_per_source_type(setup_db, admin_user):
             ))
         await db.commit()
     async with _admin_client(setup_db, admin_user) as ac:
-        rows = (await ac.get("/api/sources")).json()
+        rows = (await ac.get("/api/v1/sources")).json()
     # Map summary by type for a stable assertion.
     by_type = {r["type"]: r["summary"] for r in rows}
     assert by_type["local"] == "/srv/anime"

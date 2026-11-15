@@ -1,4 +1,4 @@
-"""v0.29.8 — notify_eligible_joiners fires at /api/scans/lease time.
+"""v0.29.8 — notify_eligible_joiners fires at /api/v1/scans/lease time.
 
 Pre-fix the join channel was only triggered inside the
 /scan-work/{id}/split_units handler. That meant scanner B sat in its
@@ -112,7 +112,7 @@ async def test_lease_fires_notify_eligible_joiners(setup_db, admin_user):
     token = _scanner_token(str(scanner_a.id), kp_a.private_pem)
     async with _bearer_client(setup_db) as ac:
         lease = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -181,7 +181,7 @@ async def test_lease_no_notify_for_single_scanner_source(setup_db, admin_user):
     token = _scanner_token(str(scanner_a.id), kp_a.private_pem)
     async with _bearer_client(setup_db) as ac:
         lease = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert lease.status_code == 200, lease.text

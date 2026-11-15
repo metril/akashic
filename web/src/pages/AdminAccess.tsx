@@ -48,7 +48,7 @@ interface FileResult {
 /** Admin "blast radius" page — answers two complementary questions:
  * "what files can principal X reach?" and "who can reach file Y?".
  *
- * Both questions share the same /api/access endpoint (one query param
+ * Both questions share the same /api/v1/access endpoint (one query param
  * each) so the toggle on this page is purely a frontend affordance.
  *
  * Phase 5 will cycle the same query into the personalized Browse

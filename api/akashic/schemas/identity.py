@@ -1,4 +1,4 @@
-"""Schemas for the /api/identities CRUD endpoints."""
+"""Schemas for the /api/v1/identities CRUD endpoints."""
 import uuid
 from datetime import datetime
 from typing import Literal

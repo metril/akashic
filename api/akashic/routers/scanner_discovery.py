@@ -1,11 +1,11 @@
 """Scanner discovery (pending-claim) flow.
 
 Layout:
-  POST /api/scanners/discover                — scanner posts (no auth, gated)
-  GET  /api/scanners/discover/{id}           — scanner long-polls (no auth)
-  GET  /api/scanner-discovery-requests       — admin lists pending + recent
-  POST /api/scanner-discovery-requests/{id}/approve — admin
-  POST /api/scanner-discovery-requests/{id}/deny    — admin
+  POST /api/v1/scanners/discover                — scanner posts (no auth, gated)
+  GET  /api/v1/scanners/discover/{id}           — scanner long-polls (no auth)
+  GET  /api/v1/scanner-discovery-requests       — admin lists pending + recent
+  POST /api/v1/scanner-discovery-requests/{id}/approve — admin
+  POST /api/v1/scanner-discovery-requests/{id}/deny    — admin
 
 The long-poll endpoint subscribes to the `scanners` pubsub channel
 for up to ~25s so an admin's approve/deny click is visible to the
@@ -127,7 +127,7 @@ class DenyBody(BaseModel):
 
 
 @router.post(
-    "/api/scanners/discover",
+    "/scanners/discover",
     response_model=DiscoverResponse,
     status_code=status.HTTP_201_CREATED,
     tags=[SCANNER_TAG],
@@ -227,7 +227,7 @@ def _to_status(row: ScannerDiscoveryRequest, scanner: Scanner | None) -> Discove
 
 
 @router.get(
-    "/api/scanners/discover/{discovery_id}",
+    "/scanners/discover/{discovery_id}",
     response_model=DiscoverStatus,
     tags=[SCANNER_TAG],
 )
@@ -308,7 +308,7 @@ async def discover_status(
 
 
 @router.get(
-    "/api/scanner-discovery-requests",
+    "/scanner-discovery-requests",
     response_model=list[DiscoveryAdminSummary],
     tags=["scanners"],
 )
@@ -357,7 +357,7 @@ def _terminal_or_404(row: ScannerDiscoveryRequest | None) -> ScannerDiscoveryReq
 
 
 @router.post(
-    "/api/scanner-discovery-requests/{discovery_id}/approve",
+    "/scanner-discovery-requests/{discovery_id}/approve",
     tags=["scanners"],
 )
 async def approve_discovery(
@@ -422,7 +422,7 @@ async def approve_discovery(
 
 
 @router.post(
-    "/api/scanner-discovery-requests/{discovery_id}/deny",
+    "/scanner-discovery-requests/{discovery_id}/deny",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["scanners"],
 )

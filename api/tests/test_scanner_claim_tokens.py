@@ -1,4 +1,4 @@
-"""POST /api/scanner-claim-tokens + POST /api/scanners/claim coverage.
+"""POST /api/v1/scanner-claim-tokens + POST /api/v1/scanners/claim coverage.
 
 The claim flow is the v0.3.0 self-registration path: an admin mints
 a single-use token, the scanner host generates its own keypair and
@@ -76,7 +76,7 @@ def _scanner_token(sid: str, priv: str) -> str:
 async def test_admin_mint_token_returns_plaintext_once(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={"label": "homelab-nas", "ttl_minutes": 60},
         )
     assert r.status_code == 201, r.text
@@ -90,7 +90,7 @@ async def test_admin_mint_token_returns_plaintext_once(setup_db, admin_user):
 
     # The list endpoint never re-exposes the plaintext.
     async with _admin_client(setup_db, admin_user) as ac:
-        listed = (await ac.get("/api/scanner-claim-tokens")).json()
+        listed = (await ac.get("/api/v1/scanner-claim-tokens")).json()
     assert any(t["id"] == body["id"] for t in listed)
     for t in listed:
         assert "token" not in t
@@ -108,7 +108,7 @@ async def test_non_admin_cannot_mint(setup_db):
         await session.commit()
     async with _admin_client(setup_db, viewer) as ac:
         r = await ac.post(
-            "/api/scanner-claim-tokens", json={"label": "no"},
+            "/api/v1/scanner-claim-tokens", json={"label": "no"},
         )
     assert r.status_code == 403
 
@@ -117,7 +117,7 @@ async def test_non_admin_cannot_mint(setup_db):
 async def test_claim_creates_scanner_and_marks_token_used(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={"label": "homelab-nas", "pool": "site-1"},
         )).json()
     plain = token_resp["token"]
@@ -125,7 +125,7 @@ async def test_claim_creates_scanner_and_marks_token_used(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={
                 "token": plain,
                 "public_key_pem": kp.public_pem,
@@ -141,14 +141,14 @@ async def test_claim_creates_scanner_and_marks_token_used(setup_db, admin_user):
     # Second attempt with same token → 410 Gone.
     async with _unauth_client(setup_db) as ac:
         r2 = await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": plain, "public_key_pem": generate_keypair().public_pem},
         )
     assert r2.status_code == 410
 
     # Token list now shows the row as 'used' with the scanner id.
     async with _admin_client(setup_db, admin_user) as ac:
-        listed = (await ac.get("/api/scanner-claim-tokens")).json()
+        listed = (await ac.get("/api/v1/scanner-claim-tokens")).json()
     [row] = [t for t in listed if t["id"] == token_resp["id"]]
     assert row["status"] == "used"
     assert row["used_by_scanner_id"] == body["scanner_id"]
@@ -158,7 +158,7 @@ async def test_claim_creates_scanner_and_marks_token_used(setup_db, admin_user):
 async def test_claim_with_garbage_token_returns_401(setup_db):
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={
                 "token": "akcl_definitelyNotARealToken",
                 "public_key_pem": generate_keypair().public_pem,
@@ -172,7 +172,7 @@ async def test_claim_with_expired_token_returns_410(setup_db, admin_user):
     """Expire the row directly in the DB so we don't have to wait."""
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens", json={"label": "soon-stale"},
+            "/api/v1/scanner-claim-tokens", json={"label": "soon-stale"},
         )).json()
     plain = token_resp["token"]
     async with setup_db() as session:
@@ -191,7 +191,7 @@ async def test_claim_with_expired_token_returns_410(setup_db, admin_user):
 
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": plain, "public_key_pem": generate_keypair().public_pem},
         )
     assert r.status_code == 410
@@ -201,17 +201,17 @@ async def test_claim_with_expired_token_returns_410(setup_db, admin_user):
 async def test_revoke_unused_token_blocks_subsequent_claim(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens", json={"label": "to-revoke"},
+            "/api/v1/scanner-claim-tokens", json={"label": "to-revoke"},
         )).json()
         delete = await ac.delete(
-            f"/api/scanner-claim-tokens/{token_resp['id']}",
+            f"/api/v1/scanner-claim-tokens/{token_resp['id']}",
         )
         assert delete.status_code == 204
     plain = token_resp["token"]
 
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": plain, "public_key_pem": generate_keypair().public_pem},
         )
     assert r.status_code == 410
@@ -221,18 +221,18 @@ async def test_revoke_unused_token_blocks_subsequent_claim(setup_db, admin_user)
 async def test_revoke_used_token_returns_410_not_404(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens", json={"label": "use-then-revoke"},
+            "/api/v1/scanner-claim-tokens", json={"label": "use-then-revoke"},
         )).json()
     async with _unauth_client(setup_db) as ac:
         await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={
                 "token": token_resp["token"],
                 "public_key_pem": generate_keypair().public_pem,
             },
         )
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.delete(f"/api/scanner-claim-tokens/{token_resp['id']}")
+        r = await ac.delete(f"/api/v1/scanner-claim-tokens/{token_resp['id']}")
     assert r.status_code == 410
 
 
@@ -240,7 +240,7 @@ async def test_revoke_used_token_returns_410_not_404(setup_db, admin_user):
 async def test_mint_rejects_unknown_scan_type(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={"label": "x", "allowed_scan_types": ["incremental", "deep"]},
         )
     assert r.status_code == 400
@@ -252,7 +252,7 @@ async def test_mint_rejects_unknown_source_id(setup_db, admin_user):
     bogus = str(uuid.uuid4())
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={"label": "x", "allowed_source_ids": [bogus]},
         )
     assert r.status_code == 400
@@ -285,7 +285,7 @@ async def test_scope_filter_blocks_disallowed_source(setup_db, admin_user):
 
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={
                 "label": "scoped",
                 "allowed_source_ids": [str(allowed_id)],
@@ -295,7 +295,7 @@ async def test_scope_filter_blocks_disallowed_source(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         claim = (await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": token_resp["token"], "public_key_pem": kp.public_pem},
         )).json()
     sid = claim["scanner_id"]
@@ -303,7 +303,7 @@ async def test_scope_filter_blocks_disallowed_source(setup_db, admin_user):
     jwt = _scanner_token(sid, kp.private_pem)
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease",
+            "/api/v1/scans/lease",
             headers={"Authorization": f"Bearer {jwt}"},
         )
     # Pending scan exists but is for src_blocked; scope filter blocks it.
@@ -328,14 +328,14 @@ async def test_scope_filter_blocks_disallowed_scan_type(setup_db, admin_user):
 
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens",
+            "/api/v1/scanner-claim-tokens",
             json={"label": "incr-only", "allowed_scan_types": ["incremental"]},
         )).json()
 
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         claim = (await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": token_resp["token"], "public_key_pem": kp.public_pem},
         )).json()
     sid = claim["scanner_id"]
@@ -343,7 +343,7 @@ async def test_scope_filter_blocks_disallowed_scan_type(setup_db, admin_user):
     jwt = _scanner_token(sid, kp.private_pem)
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease",
+            "/api/v1/scans/lease",
             headers={"Authorization": f"Bearer {jwt}"},
         )
     assert r.status_code == 204
@@ -355,12 +355,12 @@ async def test_patch_scanner_can_widen_scope(setup_db, admin_user):
     require key rotation."""
     async with _admin_client(setup_db, admin_user) as ac:
         token_resp = (await ac.post(
-            "/api/scanner-claim-tokens", json={"label": "starts-loose"},
+            "/api/v1/scanner-claim-tokens", json={"label": "starts-loose"},
         )).json()
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         claim = (await ac.post(
-            "/api/scanners/claim",
+            "/api/v1/scanners/claim",
             json={"token": token_resp["token"], "public_key_pem": kp.public_pem},
         )).json()
     sid = claim["scanner_id"]
@@ -368,7 +368,7 @@ async def test_patch_scanner_can_widen_scope(setup_db, admin_user):
     # Tighten to incremental only.
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.patch(
-            f"/api/scanners/{sid}",
+            f"/api/v1/scanners/{sid}",
             json={"allowed_scan_types": ["incremental"]},
         )
         assert r.status_code == 200, r.text
@@ -376,7 +376,7 @@ async def test_patch_scanner_can_widen_scope(setup_db, admin_user):
 
         # Clear back to unrestricted.
         r2 = await ac.patch(
-            f"/api/scanners/{sid}",
+            f"/api/v1/scanners/{sid}",
             json={"clear_allowed_scan_types": True},
         )
         assert r2.json()["allowed_scan_types"] is None

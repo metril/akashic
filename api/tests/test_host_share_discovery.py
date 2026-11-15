@@ -1,8 +1,8 @@
 """Discover & batch-add shares (v0.5.4).
 
 Endpoints under test:
-- POST /api/hosts/{id}/list-shares
-- POST /api/hosts/{id}/add-shares
+- POST /api/v1/hosts/{id}/list-shares
+- POST /api/v1/hosts/{id}/add-shares
 
 The list-shares path normally spawns the bundled scanner subprocess;
 we monkey-patch `share_enumerator.list_shares` so the test doesn't
@@ -71,7 +71,7 @@ async def _create_credential_profile(
     client: AsyncClient, *, name: str, type_: str, credentials: dict
 ) -> str:
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": name, "type": type_, "credentials": credentials},
     )
     assert r.status_code == 201, r.text
@@ -95,7 +95,7 @@ async def _create_host(client: AsyncClient, *, type_: str = "smb") -> str:
             "access_key_id": "AKIA...",
             "secret_access_key": "secret",
         }
-    r = await client.post("/api/hosts", json=body)
+    r = await client.post("/api/v1/hosts", json=body)
     assert r.status_code == 201, r.text
     return r.json()["id"]
 
@@ -114,7 +114,7 @@ async def test_list_shares_smb_happy_path(
         ),
     )
     host_id = await _create_host(client, type_="smb")
-    r = await client.post(f"/api/hosts/{host_id}/list-shares")
+    r = await client.post(f"/api/v1/hosts/{host_id}/list-shares")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["shares"] == ["Public", "Engineering", "Marketing"]
@@ -133,7 +133,7 @@ async def test_list_shares_propagates_step_reason_on_failure(
         ),
     )
     host_id = await _create_host(client, type_="smb")
-    r = await client.post(f"/api/hosts/{host_id}/list-shares")
+    r = await client.post(f"/api/v1/hosts/{host_id}/list-shares")
     assert r.status_code == 200
     body = r.json()
     assert body["shares"] == []
@@ -143,7 +143,7 @@ async def test_list_shares_propagates_step_reason_on_failure(
 
 @pytest.mark.asyncio
 async def test_list_shares_unknown_host_returns_404(client: AsyncClient):
-    r = await client.post(f"/api/hosts/{uuid.uuid4()}/list-shares")
+    r = await client.post(f"/api/v1/hosts/{uuid.uuid4()}/list-shares")
     assert r.status_code == 404
 
 
@@ -158,7 +158,7 @@ async def test_list_shares_writes_audit_event(
         ),
     )
     host_id = await _create_host(client, type_="smb")
-    await client.post(f"/api/hosts/{host_id}/list-shares")
+    await client.post(f"/api/v1/hosts/{host_id}/list-shares")
 
     async with setup_db() as session:
         events = (await session.execute(
@@ -192,7 +192,7 @@ async def test_list_shares_layers_host_credential_profile(
         "connection_config": {"host": "fs.example.com"},
         "credential_profile_id": profile_id,
     }
-    r = await client.post("/api/hosts", json=body)
+    r = await client.post("/api/v1/hosts", json=body)
     assert r.status_code == 201, r.text
     host_id = r.json()["id"]
 
@@ -205,7 +205,7 @@ async def test_list_shares_layers_host_credential_profile(
 
     monkeypatch.setattr(share_enumerator, "list_shares", _capture)
 
-    r = await client.post(f"/api/hosts/{host_id}/list-shares")
+    r = await client.post(f"/api/v1/hosts/{host_id}/list-shares")
     assert r.status_code == 200, r.text
     assert captured["host_type"] == "smb"
     # Inline host.connection_config still wins where it sets a key,
@@ -219,7 +219,7 @@ async def test_list_shares_layers_host_credential_profile(
 async def test_online_check_layers_host_credential_profile(
     client: AsyncClient, monkeypatch
 ):
-    """Same regression for POST /api/hosts/{id}/online-check (renamed
+    """Same regression for POST /api/v1/hosts/{id}/online-check (renamed
     from /test-connection in v0.28.1). The probe was previously called
     with only host.connection_config."""
     profile_id = await _create_credential_profile(
@@ -234,7 +234,7 @@ async def test_online_check_layers_host_credential_profile(
         "connection_config": {"host": "fs2.example.com"},
         "credential_profile_id": profile_id,
     }
-    r = await client.post("/api/hosts", json=body)
+    r = await client.post("/api/v1/hosts", json=body)
     assert r.status_code == 201, r.text
     host_id = r.json()["id"]
 
@@ -247,7 +247,7 @@ async def test_online_check_layers_host_credential_profile(
 
     monkeypatch.setattr(hosts_router, "_probe_host", _capture)
 
-    r = await client.post(f"/api/hosts/{host_id}/online-check")
+    r = await client.post(f"/api/v1/hosts/{host_id}/online-check")
     assert r.status_code == 200, r.text
     assert captured["host_type"] == "smb"
     assert captured["cfg"]["host"] == "fs2.example.com"
@@ -264,7 +264,7 @@ async def test_add_shares_creates_one_source_per_entry(
 ):
     host_id = await _create_host(client, type_="smb")
     r = await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={
             "shares": [
                 {"name": "fs/Public", "share": "Public"},
@@ -298,12 +298,12 @@ async def test_add_shares_skips_dupes_and_creates_the_rest(
     host_id = await _create_host(client, type_="smb")
     # First batch
     await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={"shares": [{"name": "fs/Public", "share": "Public"}]},
     )
     # Second batch — one collision, one new
     r = await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={
             "shares": [
                 {"name": "fs/Public", "share": "Public"},  # dupe
@@ -323,7 +323,7 @@ async def test_add_shares_for_nfs_uses_export_path_key(
 ):
     host_id = await _create_host(client, type_="nfs")
     r = await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={
             "shares": [
                 {"name": "nfs/data", "share": "/srv/nfs/data"},
@@ -347,7 +347,7 @@ async def test_add_shares_for_s3_uses_bucket_key(
 ):
     host_id = await _create_host(client, type_="s3")
     r = await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={
             "shares": [
                 {"name": "s3/logs", "share": "company-logs"},
@@ -368,7 +368,7 @@ async def test_add_shares_writes_rollup_audit_event(
 ):
     host_id = await _create_host(client, type_="smb")
     await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={"shares": [{"name": "fs/Public", "share": "Public"}]},
     )
     async with setup_db() as session:
@@ -389,7 +389,7 @@ async def test_add_shares_batch_carries_max_parallel_scanners(
 ):
     host_id = await _create_host(client, type_="smb")
     await client.post(
-        f"/api/hosts/{host_id}/add-shares",
+        f"/api/v1/hosts/{host_id}/add-shares",
         json={
             "shares": [{"name": "fs/Public", "share": "Public"}],
             "max_parallel_scanners": 4,

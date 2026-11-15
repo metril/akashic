@@ -12,10 +12,10 @@ Bumping rules:
   agents. Note the change in the release notes.
 """
 
-PROTOCOL_VERSION: int = 1
+PROTOCOL_VERSION: int = 2
 
 # Inclusive range. Widen by lowering ACCEPTED_MIN to keep older agents
 # working through a transition; raise ACCEPTED_MIN once those agents
 # are decommissioned.
-ACCEPTED_MIN: int = 1
-ACCEPTED_MAX: int = 1
+ACCEPTED_MIN: int = 2
+ACCEPTED_MAX: int = 2

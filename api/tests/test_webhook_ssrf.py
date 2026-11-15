@@ -77,20 +77,20 @@ def test_validate_accepts_real_public_host():
 
 @pytest.mark.asyncio
 async def test_create_webhook_rejects_loopback(client):
-    """The POST /api/webhooks endpoint surfaces the validator failure
+    """The POST /api/v1/webhooks endpoint surfaces the validator failure
     as a 422 (pydantic ValidationError → FastAPI auto-422)."""
     register = await client.post(
-        "/api/users/register",
+        "/api/v1/users/register",
         json={"username": "alice", "password": "testpass123"},
     )
     assert register.status_code == 201
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "alice", "password": "testpass123"},
     )
     token = login.json()["access_token"]
     r = await client.post(
-        "/api/webhooks",
+        "/api/v1/webhooks",
         json={
             "event_type": "scan_completed",
             "url": "http://127.0.0.1/whatever",

@@ -73,7 +73,7 @@ The footer shows one of:
 
 Tick the checkbox next to one or more results, click **Tag
 selected (N)**, enter comma-separated tag names. Hits
-`POST /api/tags/bulk-apply` with `{entry_ids, tags}`. Tagging a
+`POST /api/v1/tags/bulk-apply` with `{entry_ids, tags}`. Tagging a
 directory cascades to every descendant. See
 [tags.md](tags.md) for the model.
 

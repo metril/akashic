@@ -1,4 +1,4 @@
-"""Phase 7 — `/api/dashboard/summary` aggregator.
+"""Phase 7 — `/api/v1/dashboard/summary` aggregator.
 
 The endpoint is the seam Phase 7's homepage rebuild relies on. Each
 test asserts one tile's data, so a regression in any of them surfaces
@@ -36,7 +36,7 @@ async def test_summary_basic_shape(client: AsyncClient, db_session: AsyncSession
     _, token = await _admin_token(db_session)
 
     resp = await client.get(
-        "/api/dashboard/summary",
+        "/api/v1/dashboard/summary",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -89,7 +89,7 @@ async def test_summary_aggregates_top_owners_across_sources(
     await db_session.commit()
 
     body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/v1/dashboard/summary",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -143,7 +143,7 @@ async def test_summary_30d_delta_and_extension_growth(
     await db_session.commit()
 
     body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/v1/dashboard/summary",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -201,7 +201,7 @@ async def test_access_risks_endpoint_admin_only(
     viewer_token = create_access_token({"sub": str(viewer.id)})
 
     admin_body = (await client.get(
-        "/api/dashboard/access-risks",
+        "/api/v1/dashboard/access-risks",
         headers={"Authorization": f"Bearer {admin_token}"},
     )).json()
     assert admin_body["access_risks"] == {"public_read_count": 1}
@@ -209,7 +209,7 @@ async def test_access_risks_endpoint_admin_only(
     assert admin_body["cache_age_seconds"] == 0
 
     viewer_body = (await client.get(
-        "/api/dashboard/access-risks",
+        "/api/v1/dashboard/access-risks",
         headers={"Authorization": f"Bearer {viewer_token}"},
     )).json()
     assert viewer_body == {"access_risks": None}
@@ -234,13 +234,13 @@ async def test_access_risks_endpoint_caches(
     token = create_access_token({"sub": str(admin.id)})
 
     first = (await client.get(
-        "/api/dashboard/access-risks",
+        "/api/v1/dashboard/access-risks",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
     assert first["cache_age_seconds"] == 0
 
     second = (await client.get(
-        "/api/dashboard/access-risks",
+        "/api/v1/dashboard/access-risks",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
     assert second["access_risks"] == first["access_risks"]
@@ -271,7 +271,7 @@ async def test_summary_identity_health_counts(
     await db_session.commit()
 
     body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/v1/dashboard/summary",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -297,7 +297,7 @@ async def test_summary_recent_scans_includes_source_name(
     await db_session.commit()
 
     body = (await client.get(
-        "/api/dashboard/summary",
+        "/api/v1/dashboard/summary",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 

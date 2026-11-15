@@ -59,7 +59,7 @@ export interface Source {
   // (hostname, credentials). NULL only for `local` sources.
   host_id: string | null;
   // Inlined host shape (id + name + type only — credentials live
-  // behind GET /api/hosts/{id}). Present whenever host_id is set.
+  // behind GET /api/v1/hosts/{id}). Present whenever host_id is set.
   host: HostInline | null;
   // Optional since v0.4.3 — the lean list endpoint omits these
   // heavy fields. Per-source detail (GET /sources/{id}) returns

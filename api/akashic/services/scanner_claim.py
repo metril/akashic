@@ -1,8 +1,8 @@
 """Scanner claim-token mint + redeem.
 
 The plain `akcl_…` token crosses the wire exactly twice:
-  1. server → admin (response to POST /api/scanner-claim-tokens)
-  2. admin → scanner host → server (POST /api/scanners/claim body)
+  1. server → admin (response to POST /api/v1/scanner-claim-tokens)
+  2. admin → scanner host → server (POST /api/v1/scanners/claim body)
 
 Only the sha256 of the plaintext is persisted. Hash-only storage
 mirrors `auth/refresh.py` so a DB dump alone can't be replayed.

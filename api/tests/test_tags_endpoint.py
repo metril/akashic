@@ -105,13 +105,13 @@ async def _make_file(setup_db, source_name: str = "src") -> tuple[uuid.UUID, uui
 
 @pytest.mark.asyncio
 async def test_create_list_tag(client: AsyncClient):
-    r = await client.post("/api/tags", json={"name": "urgent", "color": "#ef4444"})
+    r = await client.post("/api/v1/tags", json={"name": "urgent", "color": "#ef4444"})
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "urgent"
     assert body["color"] == "#ef4444"
 
-    r = await client.get("/api/tags")
+    r = await client.get("/api/v1/tags")
     assert r.status_code == 200
     names = [t["name"] for t in r.json()]
     assert "urgent" in names
@@ -119,15 +119,15 @@ async def test_create_list_tag(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_create_tag_duplicate_returns_409(client: AsyncClient):
-    r = await client.post("/api/tags", json={"name": "dup"})
+    r = await client.post("/api/v1/tags", json={"name": "dup"})
     assert r.status_code == 201
-    r = await client.post("/api/tags", json={"name": "dup"})
+    r = await client.post("/api/v1/tags", json={"name": "dup"})
     assert r.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_create_tag_forbidden_for_viewer(viewer_client: AsyncClient):
-    r = await viewer_client.post("/api/tags", json={"name": "no"})
+    r = await viewer_client.post("/api/v1/tags", json={"name": "no"})
     assert r.status_code == 403
 
 
@@ -148,7 +148,7 @@ async def test_delete_tag_removes_links_keeps_entry(
         await session.commit()
         tag_id = tag.id
 
-    r = await client.delete(f"/api/tags/{tag_id}")
+    r = await client.delete(f"/api/v1/tags/{tag_id}")
     assert r.status_code == 204
 
     async with setup_db() as session:
@@ -165,7 +165,7 @@ async def test_delete_tag_removes_links_keeps_entry(
 
 @pytest.mark.asyncio
 async def test_delete_tag_404_when_missing(client: AsyncClient):
-    r = await client.delete(f"/api/tags/{uuid.uuid4()}")
+    r = await client.delete(f"/api/v1/tags/{uuid.uuid4()}")
     assert r.status_code == 404
 
 
@@ -178,7 +178,7 @@ async def test_delete_tag_forbidden_for_viewer(
         session.add(tag)
         await session.commit()
         tag_id = tag.id
-    r = await viewer_client.delete(f"/api/tags/{tag_id}")
+    r = await viewer_client.delete(f"/api/v1/tags/{tag_id}")
     assert r.status_code == 403
 
 
@@ -193,12 +193,12 @@ async def test_apply_tags_round_trip(
     _, entry_id = await _make_file(setup_db)
 
     r = await client.post(
-        f"/api/entries/{entry_id}/tags",
+        f"/api/v1/entries/{entry_id}/tags",
         json={"tags": ["pii", "archive"]},
     )
     assert r.status_code == 204
 
-    r = await client.get(f"/api/entries/{entry_id}/tags")
+    r = await client.get(f"/api/v1/entries/{entry_id}/tags")
     assert r.status_code == 200
     tags = sorted(t["tag"] for t in r.json())
     assert tags == ["archive", "pii"]
@@ -213,11 +213,11 @@ async def test_apply_auto_creates_catalogue_entries(
     """Apply with a never-seen tag name auto-creates the catalogue row."""
     _, entry_id = await _make_file(setup_db)
     r = await client.post(
-        f"/api/entries/{entry_id}/tags", json={"tags": ["fresh-label"]},
+        f"/api/v1/entries/{entry_id}/tags", json={"tags": ["fresh-label"]},
     )
     assert r.status_code == 204
 
-    r = await client.get("/api/tags")
+    r = await client.get("/api/v1/tags")
     assert "fresh-label" in [t["name"] for t in r.json()]
 
 
@@ -227,7 +227,7 @@ async def test_apply_tags_forbidden_for_viewer(
 ):
     _, entry_id = await _make_file(setup_db)
     r = await viewer_client.post(
-        f"/api/entries/{entry_id}/tags", json={"tags": ["nope"]},
+        f"/api/v1/entries/{entry_id}/tags", json={"tags": ["nope"]},
     )
     assert r.status_code == 403
 
@@ -238,12 +238,12 @@ async def test_remove_tag_round_trip(
 ):
     _, entry_id = await _make_file(setup_db)
     await client.post(
-        f"/api/entries/{entry_id}/tags", json={"tags": ["t1"]},
+        f"/api/v1/entries/{entry_id}/tags", json={"tags": ["t1"]},
     )
-    r = await client.delete(f"/api/entries/{entry_id}/tags/t1")
+    r = await client.delete(f"/api/v1/entries/{entry_id}/tags/t1")
     assert r.status_code == 204
 
-    r = await client.get(f"/api/entries/{entry_id}/tags")
+    r = await client.get(f"/api/v1/entries/{entry_id}/tags")
     assert r.json() == []
 
 
@@ -252,15 +252,15 @@ async def test_remove_tag_forbidden_for_viewer(
     client: AsyncClient, viewer_client: AsyncClient, setup_db,
 ):
     _, entry_id = await _make_file(setup_db)
-    await client.post(f"/api/entries/{entry_id}/tags", json={"tags": ["t1"]})
-    r = await viewer_client.delete(f"/api/entries/{entry_id}/tags/t1")
+    await client.post(f"/api/v1/entries/{entry_id}/tags", json={"tags": ["t1"]})
+    r = await viewer_client.delete(f"/api/v1/entries/{entry_id}/tags/t1")
     assert r.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_apply_404_when_entry_missing(client: AsyncClient):
     r = await client.post(
-        f"/api/entries/{uuid.uuid4()}/tags", json={"tags": ["x"]},
+        f"/api/v1/entries/{uuid.uuid4()}/tags", json={"tags": ["x"]},
     )
     assert r.status_code == 404
 
@@ -292,7 +292,7 @@ async def test_bulk_apply_tags_to_many(
         entry_b = e_b.id
 
     r = await client.post(
-        "/api/tags/bulk-apply",
+        "/api/v1/tags/bulk-apply",
         json={
             "entry_ids": [str(entry_a), str(entry_b)],
             "tags": ["report", "fy26"],
@@ -301,7 +301,7 @@ async def test_bulk_apply_tags_to_many(
     assert r.status_code == 204
 
     for eid in (entry_a, entry_b):
-        r = await client.get(f"/api/entries/{eid}/tags")
+        r = await client.get(f"/api/v1/entries/{eid}/tags")
         assert sorted(t["tag"] for t in r.json()) == ["fy26", "report"]
 
 
@@ -311,7 +311,7 @@ async def test_bulk_apply_404_when_entry_missing(
 ):
     _, entry_id = await _make_file(setup_db)
     r = await client.post(
-        "/api/tags/bulk-apply",
+        "/api/v1/tags/bulk-apply",
         json={
             "entry_ids": [str(entry_id), str(uuid.uuid4())],
             "tags": ["x"],
@@ -326,7 +326,7 @@ async def test_bulk_apply_forbidden_for_viewer(
 ):
     _, entry_id = await _make_file(setup_db)
     r = await viewer_client.post(
-        "/api/tags/bulk-apply",
+        "/api/v1/tags/bulk-apply",
         json={"entry_ids": [str(entry_id)], "tags": ["x"]},
     )
     assert r.status_code == 403
@@ -370,14 +370,14 @@ async def test_tag_usage_splits_direct_vs_inherited(
 
     # Apply T directly to the file (1 direct).
     await client.post(
-        f"/api/entries/{entry_id}/tags", json={"tags": ["T"]},
+        f"/api/v1/entries/{entry_id}/tags", json={"tags": ["T"]},
     )
     # Apply T to the directory (1 direct + 1 inherited on the child).
     await client.post(
-        f"/api/entries/{dir_id}/tags", json={"tags": ["T"]},
+        f"/api/v1/entries/{dir_id}/tags", json={"tags": ["T"]},
     )
 
-    r = await client.get("/api/tags/usage")
+    r = await client.get("/api/v1/tags/usage")
     assert r.status_code == 200
     rows = {row["name"]: row for row in r.json()}
     assert rows["T"]["direct_count"] == 2

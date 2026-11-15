@@ -29,7 +29,7 @@ interface Props {
 export function ProviderForm({ provider, existing, onSaved, onCancel }: Props) {
   const upsert = useUpsertOAuthProvider();
   const defaultRedirect = useMemo(
-    () => `${window.location.origin}/api/oauth/callback`,
+    () => `${window.location.origin}/api/v1/oauth/callback`,
     [],
   );
   const [clientId, setClientId] = useState(existing?.client_id ?? "");
@@ -93,7 +93,7 @@ export function ProviderForm({ provider, existing, onSaved, onCancel }: Props) {
       />
       <p className="text-[11px] text-fg-muted">
         Must match the redirect URI registered in your provider's OAuth app
-        exactly. Akashic's callback is served at <code>/api/oauth/callback</code>.
+        exactly. Akashic's callback is served at <code>/api/v1/oauth/callback</code>.
       </p>
       <div className="flex items-center justify-end gap-2 pt-2">
         <Button variant="ghost" onClick={onCancel}>

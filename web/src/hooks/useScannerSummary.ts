@@ -1,7 +1,7 @@
 /**
  * Lightweight admin-gated query for the count of registered + online
  * scanner agents. Used by the Sources page's "no scanner registered"
- * banner. Cheaper than re-fetching the full /api/scanners list per
+ * banner. Cheaper than re-fetching the full /api/v1/scanners list per
  * page mount.
  */
 import { useQuery } from "@tanstack/react-query";

@@ -57,7 +57,7 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
-// SendBatch posts a scan batch to /api/ingest/batch with retry on
+// SendBatch posts a scan batch to /api/v1/ingest/batch with retry on
 // transient failures (network errors and 5xx responses). 4xx responses
 // are treated as terminal — they signal a malformed batch or auth
 // problem that won't fix itself.
@@ -218,7 +218,7 @@ func (c *Client) sendOnce(ctx context.Context, body []byte) (*models.BatchRespon
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/ingest/batch", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/ingest/batch", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, terminalError{fmt.Errorf("create request: %w", err)}
 	}

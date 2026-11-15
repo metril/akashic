@@ -21,7 +21,7 @@ import (
 // runDiscover implements `akashic-scanner discover` — the
 // scanner-initiated discovery flow used when no join token is
 // available. The scanner generates a keypair, posts its public key +
-// hostname to /api/scanners/discover, prints the pairing code on
+// hostname to /api/v1/scanners/discover, prints the pairing code on
 // stderr for the operator to confirm, and long-polls until the
 // discovery is approved/denied/expired or the local --timeout fires.
 func runDiscover(args []string) {
@@ -108,7 +108,7 @@ func postDiscover(ctx context.Context, apiBase string, body map[string]any) (str
 	}
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodPost,
-		apiBase+"/api/scanners/discover",
+		apiBase+"/api/v1/scanners/discover",
 		bytes.NewReader(buf),
 	)
 	if err != nil {
@@ -268,7 +268,7 @@ func pollDiscover(ctx context.Context, apiBase, discoveryID string) (string, str
 		}
 		req, err := http.NewRequestWithContext(
 			ctx, http.MethodGet,
-			apiBase+"/api/scanners/discover/"+discoveryID, nil,
+			apiBase+"/api/v1/scanners/discover/"+discoveryID, nil,
 		)
 		if err != nil {
 			log.Fatalf("build poll request: %v", err)

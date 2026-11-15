@@ -2,7 +2,7 @@
 
 The scanner POSTs heartbeats and log/stderr lines on these channels while a
 scan is running. Each writer authenticates as the same user that triggered
-the scan (same model as `/api/ingest/batch` — there's no separate
+the scan (same model as `/api/v1/ingest/batch` — there's no separate
 scanner-only token). Every persistence path also publishes to Redis so the
 WS endpoint can fan out to connected browsers.
 """
@@ -37,7 +37,7 @@ from akashic.services import scan_broadcast, scan_pubsub
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/scans")
+router = APIRouter(prefix="/scans")
 
 
 async def _load_scan_with_write(
@@ -62,7 +62,7 @@ async def post_heartbeat(
     body: HeartbeatIn,
     db: AsyncSession = Depends(get_db),
     # Scanner agent presents the ingest-audience JWT minted at lease
-    # time (audience=akashic-ingest). v0.24.0 scoped /api/ingest/batch
+    # time (audience=akashic-ingest). v0.24.0 scoped /api/v1/ingest/batch
     # to that audience but the sibling scan-progress endpoints
     # (heartbeat, log, stderr) were missed and silently 401'd every
     # call from the scanner. v0.27.1 fix: accept ingest-audience JWTs.
@@ -120,7 +120,7 @@ async def post_heartbeat(
     # scanner re-leased it, and the terminal-status race surfaced to the
     # user as a phantom "cancelled by api". A heartbeat IS the liveness
     # signal, so it must extend the lease.
-    from akashic.routers.scanners import _LEASE_DURATION_SECONDS
+    from akashic.routers.scanner_protocol import _LEASE_DURATION_SECONDS
     scan.lease_expires_at = now + timedelta(seconds=_LEASE_DURATION_SECONDS)
     if scan.status == "pending":
         # First heartbeat marks the scan as running even if no batch has

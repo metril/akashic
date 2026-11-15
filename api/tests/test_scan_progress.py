@@ -115,7 +115,7 @@ async def test_heartbeat_updates_scan_fields(
     client: AsyncClient, fixture_scan: Scan, setup_db
 ):
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_scan.id}/heartbeat",
         json={
             "current_path": "/tmp/foo",
             "files_scanned": 100,
@@ -156,7 +156,7 @@ async def test_heartbeat_renews_the_scan_lease(
     heartbeating; `_requeue_orphan_leases` then re-queued the healthy
     scan and a second scanner double-leased it."""
     from sqlalchemy import select
-    from akashic.routers.scanners import _LEASE_DURATION_SECONDS
+    from akashic.routers.scanner_protocol import _LEASE_DURATION_SECONDS
 
     # Simulate a scan whose lease already expired (the pre-fix steady
     # state for any long-running scan).
@@ -170,7 +170,7 @@ async def test_heartbeat_renews_the_scan_lease(
 
     before = datetime.now(timezone.utc)
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_scan.id}/heartbeat",
         json={
             "files_scanned": 1,
             "bytes_scanned": 1,
@@ -206,7 +206,7 @@ async def test_heartbeat_publishes_scan_state_to_sources_channel(
     only fired at lease + complete (twice per scan total) and the
     source card showed "0 files scanned" for the entire duration."""
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_scan.id}/heartbeat",
         json={
             "current_path": "/data/movies/scan",
             "files_scanned": 42,
@@ -263,7 +263,7 @@ async def test_heartbeat_scan_state_carries_scanner_name(
         await session.commit()
 
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_scan.id}/heartbeat",
         json={"files_scanned": 1, "bytes_scanned": 1, "files_skipped": 0,
               "dirs_walked": 0, "dirs_queued": 0},
     )
@@ -283,7 +283,7 @@ async def test_heartbeat_scan_state_scanner_name_none_when_unassigned(
     """An unassigned scan (no scanner has leased it yet) broadcasts
     `scanner_name: None` — correct, not the v0.30.1 bug."""
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_scan.id}/heartbeat",
         json={"files_scanned": 1, "bytes_scanned": 1, "files_skipped": 0,
               "dirs_walked": 0, "dirs_queued": 0},
     )
@@ -297,7 +297,7 @@ async def test_heartbeat_scan_state_scanner_name_none_when_unassigned(
 @pytest.mark.asyncio
 async def test_heartbeat_404_unknown_scan(client: AsyncClient):
     r = await client.post(
-        f"/api/scans/{uuid.uuid4()}/heartbeat",
+        f"/api/v1/scans/{uuid.uuid4()}/heartbeat",
         json={"files_scanned": 0, "bytes_scanned": 0},
     )
     assert r.status_code == 404
@@ -309,7 +309,7 @@ async def test_log_post_inserts_rows(
 ):
     now = datetime.now(timezone.utc)
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/log",
+        f"/api/v1/scans/{fixture_scan.id}/log",
         json={
             "lines": [
                 {"ts": now.isoformat(), "level": "info", "message": "starting"},
@@ -338,7 +338,7 @@ async def test_stderr_post_inserts_rows_with_level_stderr(
 ):
     now = datetime.now(timezone.utc)
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/stderr",
+        f"/api/v1/scans/{fixture_scan.id}/stderr",
         json={
             "chunks": [
                 {"ts": now.isoformat(), "chunk": "panic: stack trace…\n"},
@@ -381,13 +381,13 @@ async def test_get_log_filters_by_kind_and_since(
         ])
         await session.commit()
 
-    r = await client.get(f"/api/scans/{fixture_scan.id}/log?kind=structured")
+    r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?kind=structured")
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) == 2
     assert all(row["level"] != "stderr" for row in rows)
 
-    r = await client.get(f"/api/scans/{fixture_scan.id}/log?kind=stderr")
+    r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?kind=stderr")
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) == 1
@@ -395,7 +395,7 @@ async def test_get_log_filters_by_kind_and_since(
 
     from urllib.parse import quote
     since = quote((base + timedelta(milliseconds=500)).isoformat())
-    r = await client.get(f"/api/scans/{fixture_scan.id}/log?since={since}")
+    r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?since={since}")
     assert r.status_code == 200
     rows = r.json()
     # Original `base` row excluded; the +1s and +2s rows kept.
@@ -423,7 +423,7 @@ async def test_get_log_keyset_pagination_is_lossless(
         await session.commit()
 
     # Ground truth: one unpaged read.
-    r = await client.get(f"/api/scans/{fixture_scan.id}/log?limit=2000")
+    r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?limit=2000")
     assert r.status_code == 200
     full = r.json()
     assert len(full) == 5
@@ -433,7 +433,7 @@ async def test_get_log_keyset_pagination_is_lossless(
     collected: list[dict] = []
     cursor: tuple[str, str] | None = None
     for _ in range(10):  # generous bound — must terminate well before
-        url = f"/api/scans/{fixture_scan.id}/log?limit=2"
+        url = f"/api/v1/scans/{fixture_scan.id}/log?limit=2"
         if cursor is not None:
             url += f"&since={quote(cursor[0])}&after_id={cursor[1]}"
         r = await client.get(url)
@@ -461,14 +461,14 @@ async def test_log_batch_size_capped(
             {"ts": now, "level": "info", "message": f"flood {i}"} for i in range(201)
         ]
     }
-    r = await client.post(f"/api/scans/{fixture_scan.id}/log", json=body)
+    r = await client.post(f"/api/v1/scans/{fixture_scan.id}/log", json=body)
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_empty_log_post_is_noop(client: AsyncClient, fixture_scan: Scan):
     r = await client.post(
-        f"/api/scans/{fixture_scan.id}/log",
+        f"/api/v1/scans/{fixture_scan.id}/log",
         json={"lines": []},
     )
     assert r.status_code == 204
@@ -519,7 +519,7 @@ async def test_log_post_persists_scanner_id_from_ingest_jwt(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:
         r = await ac.post(
-            f"/api/scans/{fixture_scan.id}/log",
+            f"/api/v1/scans/{fixture_scan.id}/log",
             json={
                 "lines": [
                     {"ts": datetime.now(timezone.utc).isoformat(),
@@ -585,7 +585,7 @@ async def test_log_scanner_name_snapshotted_and_survives_deletion(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:
         r = await ac.post(
-            f"/api/scans/{fixture_scan.id}/log",
+            f"/api/v1/scans/{fixture_scan.id}/log",
             json={"lines": [
                 {"ts": datetime.now(timezone.utc).isoformat(),
                  "level": "info", "message": "attributed line"},
@@ -611,7 +611,7 @@ async def test_log_scanner_name_snapshotted_and_survives_deletion(
             await session.commit()
 
         # The backfill endpoint still serves the name from the column.
-        r = await ac.get(f"/api/scans/{fixture_scan.id}/log")
+        r = await ac.get(f"/api/v1/scans/{fixture_scan.id}/log")
         assert r.status_code == 200, r.text
         lines = r.json()
         assert len(lines) == 1

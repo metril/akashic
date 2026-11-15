@@ -1,4 +1,4 @@
-"""POST /api/scanners/discover + admin approve/deny.
+"""POST /api/v1/scanners/discover + admin approve/deny.
 
 Exercises the full pending-claim flow:
 
@@ -86,7 +86,7 @@ async def test_discovery_disabled_returns_404(setup_db):
     """Default state has no row, so is_discovery_enabled returns False."""
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": generate_keypair().public_pem},
         )
     assert r.status_code == 404
@@ -98,7 +98,7 @@ async def test_post_discover_creates_pending_request(setup_db):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={
                 "public_key_pem": kp.public_pem,
                 "hostname": "homeserver",
@@ -120,11 +120,11 @@ async def test_post_discover_is_idempotent_per_pubkey(setup_db):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         r1 = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem},
         )).json()
         r2 = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem},
         )).json()
     assert r1["discovery_id"] == r2["discovery_id"]
@@ -137,16 +137,16 @@ async def test_admin_approve_creates_scanner(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         discover = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem, "hostname": "h"},
         )).json()
     did = discover["discovery_id"]
 
     async with _admin_client(setup_db, admin_user) as ac:
-        listed = (await ac.get("/api/scanner-discovery-requests")).json()
+        listed = (await ac.get("/api/v1/scanner-discovery-requests")).json()
         assert any(r["id"] == did for r in listed)
         approve = await ac.post(
-            f"/api/scanner-discovery-requests/{did}/approve",
+            f"/api/v1/scanner-discovery-requests/{did}/approve",
             json={"name": "approved-scanner", "pool": "media"},
         )
     assert approve.status_code == 200, approve.text
@@ -154,7 +154,7 @@ async def test_admin_approve_creates_scanner(setup_db, admin_user):
 
     # Scanner side resolves with status=approved + scanner_id.
     async with _unauth_client(setup_db) as ac:
-        status = (await ac.get(f"/api/scanners/discover/{did}")).json()
+        status = (await ac.get(f"/api/v1/scanners/discover/{did}")).json()
     assert status["status"] == "approved"
     assert status["name"] == "approved-scanner"
     assert status["pool"] == "media"
@@ -166,20 +166,20 @@ async def test_admin_deny_resolves_to_denied(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         discover = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem},
         )).json()
     did = discover["discovery_id"]
 
     async with _admin_client(setup_db, admin_user) as ac:
         deny = await ac.post(
-            f"/api/scanner-discovery-requests/{did}/deny",
+            f"/api/v1/scanner-discovery-requests/{did}/deny",
             json={"reason": "wrong host"},
         )
     assert deny.status_code == 204
 
     async with _unauth_client(setup_db) as ac:
-        status = (await ac.get(f"/api/scanners/discover/{did}")).json()
+        status = (await ac.get(f"/api/v1/scanners/discover/{did}")).json()
     assert status["status"] == "denied"
     assert status["deny_reason"] == "wrong host"
 
@@ -190,18 +190,18 @@ async def test_approve_already_decided_returns_410(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         discover = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem},
         )).json()
     did = discover["discovery_id"]
 
     async with _admin_client(setup_db, admin_user) as ac:
         await ac.post(
-            f"/api/scanner-discovery-requests/{did}/deny",
+            f"/api/v1/scanner-discovery-requests/{did}/deny",
             json={"reason": "no"},
         )
         r2 = await ac.post(
-            f"/api/scanner-discovery-requests/{did}/approve",
+            f"/api/v1/scanner-discovery-requests/{did}/approve",
             json={"name": "x"},
         )
     assert r2.status_code == 410
@@ -215,7 +215,7 @@ async def test_long_poll_short_circuits_on_decision(setup_db, admin_user):
     kp = generate_keypair()
     async with _unauth_client(setup_db) as ac:
         discover = (await ac.post(
-            "/api/scanners/discover",
+            "/api/v1/scanners/discover",
             json={"public_key_pem": kp.public_pem},
         )).json()
     did = discover["discovery_id"]
@@ -224,14 +224,14 @@ async def test_long_poll_short_circuits_on_decision(setup_db, admin_user):
         await asyncio.sleep(0.2)
         async with _admin_client(setup_db, admin_user) as ac:
             await ac.post(
-                f"/api/scanner-discovery-requests/{did}/approve",
+                f"/api/v1/scanner-discovery-requests/{did}/approve",
                 json={"name": "fast"},
             )
 
     async def _poll() -> dict:
         async with _unauth_client(setup_db) as ac:
             r = await ac.get(
-                f"/api/scanners/discover/{did}",
+                f"/api/v1/scanners/discover/{did}",
                 timeout=10.0,
             )
         return r.json()
@@ -253,7 +253,7 @@ async def test_rate_limit_kicks_in(setup_db):
         for _ in range(6):
             kp = generate_keypair()
             r = await ac.post(
-                "/api/scanners/discover",
+                "/api/v1/scanners/discover",
                 json={"public_key_pem": kp.public_pem},
             )
             responses.append(r.status_code)

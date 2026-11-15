@@ -21,7 +21,7 @@ from akashic.schemas.identity import (
 )
 from akashic.services.audit import record_event
 
-router = APIRouter(prefix="/api/identities", tags=["identities"])
+router = APIRouter(prefix="/identities", tags=["identities"])
 
 
 def _person_with_bindings(person: FsPerson, bindings: list[FsBinding]) -> FsPersonOut:

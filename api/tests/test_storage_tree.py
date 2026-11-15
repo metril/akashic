@@ -1,4 +1,4 @@
-"""Phase A — `/api/storage/tree` recursive subtree expansion.
+"""Phase A — `/api/v1/storage/tree` recursive subtree expansion.
 
 The endpoint feeds the WinDirStat-style nested treemap. Tests cover:
 - nested-children shape matches the seeded hierarchy
@@ -73,7 +73,7 @@ async def test_tree_returns_nested_hierarchy(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/&max_nodes=100",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/&max_nodes=100",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -121,7 +121,7 @@ async def test_tree_node_budget_truncates_and_synthesises_other(
 
     # Budget too small to hold every leaf.
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/&max_nodes=5",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/&max_nodes=5",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -155,7 +155,7 @@ async def test_tree_min_bytes_filters_small_leaves(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/&min_bytes=100",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/&min_bytes=100",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -204,7 +204,7 @@ async def test_tree_perm_filter_hides_unviewable(
 
     token = create_access_token({"sub": str(user.id)})
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 
@@ -224,7 +224,7 @@ async def test_tree_missing_root_returns_null(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/nope",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/nope",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
     assert body["root"] is None
@@ -271,7 +271,7 @@ async def test_tree_synthesises_root_when_connector_has_no_literal_slash(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/tree?source_id={src.id}&path=/&max_nodes=100",
+        f"/api/v1/storage/tree?source_id={src.id}&path=/&max_nodes=100",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
 

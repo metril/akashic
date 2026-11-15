@@ -1,7 +1,7 @@
 """RefreshToken — long-lived companion to the short-lived access JWT.
 
 We store hashes only. The plain token is returned to the client once
-(at login), set in an HttpOnly cookie, and used at /api/auth/refresh
+(at login), set in an HttpOnly cookie, and used at /api/v1/auth/refresh
 to mint a new access token. Each refresh rotates the row: the old hash
 is marked `revoked_at` and a new hash issued. A presented token whose
 hash matches a revoked row indicates either replay (the cookie was

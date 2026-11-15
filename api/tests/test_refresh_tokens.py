@@ -2,11 +2,11 @@
 
 The contract this enforces:
 
-1. Login mints a refresh cookie. /api/auth/refresh returns a new
+1. Login mints a refresh cookie. /api/v1/auth/refresh returns a new
    access token and rotates the cookie.
 2. Replaying an already-rotated token revokes the entire chain. Both
    the attacker and the legitimate user lose access.
-3. /api/auth/logout revokes the chain idempotently.
+3. /api/v1/auth/logout revokes the chain idempotently.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -39,7 +39,7 @@ async def test_login_sets_refresh_cookie(
 ):
     user = await _seed_user(db_session)
     resp = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": user.username, "password": "hunter2hunter2"},
     )
     assert resp.status_code == 200, resp.text
@@ -60,14 +60,14 @@ async def test_refresh_rotates_token(
     user = await _seed_user(db_session)
 
     login_resp = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": user.username, "password": "hunter2hunter2"},
     )
     cookie_v1 = login_resp.cookies.get(REFRESH_COOKIE)
     assert cookie_v1
 
     refresh_resp = await client.post(
-        "/api/auth/refresh",
+        "/api/v1/auth/refresh",
         cookies={REFRESH_COOKIE: cookie_v1},
     )
     assert refresh_resp.status_code == 200, refresh_resp.text
@@ -97,14 +97,14 @@ async def test_refresh_replay_revokes_chain(
     user = await _seed_user(db_session)
 
     login_resp = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": user.username, "password": "hunter2hunter2"},
     )
     cookie_v1 = login_resp.cookies.get(REFRESH_COOKIE)
 
     # First rotation succeeds.
     rot1 = await client.post(
-        "/api/auth/refresh",
+        "/api/v1/auth/refresh",
         cookies={REFRESH_COOKIE: cookie_v1},
     )
     assert rot1.status_code == 200
@@ -117,7 +117,7 @@ async def test_refresh_replay_revokes_chain(
 
     # Second use of the original cookie — replay.
     replay = await client.post(
-        "/api/auth/refresh",
+        "/api/v1/auth/refresh",
         cookies={REFRESH_COOKIE: cookie_v1},
     )
     assert replay.status_code == 401
@@ -134,7 +134,7 @@ async def test_refresh_replay_revokes_chain(
     # The post-replay legitimate cookie is also dead.
     cookie_v2 = rot1.cookies.get(REFRESH_COOKIE)
     follow_up = await client.post(
-        "/api/auth/refresh",
+        "/api/v1/auth/refresh",
         cookies={REFRESH_COOKIE: cookie_v2},
     )
     assert follow_up.status_code == 401
@@ -142,7 +142,7 @@ async def test_refresh_replay_revokes_chain(
 
 @pytest.mark.asyncio
 async def test_refresh_no_cookie_returns_401(client: AsyncClient):
-    resp = await client.post("/api/auth/refresh")
+    resp = await client.post("/api/v1/auth/refresh")
     assert resp.status_code == 401
 
 
@@ -152,20 +152,20 @@ async def test_logout_revokes_token(
 ):
     user = await _seed_user(db_session)
     login_resp = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": user.username, "password": "hunter2hunter2"},
     )
     cookie = login_resp.cookies.get(REFRESH_COOKIE)
 
     logout_resp = await client.post(
-        "/api/auth/logout",
+        "/api/v1/auth/logout",
         cookies={REFRESH_COOKIE: cookie},
     )
     assert logout_resp.status_code == 200
 
     # Token is now revoked — using it for refresh fails.
     refresh_resp = await client.post(
-        "/api/auth/refresh",
+        "/api/v1/auth/refresh",
         cookies={REFRESH_COOKIE: cookie},
     )
     assert refresh_resp.status_code == 401

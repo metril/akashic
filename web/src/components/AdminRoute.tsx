@@ -12,7 +12,7 @@ import { useAuth } from "../hooks/useAuth";
  * the link for non-admins; this catches direct-URL / bookmark
  * traversal.
  *
- * Loading state: while the /api/users/me query is in flight we render
+ * Loading state: while the /api/v1/users/me query is in flight we render
  * nothing rather than the page-loading spinner, since flashing the
  * admin page for a frame on a slow /me response would defeat the gate.
  */

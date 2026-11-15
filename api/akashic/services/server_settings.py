@@ -1,6 +1,6 @@
 """server_settings DB-backed runtime toggles with a tiny TTL cache.
 
-Read path is on the hot loop for /api/scanners/discover and its
+Read path is on the hot loop for /api/v1/scanners/discover and its
 poll endpoint, so we cache values in-process for 5 seconds. PATCH
 publishes a `setting.changed` event on the existing scanners
 pubsub channel; api workers listen to that and bust their cache

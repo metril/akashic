@@ -35,7 +35,7 @@ async def test_wrapped_posix_acl_round_trips(client: AsyncClient, db_session: As
         "is_final": True,
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text

@@ -27,7 +27,7 @@ func newFakeAPI() *fakeAPI { return &fakeAPI{} }
 
 func (f *fakeAPI) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/scans/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/scans/", func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
 		body, _ := io.ReadAll(r.Body)
 		switch {

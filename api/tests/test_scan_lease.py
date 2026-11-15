@@ -1,4 +1,4 @@
-"""POST /api/scans/lease — atomic claim semantics."""
+"""POST /api/v1/scans/lease — atomic claim semantics."""
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +70,7 @@ async def _seed(setup_db, admin_user, *, source_pool: str | None,
     """Returns (scan_id, source_dict, scanner_create_response)."""
     async with _admin_client(setup_db, admin_user) as ac:
         scanner_resp = await ac.post(
-            "/api/scanners",
+            "/api/v1/scanners",
             json={"name": f"s-{uuid.uuid4().hex[:6]}", "pool": scanner_pool},
         )
     scanner_resp = scanner_resp.json()
@@ -108,7 +108,7 @@ async def test_lease_returns_pending_scan(setup_db, admin_user):
 
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200, r.text
@@ -123,12 +123,12 @@ async def test_lease_returns_204_when_no_pending(setup_db, admin_user):
     # No scan seeded — only a scanner.
     async with _admin_client(setup_db, admin_user) as ac:
         scn = (await ac.post(
-            "/api/scanners", json={"name": "s1", "pool": "default"},
+            "/api/v1/scanners", json={"name": "s1", "pool": "default"},
         )).json()
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 204
@@ -143,7 +143,7 @@ async def test_pool_mismatch_returns_204(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 204
@@ -157,7 +157,7 @@ async def test_permissive_null_pool_can_be_claimed_by_any(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200
@@ -172,10 +172,10 @@ async def test_concurrent_leases_serialise_via_skip_locked(setup_db, admin_user)
 
     async with _admin_client(setup_db, admin_user) as ac:
         s1 = (await ac.post(
-            "/api/scanners", json={"name": "s1", "pool": "default"},
+            "/api/v1/scanners", json={"name": "s1", "pool": "default"},
         )).json()
         s2 = (await ac.post(
-            "/api/scanners", json={"name": "s2", "pool": "default"},
+            "/api/v1/scanners", json={"name": "s2", "pool": "default"},
         )).json()
     t1 = _scanner_token(s1["id"], s1["private_key_pem"])
     t2 = _scanner_token(s2["id"], s2["private_key_pem"])
@@ -183,7 +183,7 @@ async def test_concurrent_leases_serialise_via_skip_locked(setup_db, admin_user)
     async def lease(token: str):
         async with _bearer_client(setup_db) as ac:
             return await ac.post(
-                "/api/scans/lease", json={},
+                "/api/v1/scans/lease", json={},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
@@ -204,13 +204,13 @@ async def test_lease_refreshes_scanner_version_on_noop_poll(setup_db, admin_user
 
     async with _admin_client(setup_db, admin_user) as ac:
         scn = (await ac.post(
-            "/api/scanners", json={"name": "ver-scanner", "pool": "default"},
+            "/api/v1/scanners", json={"name": "ver-scanner", "pool": "default"},
         )).json()
     token = _scanner_token(scn["id"], scn["private_key_pem"])
 
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={"agent_version": "v9.9.9-idle"},
+            "/api/v1/scans/lease", json={"agent_version": "v9.9.9-idle"},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 204
@@ -228,11 +228,11 @@ async def test_complete_releases_lease(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
         r = await ac.post(
-            f"/api/scans/{scan_id}/complete",
+            f"/api/v1/scans/{scan_id}/complete",
             json={"status": "completed"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -241,7 +241,7 @@ async def test_complete_releases_lease(setup_db, admin_user):
     # Re-lease should now return 204 because the scan is terminal.
     async with _bearer_client(setup_db) as ac:
         r2 = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r2.status_code == 204

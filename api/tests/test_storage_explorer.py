@@ -1,4 +1,4 @@
-"""Phase 9 — /api/storage/sources + /api/storage/children behaviour.
+"""Phase 9 — /api/v1/storage/sources + /api/v1/storage/children behaviour.
 
 The endpoints are pure read paths. The interesting cases are: the
 shape of the cross-source response, the shape of the drill-down
@@ -53,7 +53,7 @@ async def test_sources_returns_one_row_per_source_sorted_by_size(
     await db_session.commit()
 
     resp = await client.get(
-        "/api/storage/sources",
+        "/api/v1/storage/sources",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -98,7 +98,7 @@ async def test_children_uses_subtree_aggregates_for_directories(
     await db_session.commit()
 
     resp = await client.get(
-        f"/api/storage/children?source_id={src.id}&path=/&color_by=type",
+        f"/api/v1/storage/children?source_id={src.id}&path=/&color_by=type",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -134,7 +134,7 @@ async def test_children_overflow_rolls_into_other_bucket(
     await db_session.commit()
 
     resp = await client.get(
-        f"/api/storage/children?source_id={src.id}&path=/&limit=2",
+        f"/api/v1/storage/children?source_id={src.id}&path=/&limit=2",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -172,7 +172,7 @@ async def test_children_color_by_risk_admin_only(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/children?source_id={src.id}&path=/&color_by=risk",
+        f"/api/v1/storage/children?source_id={src.id}&path=/&color_by=risk",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
     by_name = {c["name"]: c for c in body["children"]}
@@ -212,7 +212,7 @@ async def test_children_color_by_age_buckets(
     await db_session.commit()
 
     body = (await client.get(
-        f"/api/storage/children?source_id={src.id}&path=/&color_by=age",
+        f"/api/v1/storage/children?source_id={src.id}&path=/&color_by=age",
         headers={"Authorization": f"Bearer {token}"},
     )).json()
     keys = {c["name"]: c["color_key"] for c in body["children"]}

@@ -16,7 +16,7 @@ interface BulkTagDialogProps {
 }
 
 /**
- * Modal: enter comma-separated tag names, POST /api/tags/bulk-apply.
+ * Modal: enter comma-separated tag names, POST /api/v1/tags/bulk-apply.
  * Shared by the Search and Browse pages — both surface a "Tag
  * selected (N)" action when the user has multiple entries selected.
  *

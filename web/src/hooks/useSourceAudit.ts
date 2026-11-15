@@ -21,7 +21,7 @@ export interface AuditEventList {
 
 /**
  * Per-source audit timeline. Filtered server-side via the
- * `/api/sources/{id}/audit` endpoint that gates on read-access to
+ * `/api/v1/sources/{id}/audit` endpoint that gates on read-access to
  * the source (admin-bypass for admins).
  *
  * `enabled` lets the consumer suspend the query while the drawer's

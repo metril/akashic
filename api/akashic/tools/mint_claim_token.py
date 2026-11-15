@@ -4,7 +4,7 @@ Used by `make bootstrap-scanner` so a fresh checkout can stand up an
 agent through the v0.3.0 self-registration flow without going through
 the UI. Prints the resulting `{token, label, pool, expires_at}` as
 JSON; the caller is responsible for handing the token to a scanner
-that POSTs `/api/scanners/claim`.
+that POSTs `/api/v1/scanners/claim`.
 
 The keypair is NOT generated here — that's the scanner's job (the
 whole point of v0.3.0's self-registration is that the private key

@@ -32,7 +32,7 @@ class WsScanLogLine(BaseModel):
 
 
 class WsScanSnapshot(BaseModel):
-    """First frame on `/ws/scans/{id}`: current scan state plus recent log lines."""
+    """First frame on `/ws/v1/scans/{id}`: current scan state plus recent log lines."""
 
     kind: Literal["snapshot"] = Field(description="Frame discriminator.")
     scan_id: str = Field(description="Scan id.")
@@ -59,7 +59,7 @@ class WsScanSnapshot(BaseModel):
 
 
 class WsScanProgress(BaseModel):
-    """Throttled progress frame on `/ws/scans/{id}`."""
+    """Throttled progress frame on `/ws/v1/scans/{id}`."""
 
     kind: Literal["progress"] = Field(description="Frame discriminator.")
     scan_id: str = Field(description="Scan id.")
@@ -76,7 +76,7 @@ class WsScanProgress(BaseModel):
 
 
 class WsScanLog(BaseModel):
-    """New log (or stderr) lines on `/ws/scans/{id}`."""
+    """New log (or stderr) lines on `/ws/v1/scans/{id}`."""
 
     kind: Literal["log", "stderr"] = Field(description="Frame discriminator.")
     scan_id: str = Field(description="Scan id.")
@@ -84,7 +84,7 @@ class WsScanLog(BaseModel):
 
 
 class WsScanState(BaseModel):
-    """Scan state change on `/ws/scans` (the source-list stream)."""
+    """Scan state change on `/ws/v1/scans` (the source-list stream)."""
 
     kind: Literal["scan.state"] = Field(description="Frame discriminator.")
     source_id: str = Field(description="Source id.")

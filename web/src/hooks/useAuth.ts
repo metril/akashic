@@ -11,7 +11,7 @@ interface CurrentUser {
 }
 
 /**
- * `useAuth` exposes the user's role via a /api/users/me lookup. The role
+ * `useAuth` exposes the user's role via a /api/v1/users/me lookup. The role
  * lives on the server-side User row and isn't encoded in the JWT, so
  * client-side gating that depends on role (e.g., showing the Edit
  * button on a source) MUST go through this hook rather than decoding

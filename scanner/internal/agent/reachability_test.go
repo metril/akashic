@@ -30,7 +30,7 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 	reported := make(chan struct{}, 1)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/scanners/scan-1/probes/long-poll", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/scanners/scan-1/probes/long-poll", func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&pollCount, 1)
 		if count == 1 {
 			req := probeRequest{
@@ -47,15 +47,15 @@ func TestReachabilityLoop_LongPollDeliversProbeAndReports(t *testing.T) {
 		// Subsequent long-polls timeout (204) so the loop idles.
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.HandleFunc("/api/scanners/scan-1/probes/", func(w http.ResponseWriter, r *http.Request) {
-		// Path: /api/scanners/scan-1/probes/{request_id}/report
-		// Split → ["", "api", "scanners", "scan-1", "probes", "{req}", "report"]
+	mux.HandleFunc("/api/v1/scanners/scan-1/probes/", func(w http.ResponseWriter, r *http.Request) {
+		// Path: /api/v1/scanners/scan-1/probes/{request_id}/report
+		// Split → ["", "api", "v1", "scanners", "scan-1", "probes", "{req}", "report"]
 		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) < 7 || parts[6] != "report" {
+		if len(parts) < 8 || parts[7] != "report" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		reportedReqID = parts[5]
+		reportedReqID = parts[6]
 		var rep probeReport
 		_ = json.NewDecoder(r.Body).Decode(&rep)
 		reportedSrcID = rep.SourceID

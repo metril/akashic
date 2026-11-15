@@ -11,7 +11,7 @@ import (
 
 func TestClient_Search(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/search" {
+		if r.URL.Path != "/api/v1/search" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		q := r.URL.Query().Get("q")
@@ -61,7 +61,7 @@ func TestClient_ListSources(t *testing.T) {
 // CLI exit-code mapping in commands/scans.go has something to react to.
 func TestClient_GetScan(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/scans/abc" {
+		if r.URL.Path == "/api/v1/scans/abc" {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": "abc", "source_id": "src", "status": "completed",
 				"files_found": 12, "started_at": "now",
@@ -102,8 +102,8 @@ func TestClient_CancelScan(t *testing.T) {
 	if err := c.CancelScan(context.Background(), "x"); err != nil {
 		t.Fatal(err)
 	}
-	if gotPath != "/api/scans/x/cancel" {
-		t.Errorf("expected /api/scans/x/cancel, got %s", gotPath)
+	if gotPath != "/api/v1/scans/x/cancel" {
+		t.Errorf("expected /api/v1/scans/x/cancel, got %s", gotPath)
 	}
 }
 

@@ -89,7 +89,7 @@ def test_ldap_rejects_empty_password(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ldap_login_empty_password_422(client):
-    r = await client.post("/api/auth/ldap/login", json={"username": "bob", "password": ""})
+    r = await client.post("/api/v1/auth/ldap/login", json={"username": "bob", "password": ""})
     assert r.status_code == 422
 
 
@@ -133,34 +133,34 @@ async def _seed_login(client, db):
              password_hash=hash_password("hunter2hunter2"), role="user")
     db.add(u)
     await db.commit()
-    r = await client.post("/api/users/login", json={"username": u.username, "password": "hunter2hunter2"})
+    r = await client.post("/api/v1/users/login", json={"username": u.username, "password": "hunter2hunter2"})
     return r.cookies.get(REFRESH_COOKIE)
 
 
 @pytest.mark.asyncio
 async def test_refresh_grace_window_allows_recent_rotated_token(client, db_session):
     c1 = await _seed_login(client, db_session)
-    r1 = await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})
+    r1 = await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})
     assert r1.status_code == 200
     # Second tab presents the same (just rotated) token: allowed, chain survives.
-    r2 = await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})
+    r2 = await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})
     assert r2.status_code == 200
     c3 = r2.cookies.get(REFRESH_COOKIE)
-    r3 = await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c3})
+    r3 = await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c3})
     assert r3.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_refresh_replay_after_grace_revokes_chain(client, db_session):
     c1 = await _seed_login(client, db_session)
-    r1 = await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})
+    r1 = await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})
     assert r1.status_code == 200
     rows = (await db_session.execute(
         select(RefreshToken).where(RefreshToken.revoke_reason == "rotated"))).scalars().all()
     for row in rows:
         row.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=60)
     await db_session.commit()
-    r2 = await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})
+    r2 = await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})
     assert r2.status_code == 401
 
 
@@ -187,8 +187,8 @@ def test_schema_does_no_dns():
 
 @pytest.mark.asyncio
 async def test_webhook_route_rejects_private_dns(client, monkeypatch):
-    await client.post("/api/users/register", json={"username": "alice", "password": "testpass123"})
-    login = await client.post("/api/users/login", json={"username": "alice", "password": "testpass123"})
+    await client.post("/api/v1/users/register", json={"username": "alice", "password": "testpass123"})
+    login = await client.post("/api/v1/users/login", json={"username": "alice", "password": "testpass123"})
     tok = login.json()["access_token"]
 
     loop = asyncio.get_running_loop()
@@ -199,7 +199,7 @@ async def test_webhook_route_rejects_private_dns(client, monkeypatch):
             return [(2, 1, 6, "", ("10.0.0.5", 0))]
         return await real(host, port, *a, **k)
     monkeypatch.setattr(loop, "getaddrinfo", fake_getaddrinfo)
-    r = await client.post("/api/webhooks", headers={"Authorization": f"Bearer {tok}"},
+    r = await client.post("/api/v1/webhooks", headers={"Authorization": f"Bearer {tok}"},
                           json={"event_type": "scan_completed", "url": "https://evil.example.com/h",
                                 "secret": "s"})
     assert r.status_code == 422
@@ -216,7 +216,7 @@ async def test_register_uses_advisory_lock(client, db_session):
         stmts.append(statement)
     event.listen(eng, "before_cursor_execute", grab)
     try:
-        r = await client.post("/api/users/register", json={"username": "first", "password": "testpass123"})
+        r = await client.post("/api/v1/users/register", json={"username": "first", "password": "testpass123"})
     finally:
         event.remove(eng, "before_cursor_execute", grab)
     assert r.status_code == 201
@@ -226,10 +226,10 @@ async def test_register_uses_advisory_lock(client, db_session):
 @pytest.mark.asyncio
 async def test_refresh_grace_is_single_use(client, db_session):
     c1 = await _seed_login(client, db_session)
-    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200
-    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200  # grace
+    assert (await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200
+    assert (await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 200  # grace
     # Second reuse of the same rotated token: replay -> 401, chain revoked.
-    assert (await client.post("/api/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 401
+    assert (await client.post("/api/v1/auth/refresh", cookies={REFRESH_COOKIE: c1})).status_code == 401
 
 
 def _hide_username_check_once(db_session, monkeypatch):

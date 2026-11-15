@@ -118,7 +118,7 @@ func (c *Client) Search(ctx context.Context, query string, params *SearchParams)
 			v.Set("extension", params.Extension)
 		}
 	}
-	resp, err := c.get(ctx, "/api/search", v)
+	resp, err := c.get(ctx, "/api/v1/search", v)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (c *Client) Search(ctx context.Context, query string, params *SearchParams)
 }
 
 func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
-	resp, err := c.get(ctx, "/api/sources", nil)
+	resp, err := c.get(ctx, "/api/v1/sources", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (c *Client) CreateSource(ctx context.Context, name, sourceType string, conf
 		"type":   sourceType,
 		"connection_config": config,
 	}
-	resp, err := c.post(ctx, "/api/sources", body)
+	resp, err := c.post(ctx, "/api/v1/sources", body)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (c *Client) CreateSource(ctx context.Context, name, sourceType string, conf
 
 func (c *Client) TriggerScan(ctx context.Context, sourceName string) error {
 	body := map[string]string{"source_name": sourceName}
-	resp, err := c.post(ctx, "/api/scans/trigger", body)
+	resp, err := c.post(ctx, "/api/v1/scans/trigger", body)
 	if err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 	if limit > 0 {
 		params.Set("limit", fmt.Sprintf("%d", limit))
 	}
-	resp, err := c.get(ctx, "/api/scans", params)
+	resp, err := c.get(ctx, "/api/v1/scans", params)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 // GetScan fetches a single scan by ID. Returns an APIError with
 // Status=404 when the scan doesn't exist; callers can branch on that.
 func (c *Client) GetScan(ctx context.Context, scanID string) (*Scan, error) {
-	resp, err := c.get(ctx, "/api/scans/"+scanID, nil)
+	resp, err := c.get(ctx, "/api/v1/scans/"+scanID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (c *Client) GetScan(ctx context.Context, scanID string) (*Scan, error) {
 // CancelScan marks a running scan as cancelled. Idempotent — cancelling
 // an already-terminal scan returns success.
 func (c *Client) CancelScan(ctx context.Context, scanID string) error {
-	resp, err := c.post(ctx, "/api/scans/"+scanID+"/cancel", nil)
+	resp, err := c.post(ctx, "/api/v1/scans/"+scanID+"/cancel", nil)
 	if err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]Duplicate
 	if minSize > 0 {
 		params.Set("min_size", fmt.Sprintf("%d", minSize))
 	}
-	resp, err := c.get(ctx, "/api/duplicates", params)
+	resp, err := c.get(ctx, "/api/v1/duplicates", params)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]Duplicate
 }
 
 func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
-	resp, err := c.get(ctx, "/api/tags", nil)
+	resp, err := c.get(ctx, "/api/v1/tags", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +326,7 @@ func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
 
 func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
 	body := map[string]string{"name": name}
-	resp, err := c.post(ctx, "/api/tags", body)
+	resp, err := c.post(ctx, "/api/v1/tags", body)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +344,7 @@ func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
 }
 
 func (c *Client) TagFile(ctx context.Context, fileID, tagID string) error {
-	path := fmt.Sprintf("/api/files/%s/tags/%s", fileID, tagID)
+	path := fmt.Sprintf("/api/v1/files/%s/tags/%s", fileID, tagID)
 	resp, err := c.post(ctx, path, nil)
 	if err != nil {
 		return err
@@ -357,7 +357,7 @@ func (c *Client) TagFile(ctx context.Context, fileID, tagID string) error {
 }
 
 func (c *Client) PurgeSource(ctx context.Context, sourceID string) error {
-	path := fmt.Sprintf("/api/purge/source/%s", sourceID)
+	path := fmt.Sprintf("/api/v1/purge/source/%s", sourceID)
 	resp, err := c.post(ctx, path, nil)
 	if err != nil {
 		return err

@@ -59,8 +59,8 @@ async def test_concurrent_ingest_with_overlapping_paths(client, db_session):
 
     headers = {"Authorization": f"Bearer {token}"}
     res_a, res_b = await asyncio.gather(
-        client.post("/api/ingest/batch", json=batch_a, headers=headers),
-        client.post("/api/ingest/batch", json=batch_b, headers=headers),
+        client.post("/api/v1/ingest/batch", json=batch_a, headers=headers),
+        client.post("/api/v1/ingest/batch", json=batch_b, headers=headers),
     )
 
     # Both must succeed — neither batch lost.

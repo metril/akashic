@@ -1,7 +1,7 @@
 // On-demand probe long-poll loop. Replaces the v0.5.7 polling loop —
 // the API no longer enqueues continuous reachability_check rows.
 //
-// The agent calls GET /api/scanners/{id}/probes/long-poll with a
+// The agent calls GET /api/v1/scanners/{id}/probes/long-poll with a
 // scanner JWT; the API holds the connection open for ~30 s waiting
 // for a probe to be published on the agent's per-id Redis channel.
 // On 200 the agent runs the probe via internal/probe, then POSTs
@@ -74,7 +74,7 @@ func waitForProbe(
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/scanners/%s/probes/long-poll",
+	url := fmt.Sprintf("%s/api/v1/scanners/%s/probes/long-poll",
 		cfg.APIBase, cfg.ScannerID)
 
 	// Use a per-request context with a generous client-side timeout so
@@ -149,7 +149,7 @@ func postProbeReport(
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/api/scanners/%s/probes/%s/report",
+	url := fmt.Sprintf("%s/api/v1/scanners/%s/probes/%s/report",
 		cfg.APIBase, cfg.ScannerID, requestID)
 	resp, err := doJSON(ctx, httpc, "POST", url, auth, report)
 	if err != nil {

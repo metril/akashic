@@ -27,7 +27,7 @@ from akashic.services.access_query import (
 )
 from akashic.services.tag_inheritance import get_tags_for_entry
 
-router = APIRouter(prefix="/api/entries", tags=["entries"])
+router = APIRouter(prefix="/entries", tags=["entries"])
 
 
 @router.get("", response_model=list[EntryResponse])

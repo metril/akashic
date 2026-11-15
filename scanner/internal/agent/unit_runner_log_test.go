@@ -1,5 +1,5 @@
 // A unit-coordinated scan must stream its per-unit walk log lines to
-// the API's /api/scans/{id}/log endpoint (v0.31.6).
+// the API's /api/v1/scans/{id}/log endpoint (v0.31.6).
 //
 // Pre-fix runUnitWalk built scanner.Options without the Reporter, so
 // scanner.Run logged to local stdout instead of the API — and a scan
@@ -40,7 +40,7 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	// when the log sink has buffered lines, so >=1 proves logs flowed.
 	var logPosts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/scans/scan-1/log" {
+		if r.URL.Path == "/api/v1/scans/scan-1/log" {
 			logPosts.Add(1)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -83,7 +83,7 @@ func TestRunUnitWalk_StreamsUnitLogToAPI(t *testing.T) {
 	reporter.Stop()
 
 	if logPosts.Load() == 0 {
-		t.Error("unit walk streamed no log lines to /api/scans/{id}/log — " +
+		t.Error("unit walk streamed no log lines to /api/v1/scans/{id}/log — " +
 			"Reporter not wired into the unit's scanner.Options")
 	}
 }

@@ -22,7 +22,7 @@ local user with respect to access control.
 
 ## Local users
 
-The first user to register at `POST /api/users/register` becomes
+The first user to register at `POST /api/v1/users/register` becomes
 admin; registration closes after that.
 
 To reset the admin password without losing data:
@@ -46,7 +46,7 @@ OIDC_ENABLED=true
 OIDC_DISCOVERY_URL=https://idp.example.com/.well-known/openid-configuration
 OIDC_CLIENT_ID=<from your IdP>
 OIDC_CLIENT_SECRET=<from your IdP>
-OIDC_REDIRECT_URI=https://akashic.example.com/api/auth/oidc/callback
+OIDC_REDIRECT_URI=https://akashic.example.com/api/v1/auth/oidc/callback
 ```
 
 Akashic always sends a PKCE (S256) `code_challenge` and a `nonce` on the
@@ -97,10 +97,10 @@ extraction.
 
 ### Verifying it works
 
-- `GET /api/auth/providers` should return `{"oidc": true, ...}`.
-- Hitting `/api/auth/oidc/login` should 302 to your IdP.
+- `GET /api/v1/auth/providers` should return `{"oidc": true, ...}`.
+- Hitting `/api/v1/auth/oidc/login` should 302 to your IdP.
 - After the callback you should land on the dashboard; the browser
-  holds an HttpOnly `akashic_refresh` cookie and `POST /api/auth/refresh`
+  holds an HttpOnly `akashic_refresh` cookie and `POST /api/v1/auth/refresh`
   returns an access token.
 - **Settings → Users** in the UI: the OIDC user should appear with
   resolved `FsBindings` linking them to source-aware identities.
@@ -111,11 +111,11 @@ extraction.
 
 When OIDC is enabled, the Login page shows a "Sign in with SSO" button.
 
-1. The button navigates to `/api/auth/oidc/login`, which redirects to the IdP.
-2. The IdP returns to `/api/auth/oidc/callback`, which sets the HttpOnly
+1. The button navigates to `/api/v1/auth/oidc/login`, which redirects to the IdP.
+2. The IdP returns to `/api/v1/auth/oidc/callback`, which sets the HttpOnly
    refresh cookie and 302s to the SPA's `/auth/callback`.
 3. The SPA exchanges the refresh cookie for an access token via
-   `POST /api/auth/refresh` and navigates to the dashboard.
+   `POST /api/v1/auth/refresh` and navigates to the dashboard.
 
 Failures redirect to `/login?error=<code>`:
 
@@ -148,8 +148,8 @@ DN — Akashic never stores it.
 
 ### Verifying it works
 
-- `GET /api/auth/providers` returns `{"ldap": true, ...}`.
-- `POST /api/auth/ldap/login` with `{"username": "...", "password": "..."}`
+- `GET /api/v1/auth/providers` returns `{"ldap": true, ...}`.
+- `POST /api/v1/auth/ldap/login` with `{"username": "...", "password": "..."}`
   returns a JWT.
 
 ## OIDC + LDAP fallback (filling claim gaps)
@@ -217,6 +217,6 @@ membership changes need to take effect quickly.
 The OIDC and LDAP login flows both mint a short-lived access
 token (`ACCESS_TOKEN_EXPIRE_MINUTES`, default 60) plus a
 long-lived refresh token (`REFRESH_TOKEN_EXPIRE_DAYS`, default 30)
-delivered as an HttpOnly cookie scoped to `/api/auth`. Replay of
+delivered as an HttpOnly cookie scoped to `/api/v1/auth`. Replay of
 a rotated refresh token revokes the entire chain — see
 [permissions-model.md](permissions-model.md#refresh-tokens).

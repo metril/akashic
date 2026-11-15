@@ -12,7 +12,7 @@ def _check(body, code):
 
 @pytest.mark.asyncio
 async def test_unauthorized_envelope(client):
-    r = await client.get("/api/users/me")
+    r = await client.get("/api/v1/users/me")
     assert r.status_code == 401  # HTTPBearer rejects a missing header
     body = r.json()
     _check(body, "unauthorized")
@@ -21,7 +21,7 @@ async def test_unauthorized_envelope(client):
 
 @pytest.mark.asyncio
 async def test_not_found_envelope(client):
-    r = await client.get("/api/nope")
+    r = await client.get("/api/v1/nope")
     assert r.status_code == 404
     _check(r.json(), "not_found")
     assert r.json()["detail"] is None
@@ -29,7 +29,7 @@ async def test_not_found_envelope(client):
 
 @pytest.mark.asyncio
 async def test_validation_envelope(client):
-    r = await client.post("/api/users/login", json={})
+    r = await client.post("/api/v1/users/login", json={})
     assert r.status_code == 422
     body = r.json()
     _check(body, "validation_error")
@@ -79,7 +79,7 @@ async def test_unhandled_error_envelope_hides_internals():
 @pytest.mark.asyncio
 async def test_gzip_rejection_uses_envelope(client):
     r = await client.post(
-        "/api/users/login", content=b"not gzip",
+        "/api/v1/users/login", content=b"not gzip",
         headers={"content-encoding": "gzip", "content-type": "application/json"},
     )
     assert r.status_code == 400
@@ -92,5 +92,5 @@ async def test_docs_and_spec_are_public(client):
     assert docs.status_code == 200 and "swagger-ui-bundle.js" in docs.text
     assert "<script>" not in docs.text  # CSP is script-src 'self'
     assert (await client.get("/api/docs/assets/swagger-ui-bundle.js")).status_code == 200
-    spec = await client.get("/api/openapi.json")
+    spec = await client.get("/api/v1/openapi.json")
     assert spec.status_code == 200 and spec.json()["openapi"].startswith("3.")

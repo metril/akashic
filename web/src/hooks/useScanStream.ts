@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { completeSsoLogin, getToken } from "../api/client";
+import { API_BASE, WS_BASE, completeSsoLogin, getToken } from "../api/client";
 import { isStreamStale } from "../components/scans/scanLog";
 import type {
   ScanLogLine,
@@ -11,7 +11,7 @@ import type {
 // v0.33.0 — the viewer loads the *entire* persisted log so its client-side
 // level / search / scanner filters operate on the whole history, not just a
 // tail. History is paged forward with a (ts, id) keyset; 2000 matches the
-// GET /api/scans/{id}/log page cap. There is no in-memory line cap any more
+// GET /api/v1/scans/{id}/log page cap. There is no in-memory line cap any more
 // — ScanLogPanel virtualizes the render, so an unbounded list is cheap.
 const HISTORY_PAGE_SIZE = 2000;
 
@@ -80,7 +80,7 @@ export function appendLines(
   return fresh.length === 0 ? existing : [...existing, ...fresh];
 }
 
-// fetchLogPage — one keyset page of GET /api/scans/{id}/log. `cursor` is
+// fetchLogPage — one keyset page of GET /api/v1/scans/{id}/log. `cursor` is
 // the last row of the previous page (null for the first page). `(ts, id)`
 // is exact: a pure-ts cursor would drop lines when a batch shares a ts.
 async function fetchLogPage(
@@ -88,7 +88,7 @@ async function fetchLogPage(
   token: string,
   cursor: { ts: string; id: string } | null,
 ): Promise<ScanLogLine[]> {
-  let url = `/api/scans/${scanId}/log?kind=all&limit=${HISTORY_PAGE_SIZE}`;
+  let url = `${API_BASE}/scans/${scanId}/log?kind=all&limit=${HISTORY_PAGE_SIZE}`;
   if (cursor) {
     url +=
       `&since=${encodeURIComponent(cursor.ts)}` +
@@ -104,9 +104,9 @@ async function fetchLogPage(
 /**
  * useScanStream — exposes a scan's full log plus live progress.
  *
- * On mount it page-loops GET /api/scans/{id}/log to load the *entire*
+ * On mount it page-loops GET /api/v1/scans/{id}/log to load the *entire*
  * persisted history, then (for a still-running scan) a WebSocket to
- * /ws/scans/{id} streams new lines on top. Reconnects with exponential
+ * /ws/v1/scans/{id} streams new lines on top. Reconnects with exponential
  * backoff; backfills the gap via the same keyset GET.
  *
  * Set `enabled=false` to suspend everything (panel closed / unmounted).
@@ -190,7 +190,7 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
     }
 
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${window.location.host}/ws/scans/${scanId}?token=${encodeURIComponent(token)}`;
+    const url = `${proto}://${window.location.host}${WS_BASE}/scans/${scanId}?token=${encodeURIComponent(token)}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

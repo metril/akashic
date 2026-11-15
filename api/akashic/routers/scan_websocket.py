@@ -1,6 +1,6 @@
 """WebSocket fan-out for live scan progress and log streams.
 
-Browser opens `WS /ws/scans/{id}?token=<jwt>` (token is supplied as a query
+Browser opens `WS /ws/v1/scans/{id}?token=<jwt>` (token is supplied as a query
 param because browsers can't set Authorization headers on WS handshakes).
 The handler:
 
@@ -9,7 +9,7 @@ The handler:
 3. Subscribes to Redis channel `scan:{id}` and forwards each event verbatim.
 
 On disconnect: tears down the pubsub subscription. The caller backfills any
-missed lines via `GET /api/scans/{id}/log?since=<last_ts>`.
+missed lines via `GET /api/v1/scans/{id}/log?since=<last_ts>`.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from akashic.services import scan_pubsub
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ws", tags=["scan-websocket"])
+router = APIRouter(tags=["scan-websocket"])
 
 # Heartbeat interval to detect half-open clients. Must be smaller than any
 # upstream proxy idle timeout (nginx defaults to 60 s).
@@ -219,7 +219,7 @@ async def _drain_inbound(websocket: WebSocket) -> None:
         return
 
 
-# ── List-level stream (/ws/scans) ─────────────────────────────────────────
+# ── List-level stream (/ws/v1/scans) ─────────────────────────────────────────
 
 
 # Per-scan-id rate limit on `scan.state` heartbeats. Bursty scans
@@ -317,7 +317,7 @@ async def scans_stream(
     to. One WebSocket per browser tab; the Sources page + Dashboard
     share it via reference-counted client-side hook.
 
-    Auth shape mirrors `/ws/scans/{id}`: query-param JWT, validated
+    Auth shape mirrors `/ws/v1/scans/{id}`: query-param JWT, validated
     before accept; permitted_source_ids resolved once on connect; events
     for sources outside that set are silently dropped server-side.
     """
@@ -452,7 +452,7 @@ async def scans_stream(
             pass
 
 
-# ── Admin scanner-lifecycle stream (/ws/scanners) ────────────────────────
+# ── Admin scanner-lifecycle stream (/ws/v1/scanners) ────────────────────────
 
 
 @router.websocket("/scanners")

@@ -2,7 +2,7 @@
  * Library-metadata facet panel on the Search page.
  *
  * Renders a strip of {field → top values (count)} chips populated from
- * the Meilisearch facet distribution returned by GET /api/search. Each
+ * the Meilisearch facet distribution returned by GET /api/v1/search. Each
  * value is a click-to-filter button: clicking adds (or removes if
  * already active) the matching domain_metadata predicate via the
  * shared filter URL state.

@@ -34,7 +34,7 @@ from akashic.services.source_merge import (
     reject_sentinel_in_create,
 )
 
-router = APIRouter(prefix="/api/sources", tags=["sources"])
+router = APIRouter(prefix="/sources", tags=["sources"])
 
 # Source types that don't attach to a Host row. `local` predates the
 # Host abstraction; `paperless` (v0.7.0) and `immich` (v0.8.0) are
@@ -249,7 +249,7 @@ async def create_source(
         cred.source_id = source.id
     await db.commit()
     await db.refresh(source)
-    # Push to /ws/scans subscribers so the Sources page sees the
+    # Push to /ws/v1/scans subscribers so the Sources page sees the
     # new card without polling.
     from akashic.services import scan_pubsub
     await scan_pubsub.publish_source_event({
@@ -475,7 +475,7 @@ async def update_source(
 
     await db.commit()
     await db.refresh(source)
-    # Push to /ws/scans subscribers so other tabs/users see the edit
+    # Push to /ws/v1/scans subscribers so other tabs/users see the edit
     # without polling (mirrors source.created / source.deleted).
     from akashic.services import scan_pubsub
     await scan_pubsub.publish_source_event({

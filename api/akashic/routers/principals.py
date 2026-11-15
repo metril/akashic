@@ -1,6 +1,6 @@
 """HTTP surface for SID-to-principal resolution.
 
-POST /api/principals/resolve
+POST /api/v1/principals/resolve
     Body:  {"source_id": UUID, "sids": ["S-1-...", ...]}
     Auth:  authenticated user with read-or-better access on the source
     Reply: {"resolved": {sid: {name, domain, kind, status, last_attempt_at}}}
@@ -29,7 +29,7 @@ from akashic.services.principal_resolver import (
 )
 
 
-router = APIRouter(prefix="/api/principals", tags=["principals"])
+router = APIRouter(prefix="/principals", tags=["principals"])
 
 
 class ResolveRequest(BaseModel):

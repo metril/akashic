@@ -1,4 +1,4 @@
-"""Admin-only /ws/scanners stream — snapshot + push events."""
+"""Admin-only /ws/v1/scanners stream — snapshot + push events."""
 from __future__ import annotations
 
 import asyncio
@@ -80,7 +80,7 @@ async def test_ws_rejects_non_admin(app, viewer_user):
     token = create_access_token({"sub": str(viewer_user.id), "role": "viewer"})
     with TestClient(app) as client:
         with pytest.raises(Exception):
-            with client.websocket_connect(f"/ws/scanners?token={token}") as ws:
+            with client.websocket_connect(f"/ws/v1/scanners?token={token}") as ws:
                 ws.receive_json()
 
 
@@ -88,7 +88,7 @@ async def test_ws_rejects_non_admin(app, viewer_user):
 async def test_ws_rejects_invalid_token(app):
     with TestClient(app) as client:
         with pytest.raises(Exception):
-            with client.websocket_connect("/ws/scanners?token=garbage") as ws:
+            with client.websocket_connect("/ws/v1/scanners?token=garbage") as ws:
                 ws.receive_json()
 
 
@@ -120,7 +120,7 @@ async def test_ws_snapshot_includes_pending_discoveries(
 
     token = create_access_token({"sub": str(admin_user.id), "role": "admin"})
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/scanners?token={token}") as ws:
+        with client.websocket_connect(f"/ws/v1/scanners?token={token}") as ws:
             snapshot = ws.receive_json()
             assert snapshot["kind"] == "snapshot"
             codes = {r["pairing_code"] for r in snapshot["pending_discoveries"]}
@@ -141,7 +141,7 @@ async def test_ws_forwards_pubsub_events(app, admin_user, monkeypatch):
 
     token = create_access_token({"sub": str(admin_user.id), "role": "admin"})
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/scanners?token={token}") as ws:
+        with client.websocket_connect(f"/ws/v1/scanners?token={token}") as ws:
             snapshot = ws.receive_json()
             assert snapshot["kind"] == "snapshot"
 

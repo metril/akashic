@@ -36,7 +36,7 @@ from akashic.schemas.credential_profile import (
 from akashic.services.audit import record_event
 
 
-router = APIRouter(prefix="/api/credential-profiles", tags=["credential-profiles"])
+router = APIRouter(prefix="/credential-profiles", tags=["credential-profiles"])
 
 
 # v0.29.5 — fresh session for the post-PATCH retest. The request-

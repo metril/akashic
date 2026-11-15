@@ -6,4 +6,4 @@
 // rejects out-of-range agents with 426 Upgrade Required.
 package protocol
 
-const Version = 1
+const Version = 2

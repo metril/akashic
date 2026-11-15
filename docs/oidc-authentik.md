@@ -93,7 +93,7 @@ In **Applications → Providers → Create → OAuth2/OpenID Provider**:
 - **Name**: `Akashic`.
 - **Client type**: Confidential.
 - **Client ID / Client secret**: Authentik generates these — copy them into Akashic's Settings → Server (see Step 6).
-- **Redirect URIs**: `http://akashic.local:8000/api/auth/oidc/callback` (replace with your Akashic external URL).
+- **Redirect URIs**: `http://akashic.local:8000/api/v1/auth/oidc/callback` (replace with your Akashic external URL).
 - **Signing key**: any RS256 key Authentik provides.
 - **Scopes**: `openid email profile groups`.
 - **Subject mode**: based on the user's email or username (either works; Akashic stores it as `external_id`).
@@ -124,7 +124,7 @@ OIDC_ENABLED=true
 OIDC_DISCOVERY_URL=https://authentik.example.com/application/o/akashic/.well-known/openid-configuration
 OIDC_CLIENT_ID=<from Step 4>
 OIDC_CLIENT_SECRET=<from Step 4>
-OIDC_REDIRECT_URI=http://akashic.local:8000/api/auth/oidc/callback
+OIDC_REDIRECT_URI=http://akashic.local:8000/api/v1/auth/oidc/callback
 
 # Strategy: "auto" tries claim → ldap_fallback → name_match in order.
 # Pin to a single strategy if you want predictable behaviour.

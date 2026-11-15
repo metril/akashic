@@ -46,7 +46,7 @@ TAGS: list[dict[str, str]] = [
 SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
     "userJWT": {
         "type": "http", "scheme": "bearer", "bearerFormat": "JWT",
-        "description": "Short-lived access token from `POST /api/auth/login` or `/api/auth/refresh`.",
+        "description": "Short-lived access token from `POST /api/v1/auth/login` or `/api/v1/auth/refresh`.",
     },
     "apiToken": {
         "type": "http", "scheme": "bearer",

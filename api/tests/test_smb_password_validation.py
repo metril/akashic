@@ -57,7 +57,7 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
 @pytest.mark.asyncio
 async def test_smb_profile_without_password_returns_422(client: AsyncClient):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-bad", "type": "smb",
               "credentials": {"username": "alice"}},
     )
@@ -69,7 +69,7 @@ async def test_smb_profile_without_password_returns_422(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_smb_profile_with_empty_string_password_returns_422(client: AsyncClient):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-empty", "type": "smb",
               "credentials": {"username": "alice", "password": ""}},
     )
@@ -79,7 +79,7 @@ async def test_smb_profile_with_empty_string_password_returns_422(client: AsyncC
 @pytest.mark.asyncio
 async def test_smb_profile_with_password_succeeds(client: AsyncClient):
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-ok", "type": "smb",
               "credentials": {"username": "alice", "password": "s3cret"}},
     )
@@ -91,7 +91,7 @@ async def test_smb_profile_patch_strips_password_returns_422(client: AsyncClient
     """Update path: PATCHing the password to empty must be rejected.
     Sentinel handling means "***" is a no-op; "" is a real empty."""
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "smb-patch", "type": "smb",
               "credentials": {"username": "a", "password": "real"}},
     )
@@ -99,7 +99,7 @@ async def test_smb_profile_patch_strips_password_returns_422(client: AsyncClient
     profile_id = r.json()["id"]
 
     r2 = await client.patch(
-        f"/api/credential-profiles/{profile_id}",
+        f"/api/v1/credential-profiles/{profile_id}",
         json={"credentials": {"password": ""}},
     )
     assert r2.status_code == 422, r2.text
@@ -110,7 +110,7 @@ async def test_nfs_profile_with_empty_credentials_succeeds(client: AsyncClient):
     """Only SMB is gated — NFS / S3 / other profiles can still have
     empty credential dicts (their own probes handle missing fields)."""
     r = await client.post(
-        "/api/credential-profiles",
+        "/api/v1/credential-profiles",
         json={"name": "nfs-empty-ok", "type": "nfs", "credentials": {}},
     )
     assert r.status_code == 201
@@ -121,7 +121,7 @@ async def test_smb_source_without_password_anywhere_returns_422(client: AsyncCli
     """Inline SMB source (no profile, no host) without a password
     must be rejected — same bypass surface as a profile without one."""
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": f"smb-src-{uuid.uuid4().hex[:8]}",
             "type": "smb",
@@ -143,7 +143,7 @@ async def test_smb_source_with_allow_empty_password_opt_in_succeeds(
     """Explicit opt-in via connection_config.allow_empty_password
     permits saving an empty-password SMB source."""
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": f"smb-src-anon-{uuid.uuid4().hex[:8]}",
             "type": "smb",
@@ -161,7 +161,7 @@ async def test_smb_source_with_allow_empty_password_opt_in_succeeds(
 @pytest.mark.asyncio
 async def test_smb_source_with_inline_password_succeeds(client: AsyncClient):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": f"smb-src-pw-{uuid.uuid4().hex[:8]}",
             "type": "smb",

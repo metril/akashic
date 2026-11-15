@@ -1,11 +1,11 @@
 // Push-based scan-join loop (v0.29.0).
 //
 // Pre-v0.29.0 multi-scanner cooperation never worked: scanner B
-// polling /api/scans/lease was filtered out by assigned_scanner_id IS
+// polling /api/v1/scans/lease was filtered out by assigned_scanner_id IS
 // NULL once scanner A claimed the scan, and had no other channel to
 // discover an in-flight cooperative scan. This loop is the channel:
-// long-poll GET /api/scanners/{id}/scans/long-poll, receive a join
-// payload (same shape as /api/scans/lease), dispatch to
+// long-poll GET /api/v1/scanners/{id}/scans/long-poll, receive a join
+// payload (same shape as /api/v1/scans/lease), dispatch to
 // runUnitCoordinated — reusing the existing unit-lease + walk path.
 //
 // One join at a time per agent. The runUnitCoordinated call blocks
@@ -81,7 +81,7 @@ func waitForJoin(
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s/api/scanners/%s/scans/long-poll",
+	url := fmt.Sprintf("%s/api/v1/scanners/%s/scans/long-poll",
 		cfg.APIBase, cfg.ScannerID)
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

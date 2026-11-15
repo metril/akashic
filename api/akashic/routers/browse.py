@@ -56,7 +56,7 @@ def _decode_cursor(cursor: str) -> dict[str, Any]:
         logger.info("browse: bad cursor=%s err=%s", cursor[:32], exc)
         raise HTTPException(status_code=400, detail="invalid cursor")
 
-router = APIRouter(prefix="/api/browse", tags=["browse"])
+router = APIRouter(prefix="/browse", tags=["browse"])
 
 
 def _normalize_path(path: str) -> str:

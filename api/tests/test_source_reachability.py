@@ -3,9 +3,9 @@
 Tests the `infer_is_removable` heuristic and the new on-demand
 reachability surface that replaces the v0.5.6 continuous-poll model:
 
-  * POST /api/sources/{id}/test-scanners — runs probes inline (non-
+  * POST /api/v1/sources/{id}/test-scanners — runs probes inline (non-
     local) or dispatches to scanners over long-poll (local).
-  * GET /api/sources/{id}/reachability-summary — derives source-level
+  * GET /api/v1/sources/{id}/reachability-summary — derives source-level
     reachability from the latest probe + latest successful scan.
 """
 from __future__ import annotations
@@ -107,7 +107,7 @@ async def test_create_source_infers_is_removable_for_usb_path(
     client: AsyncClient, setup_db
 ):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "usb-drive",
             "type": "local",
@@ -124,7 +124,7 @@ async def test_create_source_infers_false_for_fixed_local_path(
     client: AsyncClient,
 ):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "fixed",
             "type": "local",
@@ -142,7 +142,7 @@ async def test_create_source_explicit_is_removable_overrides_inference(
     """User explicitly set is_removable=true on a fixed-looking path —
     the explicit value wins over the inference default."""
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "fixed-but-flagged",
             "type": "local",
@@ -168,7 +168,7 @@ async def test_test_scanners_routes_all_types_through_long_poll(
     """
     # Non-local source — pre-v0.28.1 the API would have dialed inline.
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "smb-src",
             "type": "smb",
@@ -179,10 +179,10 @@ async def test_test_scanners_routes_all_types_through_long_poll(
     )
     sid = src_r.json()["id"]
     scn_a = (await client.post(
-        "/api/scanners", json={"name": "sc-a", "pool": "default"},
+        "/api/v1/scanners", json={"name": "sc-a", "pool": "default"},
     )).json()
     scn_b = (await client.post(
-        "/api/scanners", json={"name": "sc-b", "pool": "default"},
+        "/api/v1/scanners", json={"name": "sc-b", "pool": "default"},
     )).json()
 
     # Speed up the dispatcher timeout so the test doesn't burn 5 s × 2
@@ -200,7 +200,7 @@ async def test_test_scanners_routes_all_types_through_long_poll(
     probe_dispatch.dispatch_remote = fast_dispatch
     try:
         r = await client.post(
-            f"/api/sources/{sid}/test-scanners",
+            f"/api/v1/sources/{sid}/test-scanners",
             json={"scanner_ids": [scn_a["id"], scn_b["id"]]},
         )
     finally:
@@ -236,7 +236,7 @@ async def test_test_scanners_persists_when_oauth_refresh_fails(
     `step=auth` result per scanner without round-tripping. Verifies
     the rows land and the user gets a clear error."""
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "gd-src",
             "type": "gdrive",
@@ -245,7 +245,7 @@ async def test_test_scanners_persists_when_oauth_refresh_fails(
     )
     sid = src_r.json()["id"]
     scn = (await client.post(
-        "/api/scanners", json={"name": "gd-sc", "pool": "default"},
+        "/api/v1/scanners", json={"name": "gd-sc", "pool": "default"},
     )).json()
 
     from akashic.services import probe_dispatch
@@ -260,7 +260,7 @@ async def test_test_scanners_persists_when_oauth_refresh_fails(
     )
 
     r = await client.post(
-        f"/api/sources/{sid}/test-scanners",
+        f"/api/v1/sources/{sid}/test-scanners",
         json={"scanner_ids": [scn["id"]]},
     )
     assert r.status_code == 200, r.text
@@ -284,7 +284,7 @@ async def test_test_scanners_persists_when_oauth_refresh_fails(
 @pytest.mark.asyncio
 async def test_test_scanners_unknown_source_404(client: AsyncClient):
     r = await client.post(
-        f"/api/sources/{uuid.uuid4()}/test-scanners",
+        f"/api/v1/sources/{uuid.uuid4()}/test-scanners",
         json={"scanner_ids": []},
     )
     assert r.status_code == 404
@@ -298,7 +298,7 @@ async def test_reachability_summary_unchecked_when_no_data(
     client: AsyncClient,
 ):
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "fresh",
             "type": "local",
@@ -307,7 +307,7 @@ async def test_reachability_summary_unchecked_when_no_data(
     )
     sid = src_r.json()["id"]
 
-    r = await client.get(f"/api/sources/{sid}/reachability-summary")
+    r = await client.get(f"/api/v1/sources/{sid}/reachability-summary")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is None
@@ -321,7 +321,7 @@ async def test_reachability_summary_reflects_latest_probe(
     """Latest reachability_results row (across all scanners) drives the
     badge state."""
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "probed",
             "type": "smb",
@@ -347,7 +347,7 @@ async def test_reachability_summary_reflects_latest_probe(
         ))
         await session.commit()
 
-    r = await client.get(f"/api/sources/{sid}/reachability-summary")
+    r = await client.get(f"/api/v1/sources/{sid}/reachability-summary")
     body = r.json()
     assert body["ok"] is False
     assert body["last_step"] == "auth"
@@ -369,7 +369,7 @@ async def test_reachability_history_groups_per_scanner_and_orders_newest_first(
     from akashic.models.scanner import Scanner
 
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "history-src",
             "type": "smb",
@@ -421,7 +421,7 @@ async def test_reachability_history_groups_per_scanner_and_orders_newest_first(
         sc_a_name = sc_a.name
         sc_b_name = sc_b.name
 
-    r = await client.get(f"/api/sources/{sid}/reachability-history")
+    r = await client.get(f"/api/v1/sources/{sid}/reachability-history")
     assert r.status_code == 200, r.text
     body = r.json()
     by_name = {g["scanner_name"]: g for g in body["per_scanner"]}
@@ -443,7 +443,7 @@ async def test_reachability_history_empty_for_never_probed_source(
     client: AsyncClient,
 ):
     src_r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "never-probed",
             "type": "smb",
@@ -454,7 +454,7 @@ async def test_reachability_history_empty_for_never_probed_source(
         },
     )
     sid = src_r.json()["id"]
-    r = await client.get(f"/api/sources/{sid}/reachability-history")
+    r = await client.get(f"/api/v1/sources/{sid}/reachability-history")
     assert r.status_code == 200
     assert r.json() == {"per_scanner": []}
 
@@ -463,5 +463,5 @@ async def test_reachability_history_empty_for_never_probed_source(
 async def test_reachability_history_404_for_unknown_source(
     client: AsyncClient,
 ):
-    r = await client.get(f"/api/sources/{uuid.uuid4()}/reachability-history")
+    r = await client.get(f"/api/v1/sources/{uuid.uuid4()}/reachability-history")
     assert r.status_code == 404

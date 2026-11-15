@@ -29,7 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"{entry.data[CONF_API_URL]}/api/scans/trigger",
+                    f"{entry.data[CONF_API_URL]}/api/v1/scans/trigger",
                     json={"source_name": source_name},
                     headers={"Authorization": f"Bearer {entry.data[CONF_API_KEY]}"},
                     timeout=10,

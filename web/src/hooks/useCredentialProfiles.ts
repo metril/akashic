@@ -1,5 +1,5 @@
 /**
- * CRUD over /api/credential-profiles.
+ * CRUD over /api/v1/credential-profiles.
  *
  * Profiles are referenced by hosts and sources via
  * `credential_profile_id`. The summary list (`useCredentialProfiles`)

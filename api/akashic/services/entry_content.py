@@ -1,4 +1,4 @@
-"""File-content streaming for /api/entries/{id}/content and /preview.
+"""File-content streaming for /api/v1/entries/{id}/content and /preview.
 
 Local sources are read directly from the API container's filesystem
 (via FileResponse for the content endpoint, raw read for preview).

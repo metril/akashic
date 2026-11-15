@@ -1,5 +1,5 @@
 /**
- * Admin-sidebar chip that surfaces /api/health/services status at a
+ * Admin-sidebar chip that surfaces /api/v1/health/services status at a
  * glance. Green when all four services answer, amber when at least
  * one is degraded, red on a hard liveness failure. Clicks through to
  * the System Status page for detail.

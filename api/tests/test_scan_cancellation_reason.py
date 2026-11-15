@@ -5,9 +5,9 @@ and the scanner unconditionally logged "scan cancelled by user". This
 covers the three trigger paths and asserts the body now distinguishes
 them so the scanner can log accurately:
 
-- user-initiated cancel (POST /api/scans/{id}/cancel)
+- user-initiated cancel (POST /api/v1/scans/{id}/cancel)
 - watchdog reap (scheduler._check_stale_scans)
-- terminal-complete race (POST /api/scans/{id}/complete)
+- terminal-complete race (POST /api/v1/scans/{id}/complete)
 """
 from __future__ import annotations
 
@@ -116,11 +116,11 @@ def _heartbeat_body() -> dict:
 async def test_409_after_user_cancel_carries_reason_user(
     client: AsyncClient, fixture_running_scan: Scan,
 ):
-    cancel = await client.post(f"/api/scans/{fixture_running_scan.id}/cancel")
+    cancel = await client.post(f"/api/v1/scans/{fixture_running_scan.id}/cancel")
     assert cancel.status_code == 200
 
     r = await client.post(
-        f"/api/scans/{fixture_running_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_running_scan.id}/heartbeat",
         json=_heartbeat_body(),
     )
     assert r.status_code == 409
@@ -148,7 +148,7 @@ async def test_409_after_watchdog_reap_carries_reason_watchdog(
         await session.commit()
 
     r = await client.post(
-        f"/api/scans/{fixture_running_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_running_scan.id}/heartbeat",
         json=_heartbeat_body(),
     )
     assert r.status_code == 409
@@ -171,7 +171,7 @@ async def test_409_after_terminal_complete_carries_reason_completed(
         await session.commit()
 
     r = await client.post(
-        f"/api/scans/{fixture_running_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_running_scan.id}/heartbeat",
         json=_heartbeat_body(),
     )
     assert r.status_code == 409
@@ -198,7 +198,7 @@ async def test_409_legacy_null_reason_treated_as_user_compatible(
         await session.commit()
 
     r = await client.post(
-        f"/api/scans/{fixture_running_scan.id}/heartbeat",
+        f"/api/v1/scans/{fixture_running_scan.id}/heartbeat",
         json=_heartbeat_body(),
     )
     assert r.status_code == 409

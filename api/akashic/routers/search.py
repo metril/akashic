@@ -29,7 +29,7 @@ from akashic.services.filter_grammar import (
     to_sqlalchemy as filters_to_sqlalchemy,
 )
 
-router = APIRouter(prefix="/api/search", tags=["search"])
+router = APIRouter(prefix="/search", tags=["search"])
 
 _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 

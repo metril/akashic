@@ -152,7 +152,7 @@ async def test_list_providers_requires_admin(
     await db_session.commit()
     token = create_access_token({"sub": str(viewer.id)})
     resp = await client.get(
-        "/api/oauth/providers",
+        "/api/v1/oauth/providers",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
@@ -179,13 +179,13 @@ async def test_provider_upsert_and_list(
         "client_secret": "GOCSPX-secret",
         "redirect_uri": "https://akashic.example/api/oauth/callback",
     }
-    resp = await client.put("/api/oauth/providers/google", json=body, headers=headers)
+    resp = await client.put("/api/v1/oauth/providers/google", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     summary = resp.json()
     assert summary["client_id"] == "client-id-123"
     assert summary["has_secret"] is True
 
-    resp = await client.get("/api/oauth/providers", headers=headers)
+    resp = await client.get("/api/v1/oauth/providers", headers=headers)
     assert resp.status_code == 200
     rows = {row["provider"]: row for row in resp.json()}
     assert rows["google"]["has_secret"] is True
@@ -219,7 +219,7 @@ async def test_provider_upsert_rejects_unknown_provider(
         "redirect_uri": "https://example.test/cb",
     }
     resp = await client.put(
-        "/api/oauth/providers/myspace",
+        "/api/v1/oauth/providers/myspace",
         json=body,
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -237,7 +237,7 @@ async def test_start_requires_provider_config(
     await db_session.commit()
     token = create_access_token({"sub": str(admin.id)})
     resp = await client.post(
-        "/api/oauth/start",
+        "/api/v1/oauth/start",
         json={"provider": "google", "mode": "test"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -265,7 +265,7 @@ async def test_start_returns_authorize_url(
     await db_session.commit()
     token = create_access_token({"sub": str(admin.id)})
     resp = await client.post(
-        "/api/oauth/start",
+        "/api/v1/oauth/start",
         json={"provider": "google", "mode": "test"},
         headers={"Authorization": f"Bearer {token}"},
     )

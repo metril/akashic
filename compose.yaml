@@ -140,7 +140,7 @@ services:
     # Liveness — flips green the moment uvicorn is accepting
     # connections. Used by `scanner.depends_on` so the agent doesn't
     # race the api during cold starts (would otherwise hit "connection
-    # refused" on the first /api/scanners/discover call).
+    # refused" on the first /api/v1/scanners/discover call).
     healthcheck:
       test: ["CMD", "python3", "-c",
              "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=2).status==200 else 1)"]
@@ -219,7 +219,7 @@ services:
       api:
         # Wait for the api's /health probe to flip green, not just for
         # the container to be created. Without this, the scanner POSTs
-        # to /api/scanners/discover before uvicorn is bound and hits a
+        # to /api/v1/scanners/discover before uvicorn is bound and hits a
         # connection-refused on first try.
         condition: service_healthy
       tika:

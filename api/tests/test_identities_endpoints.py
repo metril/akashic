@@ -6,19 +6,19 @@ import pytest
 async def _register_login(client, username="alice", password="testpass123", admin_token=None):
     if admin_token:
         await client.post(
-            "/api/users/create",
+            "/api/v1/users/create",
             json={"username": username, "password": password},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
     else:
-        await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+        await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
 @pytest.mark.asyncio
 async def test_identities_requires_auth(client):
-    r = await client.get("/api/identities")
+    r = await client.get("/api/v1/identities")
     assert r.status_code == 401
 
 
@@ -27,7 +27,7 @@ async def test_create_and_list_fs_person(client):
     token = await _register_login(client)
 
     create = await client.post(
-        "/api/identities",
+        "/api/v1/identities",
         json={"label": "My Work", "is_primary": True},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -37,7 +37,7 @@ async def test_create_and_list_fs_person(client):
     assert person["is_primary"] is True
     assert person["bindings"] == []
 
-    listing = await client.get("/api/identities", headers={"Authorization": f"Bearer {token}"})
+    listing = await client.get("/api/v1/identities", headers={"Authorization": f"Bearer {token}"})
     assert listing.status_code == 200
     persons = listing.json()
     assert len(persons) == 1
@@ -50,11 +50,11 @@ async def test_user_cannot_see_another_users_persons(client, db_session):
     token_b = await _register_login(client, username="bob", admin_token=token_a)
 
     await client.post(
-        "/api/identities",
+        "/api/v1/identities",
         json={"label": "Alice's"},
         headers={"Authorization": f"Bearer {token_a}"},
     )
-    listing = await client.get("/api/identities", headers={"Authorization": f"Bearer {token_b}"})
+    listing = await client.get("/api/v1/identities", headers={"Authorization": f"Bearer {token_b}"})
     assert listing.status_code == 200
     assert listing.json() == []
 
@@ -63,13 +63,13 @@ async def test_user_cannot_see_another_users_persons(client, db_session):
 async def test_patch_fs_person(client):
     token = await _register_login(client)
     create = await client.post(
-        "/api/identities",
+        "/api/v1/identities",
         json={"label": "Old"},
         headers={"Authorization": f"Bearer {token}"},
     )
     pid = create.json()["id"]
     patch = await client.patch(
-        f"/api/identities/{pid}",
+        f"/api/v1/identities/{pid}",
         json={"label": "New"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -89,13 +89,13 @@ async def test_delete_fs_person_cascades_bindings(client, db_session):
     await db_session.commit()
 
     create = await client.post(
-        "/api/identities",
+        "/api/v1/identities",
         json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )
     pid = create.json()["id"]
     add_binding = await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={
             "source_id": str(source.id),
             "identity_type": "posix_uid",
@@ -110,7 +110,7 @@ async def test_delete_fs_person_cascades_bindings(client, db_session):
     assert count_before == 1
 
     delete = await client.delete(
-        f"/api/identities/{pid}", headers={"Authorization": f"Bearer {token}"}
+        f"/api/v1/identities/{pid}", headers={"Authorization": f"Bearer {token}"}
     )
     assert delete.status_code == 204
 
@@ -129,7 +129,7 @@ async def test_binding_unique_per_source(client, db_session):
     await db_session.commit()
 
     create = await client.post(
-        "/api/identities",
+        "/api/v1/identities",
         json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -141,12 +141,12 @@ async def test_binding_unique_per_source(client, db_session):
         "groups": [],
     }
     first = await client.post(
-        f"/api/identities/{pid}/bindings", json=body,
+        f"/api/v1/identities/{pid}/bindings", json=body,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert first.status_code == 201
     second = await client.post(
-        f"/api/identities/{pid}/bindings", json=body,
+        f"/api/v1/identities/{pid}/bindings", json=body,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert second.status_code == 409  # unique violation surfaced as conflict
@@ -163,12 +163,12 @@ async def test_binding_identifier_whitespace_trimmed(client, db_session):
     await db_session.commit()
 
     create = await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )
     pid = create.json()["id"]
     add = await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={
             "source_id": str(source.id),
             "identity_type": "posix_uid",
@@ -193,12 +193,12 @@ async def test_binding_empty_identifier_rejected(client, db_session):
     await db_session.commit()
 
     create = await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )
     pid = create.json()["id"]
     add = await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(source.id), "identity_type": "posix_uid", "identifier": "   ", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -212,7 +212,7 @@ async def test_identity_create_records_audit_event(client, db_session):
 
     token = await _register_login(client)
     create = await client.post(
-        "/api/identities", json={"label": "Audited"},
+        "/api/v1/identities", json={"label": "Audited"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert create.status_code == 201
@@ -237,17 +237,17 @@ async def test_binding_delete_records_audit_event(client, db_session):
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(source.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     delete = await client.delete(
-        f"/api/identities/{pid}/bindings/{bid}",
+        f"/api/v1/identities/{pid}/bindings/{bid}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert delete.status_code == 204

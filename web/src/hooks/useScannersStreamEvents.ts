@@ -1,5 +1,5 @@
 /**
- * Reference-counted WebSocket subscription to /ws/scanners.
+ * Reference-counted WebSocket subscription to /ws/v1/scanners.
  *
  * Mirrors the structure of useScansStreamEvents but talks to the
  * admin-only scanner-lifecycle stream — different auth surface, so
@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef } from "react";
 
-import { completeSsoLogin, getToken } from "../api/client";
+import { WS_BASE, completeSsoLogin, getToken } from "../api/client";
 
 export interface PendingDiscoverySnapshot {
   id: string;
@@ -57,7 +57,7 @@ function buildUrl(): string | null {
   const token = getToken();
   if (!token) return null;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/scanners?token=${encodeURIComponent(token)}`;
+  return `${proto}//${window.location.host}${WS_BASE}/scanners?token=${encodeURIComponent(token)}`;
 }
 
 function dispatch(event: ScannersStreamEvent) {

@@ -152,7 +152,7 @@ func (r *Reporter) postLogBatch(ctx context.Context, lines []LogLine) {
 	if err != nil {
 		return
 	}
-	url := r.apiURL + "/api/scans/" + r.scanID + "/log"
+	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/log"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return

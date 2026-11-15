@@ -61,7 +61,7 @@ async def test_ingest_emits_no_per_row_savepoints(client, db_session):
             ],
         }
         resp = await client.post(
-            "/api/ingest/batch", json=payload,
+            "/api/v1/ingest/batch", json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200, resp.text

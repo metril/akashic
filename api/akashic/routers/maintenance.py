@@ -36,7 +36,7 @@ from akashic.scheduler import (
 from akashic.services import maintenance_jobs as mj
 from akashic.services.audit import record_event
 
-router = APIRouter(prefix="/api/admin/maintenance", tags=["maintenance"])
+router = APIRouter(prefix="/admin/maintenance", tags=["maintenance"])
 
 _ACTIVE_STATUSES = ("pending", "running")
 _TERMINAL_STATUSES = ("completed", "failed", "cancelled")

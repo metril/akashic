@@ -2,14 +2,14 @@
 
 Two distinct surfaces in one router:
 
-  - **Catalogue** (`/api/tags`) — the set of named tags. Listing is
+  - **Catalogue** (`/api/v1/tags`) — the set of named tags. Listing is
     open to any authenticated user (tags are useful curation signals
     for everyone); creation auto-happens on apply, but the explicit
     POST is kept for admins who want to set a colour at create time.
     Deletion is admin-only.
 
-  - **Apply / remove / bulk-apply** (`/api/entries/{id}/tags`,
-    `/api/tags/bulk-apply`) — admin-only mutations. Tagging a
+  - **Apply / remove / bulk-apply** (`/api/v1/entries/{id}/tags`,
+    `/api/v1/tags/bulk-apply`) — admin-only mutations. Tagging a
     directory materialises inheritance onto every descendant via
     services/tag_inheritance.py.
 
@@ -99,7 +99,7 @@ async def _build_doc_with_tags(entry: Entry, db: AsyncSession) -> dict:
 # ── Catalogue ─────────────────────────────────────────────────────────────
 
 
-@router.post("/api/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED)
 async def create_tag(
     data: TagCreate,
     db: AsyncSession = Depends(get_db),
@@ -117,7 +117,7 @@ async def create_tag(
     return tag
 
 
-@router.get("/api/tags", response_model=list[TagResponse])
+@router.get("/tags", response_model=list[TagResponse])
 async def list_tags(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -133,7 +133,7 @@ class TagUsageResponse(BaseModel):
     inherited_count: int
 
 
-@router.get("/api/tags/usage", response_model=list[TagUsageResponse])
+@router.get("/tags/usage", response_model=list[TagUsageResponse])
 async def list_tag_usage(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -169,7 +169,7 @@ async def list_tag_usage(
     ]
 
 
-@router.delete("/api/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tag_catalogue(
     tag_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -216,7 +216,7 @@ async def _ensure_catalogue_entries(
 
 
 @router.post(
-    "/api/entries/{entry_id}/tags",
+    "/entries/{entry_id}/tags",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def apply_tags_to_entry(
@@ -254,7 +254,7 @@ async def apply_tags_to_entry(
 
 
 @router.delete(
-    "/api/entries/{entry_id}/tags/{tag}",
+    "/entries/{entry_id}/tags/{tag}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_tag_from_entry(
@@ -281,7 +281,7 @@ async def remove_tag_from_entry(
     )
 
 
-@router.get("/api/entries/{entry_id}/tags", response_model=list[dict])
+@router.get("/entries/{entry_id}/tags", response_model=list[dict])
 async def get_entry_tags(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -303,7 +303,7 @@ class _BulkApplyBody(BaseModel):
     tags: list[str] = Field(min_length=1)
 
 
-@router.post("/api/tags/bulk-apply", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/tags/bulk-apply", status_code=status.HTTP_204_NO_CONTENT)
 async def bulk_apply(
     body: _BulkApplyBody,
     background_tasks: BackgroundTasks,

@@ -92,7 +92,7 @@ For the fastest frontend loop, skip Docker entirely and run Vite directly:
 cd web && npm install && npm run dev
 ```
 
-Vite serves on `http://localhost:3000` and proxies `/api/*` to the API container
+Vite serves on `http://localhost:3000` and proxies `/api/*` and `/ws/*` to the API container
 at `localhost:8000`.
 
 ## Configuration
@@ -105,7 +105,7 @@ five bootstrap variables and the upgrade path from env-based installs.
 
 ## First-time login
 
-The first user to register at `POST /api/users/register` becomes
+The first user to register at `POST /api/v1/users/register` becomes
 admin; registration closes after that. For SSO setup (OIDC,
 direct LDAP, or OIDC + LDAP fallback), see
 [docs/authentication.md](docs/authentication.md).
@@ -114,7 +114,7 @@ direct LDAP, or OIDC + LDAP fallback), see
 
 Scans run on **scanner agents**, not on the api host. The api enqueues
 a pending scan; an agent registered with that source's pool picks it
-up via [`POST /api/scans/lease`](api/akashic/routers/scanners.py).
+up via [`POST /api/v1/scans/lease`](api/akashic/routers/scanner_protocol.py).
 Agents can run anywhere with HTTP reach to the api, so:
 
 - **Multi-site:** put one agent in each site's network (e.g. `pool=hq`,
@@ -184,7 +184,7 @@ and the scanner unblocks.
 
 #### 3. Manual key (legacy / scripted)
 
-`POST /api/scanners` returns the keypair the api generated for you.
+`POST /api/v1/scanners` returns the keypair the api generated for you.
 The private key is shown **once** in the modal and downloadable as
 a `.pem`. Use this when scripting bootstrap into an existing
 secrets store.

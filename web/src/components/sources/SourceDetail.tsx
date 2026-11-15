@@ -427,7 +427,7 @@ const DetailsTab = memo(function DetailsTab({
       // (["scans","active"]) — the trigger's WS scan.state event
       // already updates the singleton store and the reconciler
       // patches the React Query caches when source_status flips.
-      // The invalidate refetched /api/sources for nothing, returning
+      // The invalidate refetched /api/v1/sources for nothing, returning
       // a fresh array reference that fails React.memo shallow
       // equality on every visible card and re-fired
       // BucketSecurityCard's JSON.stringify on every S3 card.

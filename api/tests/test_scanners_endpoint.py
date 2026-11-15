@@ -78,7 +78,7 @@ async def admin_client(setup_db, admin_user: User):
 @pytest.mark.asyncio
 async def test_create_scanner_returns_keypair_once(admin_client: AsyncClient):
     r = await admin_client.post(
-        "/api/scanners",
+        "/api/v1/scanners",
         json={"name": "amsterdam-1", "pool": "site-amsterdam"},
     )
     assert r.status_code == 201, r.text
@@ -91,7 +91,7 @@ async def test_create_scanner_returns_keypair_once(admin_client: AsyncClient):
     assert len(body["key_fingerprint"]) == 64
 
     # Listing doesn't expose the private key.
-    listed = (await admin_client.get("/api/scanners")).json()
+    listed = (await admin_client.get("/api/v1/scanners")).json()
     assert any(s["id"] == body["id"] for s in listed)
     for s in listed:
         assert "private_key_pem" not in s
@@ -99,8 +99,8 @@ async def test_create_scanner_returns_keypair_once(admin_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_create_scanner_rejects_duplicate_name(admin_client: AsyncClient):
-    await admin_client.post("/api/scanners", json={"name": "dup", "pool": "default"})
-    r = await admin_client.post("/api/scanners", json={"name": "dup", "pool": "default"})
+    await admin_client.post("/api/v1/scanners", json={"name": "dup", "pool": "default"})
+    r = await admin_client.post("/api/v1/scanners", json={"name": "dup", "pool": "default"})
     assert r.status_code == 409
 
 
@@ -114,14 +114,14 @@ async def test_admin_endpoints_forbidden_for_non_admin(setup_db):
         session.add(viewer)
         await session.commit()
     async with _build_admin_client(setup_db, viewer) as ac:
-        r = await ac.post("/api/scanners", json={"name": "no", "pool": "default"})
+        r = await ac.post("/api/v1/scanners", json={"name": "no", "pool": "default"})
         assert r.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_handshake_accepts_in_range_protocol(setup_db, admin_client: AsyncClient):
     create = await admin_client.post(
-        "/api/scanners", json={"name": "s1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "s1", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
@@ -129,7 +129,7 @@ async def test_handshake_accepts_in_range_protocol(setup_db, admin_client: Async
 
     async with _build_unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={
                 "protocol_version": PROTOCOL_VERSION,
                 "version": "0.2.0",
@@ -151,14 +151,14 @@ async def test_scanner_config_patch_and_effective(
     from akashic.services.runtime_settings import rt
 
     create = await admin_client.post(
-        "/api/scanners", json={"name": "cfg-scanner", "pool": "default"},
+        "/api/v1/scanners", json={"name": "cfg-scanner", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
     token = _scanner_token(sid, body["private_key_pem"])
     hdr = {"Authorization": f"Bearer {token}"}
 
-    row = next(s for s in (await admin_client.get("/api/scanners")).json()
+    row = next(s for s in (await admin_client.get("/api/v1/scanners")).json()
                if s["id"] == sid)
     assert row["tika_url"] is None and row["extract_workers"] is None
     assert row["effective_config"] == {
@@ -166,7 +166,7 @@ async def test_scanner_config_patch_and_effective(
         "max_concurrent_units": 1,
     }
 
-    r = await admin_client.patch(f"/api/scanners/{sid}", json={
+    r = await admin_client.patch(f"/api/v1/scanners/{sid}", json={
         "tika_url": "http://tika:9998/", "extract_workers": 8,
         "max_concurrent_units": 3,
     })
@@ -178,15 +178,15 @@ async def test_scanner_config_patch_and_effective(
     }
 
     async with _build_unauth_client(setup_db) as ac:
-        hb = await ac.post(f"/api/scanners/{sid}/heartbeat", headers=hdr)
+        hb = await ac.post(f"/api/v1/scanners/{sid}/heartbeat", headers=hdr)
         assert hb.status_code == 200 and hb.json()["max_concurrent_units"] == 3
         hs = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION}, headers=hdr,
         )
         assert hs.json()["config"]["extract_workers"] == 8
 
-    r = await admin_client.patch(f"/api/scanners/{sid}", json={
+    r = await admin_client.patch(f"/api/v1/scanners/{sid}", json={
         "clear_tika_url": True, "clear_extract_workers": True,
         "clear_max_concurrent_units": True,
     })
@@ -203,10 +203,10 @@ async def test_scanner_config_patch_validation(
     admin_client: AsyncClient, payload,
 ):
     create = await admin_client.post(
-        "/api/scanners", json={"name": "cfg-bad", "pool": "default"},
+        "/api/v1/scanners", json={"name": "cfg-bad", "pool": "default"},
     )
     r = await admin_client.patch(
-        f"/api/scanners/{create.json()['id']}", json=payload,
+        f"/api/v1/scanners/{create.json()['id']}", json=payload,
     )
     assert r.status_code == 422
 
@@ -228,7 +228,7 @@ async def test_handshake_publishes_scanner_updated(
     monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
 
     create = await admin_client.post(
-        "/api/scanners", json={"name": "evented", "pool": "default"},
+        "/api/v1/scanners", json={"name": "evented", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
@@ -236,7 +236,7 @@ async def test_handshake_publishes_scanner_updated(
 
     async with _build_unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION, "version": "0.37.0",
                   "hostname": "h", "max_concurrent_units": 4},
             headers={"Authorization": f"Bearer {token}"},
@@ -264,14 +264,14 @@ async def test_patch_and_delete_publish_scanner_events(
     monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
 
     create = await admin_client.post(
-        "/api/scanners", json={"name": "mutated", "pool": "default"},
+        "/api/v1/scanners", json={"name": "mutated", "pool": "default"},
     )
     sid = create.json()["id"]
 
-    patch = await admin_client.patch(f"/api/scanners/{sid}", json={"pool": "site-b"})
+    patch = await admin_client.patch(f"/api/v1/scanners/{sid}", json={"pool": "site-b"})
     assert patch.status_code == 200, patch.text
 
-    delete = await admin_client.delete(f"/api/scanners/{sid}")
+    delete = await admin_client.delete(f"/api/v1/scanners/{sid}")
     assert delete.status_code == 204, delete.text
 
     assert ("scanner.updated", sid) in [(e["kind"], e["scanner_id"]) for e in captured]
@@ -283,14 +283,14 @@ async def test_handshake_rejects_out_of_range_protocol(
     setup_db, admin_client: AsyncClient,
 ):
     create = await admin_client.post(
-        "/api/scanners", json={"name": "s1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "s1", "pool": "default"},
     )
     body = create.json()
     token = _scanner_token(body["id"], body["private_key_pem"])
 
     async with _build_unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": 999, "version": "future", "hostname": None},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -305,13 +305,13 @@ async def test_rotate_replaces_keypair(setup_db, admin_client: AsyncClient):
     public_key_pem on every request, so the old private key's
     signatures no longer verify."""
     create = await admin_client.post(
-        "/api/scanners", json={"name": "s1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "s1", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
     old_token = _scanner_token(sid, body["private_key_pem"])
 
-    rotate = await admin_client.post(f"/api/scanners/{sid}/rotate")
+    rotate = await admin_client.post(f"/api/v1/scanners/{sid}/rotate")
     assert rotate.status_code == 200
     new_body = rotate.json()
     assert new_body["key_fingerprint"] != body["key_fingerprint"]
@@ -320,14 +320,14 @@ async def test_rotate_replaces_keypair(setup_db, admin_client: AsyncClient):
     async with _build_unauth_client(setup_db) as ac:
         # Old token: 401 (signature no longer matches the rotated key).
         r_old = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION},
             headers={"Authorization": f"Bearer {old_token}"},
         )
         assert r_old.status_code == 401
         # New token: works.
         r_new = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION},
             headers={"Authorization": f"Bearer {new_token}"},
         )
@@ -337,17 +337,17 @@ async def test_rotate_replaces_keypair(setup_db, admin_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_disabled_scanner_cannot_authenticate(setup_db, admin_client: AsyncClient):
     create = await admin_client.post(
-        "/api/scanners", json={"name": "s1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "s1", "pool": "default"},
     )
     body = create.json()
     sid = body["id"]
     token = _scanner_token(sid, body["private_key_pem"])
 
-    await admin_client.patch(f"/api/scanners/{sid}", json={"enabled": False})
+    await admin_client.patch(f"/api/v1/scanners/{sid}", json={"enabled": False})
 
     async with _build_unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -357,14 +357,14 @@ async def test_disabled_scanner_cannot_authenticate(setup_db, admin_client: Asyn
 @pytest.mark.asyncio
 async def test_expired_token_is_rejected(setup_db, admin_client: AsyncClient):
     create = await admin_client.post(
-        "/api/scanners", json={"name": "s1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "s1", "pool": "default"},
     )
     body = create.json()
     # exp_offset=-300 → expired 5 minutes ago.
     token = _scanner_token(body["id"], body["private_key_pem"], exp_offset=-300)
     async with _build_unauth_client(setup_db) as ac:
         r = await ac.post(
-            "/api/scanners/handshake",
+            "/api/v1/scanners/handshake",
             json={"protocol_version": PROTOCOL_VERSION},
             headers={"Authorization": f"Bearer {token}"},
         )

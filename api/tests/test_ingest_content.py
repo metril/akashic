@@ -1,4 +1,4 @@
-"""v0.30.0 — POST /api/ingest/content.
+"""v0.30.0 — POST /api/v1/ingest/content.
 
 The scanner extracts file text and ships it back on this channel,
 keyed by (source_id, path). The API resolves each path to its entry
@@ -99,7 +99,7 @@ async def test_content_resolves_and_partial_indexes(
     id_a = await _make_entry(setup_db, fixture_source.id, "/tmp/a.pdf")
     id_b = await _make_entry(setup_db, fixture_source.id, "/tmp/b.txt")
 
-    r = await client.post("/api/ingest/content", json={
+    r = await client.post("/api/v1/ingest/content", json={
         "source_id": str(fixture_source.id),
         "scan_id": str(uuid.uuid4()),
         "items": [
@@ -124,7 +124,7 @@ async def test_content_skips_unknown_path(
 ):
     await _make_entry(setup_db, fixture_source.id, "/tmp/known.pdf")
 
-    r = await client.post("/api/ingest/content", json={
+    r = await client.post("/api/v1/ingest/content", json={
         "source_id": str(fixture_source.id),
         "scan_id": str(uuid.uuid4()),
         "items": [
@@ -146,7 +146,7 @@ async def test_content_skips_directory_entry(
     the endpoint filters kind == 'file'."""
     await _make_entry(setup_db, fixture_source.id, "/tmp/adir", kind="directory")
 
-    r = await client.post("/api/ingest/content", json={
+    r = await client.post("/api/v1/ingest/content", json={
         "source_id": str(fixture_source.id),
         "scan_id": str(uuid.uuid4()),
         "items": [{"path": "/tmp/adir", "content_text": "x"}],
@@ -160,7 +160,7 @@ async def test_content_skips_directory_entry(
 async def test_content_empty_batch(
     client: AsyncClient, fixture_source: Source, request,
 ):
-    r = await client.post("/api/ingest/content", json={
+    r = await client.post("/api/v1/ingest/content", json={
         "source_id": str(fixture_source.id),
         "scan_id": str(uuid.uuid4()),
         "items": [],

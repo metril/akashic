@@ -36,7 +36,7 @@ from akashic.services.search import get_meili_client
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/access", tags=["access"])
+router = APIRouter(prefix="/access", tags=["access"])
 
 
 _RIGHT_FIELDS = {

@@ -7,11 +7,11 @@ operators wondering "is Tika actually processing anything?" or
 
 Two endpoints, both admin-auth, 5-second in-process cache:
 
-- `/api/health/services` — liveness only. Returns per-service ``{ok,
+- `/api/v1/health/services` — liveness only. Returns per-service ``{ok,
   latency_ms, error}`` for Postgres + Redis + Meilisearch + Tika.
   Drives the admin sidebar chip.
 
-- `/api/health/services/activity` — rich activity. Tika: RQ queue
+- `/api/v1/health/services/activity` — rich activity. Tika: RQ queue
   depth + per-minute throughput counters + last-extraction timestamp,
   pulled from Redis keys the extraction worker bumps. Meilisearch:
   document count + pending task count + last task status, pulled from
@@ -45,7 +45,7 @@ from akashic.models.user import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/health/services", tags=["health"])
+router = APIRouter(prefix="/health/services", tags=["health"])
 
 # In-process cache. Per-key (liveness vs activity) so the cheaper
 # liveness poll doesn't fall behind the activity poll's TTL.
@@ -162,7 +162,7 @@ async def _tika_activity() -> dict[str, Any]:
     v0.30.0 — extraction moved out of the standalone RQ worker into the
     scanner, so there is no `rq:queue:extraction` job list or
     `rq:failed` registry to read. Throughput is now derived purely from
-    the activity counters the `/api/ingest/content` endpoint bumps:
+    the activity counters the `/api/v1/ingest/content` endpoint bumps:
 
       * `akashic:tika:extracted_total` — lifetime files-extracted count
       * `akashic:tika:last_extracted_at` — ISO timestamp

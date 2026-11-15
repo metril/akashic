@@ -97,7 +97,7 @@ async def test_ingest_dedup_uses_one_select_for_whole_batch(
             ],
         }
         resp = await client.post(
-            "/api/ingest/batch", json=payload,
+            "/api/v1/ingest/batch", json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200, resp.text
@@ -145,7 +145,7 @@ async def test_ingest_empty_batch_does_no_dedup_select(
     scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={
             "source_id": str(source.id),
             "scan_id": str(scan_id),

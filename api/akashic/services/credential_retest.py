@@ -7,7 +7,7 @@ source. Combined with the v0.29.1 SMB guest-fallback bug and the
 v0.29.5 empty-password bypass, a green-against-wrong-creds result
 could persist indefinitely after a credential fix.
 
-After a successful ``PATCH /api/credential-profiles/{id}`` (or any
+After a successful ``PATCH /api/v1/credential-profiles/{id}`` (or any
 write that changes the credentials dict), call
 :func:`retest_sources_for_profile`. The fan-out runs as a FastAPI
 ``BackgroundTasks`` so the PATCH endpoint returns immediately —

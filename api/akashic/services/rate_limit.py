@@ -1,7 +1,7 @@
 """Shared per-IP sliding-window rate limiter.
 
-Used by /api/scanners/claim, /api/scanners/discover, and
-/api/oauth/callback. Pre-fix each endpoint had its own copy-pasted
+Used by /api/v1/scanners/claim, /api/v1/scanners/discover, and
+/api/v1/oauth/callback. Pre-fix each endpoint had its own copy-pasted
 defaultdict(deque) + manual prune loop, plus a hand-rolled
 "if len > N: drop empties" eviction pattern that wasn't a proper
 bounded LRU.

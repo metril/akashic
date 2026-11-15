@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_register_user(client):
-    response = await client.post("/api/users/register", json={
+    response = await client.post("/api/v1/users/register", json={
         "username": "testuser",
         "password": "testpass123",
         "email": "test@example.com",
@@ -17,11 +17,11 @@ async def test_register_user(client):
 
 @pytest.mark.asyncio
 async def test_login(client):
-    await client.post("/api/users/register", json={
+    await client.post("/api/v1/users/register", json={
         "username": "loginuser",
         "password": "testpass123",
     })
-    response = await client.post("/api/users/login", json={
+    response = await client.post("/api/v1/users/login", json={
         "username": "loginuser",
         "password": "testpass123",
     })
@@ -34,7 +34,7 @@ async def test_login(client):
 @pytest.mark.asyncio
 async def test_register_rejects_oversize_password(client):
     """bcrypt-72-byte limit is enforced at the schema layer."""
-    response = await client.post("/api/users/register", json={
+    response = await client.post("/api/v1/users/register", json={
         "username": "fatpw",
         "password": "a" * 73,
     })
@@ -46,11 +46,11 @@ async def test_register_rejects_oversize_password(client):
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(client):
-    await client.post("/api/users/register", json={
+    await client.post("/api/v1/users/register", json={
         "username": "wrongpw",
         "password": "testpass123",
     })
-    response = await client.post("/api/users/login", json={
+    response = await client.post("/api/v1/users/login", json={
         "username": "wrongpw",
         "password": "wrongpass",
     })
@@ -59,34 +59,34 @@ async def test_login_wrong_password(client):
 
 @pytest.mark.asyncio
 async def test_protected_endpoint_requires_auth(client):
-    response = await client.get("/api/users/me")
+    response = await client.get("/api/v1/users/me")
     assert response.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_protected_endpoint_with_token(client):
-    await client.post("/api/users/register", json={
+    await client.post("/api/v1/users/register", json={
         "username": "authed",
         "password": "testpass123",
     })
-    login = await client.post("/api/users/login", json={
+    login = await client.post("/api/v1/users/login", json={
         "username": "authed",
         "password": "testpass123",
     })
     token = login.json()["access_token"]
-    response = await client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
+    response = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["username"] == "authed"
 
 
-# ── /api/auth/providers — bootstrap detection ───────────────────────────────
+# ── /api/v1/auth/providers — bootstrap detection ───────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_providers_setup_required_on_empty_db(client):
     """Fresh deployment: zero users → setup_required=True so the web
     login page can flip into 'create the admin account' mode."""
-    response = await client.get("/api/auth/providers")
+    response = await client.get("/api/v1/auth/providers")
     assert response.status_code == 200
     body = response.json()
     assert body["local"] is True
@@ -99,14 +99,14 @@ async def test_providers_setup_required_on_empty_db(client):
 @pytest.mark.asyncio
 async def test_providers_setup_required_flips_after_first_user(client):
     """The flag flips False the moment any user exists, mirroring the
-    one-way door enforced by POST /api/users/register."""
-    register = await client.post("/api/users/register", json={
+    one-way door enforced by POST /api/v1/users/register."""
+    register = await client.post("/api/v1/users/register", json={
         "username": "firstadmin",
         "password": "testpass123",
         "email": "admin@local",
     })
     assert register.status_code == 201
-    response = await client.get("/api/auth/providers")
+    response = await client.get("/api/v1/auth/providers")
     assert response.status_code == 200
     assert response.json()["setup_required"] is False
 
@@ -134,23 +134,23 @@ async def test_oidc_callback_success(client, oidc_on):
     client.cookies.set("oidc_state", "s")
     client.cookies.set("oidc_pkce", "v")
     client.cookies.set("oidc_nonce", "n")
-    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/auth/callback"
     oidc_on.assert_awaited_once_with("c", code_verifier="v", nonce="n")
     cookies = r.headers.get_list("set-cookie")
     refresh = [c for c in cookies if c.startswith("akashic_refresh=")]
-    assert refresh and "Path=/api/auth" in refresh[0]
+    assert refresh and "Path=/api/v1/auth" in refresh[0]
     assert "access_token" not in r.text
-    r2 = await client.post("/api/auth/refresh")
+    r2 = await client.post("/api/v1/auth/refresh")
     assert r2.status_code == 200
     assert "access_token" in r2.json()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cookie,url", [
-    ("other", "/api/auth/oidc/callback?code=c&state=s"),
-    ("s", "/api/auth/oidc/callback?state=s"),
+    ("other", "/api/v1/auth/oidc/callback?code=c&state=s"),
+    ("s", "/api/v1/auth/oidc/callback?state=s"),
 ])
 async def test_oidc_callback_bad_state(client, oidc_on, cookie, url):
     client.cookies.set("oidc_state", cookie)
@@ -167,7 +167,7 @@ async def test_oidc_callback_idp_error(client, oidc_on):
     client.cookies.set("oidc_state", "s")
     client.cookies.set("oidc_pkce", "v")
     client.cookies.set("oidc_nonce", "n")
-    r = await client.get("/api/auth/oidc/callback?error=access_denied&state=s", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/callback?error=access_denied&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_denied"
 
@@ -178,7 +178,7 @@ async def test_oidc_callback_exchange_fails(client, oidc_on):
     client.cookies.set("oidc_state", "s")
     client.cookies.set("oidc_pkce", "v")
     client.cookies.set("oidc_nonce", "n")
-    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_failed"
 
@@ -189,7 +189,7 @@ async def test_oidc_callback_frontend_url(client, oidc_on, rt_set):
     client.cookies.set("oidc_state", "s")
     client.cookies.set("oidc_pkce", "v")
     client.cookies.set("oidc_nonce", "n")
-    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.headers["location"] == "http://localhost:5173/auth/callback"
 
 
@@ -199,7 +199,7 @@ async def test_oidc_callback_missing_pkce_cookie(client, oidc_on, present):
     client.cookies.set("oidc_state", "s")
     for name in present:
         client.cookies.set(name, "x")
-    r = await client.get("/api/auth/oidc/callback?code=c&state=s", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/callback?code=c&state=s", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "/login?error=sso_state"
     oidc_on.assert_not_awaited()
@@ -216,7 +216,7 @@ async def test_oidc_login_sets_pkce_and_nonce(client, monkeypatch, rt_set):
         "akashic.auth.oidc._get_discovery",
         AsyncMock(return_value={"authorization_endpoint": "https://idp.example/auth"}),
     )
-    r = await client.get("/api/auth/oidc/login", follow_redirects=False)
+    r = await client.get("/api/v1/auth/oidc/login", follow_redirects=False)
     assert r.status_code == 302
     q = parse_qs(urlparse(r.headers["location"]).query)
     assert q["code_challenge_method"] == ["S256"]

@@ -45,7 +45,7 @@ class ProbeReport(BaseModel):
     source_id: uuid.UUID
 
 
-# v0.41.0 — response shape for GET /api/sources/{id}/reachability-history.
+# v0.41.0 — response shape for GET /api/v1/sources/{id}/reachability-history.
 # Drives the per-scanner "Reachability" tab in SourceDetail.
 
 

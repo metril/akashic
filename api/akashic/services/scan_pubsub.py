@@ -1,7 +1,7 @@
 """Redis pub/sub fan-out for live scan events.
 
-Producer: POST /api/scans/{id}/{heartbeat,log,stderr} handlers call
-`publish()` after persisting. Consumer: WS /ws/scans/{id} subscribes via
+Producer: POST /api/v1/scans/{id}/{heartbeat,log,stderr} handlers call
+`publish()` after persisting. Consumer: WS /ws/v1/scans/{id} subscribes via
 `subscribe()` to forward events to connected browsers.
 
 Why Redis: Phase 1 only ever runs a single API instance, but the WS handler
@@ -13,7 +13,7 @@ is already in compose.
 
 Channel scheme: `scan:{id}` per scan. WS handlers subscribe to the single
 channel for the scan they're watching. The list-level WS (Phase 1.x —
-`/ws/scans`) subscribes via psubscribe `scan:*` and filters server-side.
+`/ws/v1/scans`) subscribes via psubscribe `scan:*` and filters server-side.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ SOURCES_CHANNEL = "sources"
 
 # Scanner-lifecycle events: claim redemptions, discovery requests +
 # decisions, registrations, deletions. Powers the admin-only
-# /ws/scanners stream that drives the SettingsScanners pending pane.
+# /ws/v1/scanners stream that drives the SettingsScanners pending pane.
 SCANNERS_CHANNEL = "scanners"
 
 
@@ -65,7 +65,7 @@ async def publish(scan_id: uuid.UUID, event: dict[str, Any]) -> None:
     never break the producing endpoint over a transient broker hiccup.
 
     The persisted DB row is the source of truth; pub/sub is only the live
-    fan-out. Reconnecting WS clients backfill via `GET /api/scans/{id}/log`.
+    fan-out. Reconnecting WS clients backfill via `GET /api/v1/scans/{id}/log`.
     """
     try:
         payload = json.dumps(event, default=str)
@@ -120,7 +120,7 @@ async def subscribe(scan_id: uuid.UUID) -> AsyncIterator[dict[str, Any]]:
 
 async def publish_source_event(event: dict[str, Any]) -> None:
     """Source CRUD + scan transition events for the list-level
-    WebSocket (/ws/scans). Same fire-and-forget semantics as
+    WebSocket (/ws/v1/scans). Same fire-and-forget semantics as
     publish() — broker hiccups don't break the producing endpoint.
     """
     try:
@@ -160,7 +160,7 @@ async def subscribe_sources() -> AsyncIterator[dict[str, Any]]:
 
 
 async def publish_scanner_event(event: dict[str, Any]) -> None:
-    """Scanner-lifecycle events for the admin-only /ws/scanners stream.
+    """Scanner-lifecycle events for the admin-only /ws/v1/scanners stream.
 
     Same fire-and-forget contract as `publish()` — broker hiccups log
     a warning but never break the producing endpoint. The persisted

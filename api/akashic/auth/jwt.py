@@ -14,10 +14,10 @@ ALGORITHM = "HS256"
 #
 # AUDIENCE         — user access tokens for the public REST API.
 # INGEST_AUDIENCE  — short-lived tokens handed to the scanner agent so
-#   it can call /api/ingest/batch and the per-scan heartbeat. Scoped
+#   it can call /api/v1/ingest/batch and the per-scan heartbeat. Scoped
 #   separately from AUDIENCE because the scanner host runs untrusted
 #   code (sees user file content) and must NOT be able to use its
-#   token against /api/users/create or /api/sources/* endpoints
+#   token against /api/v1/users/create or /api/v1/sources/* endpoints
 #   (review A-C1).
 AUDIENCE = "akashic-api"
 INGEST_AUDIENCE = "akashic-ingest"
@@ -38,7 +38,7 @@ def create_ingest_token(
 ) -> str:
     """Mint a JWT scoped to the ingest audience. Only the ingest +
     scan-heartbeat endpoints accept this audience; presenting it to
-    /api/users, /api/sources, or any other admin endpoint will fail
+    /api/v1/users, /api/v1/sources, or any other admin endpoint will fail
     audience validation in decode_access_token.
 
     v0.28.2 — when ``scanner_id`` is provided (lease-time mint), it

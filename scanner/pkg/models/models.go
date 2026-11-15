@@ -229,7 +229,7 @@ type ExtractCandidate struct {
 	SizeBytes int64  `json:"size_bytes"`
 }
 
-// BatchResponse is the JSON body /api/ingest/batch returns. v0.30.0 —
+// BatchResponse is the JSON body /api/v1/ingest/batch returns. v0.30.0 —
 // previously the scanner ignored the response body; it now reads
 // extract_candidates to drive scanner-side text extraction.
 type BatchResponse struct {
@@ -242,7 +242,7 @@ type BatchResponse struct {
 }
 
 // ContentItem is one file's extracted text, posted to
-// /api/ingest/content. v0.30.0.
+// /api/v1/ingest/content. v0.30.0.
 type ContentItem struct {
 	Path        string `json:"path"`
 	ContentText string `json:"content_text"`

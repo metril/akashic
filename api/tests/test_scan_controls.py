@@ -146,7 +146,7 @@ async def _seed_host_backed_scan(
     (scan_id, scanner_create_response)."""
     async with _client(setup_db, admin_user) as ac:
         scanner = (await ac.post(
-            "/api/scanners",
+            "/api/v1/scanners",
             json={"name": f"s-{uuid.uuid4().hex[:6]}", "pool": "default"},
         )).json()
 
@@ -195,7 +195,7 @@ async def test_lease_payload_inherits_host_controls(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200, r.text
@@ -214,7 +214,7 @@ async def test_lease_payload_source_overrides_host(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200, r.text
@@ -233,7 +233,7 @@ async def test_lease_payload_uses_defaults_when_unset(setup_db, admin_user):
     token = _scanner_token(scn["id"], scn["private_key_pem"])
     async with _client(setup_db) as ac:
         r = await ac.post(
-            "/api/scans/lease", json={},
+            "/api/v1/scans/lease", json={},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200, r.text

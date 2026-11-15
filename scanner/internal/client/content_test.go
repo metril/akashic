@@ -30,8 +30,8 @@ func TestSendContent_PostsToContentEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendContent: %v", err)
 	}
-	if sawPath != "/api/ingest/content" {
-		t.Errorf("posted to %q, want /api/ingest/content", sawPath)
+	if sawPath != "/api/v1/ingest/content" {
+		t.Errorf("posted to %q, want /api/v1/ingest/content", sawPath)
 	}
 }
 

@@ -47,18 +47,20 @@ def request_id_of(scope_or_request: Any) -> str:
     return scope.get("state", {}).get("request_id") or new_request_id()
 
 
-def error_body(status_code: int, message: str, request_id: str, detail: Any = None) -> dict[str, Any]:
+def error_body(
+    status_code: int, message: str, request_id: str, detail: Any = None, code: str | None = None,
+) -> dict[str, Any]:
     return ErrorResponse(
-        code=error_code(status_code), message=message, detail=detail, request_id=request_id,
+        code=code or error_code(status_code), message=message, detail=detail, request_id=request_id,
     ).model_dump(mode="json")
 
 
 def error_response(
     status_code: int, message: str, request_id: str, detail: Any = None,
-    headers: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None, code: str | None = None,
 ) -> JSONResponse:
     return JSONResponse(
-        error_body(status_code, message, request_id, detail),
+        error_body(status_code, message, request_id, detail, code),
         status_code=status_code,
         headers={**(headers or {}), REQUEST_ID_HEADER: request_id},
     )

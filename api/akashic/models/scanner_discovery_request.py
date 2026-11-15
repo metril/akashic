@@ -1,7 +1,7 @@
 """ScannerDiscoveryRequest — pending self-registration requests.
 
 A scanner running in "discovery" mode (no token, no scanner id)
-POSTs its public key + hostname to /api/scanners/discover. The api
+POSTs its public key + hostname to /api/v1/scanners/discover. The api
 inserts a row here, generates a short pairing code, and waits for
 an admin to either approve (creating a real Scanner row) or deny.
 

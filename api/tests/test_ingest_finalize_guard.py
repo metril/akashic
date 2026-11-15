@@ -27,7 +27,7 @@ from tests.conftest import seed_scan
 
 async def _ingest_final(client, token, source_id, scan_id):
     return await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={
             "source_id": str(source_id),
             "scan_id": str(scan_id),

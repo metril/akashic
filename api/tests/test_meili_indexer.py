@@ -164,7 +164,7 @@ async def test_flush_uses_partial_update_not_replace(setup_db, monkeypatch):
     Meili's partial `update_documents` (update_files_partial), NOT the
     full-replace `add_documents` (index_files_batch). A full replace
     would wipe the `content_text` the scanner posts via
-    /api/ingest/content, since build_entry_doc emits only metadata.
+    /api/v1/ingest/content, since build_entry_doc emits only metadata.
     """
     sid = uuid.uuid4()
     async with setup_db() as session:

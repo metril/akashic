@@ -74,7 +74,7 @@ async def test_create_smb_source_with_encrypted_profile_password(
     `credentials_encrypted`, not read the empty `credentials` column."""
     pid = await _make_profile(setup_db, {"username": "svc", "password": "prof-pw-1"})
 
-    r = await client.post("/api/sources", json={
+    r = await client.post("/api/v1/sources", json={
         "name": "smb-via-profile",
         "type": "smb",
         "connection_config": {"host": "fileserver", "username": "svc", "share": "media"},
@@ -91,7 +91,7 @@ async def test_patch_smb_source_with_profile_passes_password_validation(
     """The update path runs the same SMB-password validator. Editing an
     unrelated field on a profile-backed SMB source must not fail it."""
     pid = await _make_profile(setup_db, {"username": "svc", "password": "prof-pw-2"})
-    create = await client.post("/api/sources", json={
+    create = await client.post("/api/v1/sources", json={
         "name": "smb-edit-me",
         "type": "smb",
         "connection_config": {"host": "fs2", "username": "svc", "share": "docs"},
@@ -101,7 +101,7 @@ async def test_patch_smb_source_with_profile_passes_password_validation(
     sid = create.json()["id"]
 
     patch = await client.patch(
-        f"/api/sources/{sid}", json={"max_parallel_scanners": 3},
+        f"/api/v1/sources/{sid}", json={"max_parallel_scanners": 3},
     )
     assert patch.status_code == 200, patch.text
     assert patch.json()["max_parallel_scanners"] == 3
@@ -115,7 +115,7 @@ async def test_create_smb_source_profile_without_password_still_rejected(
     must still be rejected — the fix decrypts, it doesn't fail open."""
     pid = await _make_profile(setup_db, {"username": "svc"})  # no password
 
-    r = await client.post("/api/sources", json={
+    r = await client.post("/api/v1/sources", json={
         "name": "smb-no-pw",
         "type": "smb",
         "connection_config": {"host": "fs3", "username": "svc", "share": "x"},

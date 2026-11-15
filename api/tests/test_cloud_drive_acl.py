@@ -309,7 +309,7 @@ async def test_native_id_persists_through_ingest(
         ],
     }
     resp = await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )

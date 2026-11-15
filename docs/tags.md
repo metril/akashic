@@ -43,14 +43,14 @@ operation through the UI's bulk-apply.
 
 | Method + Path | Body / Query | Notes |
 |---------------|--------------|-------|
-| `POST /api/tags` | `{name, color?}` | Pre-create catalogue entry. Admin. Apply endpoints auto-create too. |
-| `GET /api/tags` | — | List catalogue. |
-| `GET /api/tags/usage` | — | Per-tag usage stats (direct + inherited counts). |
-| `DELETE /api/tags/{tag_id}` | — | Delete catalogue entry + every applied/inherited row that referenced it by name. Admin. |
-| `POST /api/entries/{entry_id}/tags` | `{tags: [...]}` | Apply one or more tags to an entry; cascades for directories. Admin. |
-| `DELETE /api/entries/{entry_id}/tags/{tag}` | — | Remove a directly-applied tag. Inherited copies sourced from this entry cascade-delete. Admin. |
-| `GET /api/entries/{entry_id}/tags` | — | List an entry's direct + inherited tags. |
-| `POST /api/tags/bulk-apply` | `{entry_ids: [...], tags: [...]}` | Apply each tag to every entry. Admin. Used by the Search UI's "Tag selected (N)" action. |
+| `POST /api/v1/tags` | `{name, color?}` | Pre-create catalogue entry. Admin. Apply endpoints auto-create too. |
+| `GET /api/v1/tags` | — | List catalogue. |
+| `GET /api/v1/tags/usage` | — | Per-tag usage stats (direct + inherited counts). |
+| `DELETE /api/v1/tags/{tag_id}` | — | Delete catalogue entry + every applied/inherited row that referenced it by name. Admin. |
+| `POST /api/v1/entries/{entry_id}/tags` | `{tags: [...]}` | Apply one or more tags to an entry; cascades for directories. Admin. |
+| `DELETE /api/v1/entries/{entry_id}/tags/{tag}` | — | Remove a directly-applied tag. Inherited copies sourced from this entry cascade-delete. Admin. |
+| `GET /api/v1/entries/{entry_id}/tags` | — | List an entry's direct + inherited tags. |
+| `POST /api/v1/tags/bulk-apply` | `{entry_ids: [...], tags: [...]}` | Apply each tag to every entry. Admin. Used by the Search UI's "Tag selected (N)" action. |
 
 ## UI surfaces
 

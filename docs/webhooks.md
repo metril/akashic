@@ -61,7 +61,7 @@ under your own user.
 ### Create
 
 ```http
-POST /api/webhooks
+POST /api/v1/webhooks
 Content-Type: application/json
 Authorization: Bearer <your JWT>
 
@@ -78,7 +78,7 @@ different `event_type` values to subscribe to multiple events.
 ### List your own webhooks
 
 ```http
-GET /api/webhooks
+GET /api/v1/webhooks
 Authorization: Bearer <your JWT>
 ```
 
@@ -87,7 +87,7 @@ Returns webhooks you own.
 ### Delete
 
 ```http
-DELETE /api/webhooks/{id}
+DELETE /api/v1/webhooks/{id}
 Authorization: Bearer <your JWT>
 ```
 

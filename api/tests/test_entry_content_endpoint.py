@@ -1,4 +1,4 @@
-"""Phase B2 tests — GET /api/entries/{id}/content and /preview.
+"""Phase B2 tests — GET /api/v1/entries/{id}/content and /preview.
 
 Local-source path is exercised end-to-end against the real filesystem
 (tmp_path). Non-local fetch is validated through the path-traversal
@@ -226,7 +226,7 @@ async def viewer_client(setup_db, viewer_user: User):
 async def test_content_local_text(
     admin_client: AsyncClient, text_entry: Entry
 ):
-    r = await admin_client.get(f"/api/entries/{text_entry.id}/content")
+    r = await admin_client.get(f"/api/v1/entries/{text_entry.id}/content")
     assert r.status_code == 200
     assert r.text == "Hello, world!\nLine 2\n"
     assert r.headers["content-type"].startswith("text/plain")
@@ -238,7 +238,7 @@ async def test_content_attachment_disposition(
     admin_client: AsyncClient, text_entry: Entry
 ):
     r = await admin_client.get(
-        f"/api/entries/{text_entry.id}/content?attachment=1"
+        f"/api/v1/entries/{text_entry.id}/content?attachment=1"
     )
     assert r.status_code == 200
     assert "attachment" in r.headers["content-disposition"]
@@ -249,7 +249,7 @@ async def test_content_attachment_disposition(
 async def test_content_binary(
     admin_client: AsyncClient, binary_entry: Entry
 ):
-    r = await admin_client.get(f"/api/entries/{binary_entry.id}/content")
+    r = await admin_client.get(f"/api/v1/entries/{binary_entry.id}/content")
     assert r.status_code == 200
     assert r.content == b"\x00\x01\x02\xff\xfe\xfd" * 100
     assert r.headers["content-type"] == "application/octet-stream"
@@ -258,7 +258,7 @@ async def test_content_binary(
 @pytest.mark.asyncio
 async def test_content_404_for_unknown_entry(admin_client: AsyncClient):
     fake = uuid.uuid4()
-    r = await admin_client.get(f"/api/entries/{fake}/content")
+    r = await admin_client.get(f"/api/v1/entries/{fake}/content")
     assert r.status_code == 404
 
 
@@ -266,7 +266,7 @@ async def test_content_404_for_unknown_entry(admin_client: AsyncClient):
 async def test_content_readable_by_viewer(
     viewer_client: AsyncClient, text_entry: Entry
 ):
-    r = await viewer_client.get(f"/api/entries/{text_entry.id}/content")
+    r = await viewer_client.get(f"/api/v1/entries/{text_entry.id}/content")
     assert r.status_code == 200
 
 
@@ -290,7 +290,7 @@ async def test_content_path_traversal_rejected(
         session.add(e)
         await session.commit()
         eid = e.id
-    r = await admin_client.get(f"/api/entries/{eid}/content")
+    r = await admin_client.get(f"/api/v1/entries/{eid}/content")
     assert r.status_code == 400
 
 
@@ -301,7 +301,7 @@ async def test_content_path_traversal_rejected(
 async def test_preview_local_text(
     admin_client: AsyncClient, text_entry: Entry
 ):
-    r = await admin_client.get(f"/api/entries/{text_entry.id}/preview")
+    r = await admin_client.get(f"/api/v1/entries/{text_entry.id}/preview")
     assert r.status_code == 200
     body = r.json()
     assert body["binary"] is False
@@ -315,7 +315,7 @@ async def test_preview_local_text(
 async def test_preview_local_binary(
     admin_client: AsyncClient, binary_entry: Entry
 ):
-    r = await admin_client.get(f"/api/entries/{binary_entry.id}/preview")
+    r = await admin_client.get(f"/api/v1/entries/{binary_entry.id}/preview")
     assert r.status_code == 200
     body = r.json()
     assert body["binary"] is True
@@ -348,7 +348,7 @@ async def test_preview_truncation(
         await session.commit()
         eid = e.id
 
-    r = await admin_client.get(f"/api/entries/{eid}/preview")
+    r = await admin_client.get(f"/api/v1/entries/{eid}/preview")
     body = r.json()
     assert body["truncated"] is True
     assert len(body["text"]) == 64 * 1024

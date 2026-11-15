@@ -6,11 +6,11 @@ sits there forever and no logs/heartbeats/batches ever arrive (which is
 exactly the "I see no logs" complaint that prompted writing this).
 
 Lifecycle:
-  1. `/api/scans/trigger` returns immediately with the scan_id.
+  1. `/api/v1/scans/trigger` returns immediately with the scan_id.
   2. FastAPI's BackgroundTasks invokes `spawn_scan(...)`.
   3. We build argv from the source type, mint a JWT scoped to the
      triggering user, and exec the scanner via asyncio.
-  4. The scanner authenticates as that user against /api/scans/{id}/heartbeat
+  4. The scanner authenticates as that user against /api/v1/scans/{id}/heartbeat
      and friends. Status flips through pending -> running -> completed
      (or cancelled / failed).
   5. We await the subprocess so any nonzero exit ends up in the api log.
@@ -176,7 +176,7 @@ async def spawn_scan(source: Source, scan: Scan, user: User) -> None:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             # Keep stderr connected so the scanner's stderr-relay can
-            # tee it back through /api/scans/{id}/stderr. The relay
+            # tee it back through /api/v1/scans/{id}/stderr. The relay
             # reopens fd 2 internally; what we set here is for the
             # parent's view, not the scanner's.
             stderr=asyncio.subprocess.DEVNULL,

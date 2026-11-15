@@ -5,7 +5,7 @@ Covers:
   * `notify_eligible_joiners` LPUSHes one payload per eligible-other
     scanner; respects pool / allowed_source_ids / online filters.
   * `max_parallel_scanners <= 1` short-circuits — no LPUSH at all.
-  * `GET /api/scanners/{id}/scans/long-poll` returns 204 on empty,
+  * `GET /api/v1/scanners/{id}/scans/long-poll` returns 204 on empty,
     200 with the queued payload, 403 on scanner_id mismatch, and
     401 on non-scanner JWT.
   * LTRIM caps backlog at 50 items per scanner.
@@ -263,7 +263,7 @@ async def test_long_poll_endpoint_rejects_non_scanner_jwt(
     ingest = create_ingest_token(str(uuid.uuid4()))
     for tok in (access, ingest):
         r = await bearer_client.get(
-            f"/api/scanners/{s.id}/scans/long-poll",
+            f"/api/v1/scanners/{s.id}/scans/long-poll",
             headers={"Authorization": f"Bearer {tok}"},
         )
         assert r.status_code == 401, f"got {r.status_code}: {r.text}"
@@ -279,7 +279,7 @@ async def test_long_poll_endpoint_rejects_scanner_id_mismatch(
         b, _ = await _seed_scanner(session, name="ep-b")
     a_tok = _scanner_jwt(str(a.id), a_priv)
     r = await bearer_client.get(
-        f"/api/scanners/{b.id}/scans/long-poll",
+        f"/api/v1/scanners/{b.id}/scans/long-poll",
         headers={"Authorization": f"Bearer {a_tok}"},
     )
     assert r.status_code == 403
@@ -304,7 +304,7 @@ async def test_long_poll_endpoint_204_on_timeout(
     monkeypatch.setattr(scan_join, "wait_for_scan_join", fast_wait)
 
     r = await bearer_client.get(
-        f"/api/scanners/{s.id}/scans/long-poll",
+        f"/api/v1/scanners/{s.id}/scans/long-poll",
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 204
@@ -330,7 +330,7 @@ async def test_long_poll_endpoint_returns_queued_payload(
     await redis.lpush(_join_channel(s.id), json.dumps(payload))
 
     r = await bearer_client.get(
-        f"/api/scanners/{s.id}/scans/long-poll",
+        f"/api/v1/scanners/{s.id}/scans/long-poll",
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 200, r.text

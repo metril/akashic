@@ -182,7 +182,7 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
 @pytest.mark.asyncio
 async def test_create_host_and_get(client: AsyncClient):
     r = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "fileserver01",
             "type": "smb",
@@ -203,7 +203,7 @@ async def test_create_host_and_get(client: AsyncClient):
     assert body["source_count"] == 0
     host_id = body["id"]
 
-    g = await client.get(f"/api/hosts/{host_id}")
+    g = await client.get(f"/api/v1/hosts/{host_id}")
     assert g.status_code == 200
     assert g.json()["name"] == "fileserver01"
 
@@ -222,17 +222,17 @@ async def test_host_crud_publishes_host_changed(client: AsyncClient, monkeypatch
     monkeypatch.setattr(scan_pubsub, "publish_source_event", _cap)
 
     create = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={"name": "evented", "type": "smb",
               "connection_config": {"host": "fs", "username": "u", "password": "p"}},
     )
     assert create.status_code == 201, create.text
     host_id = create.json()["id"]
 
-    patch = await client.patch(f"/api/hosts/{host_id}", json={"name": "evented2"})
+    patch = await client.patch(f"/api/v1/hosts/{host_id}", json={"name": "evented2"})
     assert patch.status_code == 200, patch.text
 
-    delete = await client.delete(f"/api/hosts/{host_id}")
+    delete = await client.delete(f"/api/v1/hosts/{host_id}")
     assert delete.status_code == 204, delete.text
 
     kinds = [(e["kind"], e["host_id"]) for e in captured]
@@ -246,7 +246,7 @@ async def test_host_crud_publishes_host_changed(client: AsyncClient, monkeypatch
 @pytest.mark.asyncio
 async def test_list_hosts_includes_source_count(client: AsyncClient, setup_db):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "nas",
             "type": "smb",
@@ -257,7 +257,7 @@ async def test_list_hosts_includes_source_count(client: AsyncClient, setup_db):
     # Attach two sources
     for share in ("share1", "share2"):
         r = await client.post(
-            "/api/sources",
+            "/api/v1/sources",
             json={
                 "name": share,
                 "type": "smb",
@@ -267,7 +267,7 @@ async def test_list_hosts_includes_source_count(client: AsyncClient, setup_db):
         )
         assert r.status_code == 201, r.text
 
-    listing = await client.get("/api/hosts")
+    listing = await client.get("/api/v1/hosts")
     assert listing.status_code == 200
     rows = listing.json()
     by_name = {r["name"]: r for r in rows}
@@ -277,7 +277,7 @@ async def test_list_hosts_includes_source_count(client: AsyncClient, setup_db):
 @pytest.mark.asyncio
 async def test_update_host_preserves_secret_via_sentinel(client: AsyncClient):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "smb-fileserver",
             "type": "smb",
@@ -292,7 +292,7 @@ async def test_update_host_preserves_secret_via_sentinel(client: AsyncClient):
     # PATCH with masked sentinel for password — the real value must
     # survive (same merge rule as Source.update).
     p = await client.patch(
-        f"/api/hosts/{host_id}",
+        f"/api/v1/hosts/{host_id}",
         json={
             "connection_config": {
                 "host": "h-renamed",
@@ -314,7 +314,7 @@ async def test_delete_host_with_attached_source_returns_409(
     client: AsyncClient,
 ):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "shared-nas",
             "type": "smb",
@@ -323,7 +323,7 @@ async def test_delete_host_with_attached_source_returns_409(
     )
     host_id = h.json()["id"]
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "attached",
             "type": "smb",
@@ -333,7 +333,7 @@ async def test_delete_host_with_attached_source_returns_409(
     )
     assert r.status_code == 201
 
-    d = await client.delete(f"/api/hosts/{host_id}")
+    d = await client.delete(f"/api/v1/hosts/{host_id}")
     assert d.status_code == 409
     assert "attached source" in d.json()["message"]
 
@@ -343,7 +343,7 @@ async def test_delete_host_without_attached_sources_succeeds(
     client: AsyncClient,
 ):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "lonely",
             "type": "smb",
@@ -353,16 +353,16 @@ async def test_delete_host_without_attached_sources_succeeds(
         },
     )
     host_id = h.json()["id"]
-    d = await client.delete(f"/api/hosts/{host_id}")
+    d = await client.delete(f"/api/v1/hosts/{host_id}")
     assert d.status_code == 204
-    g = await client.get(f"/api/hosts/{host_id}")
+    g = await client.get(f"/api/v1/hosts/{host_id}")
     assert g.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_create_host_unsupported_type_returns_400(client: AsyncClient):
     r = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={"name": "bad", "type": "ftp", "connection_config": {}},
     )
     assert r.status_code == 400
@@ -377,9 +377,9 @@ async def test_create_host_duplicate_name_returns_409(client: AsyncClient):
             "host": "h", "username": "u",
         },
     }
-    r1 = await client.post("/api/hosts", json=body)
+    r1 = await client.post("/api/v1/hosts", json=body)
     assert r1.status_code == 201
-    r2 = await client.post("/api/hosts", json=body)
+    r2 = await client.post("/api/v1/hosts", json=body)
     assert r2.status_code == 409
 
 
@@ -391,7 +391,7 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     """Source body carries no host fields — host_id is sufficient.
     Verifies the merge happens server-side."""
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "smb-host",
             "type": "smb",
@@ -405,7 +405,7 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     host_id = h.json()["id"]
 
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "shared-docs",
             "type": "smb",
@@ -434,7 +434,7 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     from akashic.services.scan_pubsub import _client as _redis_client
 
     scn = await client.post(
-        "/api/scanners",
+        "/api/v1/scanners",
         json={"name": "merge-cfg-scanner", "pool": "default"},
     )
     assert scn.status_code == 201, scn.text
@@ -456,7 +456,7 @@ async def test_create_source_with_host_id_only(client: AsyncClient, setup_db):
     probe_dispatch.dispatch_remote = fast
     try:
         check = await client.post(
-            f"/api/sources/{body['id']}/test-scanners",
+            f"/api/v1/sources/{body['id']}/test-scanners",
             json={"scanner_ids": [scanner_id]},
         )
         assert check.status_code == 200, check.text
@@ -479,7 +479,7 @@ async def test_create_source_host_type_mismatch_returns_400(
     client: AsyncClient,
 ):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "smb-host",
             "type": "smb",
@@ -488,7 +488,7 @@ async def test_create_source_host_type_mismatch_returns_400(
     )
     host_id = h.json()["id"]
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "wrong-type",
             "type": "nfs",  # mismatched (host is smb)
@@ -505,7 +505,7 @@ async def test_create_local_source_with_host_id_returns_400(
     client: AsyncClient,
 ):
     h = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "any",
             "type": "smb",
@@ -514,7 +514,7 @@ async def test_create_local_source_with_host_id_returns_400(
     )
     host_id = h.json()["id"]
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "local-with-host",
             "type": "local",
@@ -528,7 +528,7 @@ async def test_create_local_source_with_host_id_returns_400(
 @pytest.mark.asyncio
 async def test_create_source_unknown_host_id_returns_404(client: AsyncClient):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "ghost",
             "type": "smb",
@@ -570,7 +570,7 @@ async def test_scanner_reachability_summary_with_no_sources(
         host_id = host.id
         scanner_id = scanner.id
 
-    r = await client.get(f"/api/hosts/{host_id}/scanner-reachability-summary")
+    r = await client.get(f"/api/v1/hosts/{host_id}/scanner-reachability-summary")
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(body) == 1
@@ -631,7 +631,7 @@ async def test_scanner_reachability_summary_with_attached_source_and_probe(
         session.add(result)
         await session.commit()
 
-    r = await client.get(f"/api/hosts/{host_id}/scanner-reachability-summary")
+    r = await client.get(f"/api/v1/hosts/{host_id}/scanner-reachability-summary")
     assert r.status_code == 200, r.text
     body = r.json()
     row = next(x for x in body if x["scanner_id"] == str(scanner_id))
@@ -646,7 +646,7 @@ async def test_create_host_audit_event_recorded(
     client: AsyncClient, setup_db, admin_user: User
 ):
     r = await client.post(
-        "/api/hosts",
+        "/api/v1/hosts",
         json={
             "name": "audit-host",
             "type": "smb",

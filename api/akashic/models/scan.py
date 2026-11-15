@@ -30,7 +30,7 @@ class Scan(Base):
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Phase 1 observability — heartbeat-driven progress fields. Updated by the
-    # scanner via POST /api/scans/{id}/heartbeat independently of batch ingest.
+    # scanner via POST /api/v1/scans/{id}/heartbeat independently of batch ingest.
     current_path: Mapped[str | None] = mapped_column(String, nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     bytes_scanned_so_far: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -67,7 +67,7 @@ class Scan(Base):
     # (NULL = any scanner can claim). `assigned_scanner_id` + `lease_expires_at`
     # track the current lease; nullable so an unleased pending scan is
     # representable. The lease is renewed by per-scan heartbeat and released
-    # by /api/scans/{id}/complete or by the watchdog when expiry overruns.
+    # by /api/v1/scans/{id}/complete or by the watchdog when expiry overruns.
     pool: Mapped[str | None] = mapped_column(String, nullable=True)
     assigned_scanner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scanners.id", ondelete="SET NULL"),

@@ -10,8 +10,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -53,7 +53,7 @@ async def test_dup_count_scoped_to_source_filter(client, db_session):
     # Force the SQL fallback path (regex mode) so the test works without
     # Meili. Pattern matches anything ending in .pdf in the entries' paths.
     unfiltered = await client.get(
-        "/api/search?q=.pdf$&mode=regex",
+        "/api/v1/search?q=.pdf$&mode=regex",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert unfiltered.status_code == 200
@@ -67,7 +67,7 @@ async def test_dup_count_scoped_to_source_filter(client, db_session):
     # Source-filtered search: only Source A. Each Source-A hit should
     # see the other Source-A copy as a dup, NOT the Source-B copy.
     filtered = await client.get(
-        f"/api/search?q=.pdf$&mode=regex&source_id={src_a.id}",
+        f"/api/v1/search?q=.pdf$&mode=regex&source_id={src_a.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert filtered.status_code == 200

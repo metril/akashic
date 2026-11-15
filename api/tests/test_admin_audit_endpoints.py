@@ -5,8 +5,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -14,17 +14,17 @@ async def _register_login(client, username="alice", password="testpass123"):
 async def test_admin_audit_requires_admin(client):
     admin_token = await _register_login(client, username="admin")
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "regular", "password": "testpass123", "role": "user"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "regular", "password": "testpass123"},
     )
     user_token = login.json()["access_token"]
 
-    r = await client.get("/api/admin/audit", headers={"Authorization": f"Bearer {user_token}"})
+    r = await client.get("/api/v1/admin/audit", headers={"Authorization": f"Bearer {user_token}"})
     assert r.status_code == 403
 
 
@@ -41,7 +41,7 @@ async def test_admin_audit_lists_events(client, db_session):
     db_session.add(AuditEvent(user_id=me.id, event_type="search_as_used", payload={"q": "y"}))
     await db_session.commit()
 
-    r = await client.get("/api/admin/audit", headers={"Authorization": f"Bearer {token}"})
+    r = await client.get("/api/v1/admin/audit", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     data = r.json()
     assert data["total"] == 2
@@ -61,7 +61,7 @@ async def test_admin_audit_filters_by_event_type(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        "/api/admin/audit?event_type=search_as_used",
+        "/api/v1/admin/audit?event_type=search_as_used",
         headers={"Authorization": f"Bearer {token}"},
     )
     data = r.json()
@@ -90,7 +90,7 @@ async def test_admin_audit_filters_by_date_range(client, db_session):
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     r = await client.get(
-        f"/api/admin/audit?from={cutoff}",
+        f"/api/v1/admin/audit?from={cutoff}",
         headers={"Authorization": f"Bearer {token}"},
     )
     data = r.json()
@@ -110,7 +110,7 @@ async def test_admin_audit_get_by_id(client, db_session):
     await db_session.commit()
 
     r = await client.get(
-        f"/api/admin/audit/{evt.id}",
+        f"/api/v1/admin/audit/{evt.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -122,7 +122,7 @@ async def test_admin_audit_get_by_id(client, db_session):
 async def test_admin_audit_get_by_id_404(client):
     token = await _register_login(client, username="admin")
     r = await client.get(
-        "/api/admin/audit/00000000-0000-0000-0000-000000000000",
+        "/api/v1/admin/audit/00000000-0000-0000-0000-000000000000",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 404

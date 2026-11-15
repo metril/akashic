@@ -2,10 +2,10 @@
 
 Endpoints
 ---------
-GET  /api/auth/providers          — list enabled auth providers
-GET  /api/auth/oidc/login         — redirect to OIDC provider
-GET  /api/auth/oidc/callback      — handle OIDC callback, set refresh cookie, 302 to SPA
-POST /api/auth/ldap/login         — LDAP username/password -> JWT
+GET  /api/v1/auth/providers          — list enabled auth providers
+GET  /api/v1/auth/oidc/login         — redirect to OIDC provider
+GET  /api/v1/auth/oidc/callback      — handle OIDC callback, set refresh cookie, 302 to SPA
+POST /api/v1/auth/ldap/login         — LDAP username/password -> JWT
 """
 
 import asyncio
@@ -32,7 +32,7 @@ REFRESH_COOKIE = "akashic_refresh"
 
 
 def _set_refresh_cookie(response: Response, plain_token: str) -> None:
-    """HttpOnly + SameSite=Lax cookie. Path=/api/auth so it's only
+    """HttpOnly + SameSite=Lax cookie. Path=/api/v1/auth so it's only
     sent to refresh / logout — minimizes accidental exposure on
     other endpoints. The Secure flag is gated on rt().cookie_secure
     (default True) so production deployments behind TLS get the flag
@@ -44,7 +44,7 @@ def _set_refresh_cookie(response: Response, plain_token: str) -> None:
         httponly=True,
         samesite="lax",
         secure=rt().cookie_secure,
-        path="/api/auth",
+        path="/api/v1/auth",
         max_age=rt().refresh_token_expire_days * 24 * 3600,
     )
 
@@ -83,11 +83,11 @@ def _spa_redirect(path: str, **params: str) -> RedirectResponse:
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+    response.delete_cookie(REFRESH_COOKIE, path="/api/v1/auth")
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ class ProvidersResponse(BaseModel):
     oidc: bool
     ldap: bool
     # True when the users table is empty — bootstrap registration via
-    # POST /api/users/register is open. Flips to False the moment the
+    # POST /api/v1/users/register is open. Flips to False the moment the
     # first user is created and stays False forever (the register
     # endpoint enforces the same one-way door).
     setup_required: bool
@@ -198,7 +198,7 @@ async def oidc_callback(
     """Handle the OIDC callback: exchange the code for tokens, mint a
     refresh token, set the HttpOnly refresh cookie, and 302 the browser
     to the SPA's /auth/callback (which trades the cookie for an access
-    token via /api/auth/refresh). Failures 302 to /login?error=<code>
+    token via /api/v1/auth/refresh). Failures 302 to /login?error=<code>
     with one of sso_denied, sso_state, sso_failed, sso_provision."""
     _require_oidc()
 

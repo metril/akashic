@@ -13,11 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
-from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
+from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_protocol, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
 from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, request_id_of
 from akashic.openapi import TAGS, app_version, install_openapi, operation_id
 from akashic.schemas.common import ERROR_RESPONSES
 from akashic.services import metrics as metrics_svc
+from akashic.versioning import API_PREFIX, WS_PREFIX, UnversionedPathMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,7 @@ def create_app() -> FastAPI:
         openapi_tags=TAGS,
         generate_unique_id_function=operation_id,
         docs_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url=f"{API_PREFIX}/openapi.json",
         redoc_url=None,
         lifespan=lifespan,
     )
@@ -316,10 +317,14 @@ def create_app() -> FastAPI:
     # v0.29.2 — gzip request-body decoder. Added last so it sits
     # OUTSIDE _TimingMiddleware (last add_middleware = first to see
     # the request). The scanner agent gzip-encodes batch POSTs to
-    # /api/ingest/batch; this middleware decompresses transparently
+    # /api/v1/ingest/batch; this middleware decompresses transparently
     # so the route handlers receive plain JSON regardless of whether
     # the client compressed.
     app.add_middleware(_GzipRequestMiddleware)
+
+    # Reject / redirect unversioned /api and /ws paths. Inside RequestId so
+    # the rejection carries a request id.
+    app.add_middleware(UnversionedPathMiddleware)
 
     # Outermost: every request (including gzip rejections) carries an id.
     app.add_middleware(RequestIdMiddleware)
@@ -357,40 +362,41 @@ def create_app() -> FastAPI:
             "<script src=\"/api/docs/assets/init.js\"></script></body></html>"
         )
 
-    app.include_router(auth.router, responses=ERROR_RESPONSES)
-    app.include_router(users.router, responses=ERROR_RESPONSES)
-    app.include_router(ingest.router, responses=ERROR_RESPONSES)
-    app.include_router(hosts.router, responses=ERROR_RESPONSES)
-    app.include_router(credential_profiles.router, responses=ERROR_RESPONSES)
-    app.include_router(sources.router, responses=ERROR_RESPONSES)
-    app.include_router(source_test.router, responses=ERROR_RESPONSES)
-    app.include_router(search.router, responses=ERROR_RESPONSES)
-    app.include_router(entries.router, responses=ERROR_RESPONSES)
-    app.include_router(entry_content.router, responses=ERROR_RESPONSES)
-    app.include_router(browse.router, responses=ERROR_RESPONSES)
-    app.include_router(duplicates.router, responses=ERROR_RESPONSES)
-    app.include_router(tags.router, responses=ERROR_RESPONSES)
-    app.include_router(analytics.router, responses=ERROR_RESPONSES)
-    app.include_router(purge.router, responses=ERROR_RESPONSES)
-    app.include_router(webhooks.router, responses=ERROR_RESPONSES)
-    app.include_router(scans.router, responses=ERROR_RESPONSES)
-    app.include_router(scan_progress.router, responses=ERROR_RESPONSES)
-    app.include_router(scan_websocket.router, responses=ERROR_RESPONSES)
-    app.include_router(scan_work.router, responses=ERROR_RESPONSES)
-    app.include_router(effective_perms.router, responses=ERROR_RESPONSES)
-    app.include_router(identities.router, responses=ERROR_RESPONSES)
-    app.include_router(admin_audit.router, responses=ERROR_RESPONSES)
-    app.include_router(group_resolution.router, responses=ERROR_RESPONSES)
-    app.include_router(principals.router, responses=ERROR_RESPONSES)
-    app.include_router(access.router, responses=ERROR_RESPONSES)
-    app.include_router(dashboard.router, responses=ERROR_RESPONSES)
-    app.include_router(storage_explorer.router, responses=ERROR_RESPONSES)
-    app.include_router(scanners.router, responses=ERROR_RESPONSES)
-    app.include_router(scanner_discovery.router, responses=ERROR_RESPONSES)
-    app.include_router(server_settings.router, responses=ERROR_RESPONSES)
-    app.include_router(source_oauth.router, responses=ERROR_RESPONSES)
-    app.include_router(health_services.router, responses=ERROR_RESPONSES)
-    app.include_router(maintenance.router, responses=ERROR_RESPONSES)
+    app.include_router(auth.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(users.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(ingest.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(hosts.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(credential_profiles.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(sources.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(source_test.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(search.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(entries.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(entry_content.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(browse.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(duplicates.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(tags.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(analytics.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(purge.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(webhooks.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scans.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scan_progress.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scan_websocket.router, prefix=WS_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scan_work.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(effective_perms.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(identities.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(admin_audit.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(group_resolution.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(principals.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(access.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(dashboard.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(storage_explorer.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scanners.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scanner_protocol.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scanner_discovery.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(server_settings.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(source_oauth.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(health_services.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(maintenance.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     return app
 
 

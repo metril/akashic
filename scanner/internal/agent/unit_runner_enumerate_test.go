@@ -24,7 +24,7 @@ func TestEnsureUnitsEnumerated_ReturnsProbeLeasedUnit(t *testing.T) {
 	// leased to it by the probe. That unit MUST be returned so the
 	// caller processes (and ultimately /complete-s) it.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/scans/scan-1/work/lease" {
+		if r.URL.Path == "/api/v1/scans/scan-1/work/lease" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(
@@ -63,9 +63,9 @@ func TestEnsureUnitsEnumerated_EnqueuesRootUnitWhenQueueEmpty(t *testing.T) {
 	var splitPaths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/scans/scan-1/work/lease":
+		case "/api/v1/scans/scan-1/work/lease":
 			w.WriteHeader(http.StatusNoContent)
-		case "/api/scans/scan-1/work/split":
+		case "/api/v1/scans/scan-1/work/split":
 			splitHits.Add(1)
 			var body struct {
 				ChildPaths []string `json:"child_paths"`
@@ -106,10 +106,10 @@ func TestEnsureUnitsEnumerated_SkipsEnumerationWhenCapped(t *testing.T) {
 	var splitHits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/scans/scan-1/work/lease":
+		case "/api/v1/scans/scan-1/work/lease":
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte("max_parallel_scanners cap reached"))
-		case "/api/scans/scan-1/work/split":
+		case "/api/v1/scans/scan-1/work/split":
 			splitHits.Add(1)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"created":0,"skipped":0}`))

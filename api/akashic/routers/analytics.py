@@ -14,7 +14,7 @@ from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
 from akashic.models.user import User
 
-router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712

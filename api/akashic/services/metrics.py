@@ -14,7 +14,7 @@ instrumentation.
 
 Cardinality discipline:
 - `path` MUST come from the FastAPI route template
-  (`/api/sources/{source_id}`), NOT the literal URL — otherwise
+  (`/api/v1/sources/{source_id}`), NOT the literal URL — otherwise
   every UUID becomes its own time series and Prometheus melts.
 - `operation` is the first SQL token, upper-cased (SELECT / UPDATE /
   …). Per-statement labels would be unbounded.

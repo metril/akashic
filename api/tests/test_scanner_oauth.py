@@ -2,7 +2,7 @@
 
 Covers:
   - Lease-time access_token injection (when source has a connected credential).
-  - /api/scanners/oauth/access-token auth gate (active lease required).
+  - /api/v1/scanners/oauth/access-token auth gate (active lease required).
   - Refresh-failure → 502 with provider error surfaced.
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ async def test_scanner_oauth_endpoint_requires_scanner_jwt(
     # claims don't include a scanner kid + matching public key.
     user_token = create_access_token({"sub": str(user.id)})
     resp = await client.post(
-        "/api/scanners/oauth/access-token",
+        "/api/v1/scanners/oauth/access-token",
         json={"source_id": str(src.id)},
         headers={"Authorization": f"Bearer {user_token}"},
     )
@@ -108,7 +108,7 @@ async def test_force_refresh_credential_drives_provider_call(
         side_effect=_stub_refresh,
     ):
         resp = await client.post(
-            f"/api/oauth/credentials/{cred.id}/refresh",
+            f"/api/v1/oauth/credentials/{cred.id}/refresh",
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 200, resp.text
@@ -119,7 +119,7 @@ async def test_force_refresh_credential_drives_provider_call(
 async def test_test_source_with_oauth_credential_id_mints_access_token(
     client: AsyncClient, db_session: AsyncSession
 ):
-    """The /api/sources/test endpoint accepts oauth_credential_id in
+    """The /api/v1/sources/test endpoint accepts oauth_credential_id in
     connection_config (used by the create-flow before the source row
     exists) and mints an access_token from it for the probe."""
     user = User(
@@ -160,7 +160,7 @@ async def test_test_source_with_oauth_credential_id_mints_access_token(
         ),
     ):
         resp = await client.post(
-            "/api/sources/test",
+            "/api/v1/sources/test",
             json={
                 "type": "gdrive",
                 "connection_config": {"oauth_credential_id": str(cred.id)},
@@ -178,7 +178,7 @@ async def test_test_source_with_oauth_credential_id_mints_access_token(
 async def test_create_source_attaches_oauth_credential(
     client: AsyncClient, db_session: AsyncSession
 ):
-    """POST /api/sources strips oauth_credential_id from connection_config
+    """POST /api/v1/sources strips oauth_credential_id from connection_config
     and sets the SourceOAuthCredential row's source_id to the new source."""
     user = User(
         id=uuid.uuid4(), username="ux", email="ux@x", password_hash="x", role="admin"
@@ -203,7 +203,7 @@ async def test_create_source_attaches_oauth_credential(
         },
     }
     resp = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json=body,
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -216,7 +216,7 @@ async def test_create_source_attaches_oauth_credential(
 
     # And the source's connection_config should NOT carry oauth_credential_id.
     detail = await client.get(
-        f"/api/sources/{src_id}",
+        f"/api/v1/sources/{src_id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert detail.status_code == 200

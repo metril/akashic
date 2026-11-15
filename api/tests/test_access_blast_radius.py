@@ -19,9 +19,9 @@ from akashic.models.source import Source
 
 
 async def _register_login(client, username="admin", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": username, "password": password},
     )
     return login.json()["access_token"]
@@ -43,13 +43,13 @@ async def test_requires_exactly_one_of_principal_or_file(client):
     token = await _register_login(client)
     # Neither.
     r = await client.get(
-        "/api/access",
+        "/api/v1/access",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
     # Both.
     r = await client.get(
-        f"/api/access?principal=sid:S-1-5-X&file={uuid_from_str()}",
+        f"/api/v1/access?principal=sid:S-1-5-X&file={uuid_from_str()}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
@@ -60,18 +60,18 @@ async def test_admin_only(client):
     """Non-admin viewer gets 403 even with valid args."""
     admin_token = await _register_login(client)
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "viewer1", "password": "testpass123", "role": "user"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "viewer1", "password": "testpass123"},
     )
     user_token = login.json()["access_token"]
 
     r = await client.get(
-        "/api/access?principal=sid:S-1-5-X",
+        "/api/v1/access?principal=sid:S-1-5-X",
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 403
@@ -135,7 +135,7 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
         "akashic.routers.access.get_meili_client", AsyncMock(return_value=fake_client),
     ):
         r = await client.get(
-            "/api/access?principal=sid:S-1-5-21-X-1001&right=read",
+            "/api/v1/access?principal=sid:S-1-5-21-X-1001&right=read",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -186,7 +186,7 @@ async def test_principal_to_files_pagination_signals_next_offset(client, db_sess
         "akashic.routers.access.get_meili_client", AsyncMock(return_value=fake_client),
     ):
         r = await client.get(
-            f"/api/access?principal=sid:S-1-5-X&limit=5",
+            f"/api/v1/access?principal=sid:S-1-5-X&limit=5",
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200
@@ -222,7 +222,7 @@ async def test_principal_to_files_hydrates_sid_friendly_name(client, db_session)
         "akashic.routers.access.get_meili_client", AsyncMock(return_value=fake_client),
     ):
         r = await client.get(
-            "/api/access?principal=sid:S-1-5-21-X-1001",
+            "/api/v1/access?principal=sid:S-1-5-21-X-1001",
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200
@@ -253,7 +253,7 @@ async def test_file_to_principals_returns_acl_grants(client, db_session):
     await db_session.refresh(entry)
 
     r = await client.get(
-        f"/api/access?file={entry.id}&right=read",
+        f"/api/v1/access?file={entry.id}&right=read",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -276,7 +276,7 @@ async def test_file_to_principals_returns_acl_grants(client, db_session):
 async def test_file_to_principals_404_for_missing_entry(client):
     token = await _register_login(client)
     r = await client.get(
-        f"/api/access?file={uuid_from_str()}&right=read",
+        f"/api/v1/access?file={uuid_from_str()}&right=read",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 404
@@ -323,7 +323,7 @@ async def test_file_to_principals_hydrates_sid_names(client, db_session):
     await db_session.refresh(entry)
 
     r = await client.get(
-        f"/api/access?file={entry.id}&right=read",
+        f"/api/v1/access?file={entry.id}&right=read",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200

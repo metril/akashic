@@ -1,4 +1,4 @@
-"""Phase B1 — tests for POST /api/sources/test and the source_tester service.
+"""Phase B1 — tests for POST /api/v1/sources/test and the source_tester service.
 
 The scanner subprocess is mocked via _run_scanner. Local-path probes hit
 the actual filesystem (using tmp_path to keep things hermetic).
@@ -398,7 +398,7 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
 
 @pytest.mark.asyncio
 async def test_endpoint_local_ok(client: AsyncClient, tmp_path):
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "local",
         "connection_config": {"path": str(tmp_path)},
     })
@@ -411,7 +411,7 @@ async def test_endpoint_local_ok(client: AsyncClient, tmp_path):
 
 @pytest.mark.asyncio
 async def test_endpoint_local_bad_path(client: AsyncClient):
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "local",
         "connection_config": {"path": "/does/not/exist"},
     })
@@ -425,7 +425,7 @@ async def test_endpoint_local_bad_path(client: AsyncClient):
 async def test_endpoint_records_audit_without_credentials(
     client: AsyncClient, setup_db, tmp_path
 ):
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "smb",
         "connection_config": {
             "host": "h", "username": "u", "share": "s",
@@ -463,7 +463,7 @@ async def test_endpoint_audit_includes_access_key_id_for_s3(
     answer 'which credentials were used'. The secret half must still be
     excluded."""
     monkeypatch.setattr(source_tester, "_scanner_binary_path", lambda: None)
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "s3",
         "connection_config": {
             "bucket": "b", "region": "us-east-1",
@@ -487,7 +487,7 @@ async def test_endpoint_audit_includes_access_key_id_for_s3(
 
 @pytest.mark.asyncio
 async def test_endpoint_unsupported_type_returns_200_with_ok_false(client: AsyncClient):
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "ftp",
         "connection_config": {},
     })
@@ -527,7 +527,7 @@ async def test_endpoint_merges_credential_profile_password(
 
     monkeypatch.setattr("akashic.routers.source_test.test_connection", _fake)
 
-    r = await client.post("/api/sources/test", json={
+    r = await client.post("/api/v1/sources/test", json={
         "type": "smb",
         "connection_config": {"host": "fs", "share": "media"},
         "credential_profile_id": str(pid),

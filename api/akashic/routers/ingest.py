@@ -31,7 +31,7 @@ from akashic.services.tag_inheritance import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/ingest", tags=[SCANNER_TAG])
+router = APIRouter(prefix="/ingest", tags=[SCANNER_TAG])
 
 # Stay under postgres's 32767 bind-parameter cap per query.
 _MAX_QUERY_PARAMS = 30_000
@@ -374,10 +374,10 @@ async def ingest_batch(
         # compromised scanner could inject arbitrary scan rows with
         # chosen UUIDs, potentially colliding with future legitimate
         # scans and corrupting their statistics. All scans must be
-        # pre-created via /api/scans/trigger or the lease path.
+        # pre-created via /api/v1/scans/trigger or the lease path.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="scan_id not found — scans must be created via /api/scans before ingest",
+            detail="scan_id not found — scans must be created via /api/v1/scans before ingest",
         )
     if scan.source_id != batch.source_id:
         raise HTTPException(
@@ -733,7 +733,7 @@ async def ingest_batch(
         # Set the reason so the scanner's heartbeat decoder logs an
         # accurate terminal message — a NULL reason is decoded as a
         # false "scan cancelled by user". Mirrors _maybe_finalize_scan
-        # and the /api/scans/{id}/complete endpoint.
+        # and the /api/v1/scans/{id}/complete endpoint.
         scan.cancellation_reason = "completed"
 
         source_result = await db.execute(
@@ -822,7 +822,7 @@ async def ingest_batch(
         #
         # v0.30.0 — text extraction is no longer enqueued here. The
         # scanner extracts content itself (it has connectors for every
-        # source type) and posts it to /api/ingest/content. The
+        # source type) and posts it to /api/v1/ingest/content. The
         # new/changed files it should extract ride the response's
         # `extract_candidates`.
         from akashic.services import meili_indexer

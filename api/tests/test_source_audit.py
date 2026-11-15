@@ -49,7 +49,7 @@ async def client(setup_db, admin_user: User) -> AsyncClient:
 @pytest.mark.asyncio
 async def test_create_source_emits_audit_event(client: AsyncClient):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "src1",
             "type": "local",
@@ -59,7 +59,7 @@ async def test_create_source_emits_audit_event(client: AsyncClient):
     assert r.status_code == 201
     sid = r.json()["id"]
 
-    audit = await client.get(f"/api/sources/{sid}/audit")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit")
     assert audit.status_code == 200
     body = audit.json()
     assert len(body["items"]) == 1
@@ -73,7 +73,7 @@ async def test_create_source_emits_audit_event(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_update_source_emits_diff_event(client: AsyncClient, setup_db):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "src1",
             "type": "smb",
@@ -90,7 +90,7 @@ async def test_update_source_emits_diff_event(client: AsyncClient, setup_db):
     # Edit only the host, send "***" for the password (mimics the UI
     # sending back a scrubbed config without retyping the secret).
     patch = await client.patch(
-        f"/api/sources/{sid}",
+        f"/api/v1/sources/{sid}",
         json={
             "connection_config": {
                 "host": "new-host",
@@ -110,7 +110,7 @@ async def test_update_source_emits_diff_event(client: AsyncClient, setup_db):
         assert src.connection_config["host"] == "new-host"
 
     # Audit event recorded with redacted diff.
-    audit = await client.get(f"/api/sources/{sid}/audit")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit")
     body = audit.json()
     # Two events: source_created + source_updated.
     assert len(body["items"]) == 2
@@ -137,13 +137,13 @@ async def test_update_source_publishes_source_updated(
     monkeypatch.setattr(scan_pubsub, "publish_source_event", _cap)
 
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "evented", "type": "smb",
               "connection_config": {"host": "h", "username": "u", "password": "p"}},
     )
     sid = create.json()["id"]
 
-    patch = await client.patch(f"/api/sources/{sid}", json={"name": "evented2"})
+    patch = await client.patch(f"/api/v1/sources/{sid}", json={"name": "evented2"})
     assert patch.status_code == 200, patch.text
 
     assert any(
@@ -157,7 +157,7 @@ async def test_update_with_real_new_password_records_state_transition(
     client: AsyncClient,
 ):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "src2",
             "type": "smb",
@@ -166,10 +166,10 @@ async def test_update_with_real_new_password_records_state_transition(
     )
     sid = create.json()["id"]
     await client.patch(
-        f"/api/sources/{sid}",
+        f"/api/v1/sources/{sid}",
         json={"connection_config": {"host": "h", "username": "u", "password": "new-real", "share": "s"}},
     )
-    audit = await client.get(f"/api/sources/{sid}/audit")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit")
     update_evt = next(e for e in audit.json()["items"] if e["event_type"] == "source_updated")
     pw_diff = update_evt["payload"]["diff"]["connection_config"]["password"]
     # Both sides redacted to <set>, never the literal values.
@@ -183,7 +183,7 @@ async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: Async
     omit the field entirely, so bumping the parallel-scanner cap left no
     audit trail."""
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "mps-src", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
@@ -192,13 +192,13 @@ async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: Async
     assert create.json()["max_parallel_scanners"] is None
 
     patch = await client.patch(
-        f"/api/sources/{sid}",
+        f"/api/v1/sources/{sid}",
         json={"max_parallel_scanners": 4},
     )
     assert patch.status_code == 200
     assert patch.json()["max_parallel_scanners"] == 4  # the value persisted
 
-    audit = await client.get(f"/api/sources/{sid}/audit")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit")
     update_evt = next(
         e for e in audit.json()["items"] if e["event_type"] == "source_updated"
     )
@@ -210,15 +210,15 @@ async def test_update_max_parallel_scanners_recorded_in_audit_diff(client: Async
 @pytest.mark.asyncio
 async def test_update_no_real_change_does_not_emit(client: AsyncClient):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "src3", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
     await client.patch(
-        f"/api/sources/{sid}",
+        f"/api/v1/sources/{sid}",
         json={"name": "src3"},  # same value
     )
-    audit = await client.get(f"/api/sources/{sid}/audit")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit")
     body = audit.json()
     # Only source_created — the no-op PATCH didn't emit an updated event.
     assert len(body["items"]) == 1
@@ -228,11 +228,11 @@ async def test_update_no_real_change_does_not_emit(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_delete_source_emits_audit_event(client: AsyncClient):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "src4", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
-    r = await client.delete(f"/api/sources/{sid}")
+    r = await client.delete(f"/api/v1/sources/{sid}")
     assert r.status_code == 204
 
     # The audit event lives without a source_id (the row was deleted
@@ -240,7 +240,7 @@ async def test_delete_source_emits_audit_event(client: AsyncClient):
     # else). The original ID is encoded in the payload so the audit
     # log still surfaces the deletion. Look it up via the admin audit
     # endpoint, filtering on event_type.
-    admin = await client.get("/api/admin/audit?event_type=source_deleted")
+    admin = await client.get("/api/v1/admin/audit?event_type=source_deleted")
     body = admin.json()
     matching = [e for e in body["items"] if e["payload"].get("name") == "src4"]
     assert len(matching) == 1
@@ -251,22 +251,22 @@ async def test_delete_source_emits_audit_event(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_audit_endpoint_paginates(client: AsyncClient):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "src5", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
     # Fire several patches to grow the timeline.
     for i in range(3):
-        await client.patch(f"/api/sources/{sid}", json={"name": f"src5-rev{i}"})
+        await client.patch(f"/api/v1/sources/{sid}", json={"name": f"src5-rev{i}"})
 
-    audit = await client.get(f"/api/sources/{sid}/audit?page=1&page_size=2")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit?page=1&page_size=2")
     body = audit.json()
     assert body["page"] == 1
     assert body["page_size"] == 2
     assert len(body["items"]) == 2
 
     # Page 2 has the rest.
-    audit2 = await client.get(f"/api/sources/{sid}/audit?page=2&page_size=2")
+    audit2 = await client.get(f"/api/v1/sources/{sid}/audit?page=2&page_size=2")
     page2 = audit2.json()
     assert len(page2["items"]) >= 2  # 1 create + 3 updates ≥ 4 total
 
@@ -277,18 +277,18 @@ async def test_audit_includes_orphaned_deletion_event(client: AsyncClient):
     gone), but the per-source endpoint should still surface them via
     the `payload.deleted_source_id` lookup."""
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "to-delete", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
-    await client.delete(f"/api/sources/{sid}")
+    await client.delete(f"/api/v1/sources/{sid}")
 
     # The source is gone but the audit access-check uses the source_id
     # to resolve the source row first. Since the source is deleted,
     # check_source_access returns 404 (source not found). The deletion
     # event lives in the global audit log accessible via the admin
     # endpoint.
-    admin = await client.get("/api/admin/audit?event_type=source_deleted")
+    admin = await client.get("/api/v1/admin/audit?event_type=source_deleted")
     body = admin.json()
     matching = [e for e in body["items"] if e["payload"].get("deleted_source_id") == sid]
     assert len(matching) == 1
@@ -297,7 +297,7 @@ async def test_audit_includes_orphaned_deletion_event(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_create_rejects_sentinel_for_secret_field(client: AsyncClient):
     r = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={
             "name": "broken",
             "type": "smb",
@@ -316,12 +316,12 @@ async def test_create_rejects_sentinel_for_secret_field(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_patch_rejects_sentinel_for_non_secret_field(client: AsyncClient):
     create = await client.post(
-        "/api/sources",
+        "/api/v1/sources",
         json={"name": "src6", "type": "local", "connection_config": {"path": "/tmp"}},
     )
     sid = create.json()["id"]
     r = await client.patch(
-        f"/api/sources/{sid}",
+        f"/api/v1/sources/{sid}",
         json={"connection_config": {"path": "***"}},
     )
     assert r.status_code == 400
@@ -357,7 +357,7 @@ async def test_viewer_with_read_access_can_view_audit(setup_db):
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_get_current_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        r = await ac.get(f"/api/sources/{sid}/audit")
+        r = await ac.get(f"/api/v1/sources/{sid}/audit")
         assert r.status_code == 200
 
 
@@ -388,5 +388,5 @@ async def test_viewer_cannot_write_source(setup_db):
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_get_current_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        r = await ac.delete(f"/api/sources/{sid}")
+        r = await ac.delete(f"/api/v1/sources/{sid}")
         assert r.status_code == 403

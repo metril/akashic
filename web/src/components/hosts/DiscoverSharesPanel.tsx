@@ -30,12 +30,12 @@ interface ShareRow {
  * Discover-and-add panel mounted under a host's detail drawer.
  *
  * Flow:
- *   1. On mount, calls /api/hosts/{id}/list-shares (one round trip).
+ *   1. On mount, calls /api/v1/hosts/{id}/list-shares (one round trip).
  *   2. Renders the result as a checkbox list. Existing shares (already
  *      attached to this host) render checked + disabled with an
  *      "(already added)" note so the user sees the delta.
  *   3. User adjusts which to add and the source-row names, then submits.
- *   4. POST /api/hosts/{id}/add-shares creates N Source rows in one
+ *   4. POST /api/v1/hosts/{id}/add-shares creates N Source rows in one
  *      transaction (per-row, so a duplicate name skips that one and
  *      proceeds). Toast reports created/skipped counts.
  *

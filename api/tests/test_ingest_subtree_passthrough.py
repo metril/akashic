@@ -45,7 +45,7 @@ async def test_ingest_passes_through_subtree_totals(
         }],
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -73,7 +73,7 @@ async def test_ingest_subtree_zero_is_preserved(
     scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={
             "source_id": str(source.id),
             "scan_id": str(scan_id),
@@ -113,7 +113,7 @@ async def test_ingest_omits_subtree_when_not_supplied(
     scan_id = await seed_scan(db_session, source.id)
 
     resp = await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={
             "source_id": str(source.id),
             "scan_id": str(scan_id),

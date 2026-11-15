@@ -1,5 +1,5 @@
 /**
- * Admin-gated polling of /api/health/services and /activity.
+ * Admin-gated polling of /api/v1/health/services and /activity.
  *
  * Liveness: 30 s poll — the sidebar chip is glanceable; faster polls
  * just heat up the dashboard for no visible benefit.
@@ -27,7 +27,7 @@ export interface ServicesHealth {
 export interface TikaActivity {
   // v0.30.0 — extraction moved into the scanner; there is no RQ queue
   // or failed-job registry any more. Throughput counters are bumped
-  // by the /api/ingest/content endpoint.
+  // by the /api/v1/ingest/content endpoint.
   extracted_total: number | null;
   extracted_last_5min: number | null;
   last_extracted_at: string | null;

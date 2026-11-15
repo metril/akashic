@@ -1,4 +1,4 @@
-"""DELETE /api/sources/{id} two-flavour behaviour (v0.4.0+).
+"""DELETE /api/v1/sources/{id} two-flavour behaviour (v0.4.0+).
 
 Default `purge_entries=false`:
   - source row gone
@@ -109,7 +109,7 @@ def _stub_meili(monkeypatch):
 async def test_delete_default_preserves_entries(setup_db, admin_user):
     src_id = await _seed_source_with_entries(setup_db, n_entries=4)
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.delete(f"/api/sources/{src_id}")
+        r = await ac.delete(f"/api/v1/sources/{src_id}")
         assert r.status_code == 204, r.text
 
     async with setup_db() as db:
@@ -134,7 +134,7 @@ async def test_delete_default_preserves_entries(setup_db, admin_user):
 async def test_delete_with_purge_removes_entries(setup_db, admin_user):
     src_id = await _seed_source_with_entries(setup_db, n_entries=4)
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.delete(f"/api/sources/{src_id}?purge_entries=true")
+        r = await ac.delete(f"/api/v1/sources/{src_id}?purge_entries=true")
         assert r.status_code == 204, r.text
 
     async with setup_db() as db:
@@ -151,11 +151,11 @@ async def test_delete_with_purge_removes_entries(setup_db, admin_user):
 async def test_get_entry_on_orphaned_returns_with_null_source(setup_db, admin_user):
     src_id = await _seed_source_with_entries(setup_db, n_entries=1)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_id}")
+        await ac.delete(f"/api/v1/sources/{src_id}")
         # Now find the orphaned entry id and fetch it.
         async with setup_db() as db:
             entry_id = (await db.execute(select(Entry.id))).scalar_one()
-        r = await ac.get(f"/api/entries/{entry_id}")
+        r = await ac.get(f"/api/v1/entries/{entry_id}")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["source_id"] is None
@@ -166,10 +166,10 @@ async def test_get_entry_on_orphaned_returns_with_null_source(setup_db, admin_us
 async def test_content_fetch_on_orphaned_returns_404(setup_db, admin_user):
     src_id = await _seed_source_with_entries(setup_db, n_entries=1)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_id}")
+        await ac.delete(f"/api/v1/sources/{src_id}")
         async with setup_db() as db:
             entry_id = (await db.execute(select(Entry.id))).scalar_one()
-        r = await ac.get(f"/api/entries/{entry_id}/content")
+        r = await ac.get(f"/api/v1/entries/{entry_id}/content")
     assert r.status_code == 404
     assert "source has been deleted" in r.text
 
@@ -178,7 +178,7 @@ async def test_content_fetch_on_orphaned_returns_404(setup_db, admin_user):
 async def test_entry_count_endpoint(setup_db, admin_user):
     src_id = await _seed_source_with_entries(setup_db, n_entries=7)
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get(f"/api/sources/{src_id}/entry-count")
+        r = await ac.get(f"/api/v1/sources/{src_id}/entry-count")
     assert r.status_code == 200
     assert r.json() == {"count": 7}
 
@@ -189,7 +189,7 @@ async def test_audit_event_records_flavour(setup_db, admin_user):
     explains what actually happened."""
     src_id = await _seed_source_with_entries(setup_db, n_entries=3)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_id}?purge_entries=true")
+        await ac.delete(f"/api/v1/sources/{src_id}?purge_entries=true")
 
     from akashic.models.audit_event import AuditEvent
     async with setup_db() as db:
@@ -221,7 +221,7 @@ async def test_meili_sync_invoked_correctly(setup_db, admin_user, monkeypatch):
     # Preserve flavour
     src_a = await _seed_source_with_entries(setup_db, n_entries=2)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_a}")
+        await ac.delete(f"/api/v1/sources/{src_a}")
     assert len(update_calls) == 1
     docs = update_calls[0]
     assert len(docs) == 2
@@ -233,7 +233,7 @@ async def test_meili_sync_invoked_correctly(setup_db, admin_user, monkeypatch):
     update_calls.clear()
     src_b = await _seed_source_with_entries(setup_db, n_entries=2)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_b}?purge_entries=true")
+        await ac.delete(f"/api/v1/sources/{src_b}?purge_entries=true")
     assert update_calls == []
     assert len(delete_calls) == 1
     assert len(delete_calls[0]) == 2

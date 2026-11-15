@@ -52,7 +52,7 @@ function deriveSummaryState(r: HostScannerSummaryRow): {
  * Host-level eligibility editor. One row per scanner, aggregating
  * "how many of this host's attached sources can the scanner reach".
  * "Apply" bulk-writes the chosen scanner set across every attached
- * source via PATCH /api/hosts/{id}/allowed-scanners. v0.5.7.
+ * source via PATCH /api/v1/hosts/{id}/allowed-scanners. v0.5.7.
  */
 export function HostAllowedScannersPanel({ hostId, attachedSourceCount }: Props) {
   const summaryQ = useHostScannerSummary(hostId);

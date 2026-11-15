@@ -45,9 +45,9 @@ failure inline. The keep-copy is never touched.
 
 | Method + Path | Body / Query | Notes |
 |---------------|--------------|-------|
-| `GET /api/duplicates?min_size=…&offset=…&limit=…` | — | Group list. `limit` defaults to 50, capped at 200. |
-| `GET /api/duplicates/{content_hash}/files` | — | Files in a single group. |
-| `POST /api/duplicates/{content_hash}/delete-copies` | `{keep_entry_id}` | Admin bulk-delete. Returns per-file outcomes. |
+| `GET /api/v1/duplicates?min_size=…&offset=…&limit=…` | — | Group list. `limit` defaults to 50, capped at 200. |
+| `GET /api/v1/duplicates/{content_hash}/files` | — | Files in a single group. |
+| `POST /api/v1/duplicates/{content_hash}/delete-copies` | `{keep_entry_id}` | Admin bulk-delete. Returns per-file outcomes. |
 
 ## See also
 

@@ -15,7 +15,7 @@ class AkashicConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
-                        f"{user_input[CONF_API_URL]}/api/sources",
+                        f"{user_input[CONF_API_URL]}/api/v1/sources",
                         headers={"Authorization": f"Bearer {user_input[CONF_API_KEY]}"},
                         timeout=10,
                     )

@@ -7,7 +7,7 @@ pointer-summaries to admin gates that live elsewhere.
 ## Audit log
 
 Read-only event stream of permission-relevant actions. Available
-to admins at `GET /api/admin/audit` and rendered in the UI's
+to admins at `GET /api/v1/admin/audit` and rendered in the UI's
 **Admin → Audit** page.
 
 ### Event types
@@ -26,7 +26,7 @@ to admins at `GET /api/admin/audit` and rendered in the UI's
 ### Query
 
 ```
-GET /api/admin/audit?user_id=<uuid>&event_type=search_as_used
+GET /api/v1/admin/audit?user_id=<uuid>&event_type=search_as_used
                     &source_id=<uuid>&from=2026-05-01T00:00:00Z
                     &to=2026-05-31T23:59:59Z
                     &page=1&page_size=50
@@ -63,7 +63,7 @@ GET /api/admin/audit?user_id=<uuid>&event_type=search_as_used
 }
 ```
 
-`GET /api/admin/audit/{event_id}` returns a single event by id.
+`GET /api/v1/admin/audit/{event_id}` returns a single event by id.
 
 ### Retention
 
@@ -75,7 +75,7 @@ for keeping the audit table from growing unboundedly.
 
 ## Effective permissions evaluator
 
-`POST /api/entries/{entry_id}/effective-permissions` answers
+`POST /api/v1/entries/{entry_id}/effective-permissions` answers
 "can this principal do X on this entry?" against the entry's
 full ACL, its base POSIX mode (`uid` / `gid` / `mode`), and any
 source-level security metadata (e.g. an S3 bucket policy).
@@ -156,6 +156,6 @@ don't need to hit it directly.
 | Duplicate bulk-delete | Admin (API gate) | Duplicates page | [duplicates.md](duplicates.md) |
 | Show-all in Browse | Admin (UI gate) | Browse → top-right toggle | [search-and-browse.md](search-and-browse.md) |
 | Search-as principal impersonation | Any user (bounded by source access) | Search page → **Search as…** | [search-and-browse.md](search-and-browse.md) |
-| First-user-is-admin | — | Initial registration at `/api/users/register` | [authentication.md](authentication.md) |
+| First-user-is-admin | — | Initial registration at `/api/v1/users/register` | [authentication.md](authentication.md) |
 | Scanner provisioning (token / discovery / manual) | Admin | Settings → Scanners | [README.md](../README.md#scanners) |
 | Webhook visibility (admin sees all sources) | Admin's webhooks fire on all sources | API only — no UI yet | [webhooks.md](webhooks.md) |

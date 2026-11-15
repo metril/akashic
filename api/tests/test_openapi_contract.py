@@ -32,18 +32,18 @@ AUTH_DEPENDENCIES = frozenset({
 # Routes that are intentionally unauthenticated: they mint credentials,
 # bootstrap a scanner, or are browser redirects.
 PUBLIC_ROUTES = frozenset({
-    "GET /api/auth/providers",
-    "GET /api/auth/oidc/login",
-    "GET /api/auth/oidc/callback",
-    "POST /api/auth/ldap/login",
-    "POST /api/auth/refresh",
-    "POST /api/auth/logout",
-    "POST /api/users/register",
-    "POST /api/users/login",
-    "POST /api/scanners/claim",
-    "POST /api/scanners/discover",
-    "GET /api/scanners/discover/{discovery_id}",
-    "GET /api/oauth/callback",
+    "GET /api/v1/auth/providers",
+    "GET /api/v1/auth/oidc/login",
+    "GET /api/v1/auth/oidc/callback",
+    "POST /api/v1/auth/ldap/login",
+    "POST /api/v1/auth/refresh",
+    "POST /api/v1/auth/logout",
+    "POST /api/v1/users/register",
+    "POST /api/v1/users/login",
+    "POST /api/v1/scanners/claim",
+    "POST /api/v1/scanners/discover",
+    "GET /api/v1/scanners/discover/{discovery_id}",
+    "GET /api/v1/oauth/callback",
 })
 
 # Built-in FastAPI schemas we don't author.

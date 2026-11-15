@@ -11,7 +11,7 @@ from akashic.models.webhook import Webhook
 from akashic.services.url_guard import UnsafeURL, assert_safe_to_dispatch_async
 from akashic.schemas.webhook import WebhookCreate, WebhookResponse
 
-router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
+router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 @router.post("", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)

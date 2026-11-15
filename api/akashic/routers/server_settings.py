@@ -1,9 +1,9 @@
 """Admin API for runtime server settings (typed registry, grouped).
 
-GET  /api/server-settings        -> {"groups": [{key,label,settings:[...]}]}
-GET  /api/server-settings/{key}  -> {key, value, set}
-PATCH /api/server-settings/{key} body {"value": ...}
-PATCH /api/server-settings       body {"values": {key: value, ...}} (atomic)
+GET  /api/v1/server-settings        -> {"groups": [{key,label,settings:[...]}]}
+GET  /api/v1/server-settings/{key}  -> {key, value, set}
+PATCH /api/v1/server-settings/{key} body {"value": ...}
+PATCH /api/v1/server-settings       body {"values": {key: value, ...}} (atomic)
 
 Secrets are never returned: ``value`` is the mask when set, "" when not,
 and ``set`` says which. On PATCH a secret of null or the mask is left
@@ -30,7 +30,7 @@ from akashic.services.runtime_settings import (
 )
 from akashic.services.server_settings import set_setting
 
-router = APIRouter(prefix="/api/server-settings", tags=["server-settings"])
+router = APIRouter(prefix="/server-settings", tags=["server-settings"])
 
 
 class SettingValue(BaseModel):

@@ -20,7 +20,7 @@ func TestClient_SendBatch(t *testing.T) {
 	var received models.ScanBatch
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/ingest/batch" {
+		if r.URL.Path != "/api/v1/ingest/batch" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer test-key" {

@@ -13,7 +13,7 @@ from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.scan import ScanResponse
 
-router = APIRouter(prefix="/api/scans", tags=["scans"])
+router = APIRouter(prefix="/scans", tags=["scans"])
 
 
 class ScanTriggerRequest(BaseModel):
@@ -47,7 +47,7 @@ async def trigger_scan(
     Phase 2 multi-scanner: the api no longer spawns a subprocess on
     its own host. We insert a `pending` Scan row tagged with the
     source's preferred_pool (or NULL for any scanner); a registered
-    scanner agent picks it up via /api/scans/lease within a few
+    scanner agent picks it up via /api/v1/scans/lease within a few
     seconds. Returns 202-shaped success even though the scan hasn't
     started — the UI watches the status field for "running" /
     "completed" via the existing polling.

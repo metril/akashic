@@ -58,7 +58,7 @@ async def test_gzip_bomb_rejected_413(monkeypatch):
 
 async def _post(client, token, source_id, scan_id, entries=()):
     return await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={"source_id": str(source_id), "scan_id": str(scan_id),
               "is_final": False, "entries": list(entries)},
         headers={"Authorization": f"Bearer {token}"},
@@ -103,12 +103,12 @@ async def test_login_rate_limited(client, db_session):
     await db_session.commit()
     codes = []
     for _ in range(12):
-        r = await client.post("/api/users/login",
+        r = await client.post("/api/v1/users/login",
                               json={"username": "rl", "password": "wrong"})
         codes.append(r.status_code)
     assert codes[0] == 401 and codes[-1] == 429
     # A different username from the same IP has its own bucket.
-    r = await client.post("/api/users/login",
+    r = await client.post("/api/v1/users/login",
                           json={"username": "other", "password": "wrong"})
     assert r.status_code == 401
 

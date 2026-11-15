@@ -48,7 +48,7 @@ class HostResponse(BaseModel):
 
 
 class ListSharesResponse(BaseModel):
-    """POST /api/hosts/{id}/list-shares result.
+    """POST /api/v1/hosts/{id}/list-shares result.
 
     `shares` is the enumerated list (possibly empty) on success. On
     failure `step`/`error` carry the same step:reason classification
@@ -89,7 +89,7 @@ class HostSummary(BaseModel):
     Inlining the full HostResponse (with credentials, even masked)
     everywhere a source is returned would be both heavy and
     information-leaky. Callers that need the full row fetch the
-    host via /api/hosts/{id}.
+    host via /api/v1/hosts/{id}.
     """
 
     id: uuid.UUID

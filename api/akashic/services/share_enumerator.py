@@ -6,7 +6,7 @@ discovery, same stdin-piped credential JSON convention, same
 `step:reason` stderr classification — but the success payload is a
 `{"shares": [...]}` dict instead of `{"ok": true}`.
 
-Used by POST /api/hosts/{id}/list-shares to populate the Discover
+Used by POST /api/v1/hosts/{id}/list-shares to populate the Discover
 Shares panel on the Hosts page.
 """
 from __future__ import annotations

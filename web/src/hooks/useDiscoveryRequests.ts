@@ -1,8 +1,8 @@
 /**
- * Admin-gated CRUD over /api/scanner-discovery-requests.
+ * Admin-gated CRUD over /api/v1/scanner-discovery-requests.
  *
  * The list query is the source of truth for the "Pending claims"
- * pane. We also subscribe to the /ws/scanners stream and invalidate
+ * pane. We also subscribe to the /ws/v1/scanners stream and invalidate
  * on `scanner.discovery_*` events so a new request shows up live and
  * an approve/deny by another admin tab refreshes immediately.
  */

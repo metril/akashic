@@ -1,5 +1,5 @@
 /**
- * Subscribe the Dashboard to /ws/scans events and invalidate the
+ * Subscribe the Dashboard to /ws/v1/scans events and invalidate the
  * `["dashboard", "summary"]` query when something happens that
  * could change a tile.
  *

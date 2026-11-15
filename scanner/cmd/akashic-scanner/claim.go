@@ -87,7 +87,7 @@ func runClaim(args []string) {
 	}
 }
 
-// postClaim does the POST /api/scanners/claim round-trip and returns
+// postClaim does the POST /api/v1/scanners/claim round-trip and returns
 // the assigned (scanner_id, name, pool). Errors include the response
 // body so the operator sees the api's reason verbatim ("token has
 // expired", "token has already been used", …).
@@ -98,7 +98,7 @@ func postClaim(ctx context.Context, apiBase string, body map[string]any) (string
 	}
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodPost,
-		apiBase+"/api/scanners/claim",
+		apiBase+"/api/v1/scanners/claim",
 		bytes.NewReader(buf),
 	)
 	if err != nil {

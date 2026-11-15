@@ -102,7 +102,7 @@ export function useSourceStatusReconciler(): void {
       patchSourceStatus(qc, event.source_id, event.source_status);
       return;
     }
-    // v0.4.6: also apply on snapshot frames. The /ws/scans server
+    // v0.4.6: also apply on snapshot frames. The /ws/v1/scans server
     // sends a snapshot on every (re)connect carrying source_status
     // for each active scan. Without this, a panel opened right
     // after a reconnect would show source.status from the REST

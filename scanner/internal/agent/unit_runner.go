@@ -470,7 +470,7 @@ func runUnitWalk(
 		State:           state,
 		// v0.31.6 — wire the shared Reporter so this unit's walk streams
 		// its log lines (connecting / walk progress / per-file current
-		// path) to /api/scans/{id}/log and on into the Live Log.
+		// path) to /api/v1/scans/{id}/log and on into the Live Log.
 		Reporter: reporter,
 		// v0.30.0 — content extraction for this unit's subtree.
 		Extractor:               extractor,

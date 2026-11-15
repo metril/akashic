@@ -1,4 +1,4 @@
-"""POST /api/scans/trigger idempotency (v0.4.4).
+"""POST /api/v1/scans/trigger idempotency (v0.4.4).
 
 The user pressed "Scan now" twice because the source.status doesn't
 flip to 'scanning' until an agent leases the work (~5s after enqueue
@@ -71,7 +71,7 @@ async def test_trigger_returns_existing_pending_instead_of_stacking(
     src_id = await _seed_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
         first = await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(src_id), "scan_type": "incremental"},
         )
         assert first.status_code == 200
@@ -79,7 +79,7 @@ async def test_trigger_returns_existing_pending_instead_of_stacking(
 
         # Second press while the first is still pending.
         second = await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(src_id), "scan_type": "incremental"},
         )
         assert second.status_code == 200
@@ -98,7 +98,7 @@ async def test_trigger_creates_fresh_scan_after_terminal(setup_db, admin_user):
     src_id = await _seed_source(setup_db)
     async with _admin_client(setup_db, admin_user) as ac:
         first = (await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(src_id), "scan_type": "incremental"},
         )).json()
         first_scan_id = first["scan_id"]
@@ -114,7 +114,7 @@ async def test_trigger_creates_fresh_scan_after_terminal(setup_db, admin_user):
 
     async with _admin_client(setup_db, admin_user) as ac:
         second = (await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(src_id), "scan_type": "incremental"},
         )).json()
     assert second["scan_id"] != first_scan_id
@@ -131,11 +131,11 @@ async def test_trigger_dedup_is_per_source(setup_db, admin_user):
     b = await _seed_source(setup_db, name="src-b")
     async with _admin_client(setup_db, admin_user) as ac:
         a_resp = (await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(a), "scan_type": "incremental"},
         )).json()
         b_resp = (await ac.post(
-            "/api/scans/trigger",
+            "/api/v1/scans/trigger",
             json={"source_id": str(b), "scan_type": "incremental"},
         )).json()
     assert a_resp["scan_id"] != b_resp["scan_id"]

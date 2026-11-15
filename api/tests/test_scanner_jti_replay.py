@@ -3,7 +3,7 @@
 Two angles covered:
 1. Unit test of claim_jti's TTL math + missing-jti behaviour with a
    stubbed Redis client.
-2. Endpoint-level replay test against /api/scans/lease — the second
+2. Endpoint-level replay test against /api/v1/scans/lease — the second
    request with the same jti must 401.
 """
 import time
@@ -132,7 +132,7 @@ async def test_scanner_jwt_replay_returns_401(setup_db, admin_user):
 
     async with AsyncClient(transport=ASGITransport(app=admin_app), base_url="http://t") as ac:
         scn = (await ac.post(
-            "/api/scanners",
+            "/api/v1/scanners",
             json={"name": f"s-{uuid.uuid4().hex[:6]}", "pool": "default"},
         )).json()
 
@@ -149,11 +149,11 @@ async def test_scanner_jwt_replay_returns_401(setup_db, admin_user):
     with patch.object(scanner_jti, "_client", lambda: fake):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
             r1 = await ac.post(
-                "/api/scans/lease", json={},
+                "/api/v1/scans/lease", json={},
                 headers={"Authorization": f"Bearer {token}"},
             )
             r2 = await ac.post(
-                "/api/scans/lease", json={},
+                "/api/v1/scans/lease", json={},
                 headers={"Authorization": f"Bearer {token}"},
             )
 

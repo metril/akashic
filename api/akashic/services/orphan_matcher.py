@@ -240,7 +240,7 @@ async def count_potential_matches(
     """Count distinct orphans that share a path with at least one
     fresh entry of `source_id`. Doesn't disambiguate or check
     hashes — that's `find_matches`. Used by the (no-longer-default)
-    GET /api/sources/{id}/orphan-match-count endpoint, kept for
+    GET /api/v1/sources/{id}/orphan-match-count endpoint, kept for
     callers that want a cheap sanity check.
     """
     if not await _has_any_orphans(db):

@@ -14,7 +14,7 @@ Switch the hot path to Redis ``HINCRBY``:
   * **Ingest** calls ``add(scan_id, files_found=N, files_new=M, ...)``;
     one Redis round-trip per batch with no row lock and no transaction
     contention.
-  * **Live readers** (heartbeat broadcast, GET /api/scans/{id}) read
+  * **Live readers** (heartbeat broadcast, GET /api/v1/scans/{id}) read
     via ``read(scan_id)`` which falls back to the scan row's columns
     when Redis is unreachable so the system degrades to v0.29.1
     semantics instead of going blank.

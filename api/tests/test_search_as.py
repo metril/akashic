@@ -5,8 +5,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -23,7 +23,7 @@ async def test_search_as_records_audit_event(client, db_session):
         "groups": ["100"],
     })
     r = await client.get(
-        f"/api/search?q=hello&search_as={override}",
+        f"/api/v1/search?q=hello&search_as={override}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -41,7 +41,7 @@ async def test_search_as_records_audit_event(client, db_session):
 async def test_search_as_invalid_json_rejected(client):
     token = await _register_login(client)
     r = await client.get(
-        "/api/search?q=&search_as=not-json",
+        "/api/v1/search?q=&search_as=not-json",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 422
@@ -54,19 +54,19 @@ async def test_search_as_rejected_for_non_admin(client):
     created by alice with the default role='user'."""
     alice_token = await _register_login(client, username="alice")
     await client.post(
-        "/api/users/create",
+        "/api/v1/users/create",
         json={"username": "bob", "password": "testpass123"},
         headers={"Authorization": f"Bearer {alice_token}"},
     )
     bob_login = await client.post(
-        "/api/users/login",
+        "/api/v1/users/login",
         json={"username": "bob", "password": "testpass123"},
     )
     bob_token = bob_login.json()["access_token"]
 
     override = json.dumps({"type": "posix_uid", "identifier": "1234", "groups": []})
     r = await client.get(
-        f"/api/search?q=&search_as={override}",
+        f"/api/v1/search?q=&search_as={override}",
         headers={"Authorization": f"Bearer {bob_token}"},
     )
     assert r.status_code == 403
@@ -85,18 +85,18 @@ async def test_search_as_uses_override_tokens_not_user_bindings(client, db_sessi
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "self"},
+        "/api/v1/identities", json={"label": "self"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     override = json.dumps({"type": "posix_uid", "identifier": "9999", "groups": []})
     await client.get(
-        f"/api/search?q=&search_as={override}",
+        f"/api/v1/search?q=&search_as={override}",
         headers={"Authorization": f"Bearer {token}"},
     )
 

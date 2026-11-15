@@ -14,31 +14,31 @@ Security notes (review A-C2/A-C3):
 
 Endpoints:
 
-  GET    /api/oauth/providers
+  GET    /api/v1/oauth/providers
     List the providers the API knows about, with their configured-status.
-  GET    /api/oauth/providers/{provider}
+  GET    /api/v1/oauth/providers/{provider}
     Single-provider read (admin).
-  PUT    /api/oauth/providers/{provider}
+  PUT    /api/v1/oauth/providers/{provider}
     Upsert client_id / client_secret / redirect_uri (admin).
-  DELETE /api/oauth/providers/{provider}
+  DELETE /api/v1/oauth/providers/{provider}
     Forget the client config (admin).
 
-  POST   /api/oauth/start
+  POST   /api/v1/oauth/start
     Build an authorize URL for the given provider. Returns a JSON body
     with ``authorization_url`` so the frontend can ``window.open`` it.
-  GET    /api/oauth/callback
+  GET    /api/v1/oauth/callback
     The redirect_uri the provider hits. Exchanges the code for tokens,
     persists (or refreshes) the credential, then renders an HTML page
     that posts a ``window.opener`` message and closes itself.
 
-  GET    /api/oauth/credentials
+  GET    /api/v1/oauth/credentials
     List the credentials the current user can see. PR-A returns all
     credentials to admins; non-admins see only credentials whose
     source_id maps to a source they can access. (PR-C tightens this.)
-  DELETE /api/oauth/credentials/{credential_id}
+  DELETE /api/v1/oauth/credentials/{credential_id}
     Revoke + forget a stored credential (admin).
 
-  POST   /api/oauth/credentials/{credential_id}/refresh
+  POST   /api/v1/oauth/credentials/{credential_id}/refresh
     Force a refresh of the cached access token. Used by Connected
     Accounts UI to confirm refresh actually works end-to-end.
 """
@@ -89,7 +89,7 @@ from akashic.services.source_oauth import (
 )
 
 
-router = APIRouter(prefix="/api/oauth", tags=["oauth"])
+router = APIRouter(prefix="/oauth", tags=["oauth"])
 
 
 # -----------------------------------------------------------------------------

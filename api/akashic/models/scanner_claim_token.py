@@ -1,10 +1,10 @@
 """ScannerClaimToken — single-use bootstrap secret for the
 self-registering scanner flow.
 
-An admin mints a token via POST /api/scanner-claim-tokens; the
+An admin mints a token via POST /api/v1/scanner-claim-tokens; the
 plaintext crosses the wire once (in the response body), and only
 its sha256 hash is persisted. The scanner host POSTs the plaintext
-back at POST /api/scanners/claim along with a freshly-generated
+back at POST /api/v1/scanners/claim along with a freshly-generated
 public key — server creates the Scanner row, marks the token row
 used, and never sees the private key.
 

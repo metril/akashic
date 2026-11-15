@@ -52,7 +52,7 @@ func (r *Reporter) postHeartbeat(ctx context.Context) (terminal bool) {
 		r.logSink.Warn("heartbeat marshal failed: %v", err)
 		return false
 	}
-	url := r.apiURL + "/api/scans/" + r.scanID + "/heartbeat"
+	url := r.apiURL + "/api/v1/scans/" + r.scanID + "/heartbeat"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return false

@@ -1,4 +1,4 @@
-"""POST /api/sources/{id}/reattach-orphans + the orphan-matcher.
+"""POST /api/v1/sources/{id}/reattach-orphans + the orphan-matcher.
 
 End-to-end shape:
   1. Seed source A + 3 entries → delete (preserve) → 3 orphans.
@@ -93,7 +93,7 @@ async def test_dry_run_then_commit_reattaches(setup_db, admin_user):
                ("/tmp/file-3.txt", "h3")]
     src_a = await _seed_source(setup_db, "src-a", a_paths)
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_a}")
+        await ac.delete(f"/api/v1/sources/{src_a}")
 
     # Snapshot orphan ids — these MUST survive the reattach (the
     # whole point is that history follows the orphan, not a fresh row).
@@ -109,7 +109,7 @@ async def test_dry_run_then_commit_reattaches(setup_db, admin_user):
     # Dry-run.
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{src_b}/reattach-orphans",
+            f"/api/v1/sources/{src_b}/reattach-orphans",
             json={"strategy": "path", "dry_run": True},
         )
     assert r.status_code == 200
@@ -129,7 +129,7 @@ async def test_dry_run_then_commit_reattaches(setup_db, admin_user):
     # Commit.
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{src_b}/reattach-orphans",
+            f"/api/v1/sources/{src_b}/reattach-orphans",
             json={"strategy": "path", "dry_run": False},
         )
     assert r.status_code == 200
@@ -153,7 +153,7 @@ async def test_path_and_hash_excludes_mismatched(setup_db, admin_user):
         ("/tmp/changed.txt", "h-old"),
     ])
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_a}")
+        await ac.delete(f"/api/v1/sources/{src_a}")
 
     src_b = await _seed_source(setup_db, "src-b", [
         ("/tmp/same.txt", "h1"),       # hash matches
@@ -162,7 +162,7 @@ async def test_path_and_hash_excludes_mismatched(setup_db, admin_user):
 
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{src_b}/reattach-orphans",
+            f"/api/v1/sources/{src_b}/reattach-orphans",
             json={"strategy": "path_and_hash", "dry_run": True},
         )
     body = r.json()
@@ -183,13 +183,13 @@ async def test_ambiguous_paths_are_skipped(setup_db, admin_user):
     src_a = await _seed_source(setup_db, "src-a", [("/tmp/x.txt", None)])
     src_a2 = await _seed_source(setup_db, "src-a2", [("/tmp/x.txt", None)])
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_a}")
-        await ac.delete(f"/api/sources/{src_a2}")
+        await ac.delete(f"/api/v1/sources/{src_a}")
+        await ac.delete(f"/api/v1/sources/{src_a2}")
     src_b = await _seed_source(setup_db, "src-b", [("/tmp/x.txt", None)])
 
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{src_b}/reattach-orphans",
+            f"/api/v1/sources/{src_b}/reattach-orphans",
             json={"strategy": "path", "dry_run": True},
         )
     body = r.json()
@@ -203,13 +203,13 @@ async def test_orphan_match_count_endpoint(setup_db, admin_user):
         ("/tmp/1.txt", None), ("/tmp/2.txt", None), ("/tmp/3.txt", None),
     ])
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.delete(f"/api/sources/{src_a}")
+        await ac.delete(f"/api/v1/sources/{src_a}")
     src_b = await _seed_source(setup_db, "src-b", [
         ("/tmp/1.txt", None), ("/tmp/2.txt", None),
         # Note: /tmp/3.txt absent → that orphan stays unattached.
     ])
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get(f"/api/sources/{src_b}/orphan-match-count")
+        r = await ac.get(f"/api/v1/sources/{src_b}/orphan-match-count")
     assert r.status_code == 200
     assert r.json() == {"count": 2}
 
@@ -219,7 +219,7 @@ async def test_reattach_404_for_unknown_source(setup_db, admin_user):
     bogus = uuid.uuid4()
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{bogus}/reattach-orphans",
+            f"/api/v1/sources/{bogus}/reattach-orphans",
             json={"strategy": "path", "dry_run": True},
         )
     assert r.status_code == 404
@@ -230,7 +230,7 @@ async def test_reattach_400_for_bad_strategy(setup_db, admin_user):
     src = await _seed_source(setup_db, "x", [])
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.post(
-            f"/api/sources/{src}/reattach-orphans",
+            f"/api/v1/sources/{src}/reattach-orphans",
             json={"strategy": "fingerprint_chase", "dry_run": True},
         )
     assert r.status_code == 400
@@ -245,11 +245,11 @@ async def test_orphan_match_short_circuits_when_no_orphans(setup_db, admin_user)
         ("/tmp/a.txt", None), ("/tmp/b.txt", None),
     ])
     async with _admin_client(setup_db, admin_user) as ac:
-        cnt = await ac.get(f"/api/sources/{src}/orphan-match-count")
+        cnt = await ac.get(f"/api/v1/sources/{src}/orphan-match-count")
         assert cnt.status_code == 200
         assert cnt.json() == {"count": 0}
         dry = await ac.post(
-            f"/api/sources/{src}/reattach-orphans",
+            f"/api/v1/sources/{src}/reattach-orphans",
             json={"strategy": "path", "dry_run": True},
         )
     assert dry.status_code == 200

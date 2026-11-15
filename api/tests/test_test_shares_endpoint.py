@@ -1,4 +1,4 @@
-"""Bulk reachability fan-out — POST /api/hosts/{id}/test-shares.
+"""Bulk reachability fan-out — POST /api/v1/hosts/{id}/test-shares.
 
 Confirms the v0.28.1 host-level Test reachability button:
   * dispatches to scanners (no inline API dialing).
@@ -102,7 +102,7 @@ async def test_test_shares_returns_empty_when_no_attached_sources(
     client: AsyncClient, setup_db,
 ):
     host_id, _ = await _seed_host_with_shares(setup_db, 0)
-    r = await client.post(f"/api/hosts/{host_id}/test-shares", json={})
+    r = await client.post(f"/api/v1/hosts/{host_id}/test-shares", json={})
     assert r.status_code == 200, r.text
     assert r.json()["results"] == []
 
@@ -140,7 +140,7 @@ async def test_test_shares_publishes_one_probe_per_source_scanner_pair(
 
     try:
         r = await client.post(
-            f"/api/hosts/{host_id}/test-shares", json={},
+            f"/api/v1/hosts/{host_id}/test-shares", json={},
         )
     finally:
         probe_dispatch.dispatch_remote = real_dispatch
@@ -191,7 +191,7 @@ async def test_test_shares_skips_offline_scanners_by_default(
 
     probe_dispatch.dispatch_remote = fast
     try:
-        r = await client.post(f"/api/hosts/{host_id}/test-shares", json={})
+        r = await client.post(f"/api/v1/hosts/{host_id}/test-shares", json={})
     finally:
         probe_dispatch.dispatch_remote = real_dispatch
 
@@ -205,5 +205,5 @@ async def test_test_shares_skips_offline_scanners_by_default(
 
 @pytest.mark.asyncio
 async def test_test_shares_404_on_unknown_host(client: AsyncClient):
-    r = await client.post(f"/api/hosts/{uuid.uuid4()}/test-shares", json={})
+    r = await client.post(f"/api/v1/hosts/{uuid.uuid4()}/test-shares", json={})
     assert r.status_code == 404

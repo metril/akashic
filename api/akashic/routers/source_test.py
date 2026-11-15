@@ -1,4 +1,4 @@
-"""POST /api/sources/test — pre-flight connection probe for source creation.
+"""POST /api/v1/sources/test — pre-flight connection probe for source creation.
 
 Runs the same probe before save that the user gets when they click
 "Test connection" in the UI. Records a `source_test_run` audit event
@@ -18,7 +18,7 @@ from akashic.models.user import User
 from akashic.services.audit import record_event
 from akashic.services.source_tester import TestResult, test_connection
 
-router = APIRouter(prefix="/api/sources", tags=["sources"])
+router = APIRouter(prefix="/sources", tags=["sources"])
 
 
 class TestSourceRequest(BaseModel):

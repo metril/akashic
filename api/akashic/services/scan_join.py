@@ -3,16 +3,16 @@
 Pre-fix multi-scanner cooperation existed in the schema (work units,
 ``max_parallel_scanners``, ``_distinct_active_scanners`` cap check) but
 never functioned end-to-end. The first scanner claimed the scan via
-``POST /api/scans/lease`` and flipped ``assigned_scanner_id`` non-NULL;
+``POST /api/v1/scans/lease`` and flipped ``assigned_scanner_id`` non-NULL;
 any second scanner polling lease was filtered out by the
 ``assigned_scanner_id IS NULL`` clause and idled forever. It had no
 way to discover that an in-flight scan needed help.
 
 This module is the discovery channel: once the first scanner finishes
-enumerating units in ``POST /api/scans/{id}/work/split``, the API
+enumerating units in ``POST /api/v1/scans/{id}/work/split``, the API
 LPUSHes a per-eligible-scanner join notification onto a Redis list
 (``scanner:{id}:scan_join``). Each other eligible scanner long-polls
-``GET /api/scanners/{id}/scans/long-poll`` and BRPOPs the next
+``GET /api/v1/scanners/{id}/scans/long-poll`` and BRPOPs the next
 notification, then dispatches to the same ``runUnitCoordinated`` path
 the original holder runs — leasing work units from the existing pool.
 
@@ -68,7 +68,7 @@ async def notify_eligible_joiners(
     enabled + pool match + allowed_source_ids match + currently online.
 
     Per-scanner JWT is minted fresh at notify time so the joiner can
-    immediately call /api/scans/{id}/work/lease + /api/ingest/batch
+    immediately call /api/v1/scans/{id}/work/lease + /api/v1/ingest/batch
     without a separate handshake round trip. Scanner_id claim embeds
     in the JWT (v0.28.2 pattern) so attribution propagates.
     """
@@ -87,7 +87,7 @@ async def notify_eligible_joiners(
         return 0
 
     from akashic.models.scanner import Scanner
-    from akashic.routers.scanners import _mint_ingest_jwt
+    from akashic.routers.scanner_protocol import _mint_ingest_jwt
     from akashic.routers.sources import (
         _NOTIFY_ONLINE_THRESHOLD_SECONDS,
         _eligible_scanners_for,

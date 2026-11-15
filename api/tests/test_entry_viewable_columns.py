@@ -52,7 +52,7 @@ async def test_ingest_populates_viewable_columns_for_new_entry(
         "is_final": True,
     }
     resp = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -107,7 +107,7 @@ async def test_ingest_updates_viewable_columns_on_acl_change(
         }],
     }
     resp = await client.post(
-        "/api/ingest/batch", json=base_payload,
+        "/api/v1/ingest/batch", json=base_payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -127,7 +127,7 @@ async def test_ingest_updates_viewable_columns_on_acl_change(
         "mode": 0o644, "uid": 1000, "gid": 100,
     }]
     resp = await client.post(
-        "/api/ingest/batch", json=new_payload,
+        "/api/v1/ingest/batch", json=new_payload,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text

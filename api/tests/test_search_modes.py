@@ -14,10 +14,10 @@ from akashic.services.search import glob_to_sql_like, validate_regex
 
 async def _register_login(client, username="alice", password="testpass123"):
     await client.post(
-        "/api/users/register", json={"username": username, "password": password}
+        "/api/v1/users/register", json={"username": username, "password": password}
     )
     login = await client.post(
-        "/api/users/login", json={"username": username, "password": password}
+        "/api/v1/users/login", json={"username": username, "password": password}
     )
     return login.json()["access_token"]
 
@@ -103,7 +103,7 @@ async def test_search_glob_matches_filename_pattern(client, db_session):
         ["/data/report-2024.pdf", "/data/summary.pdf", "/data/report-2025.pdf"],
     )
     r = await client.get(
-        "/api/search?q=report*.pdf&mode=glob",
+        "/api/v1/search?q=report*.pdf&mode=glob",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -123,7 +123,7 @@ async def test_search_glob_double_star_matches_across_paths(client, db_session):
         ],
     )
     r = await client.get(
-        "/api/search?q=**/invoices/*&mode=glob",
+        "/api/v1/search?q=**/invoices/*&mode=glob",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -142,7 +142,7 @@ async def test_search_regex_matches_path_pattern(client, db_session):
         ["/data/2024-Q1.pdf", "/data/2025-Q3.pdf", "/data/notes.pdf"],
     )
     r = await client.get(
-        "/api/search?q=^/data/[0-9]{4}-Q[1-4]\\.pdf$&mode=regex",
+        "/api/v1/search?q=^/data/[0-9]{4}-Q[1-4]\\.pdf$&mode=regex",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -154,7 +154,7 @@ async def test_search_regex_matches_path_pattern(client, db_session):
 async def test_search_regex_invalid_returns_400(client):
     token = await _register_login(client)
     r = await client.get(
-        "/api/search?q=[invalid&mode=regex",
+        "/api/v1/search?q=[invalid&mode=regex",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
@@ -174,7 +174,7 @@ async def test_search_fuzzy_default_unchanged(client, db_session):
     token = await _register_login(client)
     await _seed_entries(db_session, ["/data/invoice.pdf", "/data/report.pdf"])
     r = await client.get(
-        "/api/search?q=invoice",
+        "/api/v1/search?q=invoice",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -189,7 +189,7 @@ async def test_search_fuzzy_default_unchanged(client, db_session):
 async def test_search_unknown_mode_rejected(client):
     token = await _register_login(client)
     r = await client.get(
-        "/api/search?q=anything&mode=destroy_everything",
+        "/api/v1/search?q=anything&mode=destroy_everything",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 422

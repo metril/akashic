@@ -13,7 +13,7 @@ from akashic.models.audit_event import AuditEvent
 from akashic.models.user import User
 from akashic.schemas.audit import AuditEventList, AuditEventOut
 
-router = APIRouter(prefix="/api/admin/audit", tags=["admin-audit"])
+router = APIRouter(prefix="/admin/audit", tags=["admin-audit"])
 
 
 def _parse_dt(raw: str | None) -> datetime | None:

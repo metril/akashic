@@ -1,7 +1,7 @@
 """On-demand probe long-poll round-trip (v0.28.0).
 
 Cover:
-  * GET /api/scanners/{id}/probes/long-poll requires the scanner JWT.
+  * GET /api/v1/scanners/{id}/probes/long-poll requires the scanner JWT.
   * 204 when nothing is pending.
   * Returns the probe payload when the API publishes one mid-call.
   * The companion POST /probes/{request_id}/report writes a row to
@@ -54,7 +54,7 @@ async def bearer_client(setup_db) -> AsyncClient:
 @pytest_asyncio.fixture
 async def admin_client(setup_db) -> AsyncClient:
     """Admin-authed client for fixture setup endpoints
-    (POST /api/scanners). The scanner endpoints under test still
+    (POST /api/v1/scanners). The scanner endpoints under test still
     require the scanner JWT."""
     from akashic.auth.dependencies import get_current_user, require_admin
     from akashic.models.user import User
@@ -96,7 +96,7 @@ async def test_long_poll_rejects_non_scanner_jwt(bearer_client, admin_client):
     (akashic-ingest audience) must NOT satisfy the scanner JWT
     dependency."""
     scn = (await admin_client.post(
-        "/api/scanners", json={"name": "lp-1", "pool": "default"},
+        "/api/v1/scanners", json={"name": "lp-1", "pool": "default"},
     )).json()
     sid = scn["id"]
 
@@ -104,7 +104,7 @@ async def test_long_poll_rejects_non_scanner_jwt(bearer_client, admin_client):
     ingest = create_ingest_token(str(uuid.uuid4()))
     for tok in (access, ingest):
         r = await bearer_client.get(
-            f"/api/scanners/{sid}/probes/long-poll",
+            f"/api/v1/scanners/{sid}/probes/long-poll",
             headers={"Authorization": f"Bearer {tok}"},
         )
         assert r.status_code == 401, f"got {r.status_code}: {r.text}"
@@ -117,7 +117,7 @@ async def test_long_poll_returns_204_when_no_probe_pending(
     """Empty long-poll → 204. Patches the wait timeout down to ~250ms
     so the test is quick."""
     scn = (await admin_client.post(
-        "/api/scanners", json={"name": "lp-2", "pool": "default"},
+        "/api/v1/scanners", json={"name": "lp-2", "pool": "default"},
     )).json()
     tok = _scanner_jwt(scn["id"], scn["private_key_pem"])
 
@@ -129,10 +129,10 @@ async def test_long_poll_returns_204_when_no_probe_pending(
 
     monkeypatch.setattr(probe_dispatch, "wait_for_probe", fast_wait)
     # The endpoint imports wait_for_probe inside its handler:
-    import akashic.routers.scanners as routers_scanners  # noqa: F401
+    import akashic.routers.scanner_protocol as routers_scanners  # noqa: F401
 
     r = await bearer_client.get(
-        f"/api/scanners/{scn['id']}/probes/long-poll",
+        f"/api/v1/scanners/{scn['id']}/probes/long-poll",
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 204
@@ -151,7 +151,7 @@ async def test_long_poll_delivers_published_probe(
     drops the message.
     """
     scn = (await admin_client.post(
-        "/api/scanners", json={"name": "lp-3", "pool": "default"},
+        "/api/v1/scanners", json={"name": "lp-3", "pool": "default"},
     )).json()
     tok = _scanner_jwt(scn["id"], scn["private_key_pem"])
 
@@ -182,7 +182,7 @@ async def test_long_poll_delivers_published_probe(
     await redis_client().lpush(channel, json.dumps(probe))
 
     r = await bearer_client.get(
-        f"/api/scanners/{scn['id']}/probes/long-poll",
+        f"/api/v1/scanners/{scn['id']}/probes/long-poll",
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 200, r.text
@@ -199,7 +199,7 @@ async def test_report_persists_result_and_publishes(
     row attributed to the scanner and publishes to the per-source
     fan-out channel."""
     scn = (await admin_client.post(
-        "/api/scanners", json={"name": "lp-4", "pool": "default"},
+        "/api/v1/scanners", json={"name": "lp-4", "pool": "default"},
     )).json()
     tok = _scanner_jwt(scn["id"], scn["private_key_pem"])
 
@@ -213,7 +213,7 @@ async def test_report_persists_result_and_publishes(
 
     request_id = uuid.uuid4()
     r = await bearer_client.post(
-        f"/api/scanners/{scn['id']}/probes/{request_id}/report",
+        f"/api/v1/scanners/{scn['id']}/probes/{request_id}/report",
         json={
             "ok": True, "step": None, "error": None,
             "source_id": str(src_id),

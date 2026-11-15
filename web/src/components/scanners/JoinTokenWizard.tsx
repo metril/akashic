@@ -68,7 +68,7 @@ export function JoinTokenWizard({ onClose }: Props) {
     setStep(2);
   }
 
-  // Step 3: subscribe to /ws/scanners and flip to success on a
+  // Step 3: subscribe to /ws/v1/scanners and flip to success on a
   // matching claim_redeemed event.
   useScannersStreamEvents((event) => {
     if (

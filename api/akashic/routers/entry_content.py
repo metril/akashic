@@ -1,5 +1,5 @@
-"""GET /api/entries/{id}/content   — streams the file's bytes
-GET /api/entries/{id}/preview      — returns a JSON preview of text content
+"""GET /api/v1/entries/{id}/content   — streams the file's bytes
+GET /api/v1/entries/{id}/preview      — returns a JSON preview of text content
 
 Local sources read directly via FileResponse (Range-aware natively).
 Non-local sources spawn `akashic-scanner fetch` and stream stdout.
@@ -34,7 +34,7 @@ from akashic.services.entry_content import (
     validate_remote_path,
 )
 
-router = APIRouter(prefix="/api/entries", tags=["entries"])
+router = APIRouter(prefix="/entries", tags=["entries"])
 
 
 class PreviewResponse(BaseModel):

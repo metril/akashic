@@ -129,9 +129,9 @@ entry paths are returned — browse, search, entries, duplicates,
 analytics and storage views:
 
 - Browse listings apply the array-overlap trim.
-- `/api/entries/<id>` returns 404 (not 403) for entries the caller
+- `/api/v1/entries/<id>` returns 404 (not 403) for entries the caller
   can't see — denies existence inference.
-- `/api/browse/effective-counts` returns the visible/hidden split for
+- `/api/v1/browse/effective-counts` returns the visible/hidden split for
   the chosen folder so the SPA can render the "X items hidden" footer.
 
 Admins always pass the trim by default. They can add `?show_all=1` on
@@ -176,10 +176,10 @@ table for these `event_type` values:
 
 Login endpoints (local, OIDC, LDAP) mint a refresh-token chain
 (`refresh_tokens` table) and set `akashic_refresh` as an HttpOnly
-cookie scoped to `/api/auth`. The web client transparently calls
-`/api/auth/refresh` on a 401, rotating the chain. A token presented
+cookie scoped to `/api/v1/auth`. The web client transparently calls
+`/api/v1/auth/refresh` on a 401, rotating the chain. A token presented
 twice (replay) revokes the entire chain — both legitimate and
-attacker sessions die. Explicit `/api/auth/logout` revokes outright.
+attacker sessions die. Explicit `/api/v1/auth/logout` revokes outright.
 
 Tunables: `access_token_expire_minutes` (default 60),
 `refresh_token_expire_days` (default 30).

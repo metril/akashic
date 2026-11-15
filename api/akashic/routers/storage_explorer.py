@@ -2,14 +2,14 @@
 
 Three queries:
 
-- GET /api/storage/sources — top-level treemap. One rectangle per
+- GET /api/v1/storage/sources — top-level treemap. One rectangle per
   source, sized by total bytes from the latest scan_snapshot.
 
-- GET /api/storage/children — drill-down inside a source. Returns
+- GET /api/v1/storage/children — drill-down inside a source. Returns
   immediate children of `parent_path`. Kept for the cross-source view
   + as a cheap "preview one folder" probe.
 
-- GET /api/storage/tree — recursive subtree expanded inside a node
+- GET /api/v1/storage/tree — recursive subtree expanded inside a node
   budget. The frontend renders this as a single squarified
   treemap of the entire tree (WinDirStat-style), every leaf as its
   own coloured rectangle. The CTE walks the visible subtree once,
@@ -60,7 +60,7 @@ from akashic.services.access_query import (
     viewable_clause,
 )
 
-router = APIRouter(prefix="/api/storage", tags=["storage"])
+router = APIRouter(prefix="/storage", tags=["storage"])
 
 
 ColorMode = Literal["type", "age", "owner", "risk"]

@@ -1,4 +1,4 @@
-"""POST /api/identities/{person_id}/bindings/{binding_id}/resolve-groups."""
+"""POST /api/v1/identities/{person_id}/bindings/{binding_id}/resolve-groups."""
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -22,7 +22,7 @@ from akashic.services.group_resolver import (
     resolve_groups,
 )
 
-router = APIRouter(prefix="/api/identities", tags=["identities"])
+router = APIRouter(prefix="/identities", tags=["identities"])
 
 
 @router.post(

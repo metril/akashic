@@ -1,4 +1,4 @@
-"""GET/PATCH /api/server-settings + cache invalidation."""
+"""GET/PATCH /api/v1/server-settings + cache invalidation."""
 from __future__ import annotations
 
 import uuid
@@ -54,7 +54,7 @@ def _admin_client(setup_db, user: User) -> AsyncClient:
 async def test_admin_can_set_and_read_setting(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
         r = await ac.patch(
-            f"/api/server-settings/{KEY_DISCOVERY_ENABLED}",
+            f"/api/v1/server-settings/{KEY_DISCOVERY_ENABLED}",
             json={"value": True},
         )
         assert r.status_code == 200, r.text
@@ -62,7 +62,7 @@ async def test_admin_can_set_and_read_setting(setup_db, admin_user):
         assert body["key"] == KEY_DISCOVERY_ENABLED
         assert body["value"] is True
 
-        listed = (await ac.get("/api/server-settings")).json()
+        listed = (await ac.get("/api/v1/server-settings")).json()
         flat = {x["key"]: x for g in listed["groups"] for x in g["settings"]}
         assert flat[KEY_DISCOVERY_ENABLED]["value"] is True
 
@@ -78,7 +78,7 @@ async def test_non_admin_cannot_patch(setup_db):
         await session.commit()
     async with _admin_client(setup_db, viewer) as ac:
         r = await ac.patch(
-            f"/api/server-settings/{KEY_DISCOVERY_ENABLED}",
+            f"/api/v1/server-settings/{KEY_DISCOVERY_ENABLED}",
             json={"value": True},
         )
     assert r.status_code == 403
@@ -87,7 +87,7 @@ async def test_non_admin_cannot_patch(setup_db):
 @pytest.mark.asyncio
 async def test_get_unknown_setting_returns_404(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
-        r = await ac.get("/api/server-settings/no_such_key")
+        r = await ac.get("/api/v1/server-settings/no_such_key")
     assert r.status_code == 404
 
 
@@ -103,7 +103,7 @@ async def test_cache_busts_after_patch(setup_db, admin_user):
 
     async with _admin_client(setup_db, admin_user) as ac:
         await ac.patch(
-            f"/api/server-settings/{KEY_DISCOVERY_ENABLED}",
+            f"/api/v1/server-settings/{KEY_DISCOVERY_ENABLED}",
             json={"value": True},
         )
 
@@ -120,23 +120,23 @@ from akashic.services import runtime_settings as rs  # noqa: E402
 @pytest.mark.asyncio
 async def test_patch_validates_by_registry_type(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
-        assert (await ac.patch("/api/server-settings/slow_query_ms", json={"value": "abc"})).status_code == 422
-        assert (await ac.patch("/api/server-settings/oidc_strategy", json={"value": "nope"})).status_code == 422
-        assert (await ac.patch("/api/server-settings/cors_allow_origins", json={"value": "x"})).status_code == 422
-        assert (await ac.patch("/api/server-settings/bogus", json={"value": 1})).status_code == 404
-        r = await ac.patch("/api/server-settings/slow_query_ms", json={"value": "250"})
+        assert (await ac.patch("/api/v1/server-settings/slow_query_ms", json={"value": "abc"})).status_code == 422
+        assert (await ac.patch("/api/v1/server-settings/oidc_strategy", json={"value": "nope"})).status_code == 422
+        assert (await ac.patch("/api/v1/server-settings/cors_allow_origins", json={"value": "x"})).status_code == 422
+        assert (await ac.patch("/api/v1/server-settings/bogus", json={"value": 1})).status_code == 404
+        r = await ac.patch("/api/v1/server-settings/slow_query_ms", json={"value": "250"})
         assert r.status_code == 200 and r.json()["value"] == 250
 
 
 @pytest.mark.asyncio
 async def test_bulk_patch_atomic_and_snapshot_reloads(setup_db, admin_user):
     async with _admin_client(setup_db, admin_user) as ac:
-        bad = await ac.patch("/api/server-settings", json={"values": {"cookie_secure": False, "slow_query_ms": "x"}})
+        bad = await ac.patch("/api/v1/server-settings", json={"values": {"cookie_secure": False, "slow_query_ms": "x"}})
         assert bad.status_code == 422
         d = bad.json()["detail"]
         assert isinstance(d, list) and d[0]["loc"][-1] == "slow_query_ms" and d[0]["msg"]
         assert rs.rt().cookie_secure is True
-        ok = await ac.patch("/api/server-settings", json={"values": {
+        ok = await ac.patch("/api/v1/server-settings", json={"values": {
             "cookie_secure": False, "cors_allow_origins": ["https://a.example"],
         }})
         assert ok.status_code == 200
@@ -149,10 +149,10 @@ async def test_secret_masked_encrypted_and_semantics(setup_db, admin_user):
     from sqlalchemy import select
     from akashic.models.server_setting import ServerSetting
     async with _admin_client(setup_db, admin_user) as ac:
-        await ac.patch("/api/server-settings/oidc_client_secret", json={"value": "s3cret"})
-        r = await ac.get("/api/server-settings/oidc_client_secret")
+        await ac.patch("/api/v1/server-settings/oidc_client_secret", json={"value": "s3cret"})
+        r = await ac.get("/api/v1/server-settings/oidc_client_secret")
         assert r.json()["value"] == rs.MASK and r.json()["set"] is True
-        listed = (await ac.get("/api/server-settings")).json()
+        listed = (await ac.get("/api/v1/server-settings")).json()
         flat = {x["key"]: x for g in listed["groups"] for x in g["settings"]}
         assert flat["oidc_client_secret"]["set"] is True
         assert "s3cret" not in str(listed)
@@ -161,11 +161,11 @@ async def test_secret_masked_encrypted_and_semantics(setup_db, admin_user):
         assert raw != "s3cret"
         assert rs.rt().oidc_client_secret == "s3cret"
         # mask / null = unchanged
-        await ac.patch("/api/server-settings/oidc_client_secret", json={"value": rs.MASK})
-        await ac.patch("/api/server-settings/oidc_client_secret", json={"value": None})
+        await ac.patch("/api/v1/server-settings/oidc_client_secret", json={"value": rs.MASK})
+        await ac.patch("/api/v1/server-settings/oidc_client_secret", json={"value": None})
         assert rs.rt().oidc_client_secret == "s3cret"
         # explicit "" clears
-        r = await ac.patch("/api/server-settings/oidc_client_secret", json={"value": ""})
+        r = await ac.patch("/api/v1/server-settings/oidc_client_secret", json={"value": ""})
         assert r.json()["set"] is False
         assert rs.rt().oidc_client_secret == ""
 

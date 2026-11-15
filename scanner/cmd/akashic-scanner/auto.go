@@ -80,7 +80,7 @@ func runAuto(args []string) {
 		return
 	}
 
-	// Branch 3: discovery flag → knock on /api/scanners/discover
+	// Branch 3: discovery flag → knock on /api/v1/scanners/discover
 	// and wait for an admin to approve in the UI.
 	if isTruthy(os.Getenv("AKASHIC_DISCOVER")) {
 		if keyExists {

@@ -5,8 +5,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -28,17 +28,17 @@ async def test_resolve_groups_posix_local(client, db_session, monkeypatch):
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     r = await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -66,17 +66,17 @@ async def test_resolve_groups_records_audit(client, db_session, monkeypatch):
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -97,17 +97,17 @@ async def test_resolve_groups_ssh_unsupported(client, db_session):
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     r = await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 422
@@ -135,21 +135,21 @@ async def test_resolve_groups_cache_hit_skips_backend(client, db_session, monkey
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
     await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
     # Two endpoint calls but only one backend hit.
@@ -180,11 +180,11 @@ async def test_resolve_groups_cache_expires_after_ttl(client, db_session, monkey
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
@@ -201,7 +201,7 @@ async def test_resolve_groups_cache_expires_after_ttl(client, db_session, monkey
 
     # Endpoint should bypass the stale cache and re-resolve.
     r = await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
@@ -229,17 +229,17 @@ async def test_resolve_groups_audit_payload_has_source_nss(client, db_session, m
     await db_session.commit()
 
     pid = (await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
     bid = (await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={"source_id": str(src.id), "identity_type": "posix_uid", "identifier": "1000", "groups": []},
         headers={"Authorization": f"Bearer {token}"},
     )).json()["id"]
 
     await client.post(
-        f"/api/identities/{pid}/bindings/{bid}/resolve-groups",
+        f"/api/v1/identities/{pid}/bindings/{bid}/resolve-groups",
         headers={"Authorization": f"Bearer {token}"},
     )
 

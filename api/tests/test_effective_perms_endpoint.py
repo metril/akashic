@@ -2,8 +2,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -11,7 +11,7 @@ async def _register_login(client, username="alice", password="testpass123"):
 async def test_effective_perms_404_for_unknown_entry(client):
     token = await _register_login(client)
     r = await client.post(
-        "/api/entries/00000000-0000-0000-0000-000000000000/effective-permissions",
+        "/api/v1/entries/00000000-0000-0000-0000-000000000000/effective-permissions",
         json={"principal": {"type": "posix_uid", "identifier": "1000"}},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -21,7 +21,7 @@ async def test_effective_perms_404_for_unknown_entry(client):
 @pytest.mark.asyncio
 async def test_effective_perms_requires_auth(client):
     r = await client.post(
-        "/api/entries/00000000-0000-0000-0000-000000000000/effective-permissions",
+        "/api/v1/entries/00000000-0000-0000-0000-000000000000/effective-permissions",
         json={"principal": {"type": "posix_uid", "identifier": "1000"}},
     )
     assert r.status_code == 401
@@ -62,7 +62,7 @@ async def test_effective_perms_happy_path_posix(client, db_session):
     await db_session.commit()
 
     r = await client.post(
-        f"/api/entries/{entry.id}/effective-permissions",
+        f"/api/v1/entries/{entry.id}/effective-permissions",
         json={"principal": {"type": "posix_uid", "identifier": "1001"}},
         headers={"Authorization": f"Bearer {token}"},
     )

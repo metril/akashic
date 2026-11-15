@@ -70,7 +70,7 @@ async def test_ingest_chunks_large_batch_under_param_cap(client, db_session):
             ],
         }
         resp = await client.post(
-            "/api/ingest/batch", json=payload,
+            "/api/v1/ingest/batch", json=payload,
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200, resp.text

@@ -87,7 +87,7 @@ async def test_browse_unfiltered_when_flag_off(client: AsyncClient, db_session: 
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/browse?source_id={source.id}",
+        f"/api/v1/browse?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -108,7 +108,7 @@ async def test_browse_filters_when_flag_on_and_user_has_bindings(
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/browse?source_id={source.id}",
+        f"/api/v1/browse?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -130,7 +130,7 @@ async def test_browse_unbound_user_sees_all_even_when_flag_on(
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/browse?source_id={source.id}",
+        f"/api/v1/browse?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
@@ -153,14 +153,14 @@ async def test_admin_show_all_overrides_filter(
 
     # Default (no show_all) — admin's binding gets applied.
     resp = await client.get(
-        f"/api/browse?source_id={source.id}",
+        f"/api/v1/browse?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert sorted(e["path"] for e in resp.json()["entries"]) == ["/a", "/c"]
 
     # show_all=1 — no filter regardless of bindings.
     resp = await client.get(
-        f"/api/browse?source_id={source.id}&show_all=1",
+        f"/api/v1/browse?source_id={source.id}&show_all=1",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert sorted(e["path"] for e in resp.json()["entries"]) == ["/a", "/b", "/c"]
@@ -181,7 +181,7 @@ async def test_get_entry_returns_404_for_unviewable(
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/entries/{hidden.id}",
+        f"/api/v1/entries/{hidden.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 404, resp.text
@@ -199,7 +199,7 @@ async def test_effective_counts_reports_visible_and_hidden(
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/browse/effective-counts?source_id={source.id}",
+        f"/api/v1/browse/effective-counts?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -219,7 +219,7 @@ async def test_effective_counts_when_flag_off(
     token = create_access_token({"sub": str(user.id)})
 
     resp = await client.get(
-        f"/api/browse/effective-counts?source_id={source.id}",
+        f"/api/v1/browse/effective-counts?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -244,7 +244,7 @@ async def test_search_permission_filter_all_forced_readable_for_viewer(
     source, _ = await _seed_three_entries(db_session)
     h = await _viewer(db_session, source)
     resp = await client.get(
-        "/api/search?q=&mode=glob&permission_filter=all", headers=h,
+        "/api/v1/search?q=&mode=glob&permission_filter=all", headers=h,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -261,10 +261,10 @@ async def test_entries_list_and_by_hash_filtered_for_viewer(
         e.content_hash = "h1"
     await db_session.commit()
     h = await _viewer(db_session, source)
-    r = await client.get(f"/api/entries?source_id={source.id}", headers=h)
+    r = await client.get(f"/api/v1/entries?source_id={source.id}", headers=h)
     assert r.status_code == 200, r.text
     assert sorted(e["path"] for e in r.json()) == ["/a", "/c"]
-    r = await client.get("/api/entries/by-hash/h1", headers=h)
+    r = await client.get("/api/v1/entries/by-hash/h1", headers=h)
     assert sorted(e["path"] for e in r.json()) == ["/a", "/c"]
 
 
@@ -277,6 +277,6 @@ async def test_largest_files_filtered_for_viewer(
         e.size_bytes = 100 + i
     await db_session.commit()
     h = await _viewer(db_session, source)
-    r = await client.get("/api/analytics/largest-files", headers=h)
+    r = await client.get("/api/v1/analytics/largest-files", headers=h)
     assert r.status_code == 200, r.text
     assert sorted(e["path"] for e in r.json()) == ["/a", "/c"]

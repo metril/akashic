@@ -9,8 +9,8 @@ import pytest
 
 
 async def _register_login(client, username="alice", password="testpass123"):
-    await client.post("/api/users/register", json={"username": username, "password": password})
-    login = await client.post("/api/users/login", json={"username": username, "password": password})
+    await client.post("/api/v1/users/register", json={"username": username, "password": password})
+    login = await client.post("/api/v1/users/login", json={"username": username, "password": password})
     return login.json()["access_token"]
 
 
@@ -36,7 +36,7 @@ async def test_search_with_no_bindings_defaults_to_all(client, db_session):
     db_session.add(entry)
     await db_session.commit()
 
-    r = await client.get("/api/search?q=x", headers={"Authorization": f"Bearer {token}"})
+    r = await client.get("/api/v1/search?q=x", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
 
 
@@ -45,7 +45,7 @@ async def test_search_permission_filter_param_accepted(client):
     token = await _register_login(client)
     for f in ("all", "readable", "writable"):
         r = await client.get(
-            f"/api/search?q=&permission_filter={f}",
+            f"/api/v1/search?q=&permission_filter={f}",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200, f
@@ -55,7 +55,7 @@ async def test_search_permission_filter_param_accepted(client):
 async def test_search_invalid_permission_filter_rejected(client):
     token = await _register_login(client)
     r = await client.get(
-        "/api/search?q=&permission_filter=destroy_everything",
+        "/api/v1/search?q=&permission_filter=destroy_everything",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 422
@@ -76,12 +76,12 @@ async def test_resolve_user_bindings_to_tokens(client, db_session):
     await db_session.commit()
 
     create = await client.post(
-        "/api/identities", json={"label": "P"},
+        "/api/v1/identities", json={"label": "P"},
         headers={"Authorization": f"Bearer {token}"},
     )
     pid = create.json()["id"]
     await client.post(
-        f"/api/identities/{pid}/bindings",
+        f"/api/v1/identities/{pid}/bindings",
         json={
             "source_id": str(source.id),
             "identity_type": "posix_uid",
@@ -91,7 +91,7 @@ async def test_resolve_user_bindings_to_tokens(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     r = await client.get(
-        "/api/search?q=&permission_filter=readable",
+        "/api/v1/search?q=&permission_filter=readable",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200

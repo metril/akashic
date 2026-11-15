@@ -140,7 +140,7 @@ async def test_ws_sends_snapshot_for_admin(app, admin_user, fixture_scan, monkey
 
     with TestClient(app) as client:
         with client.websocket_connect(
-            f"/ws/scans/{fixture_scan.id}?token={token}"
+            f"/ws/v1/scans/{fixture_scan.id}?token={token}"
         ) as ws:
             snapshot = ws.receive_json()
             assert snapshot["kind"] == "snapshot"
@@ -169,7 +169,7 @@ async def test_ws_includes_recent_log_lines_in_snapshot(
     token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role})
     with TestClient(app) as client:
         with client.websocket_connect(
-            f"/ws/scans/{fixture_scan.id}?token={token}"
+            f"/ws/v1/scans/{fixture_scan.id}?token={token}"
         ) as ws:
             snapshot = ws.receive_json()
             assert len(snapshot["recent_lines"]) == 3
@@ -235,7 +235,7 @@ async def test_ws_snapshot_carries_scanner_attribution(
     token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role})
     with TestClient(app) as client:
         with client.websocket_connect(
-            f"/ws/scans/{fixture_scan.id}?token={token}"
+            f"/ws/v1/scans/{fixture_scan.id}?token={token}"
         ) as ws:
             snapshot = ws.receive_json()
             lines = {r["message"]: r for r in snapshot["recent_lines"]}
@@ -254,7 +254,7 @@ async def test_ws_rejects_invalid_token(app, fixture_scan):
     with TestClient(app) as client:
         with pytest.raises(Exception):
             with client.websocket_connect(
-                f"/ws/scans/{fixture_scan.id}?token=garbage"
+                f"/ws/v1/scans/{fixture_scan.id}?token=garbage"
             ) as ws:
                 ws.receive_json()  # forces the close to surface
 
@@ -266,7 +266,7 @@ async def test_ws_allows_viewer_on_any_source(
     token = create_access_token({"sub": str(viewer_user.id), "role": viewer_user.role})
     with TestClient(app) as client:
         with client.websocket_connect(
-            f"/ws/scans/{fixture_scan.id}?token={token}"
+            f"/ws/v1/scans/{fixture_scan.id}?token={token}"
         ) as ws:
             assert ws.receive_json()["kind"] == "snapshot"
 
@@ -277,6 +277,6 @@ async def test_ws_404_for_unknown_scan(app, admin_user):
     with TestClient(app) as client:
         with pytest.raises(Exception):
             with client.websocket_connect(
-                f"/ws/scans/{uuid.uuid4()}?token={token}"
+                f"/ws/v1/scans/{uuid.uuid4()}?token={token}"
             ) as ws:
                 ws.receive_json()

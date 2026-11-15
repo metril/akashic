@@ -2,8 +2,8 @@
 
 The scanner agent gets a 24h JWT scoped to the ingest audience. The
 audience boundary is the only thing keeping a compromised scanner
-host from pivoting to admin endpoints (POST /api/users/create,
-DELETE /api/sources/*, etc.) — these tests guard that boundary."""
+host from pivoting to admin endpoints (POST /api/v1/users/create,
+DELETE /api/v1/sources/*, etc.) — these tests guard that boundary."""
 import uuid
 
 import pytest
@@ -58,7 +58,7 @@ def test_ingest_token_without_scanner_id_decodes_cleanly():
 
 @pytest.mark.asyncio
 async def test_ingest_token_cannot_call_admin_endpoint(client, db_session):
-    """End-to-end: an ingest-scoped token presented to /api/users/me
+    """End-to-end: an ingest-scoped token presented to /api/v1/users/me
     (admin/user endpoint) returns 401."""
     user = User(
         id=uuid.uuid4(), username="ingester", email="i@e",
@@ -69,7 +69,7 @@ async def test_ingest_token_cannot_call_admin_endpoint(client, db_session):
 
     ingest_tok = create_ingest_token(str(user.id))
     r = await client.get(
-        "/api/users/me",
+        "/api/v1/users/me",
         headers={"Authorization": f"Bearer {ingest_tok}"},
     )
     assert r.status_code == 401
@@ -77,7 +77,7 @@ async def test_ingest_token_cannot_call_admin_endpoint(client, db_session):
 
 @pytest.mark.asyncio
 async def test_access_token_cannot_call_ingest(client, db_session):
-    """Symmetric: a regular user token can't reach /api/ingest/batch.
+    """Symmetric: a regular user token can't reach /api/v1/ingest/batch.
     The access-token-rejected path 401s before scan_id resolution
     runs, so a fresh UUID is fine here."""
     user = User(
@@ -95,7 +95,7 @@ async def test_access_token_cannot_call_ingest(client, db_session):
         "entries": [],
     }
     r = await client.post(
-        "/api/ingest/batch", json=payload,
+        "/api/v1/ingest/batch", json=payload,
         headers={"Authorization": f"Bearer {access_tok}"},
     )
     assert r.status_code == 401
@@ -104,7 +104,7 @@ async def test_access_token_cannot_call_ingest(client, db_session):
 @pytest.mark.asyncio
 async def test_access_token_cannot_call_scan_progress(client, db_session):
     """v0.27.1 regression: scan-progress POSTs (heartbeat / log /
-    stderr) are sibling endpoints of /api/ingest/batch — they accept
+    stderr) are sibling endpoints of /api/v1/ingest/batch — they accept
     the ingest-audience JWT minted at lease time and must reject
     plain access tokens. Pre-fix all three required get_current_user,
     so the scanner's ingest token 401'd silently and Live Log
@@ -122,17 +122,17 @@ async def test_access_token_cannot_call_scan_progress(client, db_session):
     # Each endpoint should 401 on the access-audience token before any
     # body validation runs.
     r = await client.post(
-        f"/api/scans/{scan_id}/heartbeat",
+        f"/api/v1/scans/{scan_id}/heartbeat",
         json={"files_found": 0}, headers=headers,
     )
     assert r.status_code == 401, f"heartbeat: {r.status_code} {r.text}"
     r = await client.post(
-        f"/api/scans/{scan_id}/log",
+        f"/api/v1/scans/{scan_id}/log",
         json={"lines": []}, headers=headers,
     )
     assert r.status_code == 401, f"log: {r.status_code} {r.text}"
     r = await client.post(
-        f"/api/scans/{scan_id}/stderr",
+        f"/api/v1/scans/{scan_id}/stderr",
         json={"chunks": []}, headers=headers,
     )
     assert r.status_code == 401, f"stderr: {r.status_code} {r.text}"
@@ -157,17 +157,17 @@ async def test_ingest_token_can_call_scan_progress(client, db_session):
     # post_stderr_batch return early). heartbeat will 404 because
     # scan_id doesn't exist — that's the auth-passed signal we want.
     r = await client.post(
-        f"/api/scans/{scan_id}/log",
+        f"/api/v1/scans/{scan_id}/log",
         json={"lines": []}, headers=headers,
     )
     assert r.status_code == 204, f"log: {r.status_code} {r.text}"
     r = await client.post(
-        f"/api/scans/{scan_id}/stderr",
+        f"/api/v1/scans/{scan_id}/stderr",
         json={"chunks": []}, headers=headers,
     )
     assert r.status_code == 204, f"stderr: {r.status_code} {r.text}"
     r = await client.post(
-        f"/api/scans/{scan_id}/heartbeat",
+        f"/api/v1/scans/{scan_id}/heartbeat",
         json={"files_found": 0}, headers=headers,
     )
     # 404 = auth passed, scan lookup failed — the signal we want.

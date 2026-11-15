@@ -38,7 +38,7 @@ class ScanBatchResponse(BaseModel):
     scan_id: uuid.UUID
     # v0.30.0 — new/changed FILE entries from this batch. The scanner
     # reads each, extracts text (Tika for documents), and posts it to
-    # /api/ingest/content.
+    # /api/v1/ingest/content.
     extract_candidates: list[ExtractCandidate] = []
 
 

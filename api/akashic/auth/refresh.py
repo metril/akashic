@@ -7,7 +7,7 @@ The contract callers rely on:
   hash is what we persist. The plain token is shown to the caller
   exactly once.
 
-- `rotate(plain, db)` is called by /api/auth/refresh. On success it
+- `rotate(plain, db)` is called by /api/v1/auth/refresh. On success it
   returns a new (plain_token, RefreshToken) and revokes the old row.
   On replay (the presented hash matches a row whose `revoked_at` is
   already set) we revoke the entire chain and return None — the

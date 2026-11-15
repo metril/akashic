@@ -1,5 +1,5 @@
 /**
- * Admin-gated CRUD over /api/scanner-claim-tokens.
+ * Admin-gated CRUD over /api/v1/scanner-claim-tokens.
  *
  * The list query is the source of truth for the "Join tokens"
  * section. Mutations invalidate it so a freshly-minted token shows

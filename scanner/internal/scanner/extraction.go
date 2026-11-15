@@ -18,7 +18,7 @@ const (
 )
 
 // contentSink batches extract.ContentRecords from the extraction pool
-// and POSTs them to /api/ingest/content. Safe for concurrent Add from
+// and POSTs them to /api/v1/ingest/content. Safe for concurrent Add from
 // multiple pool workers.
 type contentSink struct {
 	mu       sync.Mutex
@@ -76,7 +76,7 @@ func (s *contentSink) send(items []models.ContentItem) {
 }
 
 // DriveExtraction runs text extraction for a fixed set of candidate
-// files and ships the results to /api/ingest/content. It is a
+// files and ships the results to /api/v1/ingest/content. It is a
 // best-effort post-pass: a connect/extract/send failure is logged,
 // never fatal. `conn` must NOT be pre-connected — DriveExtraction
 // owns its lifecycle (a dedicated connector instance, separate from

@@ -88,22 +88,22 @@ async def test_complete_unit_on_cancelled_scan_is_409(setup_db):
     scn = await _mint_scanner(setup_db, user)
     async with _bearer_client(setup_db) as ac:
         await ac.post(
-            f"/api/scans/{scan_id}/work/split",
+            f"/api/v1/scans/{scan_id}/work/split",
             json={"child_paths": ["only"]}, headers=_auth(scn),
         )
         leased = (await ac.post(
-            f"/api/scans/{scan_id}/work/lease", headers=_auth(scn)
+            f"/api/v1/scans/{scan_id}/work/lease", headers=_auth(scn)
         )).json()
         async with setup_db() as s:
             scan = (await s.execute(select(Scan).where(Scan.id == scan_id))).scalar_one()
             scan.status = "cancelled"
             await s.commit()
         r = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/complete", headers=_auth(scn),
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/complete", headers=_auth(scn),
         )
         assert r.status_code == 409
         r = await ac.post(
-            f"/api/scans/{scan_id}/work/{leased['id']}/fail",
+            f"/api/v1/scans/{scan_id}/work/{leased['id']}/fail",
             json={}, headers=_auth(scn),
         )
         assert r.status_code == 409
@@ -124,7 +124,7 @@ async def test_ingest_batch_dedupes_paths_last_wins(
     token = create_ingest_token(str(user.id))
     base = {"kind": "file", "name": "x", "path": "/x"}
     r = await client.post(
-        "/api/ingest/batch",
+        "/api/v1/ingest/batch",
         json={
             "source_id": str(source.id), "scan_id": str(scan_id),
             "entries": [{**base, "size_bytes": 1}, {**base, "size_bytes": 2}],
@@ -215,7 +215,7 @@ async def test_browse_modified_cursor_second_page(
     ])
     await db_session.commit()
     h = {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
-    url = f"/api/browse?source_id={source.id}&sort=modified&order=desc&limit=2"
+    url = f"/api/v1/browse?source_id={source.id}&sort=modified&order=desc&limit=2"
     p1 = (await client.get(url, headers=h)).json()
     assert p1["next_cursor"]
     r2 = await client.get(url + f"&cursor={p1['next_cursor']}", headers=h)
@@ -322,9 +322,9 @@ async def test_duplicate_files_limit_offset(
     ])
     await db_session.commit()
     h = {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
-    r = await client.get("/api/duplicates/h1/files?limit=2&offset=4", headers=h)
+    r = await client.get("/api/v1/duplicates/h1/files?limit=2&offset=4", headers=h)
     assert r.status_code == 200 and len(r.json()) == 1
-    r = await client.get("/api/duplicates/h1/files?limit=999999", headers=h)
+    r = await client.get("/api/v1/duplicates/h1/files?limit=999999", headers=h)
     assert r.status_code == 422
 
 
@@ -352,7 +352,7 @@ async def test_complete_scan_conflict_releases_lease(setup_db):
         await s.commit()
     async with _bearer_client(setup_db) as ac:
         r = await ac.post(
-            f"/api/scans/{scan_id}/complete",
+            f"/api/v1/scans/{scan_id}/complete",
             json={"status": "completed"}, headers=_auth(scn),
         )
     assert r.status_code == 409
@@ -388,7 +388,7 @@ async def test_purge_deleted_counts_all_kinds(
     ])
     await db_session.commit()
     h = {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
-    r = await client.post("/api/purge/deleted?older_than_days=30", headers=h)
+    r = await client.post("/api/v1/purge/deleted?older_than_days=30", headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["files_removed"] == 3 and r.json()["total_removed"] == 5
     assert len(removed) == 3
