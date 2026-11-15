@@ -21,7 +21,9 @@ export type TokenFormAction =
   | { type: "expiry"; expiry: ExpiryChoice }
   | { type: "toggle"; scope: string; rules: ScopeRules }
   | { type: "preset"; preset: "read-only" | "full"; available: ReadonlySet<string>; rules: ScopeRules }
-  | { type: "sources"; sourceIds: string[]; rules: ScopeRules };
+  | { type: "sources"; sourceIds: string[]; rules: ScopeRules }
+  /** The catalog rules arrived or changed: re-clean the selection. */
+  | { type: "rules"; rules: ScopeRules };
 
 export const initialTokenForm: TokenFormState = {
   name: "",
@@ -53,6 +55,8 @@ export function tokenFormReducer(state: TokenFormState, a: TokenFormAction): Tok
       const base = a.preset === "full" ? fullPreset(a.available) : readOnlyPreset(a.available, a.rules);
       return { ...state, scopes: isLimited(state) ? withoutSourceForbidden(base, a.rules) : base };
     }
+    case "rules":
+      return isLimited(state) ? { ...state, scopes: withoutSourceForbidden(state.scopes, a.rules) } : state;
     case "sources":
       return {
         ...state,

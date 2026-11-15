@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { toast } from "sonner";
 import { useScopes } from "../../hooks/useScopes";
 import { useScopeCatalog, useTokenMutations } from "../../hooks/useApiTokens";
@@ -32,6 +32,11 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const groups = useMemo(() => groupScopes(catalog.data?.scopes ?? [], mine), [catalog.data, mine]);
   const rules = useMemo(() => scopeRules(catalog.data?.scopes ?? []), [catalog.data]);
   const limited = isLimited(form);
+  // Fail closed: nothing can be chosen until the catalog (and so the rules) is known.
+  const ready = catalog.data !== undefined;
+  useEffect(() => {
+    dispatch({ type: "rules", rules });
+  }, [rules]);
 
   // The parent mounts this only while open, so closing drops the form and
   // the one-time secret: neither can be recovered afterwards.
@@ -65,14 +70,28 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
             placeholder="e.g. nightly export script"
             onChange={(e) => dispatch({ type: "name", name: e.target.value })}
           />
+          {!ready && (
+            <div role="status" className="text-xs text-fg-muted flex items-center gap-2">
+              {catalog.isError ? (
+                <>
+                  Couldn't load the scope catalog.
+                  <Button size="sm" variant="secondary" onClick={() => catalog.refetch()}>
+                    Retry
+                  </Button>
+                </>
+              ) : (
+                "Loading scopes…"
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-fg-muted">Scopes</span>
               <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "read-only", available: mine, rules })}>
+                <Button size="sm" variant="secondary" disabled={!ready} onClick={() => dispatch({ type: "preset", preset: "read-only", available: mine, rules })}>
                   Read-only
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "full", available: mine, rules })}>
+                <Button size="sm" variant="secondary" disabled={!ready} onClick={() => dispatch({ type: "preset", preset: "full", available: mine, rules })}>
                   Full
                 </Button>
               </span>
@@ -94,6 +113,7 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                     type="checkbox"
                     className="size-3.5"
                     checked={form.sourceIds.includes(s.id)}
+                    disabled={!ready}
                     onChange={() => toggleSource(s.id)}
                     aria-label={`Source ${s.name}`}
                   />
@@ -113,7 +133,7 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
             <Button variant="secondary" onClick={close} disabled={create.isPending}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={!canSubmitTokenForm(form)} loading={create.isPending}>
+            <Button onClick={submit} disabled={!ready || !canSubmitTokenForm(form)} loading={create.isPending}>
               Create token
             </Button>
           </div>

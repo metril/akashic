@@ -36,10 +36,10 @@ function me(scopes: string[]): CurrentUser {
   return { id: "u", username: "u", email: null, role: "x", created_at: "", scopes };
 }
 
-function withApp(ui: React.ReactElement, scopes: string[]) {
+function withApp(ui: React.ReactElement, scopes: string[], withCatalog = true) {
   const qc = new QueryClient();
   qc.setQueryData(["users", "me"], me(scopes));
-  qc.setQueryData(["scopes"], catalog);
+  if (withCatalog) qc.setQueryData(["scopes"], catalog);
   qc.setQueryData(["sources"], [{ id: "s1", name: "Photos" }]);
   return renderToStaticMarkup(
     <QueryClientProvider client={qc}>
@@ -75,6 +75,17 @@ describe("CreateTokenDialog", () => {
     expect(html).toContain("webhooks:write");
     expect(html).not.toContain("settings:write");
     expect(html).toContain("Source Photos");
+  });
+});
+
+describe("CreateTokenDialog without a catalog", () => {
+  it("disables presets, sources and submit while loading", () => {
+    const html = withApp(<CreateTokenDialog onClose={() => {}} />, VIEWER, false);
+    expect(html).toContain("Loading scopes");
+    for (const label of ["Read-only", "Full", "Create token"]) {
+      expect(html).toMatch(new RegExp(`<button[^>]*disabled[^>]*>(<[^>]*>)*${label}`));
+    }
+    expect(html).toMatch(/aria-label="Source Photos"[^>]*disabled|disabled[^>]*aria-label="Source Photos"/);
   });
 });
 

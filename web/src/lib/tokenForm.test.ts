@@ -62,6 +62,20 @@ describe("source limit", () => {
   });
 });
 
+describe("rules arriving late", () => {
+  it("cleans a selection made under empty rules once the rules arrive", () => {
+    const empty = scopeRules([]);
+    const s = run(
+      { type: "preset", preset: "full", available: admin, rules: empty },
+      { type: "sources", sourceIds: ["s1"], rules: empty },
+    );
+    expect(s.scopes.has("users:write")).toBe(true); // nothing known to refuse yet
+    const cleaned = tokenFormReducer(s, { type: "rules", rules });
+    expect(cleaned.scopes.has("users:write")).toBe(false);
+    expect(cleaned.scopes.has("tags:write")).toBe(true);
+  });
+});
+
 describe("toCreateRequest", () => {
   const now = new Date("2026-01-01T00:00:00Z");
   it("sends sources and expiry only when chosen", () => {
