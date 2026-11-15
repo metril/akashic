@@ -75,8 +75,12 @@ logs:
 ps:
 	docker compose ps
 
-# Regenerate the committed OpenAPI spec (openapi.json at the repo root).
-# Needs the api package installed (`pip install -e "api[dev]"`); no DB or
-# Redis. CI fails if the committed file is stale.
+# Regenerate the committed OpenAPI spec (openapi.json at the repo root) and
+# the TypeScript schema built from it (web/src/api/schema.d.ts). The spec
+# needs the api package installed (`pip install -e "api[dev]"`); no DB or
+# Redis. The TS step runs under node:20-alpine (musl) like the web image.
+# CI fails if either committed file is stale.
 openapi:
 	python api/scripts/dump_openapi.py
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/w -w /w/web node:20-alpine \
+		npx openapi-typescript ../openapi.json -o src/api/schema.d.ts

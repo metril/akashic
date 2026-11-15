@@ -1,14 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 
-export interface ResolvedPrincipal {
-  sid: string;
-  name: string | null;
-  domain: string | null;
-  kind: string | null;
-  status: "resolved" | "unresolved" | "skipped" | "error";
-  last_attempt_at: string | null;
-}
+export type ResolvedPrincipal = components["schemas"]["ResolvedPrincipalOut"];
 
 export type PrincipalMap = Record<string, ResolvedPrincipal>;
 

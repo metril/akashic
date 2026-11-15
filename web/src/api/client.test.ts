@@ -43,6 +43,6 @@ describe("versioned base paths", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     await api.get("/sources");
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/sources");
+    expect(new URL((fetchMock.mock.calls[0][0] as Request).url).pathname).toBe("/api/v1/sources");
   });
 });

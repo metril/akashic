@@ -1,3 +1,7 @@
+import createClient, { type Client, type Middleware } from "openapi-fetch";
+
+import type { paths } from "./schema";
+
 export const API_BASE = "/api/v1";
 export const WS_BASE = "/ws/v1";
 
@@ -79,14 +83,6 @@ export function parseApiError(status: number, body: unknown): ApiError {
     b.detail ?? null,
     typeof b.request_id === "string" ? b.request_id : null,
   );
-}
-
-interface RequestOptions {
-  method?: string;
-  body?: unknown;
-  skipAuth?: boolean;
-  /** Internal — set by the silent-refresh path to prevent infinite recursion. */
-  _retryAfterRefresh?: boolean;
 }
 
 // In-flight refresh promise so a burst of concurrent 401s collapses
@@ -172,193 +168,143 @@ function loginUrlWithNext(): string {
   return `/login?next=${encodeURIComponent(here)}`;
 }
 
-async function request<T>(
-  path: string,
-  options: RequestOptions = {}
-): Promise<T> {
-  const { method = "GET", body, skipAuth = false, _retryAfterRefresh = false } = options;
+/** Endpoints that authenticate themselves: no bearer header, no silent refresh. */
+const SKIP_AUTH_PATHS = new Set(
+  ["/users/login", "/users/register", "/auth/providers", "/auth/refresh"].map((p) => API_BASE + p),
+);
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+// Request must be absolute for the Fetch API's Request constructor.
+const ORIGIN = typeof window !== "undefined" ? window.location.origin : "http://localhost";
 
-  if (!skipAuth) {
+// Clone of each in-flight request, keyed by openapi-fetch's request id, so
+// a 401 can replay it (the original's body is consumed by the first send).
+const pending = new Map<string, Request>();
+
+const authMiddleware: Middleware = {
+  onRequest({ request, id }) {
+    if (SKIP_AUTH_PATHS.has(new URL(request.url).pathname)) return request;
+    pending.set(id, request.clone());
     const token = getToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-  }
+    if (token) request.headers.set("Authorization", `Bearer ${token}`);
+    return request;
+  },
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    // credentials:include lets the refresh cookie ride on the same
-    // origin — no effect on cross-origin since the SPA + API share a
-    // host in normal deployments.
-    credentials: "include",
-  });
+  async onResponse({ response, id }) {
+    const retryable = pending.get(id);
+    pending.delete(id);
 
-  if (response.status === 401) {
-    // Silent refresh: swap stale access token for a fresh one and
-    // retry the original request once. Skip when:
-    //   - skipAuth=true (login/register/refresh themselves)
-    //   - _retryAfterRefresh=true (we already retried — give up)
-    //   - the path is /auth/refresh (avoid loop)
-    if (!skipAuth && !_retryAfterRefresh && !path.startsWith("/auth/refresh")) {
-      const newToken = await silentRefresh();
-      if (newToken) {
-        return request<T>(path, { ...options, _retryAfterRefresh: true });
+    if (response.status === 401) {
+      // Silent refresh: swap the stale access token for a fresh one and
+      // replay the request once. Skipped for the self-authenticating
+      // endpoints (login/register/refresh) and when the refresh fails.
+      if (retryable) {
+        const newToken = await silentRefresh();
+        if (newToken) {
+          retryable.headers.set("Authorization", `Bearer ${newToken}`);
+          const retried = await fetch(retryable);
+          if (retried.status !== 401) return checked(retried);
+        }
       }
+      clearToken();
+      if (window.location.pathname !== "/login") {
+        // ?next= preserves the current destination so post-login lands
+        // back where the user was, not /dashboard (review W-C2).
+        window.location.href = loginUrlWithNext();
+      }
+      throw new Error("Unauthorized");
     }
-    clearToken();
-    if (window.location.pathname !== "/login") {
-      // ?next= preserves the current destination so post-login lands
-      // back where the user was, not /dashboard (review W-C2).
-      window.location.href = loginUrlWithNext();
-    }
-    throw new Error("Unauthorized");
-  }
+    return checked(response);
+  },
+};
 
-  if (!response.ok) {
-    let body: unknown = null;
-    try {
-      body = await response.json();
-    } catch {
-      // non-JSON error body (proxy error page, etc.)
-    }
-    throw parseApiError(response.status, body);
+/** Throw the ErrorResponse envelope as ApiError for any non-2xx response. */
+async function checked(response: Response): Promise<Response> {
+  if (response.ok) return response;
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    // non-JSON error body (proxy error page, etc.)
   }
+  throw parseApiError(response.status, body);
+}
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
+const clientOptions = {
+  baseUrl: ORIGIN,
+  // credentials:include lets the refresh cookie ride on the same origin.
+  credentials: "include" as const,
+  // Resolve global fetch per call, not at module load (tests stub it).
+  fetch: (request: Request) => fetch(request),
+};
 
-  return response.json() as Promise<T>;
+/** Typed client generated from openapi.json. Paths carry the /api/v1 prefix.
+ *  Non-2xx responses throw ApiError, so `data` is the success body. */
+export const client = createClient<paths>(clientOptions);
+client.use(authMiddleware);
+
+// Untyped-path escape hatch for call sites not yet moved to `client`.
+const untyped: Client<Record<string, never>> = createClient<Record<string, never>>(clientOptions);
+untyped.use(authMiddleware);
+
+type Verb = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+
+async function call<T>(method: Verb, path: string, body?: unknown): Promise<T> {
+  const init = body === undefined ? undefined : { body };
+  const { data } = await (untyped as unknown as Record<Verb, (u: string, i?: unknown) => Promise<{ data?: unknown }>>)[method](
+    `${API_BASE}${path}`,
+    init,
+  );
+  return data as T;
 }
 
 export const api = {
-  get<T>(path: string): Promise<T> {
-    return request<T>(path);
-  },
+  get: <T>(path: string) => call<T>("GET", path),
+  post: <T>(path: string, body?: unknown) => call<T>("POST", path, body),
+  patch: <T>(path: string, body?: unknown) => call<T>("PATCH", path, body),
+  put: <T>(path: string, body?: unknown) => call<T>("PUT", path, body),
+  delete: <T>(path: string) => call<T>("DELETE", path),
 
-  post<T>(path: string, body?: unknown, skipAuth = false): Promise<T> {
-    return request<T>(path, { method: "POST", body, skipAuth });
-  },
+  login: async (username: string, password: string) =>
+    (await client.POST("/api/v1/users/login", { body: { username, password } })).data!,
 
-  patch<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>(path, { method: "PATCH", body });
-  },
-
-  put<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>(path, { method: "PUT", body });
-  },
-
-  delete<T>(path: string): Promise<T> {
-    return request<T>(path, { method: "DELETE" });
-  },
-
-  // Auth endpoints
-  login(username: string, password: string) {
-    return request<{ access_token: string; token_type: string }>(
-      "/users/login",
-      {
-        method: "POST",
-        body: { username, password },
-        skipAuth: true,
-      }
-    );
-  },
-
-  register(username: string, email: string, password: string) {
-    return request<{ id: number; username: string; email: string }>(
-      "/users/register",
-      {
-        method: "POST",
-        body: { username, email, password },
-        skipAuth: true,
-      }
-    );
-  },
+  register: async (username: string, email: string, password: string) =>
+    (await client.POST("/api/v1/users/register", { body: { username, email, password } })).data!,
 
   /** Hit the server logout endpoint to revoke the refresh cookie. The
    *  short-lived access JWT keeps working until its TTL expires; this
    *  only kills the long-lived refresh chain. */
   async logoutServer() {
     try {
-      await fetch(`${API_BASE}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
     } catch {
       // Network failure during logout shouldn't block the local clear —
       // the user wants out, regardless.
     }
   },
 
-  cancelScan(scanId: string) {
-    return request<{ scan_id: string; status: string }>(
-      `/scans/${scanId}/cancel`,
-      { method: "POST" }
-    );
-  },
+  cancelScan: async (scanId: string) =>
+    (await client.POST("/api/v1/scans/{scan_id}/cancel", { params: { path: { scan_id: scanId } } })).data!,
 
-  // PR2 — on-demand SID resolution. NtACL renderer calls this for the
-  // SIDs in an entry's ACL that the scanner couldn't translate at
-  // scan time (DC unreachable, etc.). The api caches per (source,
-  // sid) so repeat opens are free; first open is one round-trip plus
-  // an LSARPC call from the scanner host.
-  resolvePrincipals(sourceId: string, sids: string[]) {
-    return request<{
-      resolved: Record<
-        string,
-        {
-          sid: string;
-          name: string | null;
-          domain: string | null;
-          kind: string | null;
-          status: "resolved" | "unresolved" | "skipped" | "error";
-          last_attempt_at: string | null;
-        }
-      >;
-    }>(`/principals/resolve`, {
-      method: "POST",
-      body: { source_id: sourceId, sids },
-    });
-  },
+  // On-demand SID resolution for the NtACL renderer; the api caches per
+  // (source, sid).
+  resolvePrincipals: async (sourceId: string, sids: string[]) =>
+    (await client.POST("/api/v1/principals/resolve", { body: { source_id: sourceId, sids } })).data!,
 
   // setup_required is true on a fresh deployment with zero users — the
-  // login page uses this to flip into "create the admin account" mode
-  // instead of showing a dead-end sign-in form.
-  getProviders() {
-    return request<{
-      local: boolean;
-      oidc: boolean;
-      ldap: boolean;
-      setup_required: boolean;
-    }>("/auth/providers", { skipAuth: true });
-  },
+  // login page uses this to flip into "create the admin account" mode.
+  getProviders: async () => (await client.GET("/api/v1/auth/providers")).data!,
 
-  me() {
-    return request<{ id: number; username: string; email: string }>("/users/me");
-  },
+  me: async () => (await client.GET("/api/v1/users/me")).data!,
 
-  // Phase 2 — bulk delete in Duplicates. Returns per-entry success/failure
-  // so the UI can mark which copies survived vs. failed (permission
-  // denied is the common case).
-  deleteDuplicateCopies(
-    contentHash: string,
-    keepEntryId: string,
-    deleteEntryIds: string[],
-  ) {
-    return request<{
-      deleted: { entry_id: string; path: string; ok: boolean }[];
-      failed: { entry_id: string; path: string; ok: boolean; step: string; message: string }[];
-    }>(`/duplicates/${contentHash}/delete-copies`, {
-      method: "POST",
-      body: { keep_entry_id: keepEntryId, delete_entry_ids: deleteEntryIds },
-    });
-  },
+  // Bulk delete in Duplicates; per-entry outcomes let the UI mark which
+  // copies survived (permission denied is the common case).
+  deleteDuplicateCopies: async (contentHash: string, keepEntryId: string, deleteEntryIds: string[]) =>
+    (
+      await client.POST("/api/v1/duplicates/{content_hash}/delete-copies", {
+        params: { path: { content_hash: contentHash } },
+        body: { keep_entry_id: keepEntryId, delete_entry_ids: deleteEntryIds },
+      })
+    ).data!,
 };
 
 export default api;

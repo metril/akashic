@@ -165,6 +165,11 @@ jobs:
       - name: Install
         working-directory: web
         run: npm ci
+      - name: Generated API client is current
+        working-directory: web
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/api/schema.d.ts
       - name: Typecheck
         working-directory: web
         run: npx tsc --noEmit
