@@ -339,9 +339,17 @@ A token created with `source_ids` is limited to those sources:
   purge, tokens) and actions reaching beyond a source (creating
   sources, the tag catalogue, scanner allow-lists) answer **403**
   `source_limited`.
-- A limited token may hold only these write scopes: `sources:write`,
-  `scans:write`, `tags:write` (others give 422 at creation). Any
-  `:read` scope is allowed.
+- A limited token may hold every read-only scope plus the write scopes
+  `sources:write`, `scans:write` and `tags:write`. Every other write
+  scope is refused with 422 at creation: `credentials:write`,
+  `hosts:write`, `identities:write`, `scanners:write`,
+  `settings:write`, `users:write`, `webhooks:write`,
+  `maintenance:write`, `tokens:write`, plus `data:purge` and
+  `tokens:admin`. The authoritative per-scope answer is the
+  `allowed_with_source_limit` flag on each `GET /api/v1/scopes` entry;
+  the same response's `read_only` flag marks the scopes the web UI's
+  "Read-only" preset selects (every `:read` scope plus `files:content`
+  and `credentials:list`).
 - On `PATCH /sources/{id}` it may change only `name`,
   `scan_schedule`, `exclude_patterns`, `preferred_pool`,
   `max_parallel_scanners`, `scan_chunk_size` and `is_removable`;
