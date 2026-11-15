@@ -71,7 +71,7 @@ async def test_browse_rejects_cross_source_predicate(client: AsyncClient, db_ses
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 400
-    detail = resp.json()["detail"]
+    detail = resp.json()["message"]
     assert "Search" in detail
 
 

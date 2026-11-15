@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.database import get_db
+from akashic.openapi import SCANNER_TAG
 from akashic.models.scan import Scan
 from akashic.models.scan_work_unit import ScanWorkUnit
 from akashic.models.scanner import Scanner
@@ -38,7 +39,7 @@ from akashic.models.source import Source
 from akashic.services.scanner_auth import verify_scanner_jwt
 from akashic.services.source_config import effective_max_parallel_scanners
 
-router = APIRouter(tags=["scan_work"])
+router = APIRouter(tags=[SCANNER_TAG])
 
 
 # Lease window. Same 60 s as the scan-level lease so the watchdog and

@@ -158,7 +158,7 @@ async def test_search_regex_invalid_returns_400(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 400
-    assert "regex" in r.json()["detail"].lower()
+    assert "regex" in r.json()["message"].lower()
 
 
 # --- fuzzy regression ---

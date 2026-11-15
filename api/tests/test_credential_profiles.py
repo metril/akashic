@@ -85,7 +85,7 @@ async def test_create_unsupported_type_returns_400(client: AsyncClient):
         json={"name": "x", "type": "ftp", "credentials": {}},
     )
     assert r.status_code == 400
-    assert "Unsupported type" in r.json()["detail"]
+    assert "Unsupported type" in r.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_assign_mismatched_profile_to_host_returns_400(
         },
     )
     assert rh.status_code == 400
-    assert "type" in rh.json()["detail"].lower()
+    assert "type" in rh.json()["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -205,4 +205,4 @@ async def test_delete_while_referenced_returns_409(client: AsyncClient):
 
     rd = await client.delete(f"/api/credential-profiles/{profile_id}")
     assert rd.status_code == 409
-    assert "host" in rd.json()["detail"].lower()
+    assert "host" in rd.json()["message"].lower()

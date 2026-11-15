@@ -105,6 +105,35 @@ jobs:
         run: |
           [ "${{ needs.test-api-shard.result }}" = "success" ] || { echo "::error::API test shards: ${{ needs.test-api-shard.result }}"; exit 1; }
 
+  api-contract:
+    name: API contract (openapi.json)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: api/pyproject.toml
+      - name: System deps
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq \
+              && sudo apt-get install -y -qq libldap2-dev libsasl2-dev \
+              && exit 0
+            echo "apt attempt $attempt failed; sleeping 15s before retry"
+            sleep 15
+          done
+          echo "apt failed 3 times; giving up"
+          exit 1
+      - name: Install api package
+        working-directory: api
+        run: pip install -e ".[dev]"
+      - name: Dump spec
+        run: python api/scripts/dump_openapi.py
+      - name: Committed openapi.json is current
+        run: git diff --exit-code openapi.json || { echo "::error::openapi.json is stale; run 'make openapi' and commit it"; exit 1; }
+
   test-scanner:
     name: Scanner tests
     runs-on: ubuntu-latest
@@ -148,7 +177,7 @@ jobs:
 
   build-api:
     name: Build api image
-    needs: [ test-api, test-scanner ]
+    needs: [ test-api, api-contract, test-scanner ]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -23,6 +23,7 @@ from akashic.auth.dependencies import (
     get_ingest_user,
 )
 from akashic.database import get_db
+from akashic.openapi import SCANNER_TAG
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.models.user import User
@@ -36,7 +37,7 @@ from akashic.services import scan_broadcast, scan_pubsub
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/scans", tags=["scan-progress"])
+router = APIRouter(prefix="/api/scans")
 
 
 async def _load_scan_with_write(
@@ -55,7 +56,7 @@ async def _load_scan_with_write(
     return scan
 
 
-@router.post("/{scan_id}/heartbeat", status_code=204)
+@router.post("/{scan_id}/heartbeat", status_code=204, tags=[SCANNER_TAG])
 async def post_heartbeat(
     scan_id: uuid.UUID,
     body: HeartbeatIn,
@@ -261,7 +262,7 @@ async def _scanner_name(
     return await scan_broadcast.resolve_scanner_name(db, scanner_id)
 
 
-@router.post("/{scan_id}/log", status_code=204)
+@router.post("/{scan_id}/log", status_code=204, tags=[SCANNER_TAG])
 async def post_log_batch(
     scan_id: uuid.UUID,
     body: LogBatchIn,
@@ -297,7 +298,7 @@ async def post_log_batch(
     )
 
 
-@router.post("/{scan_id}/stderr", status_code=204)
+@router.post("/{scan_id}/stderr", status_code=204, tags=[SCANNER_TAG])
 async def post_stderr_batch(
     scan_id: uuid.UUID,
     body: StderrBatchIn,
@@ -333,7 +334,7 @@ async def post_stderr_batch(
     )
 
 
-@router.get("/{scan_id}/log", response_model=list[LogEntryOut])
+@router.get("/{scan_id}/log", response_model=list[LogEntryOut], tags=["scans"])
 async def get_log(
     scan_id: uuid.UUID,
     since: datetime | None = Query(None, description="Return entries strictly after this timestamp"),

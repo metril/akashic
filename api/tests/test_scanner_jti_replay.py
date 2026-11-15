@@ -161,4 +161,4 @@ async def test_scanner_jwt_replay_returns_401(setup_db, admin_user):
     assert r1.status_code in (200, 204), r1.text
     # Second call: 401 with replay detail.
     assert r2.status_code == 401
-    assert "replay" in r2.json()["detail"].lower()
+    assert "replay" in r2.json()["message"].lower()

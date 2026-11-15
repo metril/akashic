@@ -1,4 +1,4 @@
-.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner bootstrap-scanner-legacy
+.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner bootstrap-scanner-legacy openapi openapi-allowlist
 
 up:
 	docker compose up -d
@@ -74,3 +74,13 @@ logs:
 
 ps:
 	docker compose ps
+
+# Regenerate the committed OpenAPI spec (openapi.json at the repo root).
+# Needs the api package installed (`pip install -e "api[dev]"`); no DB or
+# Redis. CI fails if the committed file is stale.
+openapi:
+	python api/scripts/dump_openapi.py
+
+# Rewrite the contract-test ratchet after fixing violations (shrink-only).
+openapi-allowlist:
+	python api/scripts/regen_openapi_allowlist.py

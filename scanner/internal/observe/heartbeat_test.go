@@ -21,38 +21,38 @@ func TestDecodeCancelMessage(t *testing.T) {
 	}{
 		{
 			name:    "user reason",
-			body:    `{"detail": {"status": "cancelled", "reason": "user", "message": "scan is cancelled"}}`,
+			body:    `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "cancelled", "reason": "user", "message": "scan is cancelled"}}`,
 			wantSub: "cancelled by user",
 		},
 		{
 			name:    "watchdog reason",
-			body:    `{"detail": {"status": "failed", "reason": "watchdog", "message": "scan is failed"}}`,
+			body:    `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "failed", "reason": "watchdog", "message": "scan is failed"}}`,
 			wantSub: "watchdog",
 		},
 		{
 			name:          "completed reason",
-			body:          `{"detail": {"status": "completed", "reason": "completed", "message": "scan is completed"}}`,
+			body:          `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "completed", "reason": "completed", "message": "scan is completed"}}`,
 			wantSub:       "scan completed",
 			wantCompleted: true,
 		},
 		{
 			name:    "failed reason with cause",
-			body:    `{"detail": {"status": "failed", "reason": "failed:oom", "message": "scan is failed"}}`,
+			body:    `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "failed", "reason": "failed:oom", "message": "scan is failed"}}`,
 			wantSub: "failed:oom",
 		},
 		{
 			name:    "empty reason falls back to user",
-			body:    `{"detail": {"status": "cancelled", "reason": "", "message": "scan is cancelled"}}`,
+			body:    `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "cancelled", "reason": "", "message": "scan is cancelled"}}`,
 			wantSub: "cancelled by user",
 		},
 		{
 			name:    "missing reason key falls back to user",
-			body:    `{"detail": {"status": "cancelled", "message": "scan is cancelled"}}`,
+			body:    `{"code": "conflict", "message": "scan ended", "request_id": "r", "detail": {"status": "cancelled", "message": "scan is cancelled"}}`,
 			wantSub: "cancelled by user",
 		},
 		{
-			name:    "legacy plain-string detail (pre-v0.29.8 API) falls back",
-			body:    `{"detail": "scan is cancelled"}`,
+			name:    "envelope without structured detail falls back",
+			body:    `{"code": "conflict", "message": "scan is cancelled", "detail": null, "request_id": "r"}`,
 			wantSub: "cancelled by user",
 		},
 		{

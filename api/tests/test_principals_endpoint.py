@@ -101,7 +101,7 @@ async def test_resolve_rejects_too_many_sids(client):
         json={"source_id": source_id, "sids": sids},
     )
     assert resp.status_code == 400
-    assert "max" in resp.json()["detail"].lower()
+    assert "max" in resp.json()["message"].lower()
 
 
 @pytest.mark.asyncio

@@ -126,7 +126,7 @@ func (c *Client) Search(ctx context.Context, query string, params *SearchParams)
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 
 	var results SearchResults
@@ -145,7 +145,7 @@ func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 
 	var sources []Source
@@ -160,7 +160,7 @@ func (c *Client) ListSources(ctx context.Context) ([]Source, error) {
 func checkStatus(resp *http.Response) error {
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 	return nil
 }
@@ -258,6 +258,18 @@ func (c *Client) CancelScan(ctx context.Context, scanID string) error {
 	return nil
 }
 
+// apiMessage returns the `message` of the API's error envelope
+// ({code, message, detail?, request_id}), or the raw body when it isn't one.
+func apiMessage(body string) string {
+	var env struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(body), &env) == nil && env.Message != "" {
+		return env.Message
+	}
+	return body
+}
+
 // APIError carries the HTTP status alongside the server's response body
 // so the CLI can translate it into a meaningful exit code (1 for 4xx,
 // 2 for 5xx, etc).
@@ -267,7 +279,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("API error %d: %s", e.Status, e.Body)
+	return fmt.Sprintf("API error %d: %s", e.Status, apiMessage(e.Body))
 }
 
 func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]DuplicateGroup, error) {
@@ -283,7 +295,7 @@ func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]Duplicate
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 
 	var groups []DuplicateGroup
@@ -302,7 +314,7 @@ func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 
 	var tags []Tag

@@ -335,7 +335,7 @@ async def test_delete_host_with_attached_source_returns_409(
 
     d = await client.delete(f"/api/hosts/{host_id}")
     assert d.status_code == 409
-    assert "attached source" in d.json()["detail"]
+    assert "attached source" in d.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -497,7 +497,7 @@ async def test_create_source_host_type_mismatch_returns_400(
         },
     )
     assert r.status_code == 400
-    assert "match" in r.json()["detail"].lower()
+    assert "match" in r.json()["message"].lower()
 
 
 @pytest.mark.asyncio

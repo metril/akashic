@@ -243,7 +243,7 @@ async def test_max_parallel_scanners_cap(setup_db, admin_user):
         # Third scanner refused: cap reached.
         r3 = await ac.post(f"/api/scans/{scan_id}/work/lease", headers=_auth(scn3))
     assert r3.status_code == 409
-    assert "cap" in r3.json()["detail"].lower()
+    assert "cap" in r3.json()["message"].lower()
 
 
 @pytest.mark.asyncio

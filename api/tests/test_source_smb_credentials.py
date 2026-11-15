@@ -122,4 +122,4 @@ async def test_create_smb_source_profile_without_password_still_rejected(
         "credential_profile_id": str(pid),
     })
     assert r.status_code == 422, r.text
-    assert "password" in r.json()["detail"].lower()
+    assert "password" in r.json()["message"].lower()

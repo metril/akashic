@@ -107,3 +107,15 @@ func TestClient_CancelScan(t *testing.T) {
 	}
 }
 
+
+func TestAPIMessage(t *testing.T) {
+	if got := apiMessage(`{"code":"not_found","message":"scan not found","detail":null,"request_id":"r1"}`); got != "scan not found" {
+		t.Errorf("envelope: got %q", got)
+	}
+	if got := apiMessage("upstream timeout"); got != "upstream timeout" {
+		t.Errorf("raw body: got %q", got)
+	}
+	if got := (&APIError{Status: 409, Body: `{"code":"conflict","message":"already running","request_id":"r"}`}).Error(); got != "API error 409: already running" {
+		t.Errorf("APIError: got %q", got)
+	}
+}

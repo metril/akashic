@@ -310,7 +310,7 @@ async def test_create_rejects_sentinel_for_secret_field(client: AsyncClient):
         },
     )
     assert r.status_code == 400
-    assert "***" in r.json()["detail"]
+    assert "***" in r.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -325,7 +325,7 @@ async def test_patch_rejects_sentinel_for_non_secret_field(client: AsyncClient):
         json={"connection_config": {"path": "***"}},
     )
     assert r.status_code == 400
-    assert "***" in r.json()["detail"]
+    assert "***" in r.json()["message"]
 
 
 @pytest.mark.asyncio

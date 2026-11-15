@@ -70,7 +70,7 @@ async def test_search_as_rejected_for_non_admin(client):
         headers={"Authorization": f"Bearer {bob_token}"},
     )
     assert r.status_code == 403
-    assert "admin" in r.json()["detail"].lower()
+    assert "admin" in r.json()["message"].lower()
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,8 @@ ENV APP_VERSION=${VERSION}
 WORKDIR /app
 
 COPY api/pyproject.toml .
+# The OpenAPI version is read from the top heading of CHANGELOG.md.
+COPY CHANGELOG.md .
 COPY api/akashic/ akashic/
 COPY api/alembic.ini .
 COPY api/alembic/ alembic/

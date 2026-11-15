@@ -55,6 +55,31 @@ export function isAuthenticated(): boolean {
   return _accessToken !== null || hasSessionHint();
 }
 
+/** Mirrors the API's ErrorResponse body: {code, message, detail?, request_id}. */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly detail: unknown,
+    public readonly requestId: string | null,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function parseApiError(status: number, body: unknown): ApiError {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  return new ApiError(
+    status,
+    typeof b.code === "string" ? b.code : `http_${status}`,
+    typeof b.message === "string" ? b.message : `HTTP error ${status}`,
+    b.detail ?? null,
+    typeof b.request_id === "string" ? b.request_id : null,
+  );
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -195,21 +220,13 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    let errorMessage = `HTTP error ${response.status}`;
+    let body: unknown = null;
     try {
-      const errorData = await response.json();
-      const detail = errorData.detail;
-      if (typeof detail === "string") {
-        errorMessage = detail;
-      } else if (detail && typeof detail === "object") {
-        errorMessage = (detail as { message?: string }).message ?? JSON.stringify(detail);
-      } else if (errorData.message) {
-        errorMessage = errorData.message;
-      }
+      body = await response.json();
     } catch {
-      // ignore JSON parse errors
+      // non-JSON error body (proxy error page, etc.)
     }
-    throw new Error(errorMessage);
+    throw parseApiError(response.status, body);
   }
 
   if (response.status === 204) {

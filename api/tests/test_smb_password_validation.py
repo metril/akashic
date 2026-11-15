@@ -62,7 +62,7 @@ async def test_smb_profile_without_password_returns_422(client: AsyncClient):
               "credentials": {"username": "alice"}},
     )
     assert r.status_code == 422, r.text
-    assert "non-empty password" in r.json()["detail"].lower() \
+    assert "non-empty password" in r.json()["message"].lower() \
         or "non-empty password" in r.text.lower()
 
 

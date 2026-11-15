@@ -60,7 +60,7 @@ func TestRunUnitCoordinated_WorkersDrainQueueConcurrently(t *testing.T) {
 				// this 409 to errScanTerminal and the worker exits.
 				w.WriteHeader(http.StatusConflict)
 				_, _ = w.Write([]byte(
-					`{"detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
+					`{"code":"conflict","message":"scan ended","request_id":"r","detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
 				return
 			}
 			p := queue[0]

@@ -16,6 +16,7 @@ import time
 import uuid
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,8 +39,17 @@ def _bearer_token(request: Request) -> str:
     return auth.split(" ", 1)[1].strip()
 
 
+# Declares the `scannerJWT` scheme in the OpenAPI spec. auto_error=False:
+# `_bearer_token` below stays the single place that rejects bad headers.
+_scanner_bearer = HTTPBearer(
+    auto_error=False, scheme_name="scannerJWT", bearerFormat="JWT",
+    description="Per-request JWT signed with the scanner's Ed25519 key. Internal.",
+)
+
+
 async def verify_scanner_jwt(
     request: Request,
+    _declared: HTTPAuthorizationCredentials | None = Depends(_scanner_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Scanner:
     """Resolve the calling scanner from a signed JWT. 401 on every

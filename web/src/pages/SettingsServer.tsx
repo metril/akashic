@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "../api/client";
 import { Badge, Button, Card, CardHeader, Input, SectionState, Select } from "../components/ui";
 import {
   useServerSettings,
@@ -27,31 +28,24 @@ function same(a: ServerSettingValue, b: ServerSettingValue): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Pull a readable message out of the API's 422 detail (string or JSON). */
-function parseError(msg: string): { general: string; byKey: Record<string, string> } {
-  const byKey: Record<string, string> = {};
-  try {
-    const parsed = JSON.parse(msg);
-    const items = Array.isArray(parsed) ? parsed : parsed?.errors ?? parsed?.detail;
-    if (Array.isArray(items)) {
-      const rest: string[] = [];
-      for (const it of items) {
-        const loc: unknown[] = Array.isArray(it?.loc) ? it.loc : [];
-        const key = loc.map(String).find((p) => p !== "body" && p !== "values");
-        const m = String(it?.msg ?? it?.message ?? JSON.stringify(it));
-        if (key) byKey[key] = m;
-        else rest.push(m);
-      }
-      return { general: rest.join("; "), byKey };
-    }
-    if (parsed && typeof parsed === "object") {
-      for (const [k, v] of Object.entries(parsed)) byKey[k] = String(v);
-      return { general: "", byKey };
-    }
-  } catch {
-    /* plain string */
+/** Map an API error onto per-setting field errors (validation_error carries field errors in `detail`). */
+function parseError(e: unknown): { general: string; byKey: Record<string, string> } {
+  if (!(e instanceof ApiError)) {
+    return { general: e instanceof Error ? e.message : "Save failed", byKey: {} };
   }
-  return { general: msg, byKey };
+  if (e.code !== "validation_error" || !Array.isArray(e.detail)) {
+    return { general: e.message, byKey: {} };
+  }
+  const byKey: Record<string, string> = {};
+  const rest: string[] = [];
+  for (const it of e.detail as Array<{ loc?: unknown[]; msg?: unknown }>) {
+    const loc: unknown[] = Array.isArray(it?.loc) ? it.loc : [];
+    const key = loc.map(String).find((p) => p !== "body" && p !== "values");
+    const m = String(it?.msg ?? JSON.stringify(it));
+    if (key) byKey[key] = m;
+    else rest.push(m);
+  }
+  return { general: rest.join("; "), byKey };
 }
 
 function Toggle({
@@ -252,7 +246,7 @@ function GroupCard({ group }: { group: ServerSettingGroup }) {
       await save.mutateAsync(values);
       toast.success(`${group.label} settings saved`);
     } catch (e) {
-      setErrors(parseError(e instanceof Error ? e.message : "Save failed"));
+      setErrors(parseError(e));
     }
   }
 

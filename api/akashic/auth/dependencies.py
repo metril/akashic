@@ -9,7 +9,14 @@ from akashic.auth.jwt import decode_access_token, decode_ingest_token
 from akashic.database import get_db
 from akashic.models.user import User
 
-security = HTTPBearer()
+security = HTTPBearer(
+    scheme_name="userJWT", bearerFormat="JWT",
+    description="Access token from `POST /api/auth/login` or `/api/auth/refresh`.",
+)
+_ingest_security = HTTPBearer(
+    scheme_name="ingestJWT", bearerFormat="JWT",
+    description="Ingest-scoped token leased to a scanner for one scan. Internal.",
+)
 
 
 async def get_current_user(
@@ -30,7 +37,7 @@ async def get_current_user(
 
 
 async def get_ingest_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(_ingest_security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Resolve the user from a token minted by create_ingest_token.
@@ -61,7 +68,7 @@ async def get_ingest_user(
 # carried a scanner_id claim, surface it". Tests that override
 # `get_ingest_user` (and therefore never present a real Authorization
 # header) must not 401 just because this companion dep also runs.
-_optional_bearer = HTTPBearer(auto_error=False)
+_optional_bearer = HTTPBearer(auto_error=False, scheme_name="ingestJWT", bearerFormat="JWT")
 
 
 async def get_ingest_scanner_id(

@@ -32,7 +32,7 @@ func TestLeaseUnit_ScanTerminal409_MapsToErrScanTerminal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(
-			`{"detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
+			`{"code":"conflict","message":"scan ended","request_id":"r","detail":{"status":"completed","reason":"scan-terminal","message":"done"}}`))
 	}))
 	defer srv.Close()
 
@@ -51,7 +51,7 @@ func TestLeaseUnit_Cap409_MapsToErrLeaseCap(t *testing.T) {
 	// → units exist, just no slot. Must stay errLeaseCap, not terminal.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"detail":"max_parallel_scanners cap (2) reached"}`))
+		_, _ = w.Write([]byte(`{"code":"conflict","message":"max_parallel_scanners cap (2) reached","detail":null,"request_id":"r"}`))
 	}))
 	defer srv.Close()
 

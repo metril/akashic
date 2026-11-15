@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import check_source_access, get_ingest_user
 from akashic.database import get_db
+from akashic.openapi import SCANNER_TAG
 from akashic.models.entry import Entry, EntryEvent, EntryVersion
 from akashic.models.scan import Scan
 from akashic.models.scan_work_unit import ScanWorkUnit
@@ -30,7 +31,7 @@ from akashic.services.tag_inheritance import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/ingest", tags=["ingest"])
+router = APIRouter(prefix="/api/ingest", tags=[SCANNER_TAG])
 
 # Stay under postgres's 32767 bind-parameter cap per query.
 _MAX_QUERY_PARAMS = 30_000

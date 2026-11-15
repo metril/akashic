@@ -1,19 +1,27 @@
 import gzip
 import logging
-import os
 import time
 import zlib
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, Response
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
 from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
+from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, new_request_id
+from akashic.openapi import TAGS, app_version, install_openapi, operation_id
+from akashic.schemas.common import ERROR_RESPONSES
 from akashic.services import metrics as metrics_svc
 
 logger = logging.getLogger(__name__)
+
+_SWAGGER_DIR = Path(__file__).parent / "static" / "swagger"
 
 
 # Slow-request observability + Prometheus instrumentation, both
@@ -92,15 +100,14 @@ class _GzipRequestMiddleware:
             elif not d.eof:
                 raise EOFError("truncated gzip stream")
         except (zlib.error, EOFError) as exc:
-            await Response(
-                content=f"Invalid gzip body: {exc}".encode(),
-                status_code=400,
+            await error_response(
+                400, f"Invalid gzip body: {exc}", scope.get("state", {}).get("request_id") or new_request_id(),
             )(scope, receive, send)
             return
         if too_big:
-            await Response(
-                content=b"Decompressed body exceeds 32 MB cap",
-                status_code=413,
+            await error_response(
+                413, "Decompressed body exceeds 32 MB cap",
+                scope.get("state", {}).get("request_id") or new_request_id(),
             )(scope, receive, send)
             return
 
@@ -282,7 +289,19 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Akashic", version=os.getenv("APP_VERSION", "dev"), lifespan=lifespan)
+    app = FastAPI(
+        title="Akashic",
+        version=app_version(),
+        description="Universal file index: sources, scans, search, permissions and administration.",
+        openapi_tags=TAGS,
+        generate_unique_id_function=operation_id,
+        docs_url=None,
+        openapi_url="/api/openapi.json",
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+    install_openapi(app)
+    install_error_handlers(app)
 
     # CORS allow-list read from the runtime snapshot per request, so
     # changing origins in the UI needs no restart. Empty = same-origin.
@@ -301,6 +320,9 @@ def create_app() -> FastAPI:
     # so the route handlers receive plain JSON regardless of whether
     # the client compressed.
     app.add_middleware(_GzipRequestMiddleware)
+
+    # Outermost: every request (including gzip rejections) carries an id.
+    app.add_middleware(RequestIdMiddleware)
 
     # Liveness probe for compose healthchecks. Deliberately doesn't
     # touch the DB / Meili / Redis — we want this to flip green the
@@ -321,40 +343,54 @@ def create_app() -> FastAPI:
         body, content_type = metrics_svc.render_metrics()
         return Response(content=body, media_type=content_type)
 
-    app.include_router(auth.router)
-    app.include_router(users.router)
-    app.include_router(ingest.router)
-    app.include_router(hosts.router)
-    app.include_router(credential_profiles.router)
-    app.include_router(sources.router)
-    app.include_router(source_test.router)
-    app.include_router(search.router)
-    app.include_router(entries.router)
-    app.include_router(entry_content.router)
-    app.include_router(browse.router)
-    app.include_router(duplicates.router)
-    app.include_router(tags.router)
-    app.include_router(analytics.router)
-    app.include_router(purge.router)
-    app.include_router(webhooks.router)
-    app.include_router(scans.router)
-    app.include_router(scan_progress.router)
-    app.include_router(scan_websocket.router)
-    app.include_router(scan_work.router)
-    app.include_router(effective_perms.router)
-    app.include_router(identities.router)
-    app.include_router(admin_audit.router)
-    app.include_router(group_resolution.router)
-    app.include_router(principals.router)
-    app.include_router(access.router)
-    app.include_router(dashboard.router)
-    app.include_router(storage_explorer.router)
-    app.include_router(scanners.router)
-    app.include_router(scanner_discovery.router)
-    app.include_router(server_settings.router)
-    app.include_router(source_oauth.router)
-    app.include_router(health_services.router)
-    app.include_router(maintenance.router)
+    # Swagger UI, served from vendored assets: the web container's CSP is
+    # `script-src 'self'`, so the default CDN + inline-script page is blocked.
+    app.mount("/api/docs/assets", StaticFiles(directory=_SWAGGER_DIR), name="swagger-assets")
+
+    @app.get("/api/docs", include_in_schema=False)
+    def docs():
+        return HTMLResponse(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Akashic API</title>"
+            "<link rel=\"stylesheet\" href=\"/api/docs/assets/swagger-ui.css\"></head>"
+            "<body><div id=\"swagger-ui\"></div>"
+            "<script src=\"/api/docs/assets/swagger-ui-bundle.js\"></script>"
+            "<script src=\"/api/docs/assets/init.js\"></script></body></html>"
+        )
+
+    app.include_router(auth.router, responses=ERROR_RESPONSES)
+    app.include_router(users.router, responses=ERROR_RESPONSES)
+    app.include_router(ingest.router, responses=ERROR_RESPONSES)
+    app.include_router(hosts.router, responses=ERROR_RESPONSES)
+    app.include_router(credential_profiles.router, responses=ERROR_RESPONSES)
+    app.include_router(sources.router, responses=ERROR_RESPONSES)
+    app.include_router(source_test.router, responses=ERROR_RESPONSES)
+    app.include_router(search.router, responses=ERROR_RESPONSES)
+    app.include_router(entries.router, responses=ERROR_RESPONSES)
+    app.include_router(entry_content.router, responses=ERROR_RESPONSES)
+    app.include_router(browse.router, responses=ERROR_RESPONSES)
+    app.include_router(duplicates.router, responses=ERROR_RESPONSES)
+    app.include_router(tags.router, responses=ERROR_RESPONSES)
+    app.include_router(analytics.router, responses=ERROR_RESPONSES)
+    app.include_router(purge.router, responses=ERROR_RESPONSES)
+    app.include_router(webhooks.router, responses=ERROR_RESPONSES)
+    app.include_router(scans.router, responses=ERROR_RESPONSES)
+    app.include_router(scan_progress.router, responses=ERROR_RESPONSES)
+    app.include_router(scan_websocket.router, responses=ERROR_RESPONSES)
+    app.include_router(scan_work.router, responses=ERROR_RESPONSES)
+    app.include_router(effective_perms.router, responses=ERROR_RESPONSES)
+    app.include_router(identities.router, responses=ERROR_RESPONSES)
+    app.include_router(admin_audit.router, responses=ERROR_RESPONSES)
+    app.include_router(group_resolution.router, responses=ERROR_RESPONSES)
+    app.include_router(principals.router, responses=ERROR_RESPONSES)
+    app.include_router(access.router, responses=ERROR_RESPONSES)
+    app.include_router(dashboard.router, responses=ERROR_RESPONSES)
+    app.include_router(storage_explorer.router, responses=ERROR_RESPONSES)
+    app.include_router(scanners.router, responses=ERROR_RESPONSES)
+    app.include_router(scanner_discovery.router, responses=ERROR_RESPONSES)
+    app.include_router(server_settings.router, responses=ERROR_RESPONSES)
+    app.include_router(source_oauth.router, responses=ERROR_RESPONSES)
+    app.include_router(health_services.router, responses=ERROR_RESPONSES)
+    app.include_router(maintenance.router, responses=ERROR_RESPONSES)
     return app
 
 

@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import require_admin
 from akashic.database import get_db
+from akashic.openapi import SCANNER_TAG
 from akashic.models.scanner import Scanner
 from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
 from akashic.models.user import User
@@ -39,7 +40,7 @@ from akashic.services.server_settings import is_discovery_enabled
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["scanner-discovery"])
+router = APIRouter()
 
 # 15-minute pending window — longer than typical "I just clicked
 # `docker compose up`" → "I noticed it in the UI" gap, short enough
@@ -129,6 +130,7 @@ class DenyBody(BaseModel):
     "/api/scanners/discover",
     response_model=DiscoverResponse,
     status_code=status.HTTP_201_CREATED,
+    tags=[SCANNER_TAG],
 )
 async def discover_scanner(
     body: DiscoverRequest,
@@ -227,6 +229,7 @@ def _to_status(row: ScannerDiscoveryRequest, scanner: Scanner | None) -> Discove
 @router.get(
     "/api/scanners/discover/{discovery_id}",
     response_model=DiscoverStatus,
+    tags=[SCANNER_TAG],
 )
 async def discover_status(
     discovery_id: uuid.UUID,
@@ -307,6 +310,7 @@ async def discover_status(
 @router.get(
     "/api/scanner-discovery-requests",
     response_model=list[DiscoveryAdminSummary],
+    tags=["scanners"],
 )
 async def list_discovery_requests(
     db: AsyncSession = Depends(get_db),
@@ -354,6 +358,7 @@ def _terminal_or_404(row: ScannerDiscoveryRequest | None) -> ScannerDiscoveryReq
 
 @router.post(
     "/api/scanner-discovery-requests/{discovery_id}/approve",
+    tags=["scanners"],
 )
 async def approve_discovery(
     discovery_id: uuid.UUID,
@@ -419,6 +424,7 @@ async def approve_discovery(
 @router.post(
     "/api/scanner-discovery-requests/{discovery_id}/deny",
     status_code=status.HTTP_204_NO_CONTENT,
+    tags=["scanners"],
 )
 async def deny_discovery(
     discovery_id: uuid.UUID,

@@ -136,7 +136,7 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, is_admin: bool) -> st
 
 
 @router.get("/sources")
-async def list_sources(
+async def list_storage_sources(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
