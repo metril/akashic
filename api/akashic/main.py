@@ -399,6 +399,7 @@ def create_app() -> FastAPI:
     app.include_router(source_oauth.router, prefix=API_PREFIX)
     app.include_router(health_services.router, prefix=API_PREFIX)
     app.include_router(maintenance.router, prefix=API_PREFIX)
+    app.state.akashic_api = True  # lets the test-suite response audit tell this app from throwaway test apps
     return app
 
 

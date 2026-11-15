@@ -13,7 +13,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from akashic.routing import ApiRouter, errors
+from akashic.routing import ApiRouter, raises
 from fastapi import Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
@@ -142,8 +142,8 @@ class ClaimResponse(BaseModel):
     "/scanners/claim",
     response_model=ClaimResponse,
     status_code=status.HTTP_201_CREATED,
-    responses=errors(401, 410),  # ClaimError carries its own status (bad / expired / used token)
 )
+@raises(401, 410)  # ClaimError carries its own status (bad / expired / used token)
 async def claim_with_token(
     body: ClaimRequest,
     request: Request,

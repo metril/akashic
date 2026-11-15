@@ -160,9 +160,10 @@ async def seed_scan(db_session, source_id, *, status: str = "pending"):
 # recorded as (method, matched route template, status). At session end each
 # observed status must be declared in that route's OpenAPI responses, so the
 # existing tests double as evidence that the spec lists what routes return.
-# Requests matching no route (unknown paths, middleware-level refusals) are
-# not recorded.
-_OBSERVED: set[tuple[str, str, str, int]] = set()
+# Only requests that matched no route (unknown paths, wrong method) are not recorded; any
+# observation on a real route that the spec cannot account for fails the audit
+# (see tests/runtime_audit.py).
+_OBSERVED: set[tuple[str, str, str, int, bool]] = set()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -184,33 +185,23 @@ def _documented_responses_audit():
         finally:
             route = scope.get("route")
             path = getattr(route, "path", None)
-            if scope["type"] == "http" and path and status_box and scope["method"] not in ("HEAD", "OPTIONS"):
-                _OBSERVED.add((scope["method"], path, scope["path"], status_box[0]))
+            # Only the real API app (throwaway apps in individual tests are not part of the spec), and only
+            # requests that matched a route for their method: an unknown path or a 405 is not a documented-response gap.
+            if (
+                scope["type"] == "http" and path and status_box and scope["method"] not in ("HEAD", "OPTIONS")
+                and getattr(self.state, "akashic_api", False)
+                and scope["method"] in (getattr(route, "methods", None) or ())
+            ):
+                _OBSERVED.add((
+                    scope["method"], path, scope["path"], status_box[0],
+                    bool(getattr(route, "include_in_schema", True)),
+                ))
 
     FastAPI.__call__ = recording_call
     yield
     FastAPI.__call__ = original
 
-    spec = create_app().openapi()
-    import re
+    from tests.runtime_audit import audit_observed
 
-    def template_for(method: str, route_path: str, concrete: str):
-        """Full spec path for a matched route (its own `path` may lack the router prefix)."""
-        for tpl, ops in spec["paths"].items():
-            if method.lower() in ops and tpl.endswith(route_path):
-                if re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", tpl), concrete):
-                    return tpl
-        return None
-
-    problems = []
-    matched = 0
-    for method, route_path, concrete, status in sorted(_OBSERVED):
-        tpl = template_for(method, route_path, concrete)
-        if tpl is None:  # not part of the schema (include_in_schema=False)
-            continue
-        matched += 1
-        responses = spec["paths"][tpl][method.lower()]["responses"]
-        if str(status) not in responses and "default" not in responses:
-            problems.append(f"{method} {tpl} -> {status} (documented: {sorted(responses)})")
-    assert matched or not _OBSERVED, "runtime audit matched no observed responses to the spec"
-    assert not problems, "responses observed in tests but not documented in OpenAPI:\n  " + "\n  ".join(sorted(set(problems)))
+    problems = audit_observed(create_app().openapi(), _OBSERVED)
+    assert not problems, "responses observed in tests but not documented in OpenAPI:\n  " + "\n  ".join(problems)

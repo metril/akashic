@@ -9,8 +9,14 @@ Every route built through :class:`ApiRouter` gets ``responses`` derived from:
 * its handler: every status code raised literally via ``HTTPException`` in the
   handler body (``status_code=409``, ``status.HTTP_410_GONE``, ...).
 
-Codes a handler raises indirectly (through a helper) are declared with an
-explicit ``responses=`` on the route.
+The call graph is followed without a depth limit (a visited set stops cycles),
+through every ``akashic`` function reachable from the handler.
+
+A raise whose status is not a literal (``HTTPException(status_code=err.status_code)``)
+cannot be derived. It must be acknowledged *at the function that raises it* with
+``@raises(401, 410)``, which lists every status it can produce; those codes are
+added to every route that reaches the function. An unacknowledged dynamic raise
+fails the route build, naming the route and the call chain.
 """
 from __future__ import annotations
 
@@ -50,6 +56,22 @@ def error_response(code: int) -> dict[str, Any]:
 def errors(*codes: int) -> dict[int | str, dict[str, Any]]:
     """Explicit ``responses=`` helper: ``responses=errors(409, 502)``."""
     return {c: error_response(c) for c in codes}
+
+
+def raises(*codes: int) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Acknowledge a non-literal ``HTTPException`` status in the decorated function.
+
+    Lists every status the function can raise; routes reaching it document them.
+    Place it directly above the ``def`` (below any route decorator).
+    """
+    if not codes or any(c < 400 for c in codes):
+        raise ValueError("raises() needs one or more status codes >= 400")
+
+    def mark(fn: Callable[..., Any]) -> Callable[..., Any]:
+        fn.__akashic_raises__ = frozenset(codes)  # type: ignore[attr-defined]
+        return fn
+
+    return mark
 
 
 def _walk_dependants(dependant):
@@ -119,47 +141,83 @@ def _callee(node: ast.Call, globs: dict[str, Any]) -> Any:
     return None
 
 
-def scan_raises(
-    endpoint: Callable[..., Any], _seen: set[Any] | None = None, _depth: int = 4,
-) -> tuple[set[int], bool]:
-    """Status codes raised by ``endpoint`` and, transitively, by the ``akashic``
-    functions and methods it calls; the flag reports a raise whose status is not literal."""
-    seen = _seen if _seen is not None else set()
-    fn = inspect.unwrap(getattr(endpoint, "__func__", endpoint))
-    if fn in seen or not inspect.isfunction(fn):
-        return set(), False
-    seen.add(fn)
+_DIRECT_CACHE: dict[Any, tuple[set[int], bool, list[Any]] | None] = {}
+
+
+def _direct(fn: Any) -> tuple[set[int], bool, list[Any]] | None:
+    """(codes, unacknowledged dynamic raise, callees) for ``fn`` alone, or None if not scannable."""
+    if fn in _DIRECT_CACHE:
+        return _DIRECT_CACHE[fn]
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
     except (OSError, TypeError, SyntaxError):
-        return set(), False
+        _DIRECT_CACHE[fn] = None
+        return None
     codes, dynamic = _scan_raises(tree, fn.__globals__)
-    if _depth > 0:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                target = _callee(node, fn.__globals__)
-                target = getattr(target, "__func__", target)
-                if inspect.isfunction(target) and getattr(target, "__module__", "").startswith(SCANNED_MODULE_PREFIXES):
-                    c, d = scan_raises(target, seen, _depth - 1)
-                    codes |= c
-                    dynamic = dynamic or d
-    return codes, dynamic
+    declared = getattr(fn, "__akashic_raises__", None)
+    if declared:
+        codes |= declared
+        dynamic = False
+    callees = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            target = _callee(node, fn.__globals__)
+            target = getattr(target, "__func__", target)
+            if inspect.isfunction(target):
+                callees.append(target)
+    result = (codes, dynamic, callees)
+    _DIRECT_CACHE[fn] = result
+    return result
+
+
+def scan_raises(
+    endpoint: Callable[..., Any], _seen: set[Any] | None = None,
+) -> tuple[set[int], list[list[str]]]:
+    """Status codes raised by ``endpoint`` and, transitively, by every ``akashic``
+    function it can reach; also the call chains ending in an unacknowledged
+    non-literal raise. ``_seen`` (shared across a route's entry points) is the
+    visited set, so cycles terminate and no depth limit is needed."""
+    seen = _seen if _seen is not None else set()
+    codes: set[int] = set()
+    bad: list[list[str]] = []
+
+    def visit(target: Any, chain: list[str]) -> None:
+        fn = inspect.unwrap(getattr(target, "__func__", target))
+        if fn in seen or not inspect.isfunction(fn):
+            return
+        seen.add(fn)
+        if not getattr(fn, "__module__", "").startswith(SCANNED_MODULE_PREFIXES):
+            return
+        res = _direct(fn)
+        if res is None:
+            return
+        c, dynamic, callees = res
+        codes.update(c)
+        here = chain + [fn.__qualname__]
+        if dynamic:
+            bad.append(here)
+        for callee in callees:
+            visit(callee, here)
+
+    visit(endpoint, [])
+    return codes, bad
 
 
 class DocumentedRoute(APIRoute):
     def __init__(self, path: str, endpoint: Callable[..., Any], **kwargs: Any) -> None:
         super().__init__(path, endpoint, **kwargs)
         seen: set[Any] = set()
-        codes, dynamic = scan_raises(endpoint, seen)
+        codes, bad = scan_raises(endpoint, seen)
         dependants = list(_walk_dependants(self.dependant))
         for dep in dependants:
-            c, d = scan_raises(dep.call, seen)
+            c, b = scan_raises(dep.call, seen)
             codes |= c
-            dynamic = dynamic or d
-        if dynamic and not any(int(k) >= 400 for k in (kwargs.get("responses") or {}) if str(k).isdigit()):
+            bad += b
+        if bad:
+            chains = "; ".join(" -> ".join(chain) for chain in bad)
             raise RuntimeError(
-                f"{path}: a handler or helper raises with a non-literal status code; "
-                "declare the possible codes with responses=errors(...)"
+                f"{path}: raises with a non-literal status code that is not acknowledged "
+                f"(call chain: {chains}); decorate the raising function with @raises(<codes>)"
             )
         names = {getattr(d.call, "__name__", "") for d in dependants}
         scoped = [d.call for d in dependants if getattr(d.call, "required_scope", None) is not None]

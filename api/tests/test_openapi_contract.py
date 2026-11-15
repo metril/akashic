@@ -383,18 +383,70 @@ def scan_this_module(monkeypatch):
     monkeypatch.setattr(_routing, "SCANNED_MODULE_PREFIXES", ("akashic", __name__))
 
 
-def test_dynamic_status_requires_explicit_errors(scan_this_module):
-    """Fail closed: a handler raising with a non-literal status must declare its codes."""
+@_routing.raises(418)
+def _boom_teapot(code: int):
+    raise _HTTPException(status_code=code)
+
+
+def test_dynamic_status_requires_acknowledgement(scan_this_module):
+    """Fail closed: a non-literal status must be acknowledged with @raises at the raising function."""
     router = _routing.ApiRouter()
-    with pytest.raises(RuntimeError, match="non-literal status"):
+    with pytest.raises(RuntimeError, match="not acknowledged.*bad -> _boom"):
         @router.get("/x")
         def bad():
             _boom(500)
 
-    @router.get("/y", responses=_routing.errors(418))
+    # A route-level responses= no longer acknowledges a dynamic raise.
+    with pytest.raises(RuntimeError, match="not acknowledged"):
+        @router.get("/x2", responses=_routing.errors(418, 500))
+        def bad2():
+            _boom(500)
+
+    @router.get("/y")
     def ok():
-        _boom(418)
+        _boom_teapot(418)
     assert 418 in router.routes[-1].responses
+
+
+def test_raises_declaration_is_validated():
+    with pytest.raises(ValueError):
+        _routing.raises()
+    with pytest.raises(ValueError):
+        _routing.raises(200)
+
+
+def test_scan_has_no_depth_limit(scan_this_module, monkeypatch):
+    """A raise buried 12 helpers deep is still found (and a dynamic one still fails the build)."""
+    import inspect as _inspect
+    import linecache
+
+    # exec'd functions have no source; give them a real file so the scanner can read them.
+    src_lines = ["from fastapi import HTTPException\n", "def f0():\n", "    raise HTTPException(status_code=418)\n"]
+    for i in range(1, 12):
+        src_lines += [f"def f{i}():\n", f"    f{i - 1}()\n"]
+    fname = "<akashic-deep-chain>"
+    linecache.cache[fname] = (len("".join(src_lines)), None, src_lines, fname)
+    ns: dict = {"__name__": "akashic.fake_deep"}
+    exec(compile("".join(src_lines), fname, "exec"), ns)
+    for f in ns.values():
+        if _inspect.isfunction(f):
+            f.__module__ = "akashic.fake_deep"
+    codes, bad = _routing.scan_raises(ns["f11"])
+    assert codes == {418} and not bad
+
+
+def test_cycles_terminate(scan_this_module):
+    codes, bad = _routing.scan_raises(_cycle_a)
+    assert codes == {418} and not bad
+
+
+def _cycle_a():
+    _cycle_b()
+    raise _HTTPException(status_code=418)
+
+
+def _cycle_b():
+    _cycle_a()
 
 
 def test_helpers_reached_through_attributes_and_subclasses_are_scanned(scan_this_module):
@@ -405,3 +457,20 @@ def test_helpers_reached_through_attributes_and_subclasses_are_scanned(scan_this
         _gate.check()
 
     assert 429 in router.routes[-1].responses
+
+
+def test_runtime_audit_fails_closed():
+    from tests.runtime_audit import audit_observed
+
+    spec = {"paths": {"/api/v1/a/{id}": {"get": {"responses": {"200": {}, "404": {}}}},
+                      "/api/v1/d": {"get": {"responses": {"200": {}, "default": {}}}}}}
+    ok = ("GET", "/a/{id}", "/api/v1/a/1", 404, True)
+    assert audit_observed(spec, [ok]) == []
+    # undocumented status
+    assert audit_observed(spec, [("GET", "/a/{id}", "/api/v1/a/1", 500, True)])
+    # `default` no longer documents arbitrary statuses
+    assert audit_observed(spec, [("GET", "/d", "/api/v1/d", 500, True)])
+    # real route with no spec operation
+    assert audit_observed(spec, [("GET", "/ghost", "/api/v1/ghost", 200, True)])
+    # excluded from the schema: skipped
+    assert audit_observed(spec, [("GET", "/ghost", "/api/v1/ghost", 200, False)]) == []
