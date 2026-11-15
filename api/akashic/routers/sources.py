@@ -358,7 +358,22 @@ async def get_source_audit(
     )
 
 
-@router.patch("/{source_id}", response_model=SourceResponse)
+# A source-limited token may change only these: nothing that changes where or how
+# the source is read (connection, credentials, host, type).
+LIMITED_UPDATE_FIELDS = frozenset({
+    "name", "scan_schedule", "exclude_patterns", "preferred_pool",
+    "max_parallel_scanners", "scan_chunk_size", "is_removable",
+})
+
+
+@router.patch(
+    "/{source_id}", response_model=SourceResponse,
+    description=(
+        "A source-limited token may change only: " + ", ".join(sorted(LIMITED_UPDATE_FIELDS)) +
+        ". Changing `connection_config`, `credential_profile_id` or `host_id` is refused "
+        "with 403 `source_limited`."
+    ),
+)
 async def update_source(
     source_id: uuid.UUID,
     data: SourceUpdate,
@@ -368,6 +383,8 @@ async def update_source(
 ):
     user = principal.user
     await check_source_access(source_id, principal, db)
+    if principal.source_limited and (data.model_fields_set - LIMITED_UPDATE_FIELDS):
+        principal.ensure_unrestricted()
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:

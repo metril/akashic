@@ -15928,7 +15928,7 @@
         ]
       },
       "post": {
-        "description": "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. A token limited to sources (`source_ids`) cannot hold write scopes on other resources.",
+        "description": "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. A token limited to sources (`source_ids`) cannot hold write scopes on other resources. Requires an interactive login session: an API token cannot create tokens (403 `interactive_session_required`).",
         "operationId": "create_my_token",
         "requestBody": {
           "content": {
@@ -16098,7 +16098,7 @@
         ]
       },
       "patch": {
-        "description": "Scopes can only be narrowed, never widened. To widen, create a new token.",
+        "description": "Scopes can only be narrowed, never widened. To widen, create a new token. Requires an interactive login session (403 `interactive_session_required` for an API token).",
         "operationId": "update_my_token",
         "parameters": [
           {
@@ -21917,6 +21917,7 @@
         ]
       },
       "patch": {
+        "description": "A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.",
         "operationId": "update_source",
         "parameters": [
           {

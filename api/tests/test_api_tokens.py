@@ -175,15 +175,6 @@ async def test_token_cannot_exceed_creators_bundle(client, world):
 
 
 @pytest.mark.asyncio
-async def test_a_token_cannot_mint_beyond_its_own_scopes(client, world):
-    tok = await _mint(client, world["admin"], ["tokens:write", "files:read"])
-    r = await client.post("/api/v1/me/tokens", json={"name": "x", "scopes": ["sources:write"]}, headers=_h(tok))
-    assert r.status_code == 422
-    r = await client.post("/api/v1/me/tokens", json={"name": "x", "scopes": ["files:read"]}, headers=_h(tok))
-    assert r.status_code == 201
-
-
-@pytest.mark.asyncio
 async def test_source_limit_creation_rules(client, world):
     h = _jwt(world["admin"])
     ok = await client.post(
@@ -493,3 +484,79 @@ def test_every_data_route_is_exercised_by_the_limit_tests():
         if DATA_TAGS & set(route.tags or []) and "scanner" not in (route.tags or []) and _source_scoped(route)
     }
     assert data_routes - covered == set(), f"data routes without a source-limit test: {sorted(data_routes - covered)}"
+
+
+# ------------------------------------------------------------ review fixes
+
+
+@pytest.mark.asyncio
+async def test_tokens_cannot_create_or_patch_tokens_but_can_list_and_revoke(client, world):
+    tok = await _mint(client, world["admin"], ["tokens:read", "tokens:write", "files:read"])
+    r = await client.post("/api/v1/me/tokens", json={"name": "x", "scopes": ["files:read"]}, headers=_h(tok))
+    assert r.status_code == 403 and r.json()["code"] == "interactive_session_required"
+    tid = (await client.get("/api/v1/me/tokens", headers=_h(tok))).json()[0]["id"]
+    r = await client.patch(f"/api/v1/me/tokens/{tid}", json={"name": "y"}, headers=_h(tok))
+    assert r.status_code == 403 and r.json()["code"] == "interactive_session_required"
+    assert (await client.delete(f"/api/v1/me/tokens/{tid}", headers=_h(tok))).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_patch_is_audited_with_old_and_new_scopes(client, world, db_session):
+    h = _jwt(world["viewer"])
+    tid = (await client.post(
+        "/api/v1/me/tokens", json={"name": "a", "scopes": ["files:read", "tags:read"]}, headers=h,
+    )).json()["id"]
+    await client.patch(f"/api/v1/me/tokens/{tid}", json={"name": "b", "scopes": ["files:read"]}, headers=h)
+    ev = (await db_session.execute(
+        select(AuditEvent).where(AuditEvent.event_type == "api_token_updated")
+    )).scalar_one()
+    assert ev.payload["old_scopes"] == ["files:read", "tags:read"] and ev.payload["new_scopes"] == ["files:read"]
+    assert ev.payload["old_name"] == "a" and ev.payload["new_name"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_limited_token_applies_only_existing_catalogue_tags(client, world, limited, db_session):
+    from akashic.models.tag import Tag
+    db_session.add(Tag(id=uuid.uuid4(), name="known"))
+    await db_session.commit()
+    h = _h(limited)
+    ea = world["ea"]
+    r = await client.post(f"/api/v1/entries/{ea}/tags", json={"tags": ["known", "brand-new"]}, headers=h)
+    assert r.status_code == 403 and r.json()["code"] == "source_limited"
+    r = await client.post(
+        "/api/v1/tags/bulk-apply", json={"entry_ids": [str(ea)], "tags": ["known", "brand-new"]}, headers=h,
+    )
+    assert r.status_code == 403 and r.json()["code"] == "source_limited"
+    assert (await client.get(f"/api/v1/entries/{ea}/tags", headers=h)).json() == []  # nothing partially applied
+    db_session.expire_all()
+    assert (await db_session.execute(select(Tag).where(Tag.name == "brand-new"))).first() is None
+    assert (await client.post(f"/api/v1/entries/{ea}/tags", json={"tags": ["known"]}, headers=h)).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_limited_token_lists_only_tags_used_in_its_sources(client, world, limited, db_session):
+    from akashic.models.tag import EntryTag, Tag
+    db_session.add_all([Tag(id=uuid.uuid4(), name="in-a"), Tag(id=uuid.uuid4(), name="in-b"), Tag(id=uuid.uuid4(), name="unused")])
+    await db_session.flush()
+    db_session.add_all([
+        EntryTag(entry_id=world["ea"], tag="in-a", created_by_user_id=world["admin"].id), EntryTag(entry_id=world["eb"], tag="in-b", created_by_user_id=world["admin"].id),
+    ])
+    await db_session.commit()
+    assert [t["name"] for t in (await client.get("/api/v1/tags", headers=_h(limited))).json()] == ["in-a"]
+    full = await _mint(client, world["admin"], ["tags:read"])
+    assert {t["name"] for t in (await client.get("/api/v1/tags", headers=_h(full))).json()} == {"in-a", "in-b", "unused"}
+
+
+@pytest.mark.asyncio
+async def test_limited_token_cannot_repoint_a_source(client, world, limited):
+    h = _h(limited)
+    url = f"/api/v1/sources/{world['a']}"
+    for body in (
+        {"connection_config": {"path": "/etc"}},
+        {"credential_profile_id": str(uuid.uuid4())},
+        {"host_id": str(uuid.uuid4())},
+    ):
+        r = await client.patch(url, json=body, headers=h)
+        assert r.status_code == 403 and r.json()["code"] == "source_limited", body
+    r = await client.patch(url, json={"name": "renamed", "exclude_patterns": ["*.tmp"]}, headers=h)
+    assert r.status_code == 200 and r.json()["name"] == "renamed"

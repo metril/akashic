@@ -10,6 +10,7 @@ from akashic.auth.api_tokens import generate_token
 from akashic.auth.dependencies import Principal, require_scope
 from akashic.auth.scopes import SCOPES, forbidden_with_source_limit
 from akashic.database import get_db
+from akashic.errors import ApiHTTPException
 from akashic.models.api_token import ApiToken
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -24,6 +25,16 @@ from akashic.services.audit import record_event
 
 me_router = APIRouter(prefix="/me/tokens", tags=["tokens"])
 admin_router = APIRouter(prefix="/admin/tokens", tags=["tokens"])
+
+
+def _require_interactive(principal: Principal) -> None:
+    """Minting or widening credentials needs a login session, not another token:
+    otherwise a token could mint non-expiring tokens that outlive its own revocation."""
+    if principal.via == "token":
+        raise ApiHTTPException(
+            403, "Creating or changing tokens requires an interactive session, not an API token",
+            code="interactive_session_required",
+        )
 
 
 def _unprocessable(msg: str) -> HTTPException:
@@ -80,7 +91,8 @@ async def list_my_tokens(
     summary="Create an API token",
     description=(
         "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. "
-        "A token limited to sources (`source_ids`) cannot hold write scopes on other resources."
+        "A token limited to sources (`source_ids`) cannot hold write scopes on other resources. "
+        "Requires an interactive login session: an API token cannot create tokens (403 `interactive_session_required`)."
     ),
 )
 async def create_my_token(
@@ -89,6 +101,7 @@ async def create_my_token(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:write"),
 ):
+    _require_interactive(principal)
     scopes = _check_scopes(data.scopes, principal.scopes, "your own")
     source_ids = sorted(set(data.source_ids)) if data.source_ids is not None else None
     if source_ids is not None:
@@ -130,23 +143,37 @@ async def create_my_token(
 
 @me_router.patch(
     "/{token_id}", response_model=ApiTokenResponse, summary="Rename or narrow an API token",
-    description="Scopes can only be narrowed, never widened. To widen, create a new token.",
+    description=(
+        "Scopes can only be narrowed, never widened. To widen, create a new token. "
+        "Requires an interactive login session (403 `interactive_session_required` for an API token)."
+    ),
 )
 async def update_my_token(
     token_id: uuid.UUID,
+    request: Request,
     data: ApiTokenUpdate,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:write"),
 ):
+    _require_interactive(principal)
     row = await _owned(token_id, principal.user, db)
     if row.revoked_at is not None:
         raise HTTPException(status_code=409, detail="Token is revoked")
+    old = {"name": row.name, "scopes": list(row.scopes)}
     if data.scopes is not None:
         row.scopes = _check_scopes(data.scopes, frozenset(row.scopes), "the token's current scopes")
     if data.name is not None:
         row.name = data.name
     await db.commit()
     await db.refresh(row)
+    await record_event(
+        db=db, user=principal.user, event_type="api_token_updated",
+        payload={
+            "token_id": str(row.id), "old_name": old["name"], "new_name": row.name,
+            "old_scopes": old["scopes"], "new_scopes": list(row.scopes),
+        },
+        request=request,
+    )
     return row
 
 

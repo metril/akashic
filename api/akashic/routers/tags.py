@@ -125,7 +125,14 @@ async def list_tags(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:read", source_scoped=True),
 ):
-    result = await db.execute(select(Tag).order_by(Tag.name))
+    stmt = select(Tag).order_by(Tag.name)
+    if principal.source_limited:
+        # Only tags applied inside the token's sources, so other sources' tag names don't leak.
+        used = restrict_sources(
+            select(EntryTag.tag).join(Entry, Entry.id == EntryTag.entry_id), principal,
+        )
+        stmt = stmt.where(Tag.name.in_(used))
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 
@@ -202,13 +209,18 @@ class _TagApplyBody(BaseModel):
 
 
 async def _ensure_catalogue_entries(
-    db: AsyncSession, *, names: list[str], user_id: uuid.UUID,
+    db: AsyncSession, *, names: list[str], user_id: uuid.UUID, principal: Principal,
 ) -> None:
     """Auto-create catalogue rows for tag names referenced by an apply
     call. Cheap on the common case (the row exists) — Postgres skips
     via ON CONFLICT."""
     from sqlalchemy import text
 
+    if principal.source_limited:
+        # A limited token may not grow the global catalogue (see create_tag).
+        known = set((await db.execute(select(Tag.name).where(Tag.name.in_(names)))).scalars().all())
+        if set(names) - known:
+            principal.ensure_unrestricted()
     for name in names:
         await db.execute(
             text(
@@ -247,7 +259,7 @@ async def apply_tags_to_entry(
         raise HTTPException(status_code=404, detail="Entry not found")
     ensure_source_allowed(principal, entry.source_id, "Entry not found")
 
-    await _ensure_catalogue_entries(db, names=body.tags, user_id=user.id)
+    await _ensure_catalogue_entries(db, names=body.tags, user_id=user.id, principal=principal)
 
     affected: set[uuid.UUID] = set()
     for tag in body.tags:
@@ -336,7 +348,7 @@ async def bulk_apply(
     if len(entries) != len(set(body.entry_ids)):
         raise HTTPException(status_code=404, detail="Some entries not found")
 
-    await _ensure_catalogue_entries(db, names=body.tags, user_id=user.id)
+    await _ensure_catalogue_entries(db, names=body.tags, user_id=user.id, principal=principal)
 
     affected: set[uuid.UUID] = set()
     for entry in entries:
