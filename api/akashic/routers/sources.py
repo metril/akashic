@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +37,7 @@ from akashic.services.source_merge import (
     reject_sentinel_in_create,
 )
 
-router = APIRouter(prefix="/sources", tags=["sources"])
+router = ApiRouter(prefix="/sources", tags=["sources"])
 
 # Source types that don't attach to a Host row. `local` predates the
 # Host abstraction; `paperless` (v0.7.0) and `immich` (v0.8.0) are

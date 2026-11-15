@@ -6,7 +6,8 @@ import os
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query, Request
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.schemas.entry import BrowseEntry, BrowseResponse
+from akashic.schemas.entry import BrowseEntry, BrowsePage
 from akashic.services.access_query import (
     user_has_any_bindings,
     user_principal_tokens,
@@ -56,7 +57,7 @@ def _decode_cursor(cursor: str) -> dict[str, Any]:
         logger.info("browse: bad cursor=%s err=%s", cursor[:32], exc)
         raise HTTPException(status_code=400, detail="invalid cursor")
 
-router = APIRouter(prefix="/browse", tags=["browse"])
+router = ApiRouter(prefix="/browse", tags=["browse"])
 
 
 def _normalize_path(path: str) -> str:
@@ -82,7 +83,7 @@ async def _should_enforce_perms(principal: Principal, show_all: bool, db: AsyncS
     return await user_has_any_bindings(principal.user, db)
 
 
-@router.get("", response_model=BrowseResponse)
+@router.get("", response_model=BrowsePage, summary="Browse a directory")
 async def browse(
     source_id: uuid.UUID,
     path: str = Query(default="/"),
@@ -330,13 +331,13 @@ async def browse(
             )
         ).scalar() or 0
 
-    return BrowseResponse(
+    return BrowsePage(
         source_id=source_id,
         source_name=source.name,
         path=norm_path,
         parent_path=parent_path_value,
         is_root=is_root,
-        entries=[
+        items=[
             BrowseEntry(
                 id=r.id,
                 kind=r.kind,
@@ -355,6 +356,7 @@ async def browse(
             for r in rows
         ],
         next_cursor=next_cursor,
+        limit=limit,
         total=total,
     )
 

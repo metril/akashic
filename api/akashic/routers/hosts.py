@@ -6,7 +6,8 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -39,7 +40,7 @@ from akashic.services.source_merge import (
 )
 from akashic.services.source_tester import TestResult
 
-router = APIRouter(prefix="/hosts", tags=["hosts"])
+router = ApiRouter(prefix="/hosts", tags=["hosts"])
 
 
 _HOST_TYPES = {"smb", "nfs", "s3"}

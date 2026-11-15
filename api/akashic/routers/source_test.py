@@ -8,7 +8,8 @@ response payload.
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,7 @@ from akashic.models.user import User
 from akashic.services.audit import record_event
 from akashic.services.source_tester import TestResult, test_connection
 
-router = APIRouter(prefix="/sources", tags=["sources"])
+router = ApiRouter(prefix="/sources", tags=["sources"])
 
 
 class TestSourceRequest(BaseModel):

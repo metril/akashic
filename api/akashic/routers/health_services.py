@@ -33,7 +33,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Depends
+from akashic.routing import ApiRouter
+from fastapi import Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +46,7 @@ from akashic.models.user import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/health/services", tags=["health"])
+router = ApiRouter(prefix="/health/services", tags=["health"])
 
 # In-process cache. Per-key (liveness vs activity) so the cheaper
 # liveness poll doesn't fall behind the activity poll's TTL.

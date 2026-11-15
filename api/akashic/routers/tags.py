@@ -20,7 +20,8 @@ same tables and keeps related auth rules visible together.
 import logging
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +42,7 @@ from akashic.services.tag_inheritance import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["tags"])
+router = ApiRouter(tags=["tags"])
 
 
 # ── Background tasks ──────────────────────────────────────────────────────

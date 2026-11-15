@@ -63,7 +63,9 @@ import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
 
 interface SearchResponse {
-  results: SearchResult[];
+  items: SearchResult[];
+  next_cursor: string | null;
+  limit: number;
   total: number;
   query: string;
   // v0.6.0 — populated when the Meili path serves the request and the
@@ -216,22 +218,21 @@ export default function Search() {
       if (filtersEncoded) params.set("filters", filtersEncoded);
       if (sort !== "relevance") params.set("sort", sort);
       if (sort !== "relevance" && order !== "desc") params.set("order", order);
-      params.set("offset", String(pageParam ?? 0));
+      if (pageParam) params.set("cursor", pageParam as string);
       params.set("limit", String(PAGE_SIZE));
       return api.get<SearchResponse>(`/search?${params.toString()}`);
     },
-    initialPageParam: 0,
+    initialPageParam: null as string | null,
     getNextPageParam: (last, allPages) => {
-      const fetched = allPages.reduce((s, p) => s + p.results.length, 0);
-      if (fetched >= last.total) return undefined;        // no more matches
+      const fetched = allPages.reduce((s, p) => s + p.items.length, 0);
       if (fetched >= MAX_TOTAL_HITS) return undefined;    // hit the Meili cap
-      return fetched;
+      return last.next_cursor ?? undefined;
     },
     enabled: hasFilter,
   });
 
   const results = useMemo(
-    () => searchQuery.data?.pages.flatMap((p) => p.results) ?? [],
+    () => searchQuery.data?.pages.flatMap((p) => p.items) ?? [],
     [searchQuery.data],
   );
   const totalFromApi = searchQuery.data?.pages[0]?.total ?? 0;

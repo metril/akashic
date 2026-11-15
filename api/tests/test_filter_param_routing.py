@@ -50,7 +50,7 @@ async def test_browse_applies_grammar_filters(client: AsyncClient, db_session: A
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
-    paths = sorted(e["path"] for e in resp.json()["entries"])
+    paths = sorted(e["path"] for e in resp.json()["items"])
     assert paths == ["/alice.txt"]  # bob.txt is filtered out
 
 

@@ -15,7 +15,7 @@ detail.
 - **Unversioned `/api/*` returns 410** with error code `api_version_required`, and unversioned `/ws/*` is refused. Update scripts, CLI wrappers and integrations to `/api/v1/...` and `/ws/v1/...`. The in-repo web UI, CLI, scanner and Home Assistant integration are already migrated. Swagger stays at `/api/docs`; the spec moved to `/api/v1/openapi.json`.
 - **OIDC and source-OAuth callback URIs changed** to `https://<host>/api/v1/auth/oidc/callback` and `https://<host>/api/v1/oauth/callback`. Update the redirect URIs registered at your identity provider and at Google, Microsoft and Dropbox. Old URIs get a temporary 308 redirect so sign-in keeps working in the meantime; the redirect will be removed in a later release. The `oidc_redirect_uri` default changed too; set it explicitly in Settings → Server if you rely on the default.
 - **The refresh cookie path is now `/api/v1/auth`.** Everyone is signed out once and must log in again.
-- **List endpoints return a `{items, next_cursor, limit}` envelope** instead of a bare array and take an opaque `cursor` in place of `offset`/`page`: `GET /entries`, `GET /scans`, `GET /duplicates`, `GET /duplicates/{hash}/files` and `GET /sources/{id}/audit` (which no longer returns `total`/`page`/`page_size`). `GET /access?principal=` takes `cursor` and returns `next_cursor` and `limit` instead of `next_offset`. Pass the previous response's `next_cursor` to get the next page; `null` means the last page. Search, browse, the admin audit log and scan logs keep their existing paging.
+- **Every paginated list uses one `{items, next_cursor, limit, total?}` envelope** instead of bare arrays, `results`/`entries` arrays and `offset`/`page`/`page_size`/`after_id`/`next_offset` parameters; pass the previous response's opaque `next_cursor` as `cursor` (`null` means the last page). Affected: `GET /entries`, `/scans`, `/duplicates`, `/duplicates/{hash}/files`, `/sources/{id}/audit` (no more `total: -1`), `/admin/audit` (`total` kept), `/search` (`results` -> `items`, also `total`, `query`, `facet_distribution`), `/browse` (`entries` -> `items`, `limit` added), `/scans/{id}/log` (`since` stays a time filter; `after_id` is replaced by `cursor`), and `GET /access?principal=` (`next_offset` -> `next_cursor`). `/storage/children` is a top-N with an `other` bucket, not pagination, and is unchanged.
 
 ### Added
 
@@ -25,6 +25,7 @@ detail.
 
 ### Changed
 
+- **Error responses are documented per route** in the OpenAPI spec (401/403 from auth and scope, 404 for source-scoped access, 422 for inputs, plus every code a handler raises) instead of the same five codes everywhere.
 - Ingest tokens now stop working as soon as their holder loses the right to write sources, instead of at expiry.
 - Scanner-agent endpoints (claim, handshake, heartbeat, leases, ingest, discovery) are tagged "Scanner protocol (internal)" in the API docs and live in their own router module.
 

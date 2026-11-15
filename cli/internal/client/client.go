@@ -18,7 +18,7 @@ type Client struct {
 }
 
 type SearchResults struct {
-	Results []FileEntry `json:"results"`
+	Results []FileEntry `json:"items"`
 	Total   int         `json:"total"`
 	Query   string      `json:"query"`
 }

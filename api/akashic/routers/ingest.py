@@ -3,7 +3,8 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import case, exists, func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -32,7 +33,7 @@ from akashic.services.tag_inheritance import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ingest", tags=[SCANNER_TAG])
+router = ApiRouter(prefix="/ingest", tags=[SCANNER_TAG])
 
 # Stay under postgres's 32767 bind-parameter cap per query.
 _MAX_QUERY_PARAMS = 30_000

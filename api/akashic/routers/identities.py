@@ -1,7 +1,8 @@
 """CRUD for FsPerson + FsBinding (per-user identity claims)."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ from akashic.schemas.identity import (
 )
 from akashic.services.audit import record_event
 
-router = APIRouter(prefix="/identities", tags=["identities"])
+router = ApiRouter(prefix="/identities", tags=["identities"])
 
 
 def _person_with_bindings(person: FsPerson, bindings: list[FsBinding]) -> FsPersonOut:

@@ -57,7 +57,7 @@ async def test_dup_count_scoped_to_source_filter(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert unfiltered.status_code == 200
-    hits = unfiltered.json()["results"]
+    hits = unfiltered.json()["items"]
     # Each of the 3 entries reports the other 2 as dups.
     assert hits, "expected hits in unfiltered search"
     for h in hits:
@@ -71,7 +71,7 @@ async def test_dup_count_scoped_to_source_filter(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert filtered.status_code == 200
-    fhits = filtered.json()["results"]
+    fhits = filtered.json()["items"]
     assert fhits, "expected hits in source-filtered search"
     for h in fhits:
         if h.get("content_hash") == same_hash:

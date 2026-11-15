@@ -46,7 +46,7 @@ function pushRecent(item: RecentItem) {
 }
 
 interface SearchResponse {
-  results: SearchResult[];
+  items: SearchResult[];
   total: number;
   query: string;
 }
@@ -117,7 +117,7 @@ export function CommandPalette() {
     enabled: open && debouncedQ.length >= 2,
   });
 
-  const fileResults = fileSearch.data?.results ?? [];
+  const fileResults = fileSearch.data?.items ?? [];
 
   const navItems = useMemo(
     () => [

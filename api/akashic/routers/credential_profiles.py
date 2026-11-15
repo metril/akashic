@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -36,7 +37,7 @@ from akashic.schemas.credential_profile import (
 from akashic.services.audit import record_event
 
 
-router = APIRouter(prefix="/credential-profiles", tags=["credential-profiles"])
+router = ApiRouter(prefix="/credential-profiles", tags=["credential-profiles"])
 
 
 # v0.29.5 — fresh session for the post-PATCH retest. The request-

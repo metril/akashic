@@ -149,8 +149,7 @@ export interface SearchResult {
   dup_count?: number;
 }
 
-export interface SearchResults {
-  results: SearchResult[];
+export interface SearchResults extends Paginated<SearchResult> {
   total: number;
   query: string;
   // v0.6.0 — Meilisearch facet distribution for the `domain_metadata.*`
@@ -422,20 +421,15 @@ export interface BrowseChild {
   child_count: number | null;
 }
 
-export interface BrowseResponse {
+export interface BrowseResponse extends Paginated<BrowseChild> {
   source_id: string;
   source_name: string;
   path: string;
   parent_path: string | null;
   is_root: boolean;
-  entries: BrowseChild[];
-  // v0.4.11 — cursor pagination. `next_cursor` is opaque (base64url
-  // JSON); pass it back as `?cursor=...`. `null` means no more pages.
   // `total` is populated only on the first page (cursor=null) so the
-  // footer can show "X of Y matched" without paying the count on
-  // every subsequent page.
-  next_cursor: string | null;
-  total: number | null;
+  // footer can show "X of Y matched" without paying the count on every
+  // subsequent page.
 }
 
 export interface EntryVersion {
@@ -520,13 +514,6 @@ export interface Webhook {
   created_at: string;
 }
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
 export interface LoginRequest {
   username: string;
   password: string;
@@ -566,7 +553,6 @@ export type {
 export type {
   SearchAsOverride,
   AuditEvent,
-  AuditEventList,
 } from "../lib/auditTypes";
 
 /** Cursor-paginated list envelope (`Page[T]` in the API). */
@@ -574,6 +560,8 @@ export interface Paginated<T> {
   items: T[];
   next_cursor: string | null;
   limit: number;
+  /** Present only on endpoints that compute a total. */
+  total?: number | null;
 }
 
 // --- Scopes and API tokens (hand-written; replaced by generated types later) ---

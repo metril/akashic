@@ -50,7 +50,8 @@ from datetime import timezone
 from html import escape as html_escape
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Cookie, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +90,7 @@ from akashic.services.source_oauth import (
 )
 
 
-router = APIRouter(prefix="/oauth", tags=["oauth"])
+router = ApiRouter(prefix="/oauth", tags=["oauth"])
 
 
 # -----------------------------------------------------------------------------

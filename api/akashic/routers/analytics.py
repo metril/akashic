@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +21,7 @@ from akashic.schemas.analytics import (
     SeriesPoint, StorageBySource, StorageByType,
 )
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+router = ApiRouter(prefix="/analytics", tags=["analytics"])
 
 
 _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712

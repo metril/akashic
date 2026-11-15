@@ -866,37 +866,6 @@
         "title": "ApproveBody",
         "type": "object"
       },
-      "AuditEventList": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/AuditEventOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "page": {
-            "title": "Page",
-            "type": "integer"
-          },
-          "page_size": {
-            "title": "Page Size",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "page",
-          "page_size"
-        ],
-        "title": "AuditEventList",
-        "type": "object"
-      },
       "AuditEventOut": {
         "properties": {
           "event_type": {
@@ -1093,18 +1062,26 @@
         "title": "BrowseEntry",
         "type": "object"
       },
-      "BrowseResponse": {
+      "BrowsePage": {
+        "description": "One page of a directory listing.",
         "properties": {
-          "entries": {
+          "is_root": {
+            "description": "Whether `path` is the source root.",
+            "title": "Is Root",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "The page of results.",
             "items": {
               "$ref": "#/components/schemas/BrowseEntry"
             },
-            "title": "Entries",
+            "title": "Items",
             "type": "array"
           },
-          "is_root": {
-            "title": "Is Root",
-            "type": "boolean"
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
           },
           "next_cursor": {
             "anyOf": [
@@ -1115,6 +1092,7 @@
                 "type": "null"
               }
             ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
           },
           "parent_path": {
@@ -1126,18 +1104,22 @@
                 "type": "null"
               }
             ],
+            "description": "Parent directory path; null at the root.",
             "title": "Parent Path"
           },
           "path": {
+            "description": "Normalised directory path.",
             "title": "Path",
             "type": "string"
           },
           "source_id": {
+            "description": "Source being browsed.",
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
           },
           "source_name": {
+            "description": "Source display name.",
             "title": "Source Name",
             "type": "string"
           },
@@ -1150,18 +1132,20 @@
                 "type": "null"
               }
             ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
             "title": "Total"
           }
         },
         "required": [
+          "items",
+          "limit",
           "source_id",
           "source_name",
           "path",
           "parent_path",
-          "is_root",
-          "entries"
+          "is_root"
         ],
-        "title": "BrowseResponse",
+        "title": "BrowsePage",
         "type": "object"
       },
       "BulkPatch": {
@@ -5964,6 +5948,18 @@
             ],
             "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
@@ -5999,6 +5995,18 @@
             ],
             "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
@@ -6034,6 +6042,18 @@
             ],
             "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
@@ -6069,6 +6089,18 @@
             ],
             "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
@@ -6076,6 +6108,53 @@
           "limit"
         ],
         "title": "Page[EntryResponse]",
+        "type": "object"
+      },
+      "Page_LogEntryOut_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/LogEntryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[LogEntryOut]",
         "type": "object"
       },
       "Page_ScanResponse_": {
@@ -6104,6 +6183,18 @@
             ],
             "description": "Opaque cursor for the next page; null when this is the last page.",
             "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
@@ -8089,7 +8180,8 @@
         "title": "SearchHit",
         "type": "object"
       },
-      "SearchResults": {
+      "SearchPage": {
+        "description": "One page of search results. `total` is the (estimated) number of matches.",
         "properties": {
           "facet_distribution": {
             "anyOf": [
@@ -8106,30 +8198,58 @@
                 "type": "null"
               }
             ],
+            "description": "Facet counts keyed by field (e.g. `domain_metadata.correspondent`); null on the SQL fallback path.",
             "title": "Facet Distribution"
           },
-          "query": {
-            "title": "Query",
-            "type": "string"
-          },
-          "results": {
+          "items": {
+            "description": "The page of results.",
             "items": {
               "$ref": "#/components/schemas/SearchHit"
             },
-            "title": "Results",
+            "title": "Items",
             "type": "array"
           },
-          "total": {
-            "title": "Total",
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
             "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          },
+          "query": {
+            "description": "The query that produced these results.",
+            "title": "Query",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+            "title": "Total"
           }
         },
         "required": [
-          "results",
-          "total",
+          "items",
+          "limit",
           "query"
         ],
-        "title": "SearchResults",
+        "title": "SearchPage",
         "type": "object"
       },
       "SeriesPoint": {
@@ -11234,6 +11354,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -11264,16 +11394,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -11300,6 +11420,7 @@
     },
     "/api/v1/admin/audit": {
       "get": {
+        "description": "Newest first. `total` is the number of events matching the filters.",
         "operationId": "list_audit_events",
         "parameters": [
           {
@@ -11385,22 +11506,32 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "page",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 1,
-              "title": "Page",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
             "in": "query",
-            "name": "page_size",
+            "name": "limit",
             "required": false,
             "schema": {
               "default": 50,
-              "title": "Page Size",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
               "type": "integer"
             }
           }
@@ -11410,7 +11541,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuditEventList"
+                  "$ref": "#/components/schemas/Page_AuditEventOut_"
                 }
               }
             },
@@ -11436,26 +11567,6 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -11474,7 +11585,7 @@
             ]
           }
         ],
-        "summary": "List Audit Events",
+        "summary": "List audit events",
         "tags": [
           "admin-audit"
         ]
@@ -11535,16 +11646,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -11608,36 +11709,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -11676,6 +11747,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -11695,16 +11776,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -11765,6 +11836,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -11784,26 +11865,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -11863,36 +11924,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -11946,36 +11977,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -12048,16 +12049,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12116,36 +12107,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -12217,26 +12178,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -12310,16 +12251,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -12432,16 +12363,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12547,16 +12468,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12642,16 +12553,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12733,16 +12634,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -12814,26 +12705,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -12896,26 +12767,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -13015,16 +12866,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -13084,16 +12925,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -13104,16 +12935,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -13123,6 +12944,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
         "summary": "Ldap Login",
@@ -13165,46 +12996,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -13331,26 +13122,6 @@
           "302": {
             "description": "Redirect to the SPA; sets the refresh cookie, or `/login?error=<code>` on failure."
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -13360,16 +13131,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -13396,26 +13157,6 @@
           "302": {
             "description": "Redirect to the OIDC provider; sets short-lived state cookies."
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -13426,7 +13167,7 @@
             },
             "description": "Resource not found."
           },
-          "409": {
+          "502": {
             "content": {
               "application/json": {
                 "schema": {
@@ -13434,17 +13175,7 @@
                 }
               }
             },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
+            "description": "Bad Gateway"
           }
         },
         "summary": "Start OIDC login",
@@ -13467,56 +13198,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "summary": "Get Providers",
@@ -13567,36 +13248,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -13758,11 +13409,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BrowseResponse"
+                  "$ref": "#/components/schemas/BrowsePage"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
@@ -13794,16 +13455,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -13822,7 +13473,7 @@
             ]
           }
         ],
-        "summary": "Browse",
+        "summary": "Browse a directory",
         "tags": [
           "browse"
         ]
@@ -13907,16 +13558,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -13977,6 +13618,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -13996,26 +13647,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -14063,6 +13694,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -14082,16 +13723,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -14264,16 +13895,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -14440,26 +14061,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -14518,26 +14119,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -14644,16 +14225,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -14714,6 +14285,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -14743,16 +14324,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -14862,16 +14433,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -15038,16 +14599,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15132,16 +14683,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15222,16 +14763,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15293,6 +14824,16 @@
             },
             "description": "Raw file bytes, served with the entry's MIME type."
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -15322,16 +14863,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -15423,16 +14954,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15483,6 +15004,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -15513,16 +15044,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15532,6 +15053,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "security": [
@@ -15608,16 +15139,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -15701,16 +15222,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15793,16 +15304,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -15888,16 +15389,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -15958,36 +15449,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -16039,36 +15500,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -16122,36 +15553,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -16188,6 +15589,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
@@ -16390,16 +15801,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -16457,6 +15858,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
@@ -16559,6 +15970,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -16588,16 +16009,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -16660,6 +16071,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -16689,16 +16110,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -16751,6 +16162,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -16780,16 +16201,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -16871,16 +16282,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -16966,16 +16367,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -17075,16 +16466,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -17146,36 +16527,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -17232,26 +16583,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -17336,26 +16667,6 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -17428,16 +16739,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -17526,16 +16827,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -17720,16 +17011,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -17828,16 +17109,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -17928,16 +17199,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -17986,6 +17247,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -17995,16 +17266,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
           },
           "404": {
             "content": {
@@ -18025,6 +17286,16 @@
               }
             },
             "description": "Conflicts with the current resource state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large."
           },
           "422": {
             "content": {
@@ -18083,16 +17354,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -18102,16 +17363,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -18172,36 +17423,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -18259,26 +17480,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -18352,16 +17553,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -18582,46 +17773,6 @@
             },
             "description": "HTML page that posts the result to `window.opener` and closes itself."
           },
-          "401": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "text/html": {
@@ -18676,36 +17827,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -18759,26 +17880,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -18860,16 +17961,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -18879,6 +17970,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "security": [
@@ -18931,36 +18032,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -19013,26 +18084,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -19091,6 +18142,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -19110,26 +18171,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -19197,6 +18238,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -19217,7 +18268,7 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
+          "412": {
             "content": {
               "application/json": {
                 "schema": {
@@ -19225,17 +18276,7 @@
                 }
               }
             },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
+            "description": "Precondition Failed"
           },
           "422": {
             "content": {
@@ -19286,6 +18327,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -19315,16 +18366,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -19396,26 +18437,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -19497,16 +18518,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -19568,36 +18579,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -19635,6 +18616,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -19654,26 +18645,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -19748,7 +18719,7 @@
             },
             "description": "Resource not found."
           },
-          "409": {
+          "410": {
             "content": {
               "application/json": {
                 "schema": {
@@ -19756,7 +18727,7 @@
                 }
               }
             },
-            "description": "Conflicts with the current resource state."
+            "description": "Resource is gone or expired."
           },
           "422": {
             "content": {
@@ -19820,36 +18791,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -19941,6 +18882,16 @@
             },
             "description": "Conflicts with the current resource state."
           },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource is gone or expired."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -20024,7 +18975,7 @@
             },
             "description": "Resource not found."
           },
-          "409": {
+          "410": {
             "content": {
               "application/json": {
                 "schema": {
@@ -20032,7 +18983,7 @@
                 }
               }
             },
-            "description": "Conflicts with the current resource state."
+            "description": "Resource is gone or expired."
           },
           "422": {
             "content": {
@@ -20095,36 +19046,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -20182,16 +19103,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -20252,7 +19163,7 @@
             },
             "description": "Successful Response"
           },
-          "401": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
@@ -20260,27 +19171,7 @@
                 }
               }
             },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
+            "description": "Malformed or unacceptable request."
           },
           "409": {
             "content": {
@@ -20333,7 +19224,7 @@
             },
             "description": "Successful Response"
           },
-          "401": {
+          "400": {
             "content": {
               "application/json": {
                 "schema": {
@@ -20341,17 +19232,7 @@
                 }
               }
             },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
+            "description": "Malformed or unacceptable request."
           },
           "404": {
             "content": {
@@ -20362,16 +19243,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -20417,26 +19288,6 @@
             },
             "description": "Successful Response"
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -20446,16 +19297,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -20508,36 +19349,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -20616,16 +19427,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -20635,6 +19436,16 @@
               }
             },
             "description": "Request failed validation."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "security": [
@@ -20681,36 +19492,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -20775,16 +19556,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -20874,16 +19645,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -20954,26 +19715,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21054,26 +19795,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21167,16 +19888,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -21255,16 +19966,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21348,26 +20049,6 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -21450,16 +20131,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21558,16 +20229,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21702,16 +20363,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -21799,26 +20450,6 @@
             },
             "description": "Authenticated but not permitted."
           },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -21866,6 +20497,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -21895,16 +20536,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -21986,16 +20617,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -22076,16 +20697,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -22242,16 +20853,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -22296,7 +20897,7 @@
     },
     "/api/v1/scans/{scan_id}/log": {
       "get": {
-        "description": "Backfill / catch-up endpoint. The WS path streams new events live;\nGET handles the gap on reconnect and the full-history load the log\nviewer page-loops on mount.\n\nv0.33.0 — the viewer pages the entire log forward with a `(ts, id)`\nkeyset: `since` alone is lossy because a scanner writes a whole batch\nunder one `ts`, so a page boundary landing mid-batch would drop lines.\nPass `since` + `after_id` together (the last row of the previous page)\nand the cursor is exact.\n\nv0.30.2 — scanner_name is read straight off the row (snapshotted at\nwrite time by _persist_lines), so the backfill renders the per-row\nscanner pill without a read-time JOIN that could drop the name.",
+        "description": "Oldest first. `next_cursor` always points just after the last returned line (null only for an empty page), so a client can tail the log by re-sending it; a page shorter than `limit` means the end was reached.",
         "operationId": "get_log",
         "parameters": [
           {
@@ -22329,22 +20930,21 @@
             }
           },
           {
-            "description": "Keyset tiebreak — paired with `since`, returns entries strictly after the (ts, id) cursor. Lossless when many lines share a ts.",
+            "description": "Opaque cursor from a previous `next_cursor`; returns lines strictly after it. Lossless when many lines share a timestamp.",
             "in": "query",
-            "name": "after_id",
+            "name": "cursor",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Keyset tiebreak — paired with `since`, returns entries strictly after the (ts, id) cursor. Lossless when many lines share a ts.",
-              "title": "After Id"
+              "description": "Opaque cursor from a previous `next_cursor`; returns lines strictly after it. Lossless when many lines share a timestamp.",
+              "title": "Cursor"
             }
           },
           {
@@ -22376,11 +20976,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/LogEntryOut"
-                  },
-                  "title": "Response Get Log",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_LogEntryOut_"
                 }
               }
             },
@@ -22416,16 +21012,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -22444,7 +21030,7 @@
             ]
           }
         ],
-        "summary": "Get Log",
+        "summary": "Scan log lines",
         "tags": [
           "scans"
         ]
@@ -22487,16 +21073,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -22506,16 +21082,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -22578,16 +21144,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
           "404": {
             "content": {
               "application/json": {
@@ -22597,16 +21153,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -22674,16 +21220,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
           },
           "404": {
             "content": {
@@ -22773,16 +21309,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
           },
           "404": {
             "content": {
@@ -23141,46 +21667,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -23374,14 +21860,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -23402,11 +21895,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchResults"
+                  "$ref": "#/components/schemas/SearchPage"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
@@ -23438,16 +21941,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -23466,7 +21959,7 @@
             ]
           }
         ],
-        "summary": "Search",
+        "summary": "Search files",
         "tags": [
           "search"
         ]
@@ -23505,36 +21998,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -23605,16 +22068,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -23694,16 +22147,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -23792,16 +22235,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -23874,26 +22307,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -23930,6 +22343,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
@@ -24049,16 +22472,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24144,16 +22557,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24232,16 +22635,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24301,6 +22694,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -24330,16 +22733,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -24402,6 +22795,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -24431,16 +22834,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -24553,16 +22946,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24644,16 +23027,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24734,16 +23107,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -24835,16 +23198,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24926,16 +23279,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -24997,6 +23340,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
           "401": {
             "content": {
               "application/json": {
@@ -25026,16 +23379,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -25121,16 +23464,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -25230,16 +23563,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -25266,7 +23589,7 @@
     },
     "/api/v1/storage/children": {
       "get": {
-        "description": "Returns the top `limit` children of `path` in `source_id`,\neach with the size + color-dimension aggregate. A synthetic\n`<other>` rectangle accounts for the long tail when more than\n`limit` children exist.",
+        "description": "Not paginated: returns the top `limit` children by size plus an aggregate `other` bucket for the rest, which is what a treemap needs.",
         "operationId": "list_children",
         "parameters": [
           {
@@ -25369,16 +23692,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -25447,26 +23760,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -25598,16 +23891,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -25679,26 +23962,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -25849,16 +24112,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -25931,26 +24184,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -26016,16 +24249,6 @@
             },
             "description": "Resource not found."
           },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -26088,36 +24311,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -26177,16 +24370,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -26256,36 +24439,6 @@
             },
             "description": "Missing, invalid or expired credentials."
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -26327,46 +24480,6 @@
               }
             },
             "description": "Missing, invalid or expired credentials."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -26404,16 +24517,6 @@
             },
             "description": "Successful Response"
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing, invalid or expired credentials."
-          },
           "403": {
             "content": {
               "application/json": {
@@ -26423,16 +24526,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
           },
           "409": {
             "content": {
@@ -26498,36 +24591,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request failed validation."
           }
         },
         "security": [
@@ -26584,26 +24647,6 @@
               }
             },
             "description": "Authenticated but not permitted."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {
@@ -26677,16 +24720,6 @@
               }
             },
             "description": "Resource not found."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflicts with the current resource state."
           },
           "422": {
             "content": {

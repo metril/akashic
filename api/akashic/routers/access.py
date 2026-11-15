@@ -18,7 +18,8 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +40,7 @@ from akashic.services.search import get_meili_client
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/access", tags=["access"])
+router = ApiRouter(prefix="/access", tags=["access"])
 
 
 _RIGHT_FIELDS = {

@@ -25,10 +25,3 @@ class AuditEventOut(BaseModel):
     request_ip: str
     user_agent: str
     payload: dict
-
-
-class AuditEventList(BaseModel):
-    items: list[AuditEventOut]
-    total: int
-    page: int
-    page_size: int

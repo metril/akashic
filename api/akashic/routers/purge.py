@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ from akashic.models.webhook import PurgeLog
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/purge", tags=["purge"])
+router = ApiRouter(prefix="/purge", tags=["purge"])
 
 _PURGE_CHUNK = 5000
 

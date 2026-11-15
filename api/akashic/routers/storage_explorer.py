@@ -38,7 +38,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,7 +62,7 @@ from akashic.services.access_query import (
 
 from akashic.schemas.storage import StorageChildrenResponse, StorageSourcesResponse, StorageTreeResponse
 
-router = APIRouter(prefix="/storage", tags=["storage"])
+router = ApiRouter(prefix="/storage", tags=["storage"])
 
 
 ColorMode = Literal["type", "age", "owner", "risk"]
@@ -178,7 +179,15 @@ async def list_storage_sources(
 # ── Drill-down: immediate children of parent_path ──────────────────────────
 
 
-@router.get("/children", response_model=StorageChildrenResponse, summary="Directory children")
+@router.get(
+    "/children",
+    response_model=StorageChildrenResponse,
+    summary="Directory children",
+    description=(
+        "Not paginated: returns the top `limit` children by size plus an aggregate "
+        "`other` bucket for the rest, which is what a treemap needs."
+    ),
+)
 async def list_children(
     source_id: uuid.UUID,
     path: str = Query(default="/"),

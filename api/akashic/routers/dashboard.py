@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from akashic.routing import ApiRouter
+from fastapi import Depends
 from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +33,7 @@ from akashic.models.user import User
 
 from akashic.schemas.dashboard import AccessRisksResponse, DashboardSummary
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = ApiRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 _TOP_N_OWNERS = 5

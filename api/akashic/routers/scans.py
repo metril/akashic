@@ -1,7 +1,8 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from akashic.models.user import User
 from akashic.schemas.common import Page, offset_from_cursor, offset_page
 from akashic.schemas.scan import ScanResponse
 
-router = APIRouter(prefix="/scans", tags=["scans"])
+router = ApiRouter(prefix="/scans", tags=["scans"])
 
 
 class ScanTriggerRequest(BaseModel):

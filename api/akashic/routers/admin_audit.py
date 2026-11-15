@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,9 +12,10 @@ from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
 from akashic.models.user import User
-from akashic.schemas.audit import AuditEventList, AuditEventOut
+from akashic.schemas.audit import AuditEventOut
+from akashic.schemas.common import Page, offset_from_cursor, offset_page
 
-router = APIRouter(prefix="/admin/audit", tags=["admin-audit"])
+router = ApiRouter(prefix="/admin/audit", tags=["admin-audit"])
 
 
 def _parse_dt(raw: str | None) -> datetime | None:
@@ -33,20 +35,24 @@ def _parse_dt(raw: str | None) -> datetime | None:
         raise HTTPException(status_code=422, detail=f"Invalid datetime: {exc}")
 
 
-@router.get("", response_model=AuditEventList)
+@router.get(
+    "",
+    response_model=Page[AuditEventOut],
+    summary="List audit events",
+    description="Newest first. `total` is the number of events matching the filters.",
+)
 async def list_audit_events(
     user_id: uuid.UUID | None = None,
     event_type: str | None = None,
     source_id: uuid.UUID | None = None,
     from_: Annotated[str | None, Query(alias="from")] = None,
     to: str | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
+    limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("audit:read"),
-) -> AuditEventList:
-    page = max(1, page)
-    page_size = max(1, min(page_size, 200))
+) -> dict:
+    offset = offset_from_cursor(cursor)
 
     from_dt = _parse_dt(from_)
     to_dt = _parse_dt(to)
@@ -73,15 +79,10 @@ async def list_audit_events(
         base = base.where(*conditions)
     rows = (await db.execute(
         base.order_by(desc(AuditEvent.occurred_at))
-        .offset((page - 1) * page_size).limit(page_size)
+        .offset(offset).limit(limit + 1)
     )).scalars().all()
 
-    return AuditEventList(
-        items=[AuditEventOut.model_validate(r) for r in rows],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    return {**offset_page([AuditEventOut.model_validate(r) for r in rows], offset, limit), "total": total}
 
 
 @router.get("/{event_id}", response_model=AuditEventOut)

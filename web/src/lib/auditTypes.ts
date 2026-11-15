@@ -17,9 +17,3 @@ export interface AuditEvent {
   payload: Record<string, unknown>;
 }
 
-export interface AuditEventList {
-  items: AuditEvent[];
-  total: number;
-  page: number;
-  page_size: number;
-}

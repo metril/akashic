@@ -13,7 +13,8 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from akashic.services.rate_limit import make_limiter
@@ -39,7 +40,7 @@ from akashic.services.source_config import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=[SCANNER_TAG])
+router = ApiRouter(tags=[SCANNER_TAG])
 
 
 class HandshakeRequest(BaseModel):

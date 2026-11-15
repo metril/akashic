@@ -27,16 +27,6 @@ class ErrorResponse(BaseModel):
     request_id: str = Field(description="Correlation id, also returned in the `X-Request-ID` header.")
 
 
-# Shared `responses=` set applied to every router in create_app().
-ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    401: {"model": ErrorResponse, "description": "Missing, invalid or expired credentials."},
-    403: {"model": ErrorResponse, "description": "Authenticated but not permitted."},
-    404: {"model": ErrorResponse, "description": "Resource not found."},
-    409: {"model": ErrorResponse, "description": "Conflicts with the current resource state."},
-    422: {"model": ErrorResponse, "description": "Request failed validation."},
-}
-
-
 class Page(BaseModel, Generic[T]):
     """Cursor-paginated list envelope."""
 
@@ -46,6 +36,10 @@ class Page(BaseModel, Generic[T]):
         description="Opaque cursor for the next page; null when this is the last page.",
     )
     limit: int = Field(description="Maximum number of items requested for this page.")
+    total: int | None = Field(
+        default=None,
+        description="Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.",
+    )
 
 
 def encode_cursor(payload: dict[str, Any]) -> str:

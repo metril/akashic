@@ -10,7 +10,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +37,7 @@ from akashic.scheduler import (
 from akashic.services import maintenance_jobs as mj
 from akashic.services.audit import record_event
 
-router = APIRouter(prefix="/admin/maintenance", tags=["maintenance"])
+router = ApiRouter(prefix="/admin/maintenance", tags=["maintenance"])
 
 _ACTIVE_STATUSES = ("pending", "running")
 _TERMINAL_STATUSES = ("completed", "failed", "cancelled")

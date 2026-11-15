@@ -20,7 +20,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +41,7 @@ from akashic.services.server_settings import is_discovery_enabled
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = ApiRouter()
 
 # 15-minute pending window — longer than typical "I just clicked
 # `docker compose up`" → "I noticed it in the UI" gap, short enough

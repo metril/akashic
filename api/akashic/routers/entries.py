@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,7 @@ from akashic.services.access_query import (
 )
 from akashic.services.tag_inheritance import get_tags_for_entry
 
-router = APIRouter(prefix="/entries", tags=["entries"])
+router = ApiRouter(prefix="/entries", tags=["entries"])
 
 
 @router.get("", response_model=Page[EntryResponse], summary="List entries")

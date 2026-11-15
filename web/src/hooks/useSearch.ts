@@ -11,7 +11,7 @@ interface SearchFilters {
 }
 
 interface SearchResponse {
-  results: SearchResult[];
+  items: SearchResult[];
   total: number;
   query: string;
 }

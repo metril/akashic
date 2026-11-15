@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from akashic.schemas.common import Page
 
 
 class SearchHit(BaseModel):
@@ -36,10 +38,10 @@ class SearchHit(BaseModel):
     dup_count: int = 0
 
 
-class SearchResults(BaseModel):
-    results: list[SearchHit]
-    total: int
-    query: str
+class SearchPage(Page[SearchHit]):
+    """One page of search results. `total` is the (estimated) number of matches."""
+
+    query: str = Field(description="The query that produced these results.")
     # v0.6.0 — facet distribution returned by the Meilisearch path when
     # the request asks for it (currently: domain_metadata.* keys for the
     # Library Metadata facet panel on the Search page). Empty when the
@@ -49,4 +51,10 @@ class SearchResults(BaseModel):
     # The frontend uses key presence to decide whether to render the
     # panel at all; absent keys mean "no entries with that field in
     # this result set".
-    facet_distribution: dict[str, dict[str, int]] | None = None
+    facet_distribution: dict[str, dict[str, int]] | None = Field(
+        default=None,
+        description=(
+            "Facet counts keyed by field (e.g. `domain_metadata.correspondent`); "
+            "null on the SQL fallback path."
+        ),
+    )

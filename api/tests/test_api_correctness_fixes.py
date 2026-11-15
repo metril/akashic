@@ -220,7 +220,7 @@ async def test_browse_modified_cursor_second_page(
     assert p1["next_cursor"]
     r2 = await client.get(url + f"&cursor={p1['next_cursor']}", headers=h)
     assert r2.status_code == 200, r2.text
-    got = [e["path"] for e in p1["entries"]] + [e["path"] for e in r2.json()["entries"]]
+    got = [e["path"] for e in p1["items"]] + [e["path"] for e in r2.json()["items"]]
     assert got == ["/f3", "/f2", "/f1", "/f0"]
 
 

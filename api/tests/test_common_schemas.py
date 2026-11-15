@@ -17,7 +17,7 @@ class Item(BaseModel):
 
 def test_page_roundtrip_and_schema():
     page = Page[Item](items=[Item(id=1)], next_cursor=None, limit=50)
-    assert page.model_dump() == {"items": [{"id": 1}], "next_cursor": None, "limit": 50}
+    assert page.model_dump() == {"items": [{"id": 1}], "next_cursor": None, "limit": 50, "total": None}
     props = Page[Item].model_json_schema()["properties"]
     assert all(p.get("description") for p in props.values())
 

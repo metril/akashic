@@ -1,7 +1,8 @@
 """POST /api/v1/entries/{entry_id}/effective-permissions — read-only evaluator."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ from akashic.schemas.acl import ACL
 from akashic.schemas.effective import EffectivePerms, EffectivePermsRequest
 from akashic.services.effective_perms import compute_effective
 
-router = APIRouter(prefix="/entries", tags=["effective-permissions"])
+router = ApiRouter(prefix="/entries", tags=["effective-permissions"])
 _acl_adapter = TypeAdapter(ACL)
 
 

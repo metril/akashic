@@ -3,7 +3,8 @@ import re
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,8 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.user import User
 from akashic.schemas.audit import SearchAsOverride
-from akashic.schemas.search import SearchResults
+from akashic.schemas.common import encode_offset_cursor, offset_from_cursor
+from akashic.schemas.search import SearchPage
 from akashic.routers.browse import _should_enforce_perms
 from akashic.services.access_query import (
     override_tokens,
@@ -30,7 +32,7 @@ from akashic.services.filter_grammar import (
     to_sqlalchemy as filters_to_sqlalchemy,
 )
 
-router = APIRouter(prefix="/search", tags=["search"])
+router = ApiRouter(prefix="/search", tags=["search"])
 
 _SAFE_EXTENSION = re.compile(r"^[a-zA-Z0-9]{1,20}$")
 
@@ -133,7 +135,7 @@ def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
         raise HTTPException(status_code=422, detail=f"Invalid search_as: {exc}")
 
 
-@router.get("", response_model=SearchResults)
+@router.get("", response_model=SearchPage, summary="Search files")
 async def search(
     q: str = Query(default=""),
     mode: SearchMode = Query(default="fuzzy"),
@@ -150,13 +152,14 @@ async def search(
     # default should be something a viewport actually fills. Cap at 500
     # so one bad client can't ask for the entire index in a single
     # round-trip.
-    offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
     limit: int = Query(default=100, ge=1, le=500),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
+    offset = offset_from_cursor(cursor)
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
 
@@ -330,9 +333,12 @@ async def search(
             if projected:
                 facet_distribution = projected
 
-        return SearchResults(
-            results=hits,
-            total=meili_results.estimated_total_hits or 0,
+        total = meili_results.estimated_total_hits or 0
+        return SearchPage(
+            items=hits,
+            next_cursor=encode_offset_cursor(offset + limit) if offset + limit < total else None,
+            limit=limit,
+            total=total,
             query=q,
             facet_distribution=facet_distribution,
         )
@@ -465,4 +471,10 @@ async def search(
                 source_id=source_id,
             )
 
-        return SearchResults(results=hits, total=total, query=q)
+        return SearchPage(
+            items=hits,
+            next_cursor=encode_offset_cursor(offset + limit) if offset + limit < total else None,
+            limit=limit,
+            total=total,
+            query=q,
+        )

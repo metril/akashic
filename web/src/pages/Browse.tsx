@@ -248,7 +248,7 @@ export default function Browse() {
   // down), so no client-side sort. Server returns rows pre-filtered
   // (q= pushed down), so no client-side filter.
   const visibleEntries = useMemo(
-    () => browseQuery.data?.pages.flatMap((p) => p.entries) ?? [],
+    () => browseQuery.data?.pages.flatMap((p) => p.items) ?? [],
     [browseQuery.data],
   );
   // Total: only first page carries it (server avoids re-counting on

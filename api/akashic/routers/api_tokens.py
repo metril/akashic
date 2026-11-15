@@ -2,7 +2,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,8 +24,8 @@ from akashic.schemas.api_token import (
 )
 from akashic.services.audit import record_event
 
-me_router = APIRouter(prefix="/me/tokens", tags=["tokens"])
-admin_router = APIRouter(prefix="/admin/tokens", tags=["tokens"])
+me_router = ApiRouter(prefix="/me/tokens", tags=["tokens"])
+admin_router = ApiRouter(prefix="/admin/tokens", tags=["tokens"])
 
 
 def _require_interactive(principal: Principal) -> None:

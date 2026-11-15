@@ -19,7 +19,7 @@ func TestClient_Search(t *testing.T) {
 			t.Errorf("expected query 'report', got '%s'", q)
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"results": []map[string]interface{}{
+			"items": []map[string]interface{}{
 				{"filename": "report.pdf", "path": "/data/report.pdf"},
 			},
 			"total": 1,

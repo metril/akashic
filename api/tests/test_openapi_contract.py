@@ -18,7 +18,7 @@ from fastapi.routing import APIRoute
 from akashic.main import create_app
 from akashic.auth.scopes import ROLE_SCOPES, SCOPES
 from akashic.openapi import SCANNER_TAG, TAGS
-from akashic.schemas.common import ERROR_RESPONSES, ErrorResponse
+from akashic.schemas.common import ErrorResponse
 from tests.openapi_allowlist import ALLOWLIST
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -110,6 +110,49 @@ def _source_scoped(route: APIRoute) -> bool:
     return any(found)
 
 
+def _documented_errors(route: APIRoute) -> set[int]:
+    return {
+        int(code) for code, body in route.responses.items()
+        if str(code).isdigit() and int(code) >= 400 and body.get("model") is ErrorResponse
+    }
+
+
+def _raised_literals(route: APIRoute) -> set[int]:
+    """Status codes the handler body raises via a literal ``HTTPException(...)``."""
+    import ast
+    import inspect
+    import re
+    import textwrap
+
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(inspect.unwrap(route.endpoint))))
+    except (OSError, TypeError, SyntaxError):
+        return set()
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and "HTTPException" in ast.unparse(node.func):
+            args = [kw.value for kw in node.keywords if kw.arg == "status_code"] + node.args[:1]
+            for a in args:
+                text = ast.unparse(a)
+                m = re.fullmatch(r"\d{3}", text) or re.search(r"HTTP_(\d{3})_", text)
+                if m:
+                    out.add(int(m.group(m.lastindex or 0)))
+    return {c for c in out if c >= 400}
+
+
+def _required_errors(route: APIRoute) -> set[int]:
+    """Codes implied by dependencies and params, plus every code the handler raises literally."""
+    req = _raised_literals(route)
+    if _dependency_names(route) & AUTH_DEPENDENCIES:
+        req.add(401)
+    if _required_scopes(route):
+        req.add(403)
+    d = route.dependant
+    if d.path_params or d.query_params or d.header_params or d.cookie_params or d.body_params:
+        req.add(422)
+    return req
+
+
 def _is_user_route(key: str, route: APIRoute) -> bool:
     """True for routes a user credential calls (not public, scanner or ingest)."""
     return key not in PUBLIC_ROUTES and SCANNER_TAG not in (route.tags or [])
@@ -152,10 +195,7 @@ def collect_violations(app, spec: dict) -> dict[str, set[str]]:
         streams = not issubclass(rc, JSONResponse)
         if route.response_model is None and route.status_code != 204 and not streams:
             out["response_model"].add(key)
-        if not all(
-            code in route.responses and route.responses[code].get("model") is ErrorResponse
-            for code in ERROR_RESPONSES
-        ):
+        if not _documented_errors(route) >= _required_errors(route):
             out["error_responses"].add(key)
         if not route.tags or not set(route.tags) <= tag_names:
             out["tag"].add(key)
@@ -307,3 +347,14 @@ def test_data_routes_depend_on_source_scoping(app):
         assert _source_scoped(route) == is_data, (
             f"{key}: tags {route.tags} but source_scoped={_source_scoped(route)}"
         )
+
+
+def test_error_responses_are_derived_per_route(spec):
+    """No blanket error set: each route documents only what it can produce."""
+    def codes(path, method):
+        return {c for c in spec["paths"][path][method]["responses"] if c.isdigit() and int(c) >= 400}
+
+    assert codes("/api/v1/scopes", "get") == {"401"}
+    assert codes("/api/v1/scanner-discovery-requests/{discovery_id}/approve", "post") >= {"401", "403", "404", "409", "410", "422"}
+    assert "409" not in codes("/api/v1/entries", "get")
+    assert "404" in codes("/api/v1/entries", "get")  # source-scoped: out-of-scope sources answer 404

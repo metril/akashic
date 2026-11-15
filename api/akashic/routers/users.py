@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +15,7 @@ from akashic.routers.auth import _set_refresh_cookie
 from akashic.services.rate_limit import make_limiter
 from akashic.schemas.user import MeResponse, UserCreate, UserLogin, UserResponse, TokenResponse
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = ApiRouter(prefix="/users", tags=["users"])
 
 _REGISTER_LOCK_KEY = 0x414B5348_01  # arbitrary constant: "AKSH"+1
 

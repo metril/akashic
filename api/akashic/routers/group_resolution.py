@@ -2,7 +2,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,7 @@ from akashic.services.group_resolver import (
     resolve_groups,
 )
 
-router = APIRouter(prefix="/identities", tags=["identities"])
+router = ApiRouter(prefix="/identities", tags=["identities"])
 
 
 @router.post(

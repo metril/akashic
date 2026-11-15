@@ -35,7 +35,7 @@ async def test_viewer_sees_all_sources_everywhere(client: AsyncClient, db_sessio
     for s in srcs:
         assert (await client.get(f"/api/v1/sources/{s.id}", headers=h)).status_code == 200
         r = await client.get(f"/api/v1/browse?source_id={s.id}", headers=h)
-        assert r.status_code == 200 and len(r.json()["entries"]) == 1
+        assert r.status_code == 200 and len(r.json()["items"]) == 1
     assert (await client.get("/api/v1/dashboard/summary", headers=h)).status_code == 200
     r = await client.get("/api/v1/entries", headers=h)
     assert r.status_code == 200 and len(r.json()["items"]) == 2
@@ -76,6 +76,6 @@ async def test_viewer_acl_filtered_when_enforced(client: AsyncClient, db_session
     r = await client.get("/api/v1/sources", headers=h)
     assert len(r.json()) == 2
     r = await client.get(f"/api/v1/browse?source_id={srcs[0].id}", headers=h)
-    assert r.json()["entries"] == []
+    assert r.json()["items"] == []
     r = await client.get("/api/v1/duplicates", headers=h)
     assert r.status_code == 200

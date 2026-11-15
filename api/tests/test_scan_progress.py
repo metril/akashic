@@ -384,13 +384,13 @@ async def test_get_log_filters_by_kind_and_since(
 
     r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?kind=structured")
     assert r.status_code == 200
-    rows = r.json()
+    rows = r.json()["items"]
     assert len(rows) == 2
     assert all(row["level"] != "stderr" for row in rows)
 
     r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?kind=stderr")
     assert r.status_code == 200
-    rows = r.json()
+    rows = r.json()["items"]
     assert len(rows) == 1
     assert rows[0]["level"] == "stderr"
 
@@ -398,7 +398,7 @@ async def test_get_log_filters_by_kind_and_since(
     since = quote((base + timedelta(milliseconds=500)).isoformat())
     r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?since={since}")
     assert r.status_code == 200
-    rows = r.json()
+    rows = r.json()["items"]
     # Original `base` row excluded; the +1s and +2s rows kept.
     assert len(rows) == 2
 
@@ -426,24 +426,24 @@ async def test_get_log_keyset_pagination_is_lossless(
     # Ground truth: one unpaged read.
     r = await client.get(f"/api/v1/scans/{fixture_scan.id}/log?limit=2000")
     assert r.status_code == 200
-    full = r.json()
+    full = r.json()["items"]
     assert len(full) == 5
 
     # Page it two at a time with the (ts, id) keyset.
     from urllib.parse import quote
     collected: list[dict] = []
-    cursor: tuple[str, str] | None = None
+    cursor: str | None = None
     for _ in range(10):  # generous bound — must terminate well before
         url = f"/api/v1/scans/{fixture_scan.id}/log?limit=2"
         if cursor is not None:
-            url += f"&since={quote(cursor[0])}&after_id={cursor[1]}"
+            url += f"&cursor={quote(cursor)}"
         r = await client.get(url)
         assert r.status_code == 200
         page = r.json()
-        collected.extend(page)
-        if len(page) < 2:
+        collected.extend(page["items"])
+        if len(page["items"]) < 2:
             break
-        cursor = (page[-1]["ts"], page[-1]["id"])
+        cursor = page["next_cursor"]
 
     # The paged walk reproduces the unpaged read exactly — same rows,
     # same order, nothing lost at a boundary.
@@ -612,7 +612,7 @@ async def test_log_scanner_name_snapshotted_and_survives_deletion(
         # The backfill endpoint still serves the name from the column.
         r = await ac.get(f"/api/v1/scans/{fixture_scan.id}/log")
         assert r.status_code == 200, r.text
-        lines = r.json()
+        lines = r.json()["items"]
         assert len(lines) == 1
         assert lines[0]["scanner_name"] == "attrib-survivor"
         assert lines[0]["scanner_id"] is None  # FK SET NULL fired

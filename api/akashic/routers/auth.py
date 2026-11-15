@@ -12,7 +12,8 @@ import asyncio
 import logging
 import secrets
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
+from akashic.routing import ApiRouter
+from fastapi import Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
 from pydantic import BaseModel, Field
@@ -87,7 +88,7 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = ApiRouter(prefix="/auth", tags=["auth"])
 
 
 # ---------------------------------------------------------------------------

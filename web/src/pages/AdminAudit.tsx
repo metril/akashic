@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Spinner, EmptyState, Page, Select, Input, Button } from "../components/ui";
-import type { AuditEventList, AuditEvent } from "../types";
+import type { AuditEvent, Paginated } from "../types";
 
 const KNOWN_EVENT_TYPES = [
   "search_as_used",
@@ -23,23 +23,26 @@ export default function AdminAudit() {
   const [fromDate, setFromDate]   = useState("");
   const [toDate, setToDate]       = useState("");
   const [expanded, setExpanded]   = useState<string | null>(null);
-  const [page, setPage]           = useState(1);
+  // Cursor stack: entry N is the cursor that loads page N+1.
+  const [cursors, setCursors]     = useState<(string | null)[]>([null]);
+  const page = cursors.length;
+  const cursor = cursors[cursors.length - 1];
 
-  const audit = useQuery<AuditEventList>({
-    queryKey: ["admin-audit", eventType, fromDate, toDate, page],
+  const audit = useQuery<Paginated<AuditEvent>>({
+    queryKey: ["admin-audit", eventType, fromDate, toDate, cursor],
     queryFn: () => {
       const p = new URLSearchParams();
       if (eventType) p.set("event_type", eventType);
       if (fromDate)  p.set("from", new Date(fromDate).toISOString());
       if (toDate)    p.set("to", new Date(toDate).toISOString());
-      p.set("page", String(page));
-      return api.get<AuditEventList>(`/admin/audit?${p.toString()}`);
+      if (cursor) p.set("cursor", cursor);
+      return api.get<Paginated<AuditEvent>>(`/admin/audit?${p.toString()}`);
     },
   });
 
   const items = audit.data?.items ?? [];
   const totalPages = audit.data
-    ? Math.max(1, Math.ceil(audit.data.total / audit.data.page_size))
+    ? Math.max(1, Math.ceil((audit.data.total ?? 0) / audit.data.limit))
     : 1;
 
   return (
@@ -52,20 +55,20 @@ export default function AdminAudit() {
         <Select
           label="Event type"
           value={eventType}
-          onChange={(e) => { setEventType(e.target.value); setPage(1); }}
+          onChange={(e) => { setEventType(e.target.value); setCursors([null]); }}
           options={EVENT_TYPE_OPTIONS}
         />
         <Input
           label="From"
           type="datetime-local"
           value={fromDate}
-          onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
+          onChange={(e) => { setFromDate(e.target.value); setCursors([null]); }}
         />
         <Input
           label="To"
           type="datetime-local"
           value={toDate}
-          onChange={(e) => { setToDate(e.target.value); setPage(1); }}
+          onChange={(e) => { setToDate(e.target.value); setCursors([null]); }}
         />
       </div>
 
@@ -111,7 +114,7 @@ export default function AdminAudit() {
         </div>
       )}
 
-      {audit.data && audit.data.total > audit.data.page_size && (
+      {audit.data && (audit.data.total ?? 0) > audit.data.limit && (
         <div className="flex items-center justify-between mt-3 text-xs text-fg-muted">
           <div>{audit.data.total} total</div>
           <div className="flex items-center gap-2">
@@ -119,7 +122,7 @@ export default function AdminAudit() {
               size="sm"
               variant="secondary"
               disabled={page === 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              onClick={() => setCursors((c) => c.slice(0, -1))}
               aria-label="Previous page"
             >
               Prev
@@ -130,8 +133,8 @@ export default function AdminAudit() {
             <Button
               size="sm"
               variant="secondary"
-              disabled={page * audit.data.page_size >= audit.data.total}
-              onClick={() => setPage((p) => p + 1)}
+              disabled={!audit.data.next_cursor}
+              onClick={() => setCursors((c) => [...c, audit.data!.next_cursor])}
               aria-label="Next page"
             >
               Next

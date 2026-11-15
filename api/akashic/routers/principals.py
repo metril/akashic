@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,7 @@ from akashic.services.principal_resolver import (
 )
 
 
-router = APIRouter(prefix="/principals", tags=["principals"])
+router = ApiRouter(prefix="/principals", tags=["principals"])
 
 
 class ResolveRequest(BaseModel):

@@ -12,7 +12,8 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,11 +36,12 @@ from akashic.schemas.scan import (
     LogEntryOut,
     StderrBatchIn,
 )
+from akashic.schemas.common import Page, decode_cursor, encode_cursor
 from akashic.services import scan_broadcast, scan_pubsub
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/scans")
+router = ApiRouter(prefix="/scans")
 
 
 async def _load_scan_with_write(
@@ -337,22 +339,32 @@ async def post_stderr_batch(
     )
 
 
-@router.get("/{scan_id}/log", response_model=list[LogEntryOut], tags=["scans"])
+@router.get(
+    "/{scan_id}/log",
+    response_model=Page[LogEntryOut],
+    tags=["scans"],
+    summary="Scan log lines",
+    description=(
+        "Oldest first. `next_cursor` always points just after the last returned line "
+        "(null only for an empty page), so a client can tail the log by re-sending it; "
+        "a page shorter than `limit` means the end was reached."
+    ),
+)
 async def get_log(
     scan_id: uuid.UUID,
     since: datetime | None = Query(None, description="Return entries strictly after this timestamp"),
-    after_id: uuid.UUID | None = Query(
+    cursor: str | None = Query(
         None,
         description=(
-            "Keyset tiebreak — paired with `since`, returns entries strictly "
-            "after the (ts, id) cursor. Lossless when many lines share a ts."
+            "Opaque cursor from a previous `next_cursor`; returns lines strictly after it. "
+            "Lossless when many lines share a timestamp."
         ),
     ),
     kind: str = Query("all", pattern="^(structured|stderr|all)$"),
     limit: int = Query(2000, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:read", source_scoped=True),
-) -> list[LogEntryOut]:
+) -> Page[LogEntryOut]:
     """Backfill / catch-up endpoint. The WS path streams new events live;
     GET handles the gap on reconnect and the full-history load the log
     viewer page-loops on mount.
@@ -374,15 +386,15 @@ async def get_log(
 
     stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:
-        cursor_ts = _now_or(since)
-        if after_id is not None:
-            # Exact keyset: (ts, id) strictly after the cursor row.
-            stmt = stmt.where(
-                tuple_(ScanLogEntry.ts, ScanLogEntry.id) > (cursor_ts, after_id)
-            )
-        else:
-            # Legacy ts-only cursor (live reconnect backfill).
-            stmt = stmt.where(ScanLogEntry.ts > cursor_ts)
+        stmt = stmt.where(ScanLogEntry.ts > _now_or(since))
+    if cursor is not None:
+        try:
+            c = decode_cursor(cursor)
+            keyset = (datetime.fromisoformat(c["ts"]), uuid.UUID(c["id"]))
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(status_code=422, detail="invalid cursor") from None
+        # Exact keyset: (ts, id) strictly after the cursor row.
+        stmt = stmt.where(tuple_(ScanLogEntry.ts, ScanLogEntry.id) > (_now_or(keyset[0]), keyset[1]))
     if kind == "structured":
         stmt = stmt.where(ScanLogEntry.level != "stderr")
     elif kind == "stderr":
@@ -390,14 +402,21 @@ async def get_log(
     stmt = stmt.order_by(ScanLogEntry.ts, ScanLogEntry.id).limit(limit)
 
     rows = (await db.execute(stmt)).scalars().all()
-    return [
-        LogEntryOut(
-            id=entry.id,
-            ts=entry.ts,
-            level=entry.level,
-            message=entry.message,
-            scanner_id=entry.scanner_id,
-            scanner_name=entry.scanner_name,
-        )
-        for entry in rows
-    ]
+    next_cursor = (
+        encode_cursor({"ts": rows[-1].ts.isoformat(), "id": str(rows[-1].id)}) if rows else None
+    )
+    return Page[LogEntryOut](
+        items=[
+            LogEntryOut(
+                id=entry.id,
+                ts=entry.ts,
+                level=entry.level,
+                message=entry.message,
+                scanner_id=entry.scanner_id,
+                scanner_name=entry.scanner_name,
+            )
+            for entry in rows
+        ],
+        next_cursor=next_cursor,
+        limit=limit,
+    )

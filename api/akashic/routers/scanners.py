@@ -10,7 +10,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from sqlalchemy import select, text
@@ -26,7 +27,7 @@ from akashic.services.scanner_keys import generate_keypair
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["scanners"])
+router = ApiRouter(tags=["scanners"])
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────

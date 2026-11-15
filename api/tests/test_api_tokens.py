@@ -273,7 +273,7 @@ async def test_limited_search_never_returns_other_sources(client, world, limited
     # SQL path (glob mode forces it)
     r = await client.get("/api/v1/search?q=needle*&mode=glob", headers=_h(limited))
     assert r.status_code == 200
-    assert [h["filename"] for h in r.json()["results"]] == ["needle-a"]
+    assert [h["filename"] for h in r.json()["items"]] == ["needle-a"]
     # Meilisearch path: the filter sent to the index carries the limit
     seen: dict = {}
 

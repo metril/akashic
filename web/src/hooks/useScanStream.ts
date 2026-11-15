@@ -80,25 +80,25 @@ export function appendLines(
   return fresh.length === 0 ? existing : [...existing, ...fresh];
 }
 
-// fetchLogPage — one keyset page of GET /api/v1/scans/{id}/log. `cursor` is
-// the last row of the previous page (null for the first page). `(ts, id)`
-// is exact: a pure-ts cursor would drop lines when a batch shares a ts.
+// fetchLogPage — one page of GET /api/v1/scans/{id}/log. `cursor` is the
+// previous page's opaque `next_cursor` (null for the first page); it points
+// just after that page's last row, so no line is dropped or repeated even
+// when a batch shares a timestamp.
 async function fetchLogPage(
   scanId: string,
   token: string,
-  cursor: { ts: string; id: string } | null,
-): Promise<ScanLogLine[]> {
+  cursor: string | null,
+): Promise<{ items: ScanLogLine[]; next_cursor: string | null }> {
   let url = `${API_BASE}/scans/${scanId}/log?kind=all&limit=${HISTORY_PAGE_SIZE}`;
-  if (cursor) {
-    url +=
-      `&since=${encodeURIComponent(cursor.ts)}` +
-      `&after_id=${encodeURIComponent(cursor.id)}`;
-  }
+  if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`log page ${resp.status}`);
-  return (await resp.json()) as ScanLogLine[];
+  return (await resp.json()) as {
+    items: ScanLogLine[];
+    next_cursor: string | null;
+  };
 }
 
 /**
@@ -133,6 +133,8 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
   // Generation token for the history page-loop: bumping it makes an
   // in-flight loop bail when scanId/enabled changes or the hook unmounts.
   const historyGenRef = useRef(0);
+  // Cursor just after the newest line fetched over HTTP; resumes the reconnect backfill.
+  const tailCursorRef = useRef<string | null>(null);
 
   // Inbound live-event coalescing buffer. A burst of WS frames becomes one
   // setState per animation frame rather than one per message.
@@ -203,17 +205,19 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
       attemptRef.current = 0;
       lastActivityRef.current = Date.now();
       setState((s) => ({ ...s, status: "open" }));
-      // Backfill anything that landed between drop and reconnect, keyed off
-      // the newest line currently held (exact (ts, id) keyset).
-      const newest = linesRef.current[linesRef.current.length - 1];
-      if (newest) {
+      // Backfill anything that landed between drop and reconnect, resuming
+      // from the last history/backfill cursor (lines already delivered by
+      // the socket are deduped by id).
+      if (tailCursorRef.current || linesRef.current.length > 0) {
         try {
-          const lines = await fetchLogPage(scanId, token, {
-            ts: newest.ts,
-            id: newest.id,
-          });
-          if (lines.length && mountedRef.current) {
-            setState((s) => ({ ...s, lines: mergeLines(s.lines, lines) }));
+          for (;;) {
+            const page = await fetchLogPage(scanId, token, tailCursorRef.current);
+            if (!mountedRef.current) return;
+            if (page.items.length) {
+              setState((s) => ({ ...s, lines: mergeLines(s.lines, page.items) }));
+            }
+            if (page.next_cursor) tailCursorRef.current = page.next_cursor;
+            if (page.items.length < HISTORY_PAGE_SIZE) break;
           }
         } catch {
           // Backfill failure is non-fatal — the live stream takes over.
@@ -287,19 +291,22 @@ export function useScanStream(scanId: string | null, enabled: boolean = true) {
     setState((s) => ({ ...s, historyLoading: true }));
 
     (async () => {
-      let cursor: { ts: string; id: string } | null = null;
+      let cursor: string | null = null;
+      tailCursorRef.current = null;
       try {
         for (;;) {
           const page = await fetchLogPage(scanId, token, cursor);
           // Bail if this effect was cleaned up (unmount / scanId flip) or
           // a newer history load superseded it.
           if (cancelled || gen !== historyGenRef.current) return;
-          if (page.length > 0) {
-            setState((s) => ({ ...s, lines: mergeLines(s.lines, page) }));
-            const last = page[page.length - 1];
-            cursor = { ts: last.ts, id: last.id };
+          if (page.items.length > 0) {
+            setState((s) => ({ ...s, lines: mergeLines(s.lines, page.items) }));
           }
-          if (page.length < HISTORY_PAGE_SIZE) break; // short page → done
+          if (page.next_cursor) {
+            cursor = page.next_cursor;
+            tailCursorRef.current = page.next_cursor;
+          }
+          if (page.items.length < HISTORY_PAGE_SIZE) break; // short page → done
         }
       } catch {
         // History load failed — the live WS still fills new lines; leave

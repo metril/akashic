@@ -12,7 +12,8 @@ import uuid
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +36,7 @@ from akashic.services.entry_content import (
     validate_remote_path,
 )
 
-router = APIRouter(prefix="/entries", tags=["entries"])
+router = ApiRouter(prefix="/entries", tags=["entries"])
 
 
 class PreviewResponse(BaseModel):

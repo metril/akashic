@@ -19,7 +19,8 @@ import time
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from akashic.routing import ApiRouter
+from fastapi import Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +32,7 @@ from akashic.services import scan_pubsub
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["scan-websocket"])
+router = ApiRouter(tags=["scan-websocket"])
 
 # Heartbeat interval to detect half-open clients. Must be smaller than any
 # upstream proxy idle timeout (nginx defaults to 60 s).

@@ -91,7 +91,7 @@ async def test_browse_unfiltered_when_flag_off(client: AsyncClient, db_session: 
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
-    paths = sorted(e["path"] for e in resp.json()["entries"])
+    paths = sorted(e["path"] for e in resp.json()["items"])
     assert paths == ["/a", "/b", "/c"]
 
 
@@ -112,7 +112,7 @@ async def test_browse_filters_when_flag_on_and_user_has_bindings(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
-    paths = sorted(e["path"] for e in resp.json()["entries"])
+    paths = sorted(e["path"] for e in resp.json()["items"])
     assert paths == ["/a", "/c"]  # /b filtered (uid:2000 is not us)
 
 
@@ -134,7 +134,7 @@ async def test_browse_unbound_user_sees_all_even_when_flag_on(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    paths = sorted(e["path"] for e in resp.json()["entries"])
+    paths = sorted(e["path"] for e in resp.json()["items"])
     assert paths == ["/a", "/b", "/c"]
 
 
@@ -156,14 +156,14 @@ async def test_admin_show_all_overrides_filter(
         f"/api/v1/browse?source_id={source.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert sorted(e["path"] for e in resp.json()["entries"]) == ["/a", "/c"]
+    assert sorted(e["path"] for e in resp.json()["items"]) == ["/a", "/c"]
 
     # show_all=1 — no filter regardless of bindings.
     resp = await client.get(
         f"/api/v1/browse?source_id={source.id}&show_all=1",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert sorted(e["path"] for e in resp.json()["entries"]) == ["/a", "/b", "/c"]
+    assert sorted(e["path"] for e in resp.json()["items"]) == ["/a", "/b", "/c"]
 
 
 @pytest.mark.asyncio
@@ -248,7 +248,7 @@ async def test_search_permission_filter_all_forced_readable_for_viewer(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    hits = body.get("results") or body.get("hits") or []
+    hits = body.get("items") or body.get("hits") or []
     assert "/b" not in [x["path"] for x in hits]
 
 

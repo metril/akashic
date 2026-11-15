@@ -24,7 +24,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from akashic.routing import ApiRouter
+from fastapi import BackgroundTasks, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -39,7 +40,7 @@ from akashic.models.source import Source
 from akashic.services.scanner_auth import verify_scanner_jwt
 from akashic.services.source_config import effective_max_parallel_scanners
 
-router = APIRouter(tags=[SCANNER_TAG])
+router = ApiRouter(tags=[SCANNER_TAG])
 
 
 # Lease window. Same 60 s as the scan-level lease so the watchdog and

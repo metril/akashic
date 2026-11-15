@@ -1,11 +1,12 @@
 """The scope catalog, for clients building token UIs or checking what they may do."""
-from fastapi import APIRouter, Depends
+from akashic.routing import ApiRouter
+from fastapi import Depends
 
 from akashic.auth.dependencies import Principal, get_principal
 from akashic.auth.scopes import ROLE_SCOPES, SCOPES, forbidden_with_source_limit, is_read_only
 from akashic.schemas.user import ScopeCatalog, ScopeInfo
 
-router = APIRouter(tags=["auth"])
+router = ApiRouter(tags=["auth"])
 
 
 @router.get(

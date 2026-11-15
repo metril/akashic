@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from akashic.schemas.acl import ACL
+from akashic.schemas.common import Page
 
 
 class _EntrySourceRef(BaseModel):
@@ -145,18 +146,11 @@ class BrowseEntry(BaseModel):
     child_count: int | None = None
 
 
-class BrowseResponse(BaseModel):
-    source_id: uuid.UUID
-    source_name: str
-    path: str
-    parent_path: str | None
-    is_root: bool
-    entries: list[BrowseEntry]
-    # v0.4.11 — cursor pagination. `next_cursor` is a base64url JSON
-    # blob the client passes back as `?cursor=...` to fetch the next
-    # page; `null` signals no more pages. `total` is the unfiltered
-    # count of entries in the current folder, populated only on the
-    # first page (cursor=None) so the footer can show "X of Y" without
-    # paying the count on every page.
-    next_cursor: str | None = None
-    total: int | None = None
+class BrowsePage(Page[BrowseEntry]):
+    """One page of a directory listing."""
+
+    source_id: uuid.UUID = Field(description="Source being browsed.")
+    source_name: str = Field(description="Source display name.")
+    path: str = Field(description="Normalised directory path.")
+    parent_path: str | None = Field(description="Parent directory path; null at the root.")
+    is_root: bool = Field(description="Whether `path` is the source root.")

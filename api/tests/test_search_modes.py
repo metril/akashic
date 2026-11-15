@@ -107,7 +107,7 @@ async def test_search_glob_matches_filename_pattern(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
-    names = {h["filename"] for h in r.json()["results"]}
+    names = {h["filename"] for h in r.json()["items"]}
     assert names == {"report-2024.pdf", "report-2025.pdf"}
 
 
@@ -127,7 +127,7 @@ async def test_search_glob_double_star_matches_across_paths(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
-    names = {h["filename"] for h in r.json()["results"]}
+    names = {h["filename"] for h in r.json()["items"]}
     assert names == {"jan.csv", "feb.csv"}
 
 
@@ -146,7 +146,7 @@ async def test_search_regex_matches_path_pattern(client, db_session):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
-    names = {h["filename"] for h in r.json()["results"]}
+    names = {h["filename"] for h in r.json()["items"]}
     assert names == {"2024-Q1.pdf", "2025-Q3.pdf"}
 
 
@@ -179,7 +179,7 @@ async def test_search_fuzzy_default_unchanged(client, db_session):
     )
     assert r.status_code == 200
     body = r.json()
-    assert "results" in body
+    assert "items" in body
     assert "total" in body
     assert "query" in body
     assert body["query"] == "invoice"

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +31,7 @@ from akashic.services.runtime_settings import (
 )
 from akashic.services.server_settings import set_setting
 
-router = APIRouter(prefix="/server-settings", tags=["server-settings"])
+router = ApiRouter(prefix="/server-settings", tags=["server-settings"])
 
 
 class SettingValue(BaseModel):

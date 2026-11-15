@@ -1,7 +1,8 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from akashic.routing import ApiRouter
+from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ from akashic.services.search import delete_file_from_index
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/duplicates", tags=["duplicates"])
+router = ApiRouter(prefix="/duplicates", tags=["duplicates"])
 
 
 class DuplicateGroup(BaseModel):
