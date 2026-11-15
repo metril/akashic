@@ -19,6 +19,225 @@
         "title": "ACEReference",
         "type": "object"
       },
+      "AccessPrincipal": {
+        "description": "The principal that was looked up.",
+        "properties": {
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved domain, when known.",
+            "title": "Domain"
+          },
+          "kind": {
+            "description": "`user`, `group`, `wildcard` or `unknown`.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved name, when known.",
+            "title": "Name"
+          },
+          "token": {
+            "description": "Canonical principal token, e.g. `sid:S-1-5-...` or `posix:uid:1000`.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "name",
+          "domain",
+          "kind"
+        ],
+        "title": "AccessPrincipal",
+        "type": "object"
+      },
+      "AccessRisks": {
+        "description": "World-readable exposure counters.",
+        "properties": {
+          "public_read_count": {
+            "description": "Files readable by everyone.",
+            "title": "Public Read Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "public_read_count"
+        ],
+        "title": "AccessRisks",
+        "type": "object"
+      },
+      "AccessRisksResponse": {
+        "description": "Cached world-readable file count.",
+        "properties": {
+          "access_risks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessRisks"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the caller may not see it."
+          },
+          "cache_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Age of the cached value; absent when not visible.",
+            "title": "Cache Age Seconds"
+          }
+        },
+        "required": [
+          "access_risks"
+        ],
+        "title": "AccessRisksResponse",
+        "type": "object"
+      },
+      "AccessSampleHit": {
+        "additionalProperties": true,
+        "description": "One reachable file from the search index.",
+        "properties": {
+          "filename": {
+            "description": "Base name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "fs_modified_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Modified time, epoch seconds.",
+            "title": "Fs Modified At"
+          },
+          "id": {
+            "description": "Entry id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner name.",
+            "title": "Owner Name"
+          },
+          "path": {
+            "description": "Full path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size in bytes.",
+            "title": "Size Bytes"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "path",
+          "filename"
+        ],
+        "title": "AccessSampleHit",
+        "type": "object"
+      },
+      "AccessSourceRollup": {
+        "description": "Reachable files within one source.",
+        "properties": {
+          "file_count": {
+            "description": "Reachable files in the source.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Source display name.",
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "file_count"
+        ],
+        "title": "AccessSourceRollup",
+        "type": "object"
+      },
+      "AccessSummary": {
+        "description": "Totals across everything the principal can reach.",
+        "properties": {
+          "file_count": {
+            "description": "Files reachable.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "source_count": {
+            "description": "Sources containing reachable files.",
+            "title": "Source Count",
+            "type": "integer"
+          },
+          "total_size_bytes": {
+            "description": "Total bytes reachable.",
+            "title": "Total Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_count",
+          "total_size_bytes",
+          "source_count"
+        ],
+        "title": "AccessSummary",
+        "type": "object"
+      },
       "AddSharesItem": {
         "description": "One row in an /add-shares batch.",
         "properties": {
@@ -1745,6 +1964,146 @@
         "title": "CredentialProfileUpdate",
         "type": "object"
       },
+      "DashboardScans": {
+        "description": "Source and scan counters.",
+        "properties": {
+          "active": {
+            "description": "Sources currently scanning.",
+            "title": "Active",
+            "type": "integer"
+          },
+          "total_sources": {
+            "description": "Sources visible to the caller.",
+            "title": "Total Sources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "total_sources"
+        ],
+        "title": "DashboardScans",
+        "type": "object"
+      },
+      "DashboardStorage": {
+        "description": "Storage totals across visible sources.",
+        "properties": {
+          "delta_30d_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Byte change over 30 days; null without a 30-day-old snapshot.",
+            "title": "Delta 30D Bytes"
+          },
+          "delta_30d_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File-count change over 30 days; null without history.",
+            "title": "Delta 30D Files"
+          },
+          "total_bytes": {
+            "description": "Total bytes in the latest snapshots.",
+            "title": "Total Bytes",
+            "type": "integer"
+          },
+          "total_files": {
+            "description": "Total files in the latest snapshots.",
+            "title": "Total Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_bytes",
+          "total_files",
+          "delta_30d_bytes",
+          "delta_30d_files"
+        ],
+        "title": "DashboardStorage",
+        "type": "object"
+      },
+      "DashboardSummary": {
+        "description": "Everything the dashboard tiles need in one call.",
+        "properties": {
+          "access_risks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessRisks"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Always null here; use `/dashboard/access-risks`."
+          },
+          "forecast_hints": {
+            "description": "Growth hints for the three largest sources.",
+            "items": {
+              "$ref": "#/components/schemas/ForecastHint"
+            },
+            "title": "Forecast Hints",
+            "type": "array"
+          },
+          "identity_health": {
+            "$ref": "#/components/schemas/IdentityHealth",
+            "description": "Identity-mapping counters."
+          },
+          "recent_scans": {
+            "description": "Most recent scans.",
+            "items": {
+              "$ref": "#/components/schemas/RecentScan"
+            },
+            "title": "Recent Scans",
+            "type": "array"
+          },
+          "scans": {
+            "$ref": "#/components/schemas/DashboardScans",
+            "description": "Scan counters."
+          },
+          "storage": {
+            "$ref": "#/components/schemas/DashboardStorage",
+            "description": "Storage totals."
+          },
+          "top_extensions_growth_30d": {
+            "description": "Fastest-growing extensions.",
+            "items": {
+              "$ref": "#/components/schemas/ExtensionGrowth"
+            },
+            "title": "Top Extensions Growth 30D",
+            "type": "array"
+          },
+          "top_owners": {
+            "description": "Largest owners across sources.",
+            "items": {
+              "$ref": "#/components/schemas/OwnerShare"
+            },
+            "title": "Top Owners",
+            "type": "array"
+          }
+        },
+        "required": [
+          "storage",
+          "scans",
+          "forecast_hints",
+          "top_owners",
+          "top_extensions_growth_30d",
+          "recent_scans",
+          "access_risks",
+          "identity_health"
+        ],
+        "title": "DashboardSummary",
+        "type": "object"
+      },
       "DeleteCopiesRequest": {
         "properties": {
           "delete_entry_ids": {
@@ -2117,6 +2476,191 @@
           "key_fingerprint"
         ],
         "title": "DiscoveryAdminSummary",
+        "type": "object"
+      },
+      "DiscoveryApproved": {
+        "description": "The scanner created for an approved discovery request.",
+        "properties": {
+          "name": {
+            "description": "Scanner name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pool": {
+            "description": "Scanner pool.",
+            "title": "Pool",
+            "type": "string"
+          },
+          "scanner_id": {
+            "description": "Id of the newly registered scanner.",
+            "format": "uuid",
+            "title": "Scanner Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scanner_id",
+          "name",
+          "pool"
+        ],
+        "title": "DiscoveryApproved",
+        "type": "object"
+      },
+      "DuplicateFile": {
+        "description": "One copy within a duplicate group.",
+        "properties": {
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content hash.",
+            "title": "Content Hash"
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Extension without the dot.",
+            "title": "Extension"
+          },
+          "filename": {
+            "description": "Base name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "description": "First time a scan saw the entry, ISO 8601.",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "fs_modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filesystem modified time, ISO 8601.",
+            "title": "Fs Modified At"
+          },
+          "id": {
+            "description": "Entry id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_deleted": {
+            "description": "Whether the entry is soft-deleted.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "last_seen_at": {
+            "description": "Most recent scan sighting, ISO 8601.",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detected MIME type.",
+            "title": "Mime Type"
+          },
+          "path": {
+            "description": "Full path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size in bytes.",
+            "title": "Size Bytes"
+          },
+          "source_id": {
+            "description": "Owning source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "path",
+          "filename",
+          "extension",
+          "size_bytes",
+          "content_hash",
+          "mime_type",
+          "fs_modified_at",
+          "first_seen_at",
+          "last_seen_at",
+          "is_deleted"
+        ],
+        "title": "DuplicateFile",
+        "type": "object"
+      },
+      "DuplicateGroup": {
+        "description": "A set of files sharing one content hash.",
+        "properties": {
+          "content_hash": {
+            "description": "Shared content hash.",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "count": {
+            "description": "Number of copies.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "file_size": {
+            "description": "Size of a single copy, in bytes.",
+            "title": "File Size",
+            "type": "integer"
+          },
+          "total_size": {
+            "description": "Combined size of all copies, in bytes.",
+            "title": "Total Size",
+            "type": "integer"
+          },
+          "wasted_bytes": {
+            "description": "Bytes reclaimable by keeping one copy.",
+            "title": "Wasted Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "content_hash",
+          "count",
+          "total_size",
+          "file_size",
+          "wasted_bytes"
+        ],
+        "title": "DuplicateGroup",
         "type": "object"
       },
       "EffectivePerms": {
@@ -3217,6 +3761,60 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "ExtensionGrowth": {
+        "description": "An extension's growth over 30 days.",
+        "properties": {
+          "current_bytes": {
+            "description": "Current bytes.",
+            "title": "Current Bytes",
+            "type": "integer"
+          },
+          "delta_bytes": {
+            "description": "Bytes gained over 30 days.",
+            "title": "Delta Bytes",
+            "type": "integer"
+          },
+          "extension": {
+            "description": "Extension without the dot.",
+            "title": "Extension",
+            "type": "string"
+          }
+        },
+        "required": [
+          "extension",
+          "delta_bytes",
+          "current_bytes"
+        ],
+        "title": "ExtensionGrowth",
+        "type": "object"
+      },
+      "ExtensionTrendPoint": {
+        "description": "One snapshot's totals for an extension.",
+        "properties": {
+          "bytes": {
+            "description": "Total bytes of files with this extension.",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "n": {
+            "description": "File count with this extension.",
+            "title": "N",
+            "type": "integer"
+          },
+          "taken_at": {
+            "description": "Snapshot time, ISO 8601.",
+            "title": "Taken At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taken_at",
+          "n",
+          "bytes"
+        ],
+        "title": "ExtensionTrendPoint",
+        "type": "object"
+      },
       "ExtractCandidate": {
         "description": "A new-or-changed file the scanner should extract text from.\nv0.30.0 — extraction moved into the scanner; the API tells it\nwhich files actually changed so it doesn't re-extract everything\nevery scan.",
         "properties": {
@@ -3239,6 +3837,240 @@
           "path"
         ],
         "title": "ExtractCandidate",
+        "type": "object"
+      },
+      "FileAccessResponse": {
+        "description": "File-to-principals lookup (`?file=`).",
+        "properties": {
+          "entry_id": {
+            "description": "Entry id.",
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "filename": {
+            "description": "Base name.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "principals": {
+            "description": "Principals that hold the right.",
+            "items": {
+              "$ref": "#/components/schemas/FilePrincipal"
+            },
+            "title": "Principals",
+            "type": "array"
+          },
+          "right": {
+            "description": "`read`, `write` or `delete`.",
+            "title": "Right",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "path",
+          "filename",
+          "right",
+          "principals"
+        ],
+        "title": "FileAccessResponse",
+        "type": "object"
+      },
+      "FilePrincipal": {
+        "description": "A principal holding the right on a file.",
+        "properties": {
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved domain (SIDs only).",
+            "title": "Domain"
+          },
+          "kind": {
+            "description": "`user`, `group`, `wildcard` or `unknown`.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved name (SIDs only).",
+            "title": "Name"
+          },
+          "source": {
+            "description": "Where the grant comes from (`acl`).",
+            "title": "Source",
+            "type": "string"
+          },
+          "token": {
+            "description": "Canonical principal token.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "kind",
+          "source"
+        ],
+        "title": "FilePrincipal",
+        "type": "object"
+      },
+      "ForecastHint": {
+        "description": "Recent growth rate for one of the largest sources.",
+        "properties": {
+          "current_bytes": {
+            "description": "Current total bytes.",
+            "title": "Current Bytes",
+            "type": "integer"
+          },
+          "slope_bytes_per_day": {
+            "description": "Growth in bytes per day over the last 30 days.",
+            "title": "Slope Bytes Per Day",
+            "type": "integer"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source display name.",
+            "title": "Source Name"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "current_bytes",
+          "slope_bytes_per_day"
+        ],
+        "title": "ForecastHint",
+        "type": "object"
+      },
+      "ForecastPoint": {
+        "description": "One projected point with its 95% interval.",
+        "properties": {
+          "high": {
+            "description": "Upper bound of the 95% interval.",
+            "title": "High",
+            "type": "integer"
+          },
+          "low": {
+            "description": "Lower bound of the 95% interval.",
+            "title": "Low",
+            "type": "integer"
+          },
+          "taken_at": {
+            "description": "Projected time, ISO 8601.",
+            "title": "Taken At",
+            "type": "string"
+          },
+          "value": {
+            "description": "Projected size in bytes.",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "taken_at",
+          "value",
+          "low",
+          "high"
+        ],
+        "title": "ForecastPoint",
+        "type": "object"
+      },
+      "ForecastProjection": {
+        "description": "The linear projection computed from history.",
+        "properties": {
+          "horizon_days": {
+            "description": "Days projected beyond the last snapshot.",
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "points": {
+            "description": "Projected points, oldest to newest.",
+            "items": {
+              "$ref": "#/components/schemas/ForecastPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "slope_bytes_per_day": {
+            "description": "Fitted growth rate in bytes per day.",
+            "title": "Slope Bytes Per Day",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "points",
+          "slope_bytes_per_day",
+          "horizon_days"
+        ],
+        "title": "ForecastProjection",
+        "type": "object"
+      },
+      "ForecastResponse": {
+        "description": "Capacity forecast for one source.",
+        "properties": {
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForecastProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projection; null when there is too little history."
+          },
+          "history": {
+            "description": "Observed total size per snapshot, oldest to newest.",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "reason": {
+            "description": "`ok`, or `insufficient_history` when fewer than 3 snapshots exist.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "history",
+          "forecast",
+          "reason"
+        ],
+        "title": "ForecastResponse",
         "type": "object"
       },
       "FsBindingIn": {
@@ -4012,6 +4844,27 @@
         "title": "HostUpdate",
         "type": "object"
       },
+      "IdentityHealth": {
+        "description": "Identity-mapping health counters.",
+        "properties": {
+          "unbound_count": {
+            "description": "Filesystem identities not bound to a user.",
+            "title": "Unbound Count",
+            "type": "integer"
+          },
+          "unresolved_sid_count": {
+            "description": "SIDs whose name is unresolved (admin only).",
+            "title": "Unresolved Sid Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unbound_count",
+          "unresolved_sid_count"
+        ],
+        "title": "IdentityHealth",
+        "type": "object"
+      },
       "JobOut": {
         "properties": {
           "error": {
@@ -4105,6 +4958,67 @@
         "title": "LDAPLoginRequest",
         "type": "object"
       },
+      "LargestFile": {
+        "description": "One of the largest files the caller can see.",
+        "properties": {
+          "filename": {
+            "description": "Base name of the file.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "Entry id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detected MIME type, if known.",
+            "title": "Mime Type"
+          },
+          "path": {
+            "description": "Full path within the source.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File size in bytes.",
+            "title": "Size Bytes"
+          },
+          "source_id": {
+            "description": "Owning source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "path",
+          "filename",
+          "size_bytes",
+          "mime_type"
+        ],
+        "title": "LargestFile",
+        "type": "object"
+      },
       "LeaseRequest": {
         "description": "Optional lease-poll body. v0.30.2 — the agent reports its\nrunning build version so `scanners.version` reflects the live\nbinary even after an in-place image upgrade (the claim-time\nversion otherwise goes stale). Older agents post an empty object;\nthe field stays None and nothing changes.",
         "properties": {
@@ -4122,6 +5036,100 @@
           }
         },
         "title": "LeaseRequest",
+        "type": "object"
+      },
+      "LeasedScan": {
+        "properties": {
+          "api_jwt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short-lived ingest token for the agent; null if none could be minted.",
+            "title": "Api Jwt"
+          },
+          "scan_id": {
+            "description": "Leased scan id.",
+            "format": "uuid",
+            "title": "Scan Id",
+            "type": "string"
+          },
+          "scan_type": {
+            "description": "`full` or `incremental`.",
+            "title": "Scan Type",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LeasedSource",
+            "description": "Source to scan."
+          }
+        },
+        "required": [
+          "scan_id",
+          "scan_type",
+          "source",
+          "api_jwt"
+        ],
+        "title": "LeasedScan",
+        "type": "object"
+      },
+      "LeasedSource": {
+        "properties": {
+          "connection_config": {
+            "additionalProperties": true,
+            "description": "Merged host and source connection config, secrets included.",
+            "title": "Connection Config",
+            "type": "object"
+          },
+          "exclude_patterns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Glob patterns to skip while scanning.",
+            "title": "Exclude Patterns"
+          },
+          "id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_parallel_scanners": {
+            "default": 1,
+            "description": "Resolved cap on cooperating scanners for this scan.",
+            "title": "Max Parallel Scanners",
+            "type": "integer"
+          },
+          "scan_chunk_size": {
+            "default": 2000,
+            "description": "Resolved work-unit entry budget.",
+            "title": "Scan Chunk Size",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Connector type.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "connection_config"
+        ],
+        "title": "LeasedSource",
         "type": "object"
       },
       "ListSharesResponse": {
@@ -4872,6 +5880,239 @@
         "title": "OverviewOut",
         "type": "object"
       },
+      "OwnerDistribution": {
+        "description": "Owners of the latest snapshot, largest first.",
+        "properties": {
+          "owners": {
+            "description": "Owners ordered by bytes descending.",
+            "items": {
+              "$ref": "#/components/schemas/OwnerShare"
+            },
+            "title": "Owners",
+            "type": "array"
+          },
+          "taken_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Snapshot time, ISO 8601; null when the source has no snapshot.",
+            "title": "Taken At"
+          }
+        },
+        "required": [
+          "taken_at",
+          "owners"
+        ],
+        "title": "OwnerDistribution",
+        "type": "object"
+      },
+      "OwnerShare": {
+        "description": "One owner's totals in the latest snapshot.",
+        "properties": {
+          "bytes": {
+            "description": "Total bytes owned.",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "n": {
+            "description": "Number of files owned.",
+            "title": "N",
+            "type": "integer"
+          },
+          "owner": {
+            "description": "Owner name (or SID/uid token when unresolved).",
+            "title": "Owner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "n",
+          "bytes"
+        ],
+        "title": "OwnerShare",
+        "type": "object"
+      },
+      "Page_AuditEventOut_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/AuditEventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[AuditEventOut]",
+        "type": "object"
+      },
+      "Page_DuplicateFile_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateFile"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[DuplicateFile]",
+        "type": "object"
+      },
+      "Page_DuplicateGroup_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateGroup"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[DuplicateGroup]",
+        "type": "object"
+      },
+      "Page_EntryResponse_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/EntryResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[EntryResponse]",
+        "type": "object"
+      },
+      "Page_ScanResponse_": {
+        "properties": {
+          "items": {
+            "description": "The page of results.",
+            "items": {
+              "$ref": "#/components/schemas/ScanResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of items requested for this page.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page; null when this is the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "Page[ScanResponse]",
+        "type": "object"
+      },
       "PerScannerHistory": {
         "properties": {
           "outcomes": {
@@ -5013,6 +6254,68 @@
         "title": "PreviewResponse",
         "type": "object"
       },
+      "PrincipalAccessResponse": {
+        "description": "Principal-to-files lookup (`?principal=`).",
+        "properties": {
+          "by_source": {
+            "description": "Per-source rollup, largest first.",
+            "items": {
+              "$ref": "#/components/schemas/AccessSourceRollup"
+            },
+            "title": "By Source",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Page size requested.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page of `sample`; null at the end.",
+            "title": "Next Cursor"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/AccessPrincipal",
+            "description": "The looked-up principal."
+          },
+          "right": {
+            "description": "`read`, `write` or `delete`.",
+            "title": "Right",
+            "type": "string"
+          },
+          "sample": {
+            "description": "One page of reachable files.",
+            "items": {
+              "$ref": "#/components/schemas/AccessSampleHit"
+            },
+            "title": "Sample",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AccessSummary",
+            "description": "Totals."
+          }
+        },
+        "required": [
+          "principal",
+          "right",
+          "summary",
+          "by_source",
+          "sample",
+          "next_cursor",
+          "limit"
+        ],
+        "title": "PrincipalAccessResponse",
+        "type": "object"
+      },
       "PrincipalRef": {
         "properties": {
           "identifier": {
@@ -5085,6 +6388,42 @@
         "title": "ProbeReport",
         "type": "object"
       },
+      "ProbeRequest": {
+        "description": "One probe delivered to the agent via /probes/long-poll.\n\nThe agent dials the source with the merged host+source\nconnection_config (secrets included; same envelope the scan-lease\nresponse uses) and POSTs back to /probes/{request_id}/report.",
+        "properties": {
+          "connection_config": {
+            "additionalProperties": true,
+            "description": "Merged host and source connection config, secrets included.",
+            "title": "Connection Config",
+            "type": "object"
+          },
+          "request_id": {
+            "description": "Probe request id; echoed back in the report URL.",
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source to probe.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_type": {
+            "description": "Connector type of the source.",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "source_id",
+          "source_type",
+          "connection_config"
+        ],
+        "title": "ProbeRequest",
+        "type": "object"
+      },
       "ProvidersResponse": {
         "properties": {
           "ldap": {
@@ -5111,6 +6450,33 @@
           "setup_required"
         ],
         "title": "ProvidersResponse",
+        "type": "object"
+      },
+      "PurgeDeletedResponse": {
+        "description": "Outcome of purging old soft-deleted entries.",
+        "properties": {
+          "files_removed": {
+            "description": "Files permanently removed.",
+            "title": "Files Removed",
+            "type": "integer"
+          },
+          "threshold_days": {
+            "description": "Age threshold that was applied, in days.",
+            "title": "Threshold Days",
+            "type": "integer"
+          },
+          "total_removed": {
+            "description": "Files plus directories permanently removed.",
+            "title": "Total Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files_removed",
+          "total_removed",
+          "threshold_days"
+        ],
+        "title": "PurgeDeletedResponse",
         "type": "object"
       },
       "PurgeLogsOut": {
@@ -5154,6 +6520,40 @@
           }
         },
         "title": "PurgeLogsRequest",
+        "type": "object"
+      },
+      "PurgeSourceResponse": {
+        "description": "Outcome of purging a source's entries.",
+        "properties": {
+          "directories_removed": {
+            "description": "Directories deleted from the index.",
+            "title": "Directories Removed",
+            "type": "integer"
+          },
+          "files_removed": {
+            "description": "Files deleted from the index.",
+            "title": "Files Removed",
+            "type": "integer"
+          },
+          "source_id": {
+            "description": "Purged source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "total_removed": {
+            "description": "Files plus directories removed.",
+            "title": "Total Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_id",
+          "files_removed",
+          "directories_removed",
+          "total_removed"
+        ],
+        "title": "PurgeSourceResponse",
         "type": "object"
       },
       "ReachabilityHistory": {
@@ -5343,6 +6743,113 @@
           "committed"
         ],
         "title": "ReattachResponse",
+        "type": "object"
+      },
+      "RecentScan": {
+        "description": "A recent scan row for the dashboard.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Completion time, ISO 8601.",
+            "title": "Completed At"
+          },
+          "files_changed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Files changed by the scan.",
+            "title": "Files Changed"
+          },
+          "files_new": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Files added by the scan.",
+            "title": "Files New"
+          },
+          "id": {
+            "description": "Scan id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "scan_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`full` or `incremental`.",
+            "title": "Scan Type"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source display name.",
+            "title": "Source Name"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Start time, ISO 8601.",
+            "title": "Started At"
+          },
+          "status": {
+            "description": "Scan status.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "source_name",
+          "scan_type",
+          "status",
+          "started_at",
+          "completed_at",
+          "files_new",
+          "files_changed"
+        ],
+        "title": "RecentScan",
         "type": "object"
       },
       "ResolveRequest": {
@@ -6625,6 +8132,138 @@
         "title": "SearchResults",
         "type": "object"
       },
+      "SeriesPoint": {
+        "description": "One snapshot value in a time series.",
+        "properties": {
+          "taken_at": {
+            "description": "Snapshot time, ISO 8601.",
+            "title": "Taken At",
+            "type": "string"
+          },
+          "value": {
+            "description": "Metric value at that time (bytes or file count).",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "taken_at",
+          "value"
+        ],
+        "title": "SeriesPoint",
+        "type": "object"
+      },
+      "SettingDescription": {
+        "description": "A setting with its metadata and current value.",
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Allowed values, when constrained.",
+            "title": "Choices"
+          },
+          "default": {
+            "description": "Default value.",
+            "title": "Default"
+          },
+          "description": {
+            "description": "Human-readable explanation.",
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "description": "Group key the setting belongs to.",
+            "title": "Group",
+            "type": "string"
+          },
+          "key": {
+            "description": "Setting key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "restart": {
+            "description": "Whether changing it needs a restart.",
+            "title": "Restart",
+            "type": "boolean"
+          },
+          "secret": {
+            "description": "Whether the value is a secret (returned masked).",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Secrets only: whether a value is stored.",
+            "title": "Set"
+          },
+          "type": {
+            "description": "Value type, e.g. `bool`, `int`, `str`.",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Current value; the mask for a set secret.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "group",
+          "description",
+          "secret",
+          "restart",
+          "default",
+          "value",
+          "choices"
+        ],
+        "title": "SettingDescription",
+        "type": "object"
+      },
+      "SettingGroup": {
+        "description": "A labelled group of settings.",
+        "properties": {
+          "key": {
+            "description": "Group key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "Group display label.",
+            "title": "Label",
+            "type": "string"
+          },
+          "settings": {
+            "description": "Settings in the group.",
+            "items": {
+              "$ref": "#/components/schemas/SettingDescription"
+            },
+            "title": "Settings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "settings"
+        ],
+        "title": "SettingGroup",
+        "type": "object"
+      },
       "SettingPatch": {
         "properties": {
           "value": {
@@ -6660,6 +8299,24 @@
           "value"
         ],
         "title": "SettingValue",
+        "type": "object"
+      },
+      "SettingsListResponse": {
+        "description": "All server settings, grouped.",
+        "properties": {
+          "groups": {
+            "description": "Setting groups in display order.",
+            "items": {
+              "$ref": "#/components/schemas/SettingGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "SettingsListResponse",
         "type": "object"
       },
       "SourceCreate": {
@@ -6911,6 +8568,105 @@
           "updated_at"
         ],
         "title": "SourceListResponse",
+        "type": "object"
+      },
+      "SourceReachabilityRow": {
+        "properties": {
+          "currently_allowed": {
+            "description": "Whether the scanner may claim work for this source.",
+            "title": "Currently Allowed",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Probe error message, if any.",
+            "title": "Error"
+          },
+          "host_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Host the source belongs to, if any.",
+            "title": "Host Name"
+          },
+          "last_probed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the latest probe completed.",
+            "title": "Last Probed At"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest probe outcome; null when never probed.",
+            "title": "Ok"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Source display name.",
+            "title": "Source Name",
+            "type": "string"
+          },
+          "source_type": {
+            "description": "Connector type.",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Probe step that failed, if any.",
+            "title": "Step"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "source_type",
+          "host_name",
+          "currently_allowed",
+          "ok",
+          "last_probed_at",
+          "step",
+          "error"
+        ],
+        "title": "SourceReachabilityRow",
         "type": "object"
       },
       "SourceResponse": {
@@ -7303,6 +9059,379 @@
           "chunk"
         ],
         "title": "StderrChunkIn",
+        "type": "object"
+      },
+      "StorageBucket": {
+        "description": "Synthetic rectangle for the long tail (`other`) or filtered-out entries (`hidden`).",
+        "properties": {
+          "child_count": {
+            "description": "Entries in the bucket.",
+            "title": "Child Count",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Bucket kind.",
+            "enum": [
+              "other",
+              "hidden"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "`<other>` or `<hidden>`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Bytes in the bucket.",
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "size_bytes",
+          "child_count"
+        ],
+        "title": "StorageBucket",
+        "type": "object"
+      },
+      "StorageBySource": {
+        "description": "Aggregate file count and bytes for one source.",
+        "properties": {
+          "count": {
+            "description": "Number of files in the source.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Source display name.",
+            "title": "Source Name",
+            "type": "string"
+          },
+          "total_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of `size_bytes`, in bytes.",
+            "title": "Total Size"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "count",
+          "total_size"
+        ],
+        "title": "StorageBySource",
+        "type": "object"
+      },
+      "StorageByType": {
+        "description": "Aggregate file count and bytes for one file extension.",
+        "properties": {
+          "count": {
+            "description": "Number of files with this extension.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lower-case extension without the dot; null for files with none.",
+            "title": "Extension"
+          },
+          "total_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of `size_bytes`, in bytes.",
+            "title": "Total Size"
+          }
+        },
+        "required": [
+          "extension",
+          "count",
+          "total_size"
+        ],
+        "title": "StorageByType",
+        "type": "object"
+      },
+      "StorageChild": {
+        "description": "An immediate child of a directory.",
+        "properties": {
+          "color_key": {
+            "description": "Bucket key for the requested `color_by` dimension.",
+            "title": "Color Key",
+            "type": "string"
+          },
+          "file_count": {
+            "description": "Files contained (1 for a file).",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Entry id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`file` or `directory`.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Base name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Size (subtree size for directories).",
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "path",
+          "size_bytes",
+          "file_count",
+          "color_key"
+        ],
+        "title": "StorageChild",
+        "type": "object"
+      },
+      "StorageChildrenResponse": {
+        "description": "Largest children of a directory plus tail buckets.",
+        "properties": {
+          "children": {
+            "description": "Top `limit` children by size.",
+            "items": {
+              "$ref": "#/components/schemas/StorageChild"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "color_by": {
+            "description": "Colour dimension used.",
+            "title": "Color By",
+            "type": "string"
+          },
+          "enforced": {
+            "description": "Whether permission filtering was applied.",
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "hidden": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageBucket"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Aggregate hidden by permission filtering (admins only)."
+          },
+          "other": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageBucket"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Aggregate of children beyond `limit`."
+          },
+          "path": {
+            "description": "Normalised directory path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "path",
+          "color_by",
+          "children",
+          "other",
+          "hidden",
+          "enforced"
+        ],
+        "title": "StorageChildrenResponse",
+        "type": "object"
+      },
+      "StorageSource": {
+        "description": "One source's size from its latest snapshot.",
+        "properties": {
+          "directory_count": {
+            "description": "Total directories.",
+            "title": "Directory Count",
+            "type": "integer"
+          },
+          "file_count": {
+            "description": "Total files.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "description": "Total bytes.",
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Source display name.",
+            "title": "Source Name",
+            "type": "string"
+          },
+          "source_type": {
+            "description": "Connector type.",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "taken_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Snapshot time, ISO 8601; null when never scanned.",
+            "title": "Taken At"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "source_type",
+          "size_bytes",
+          "file_count",
+          "directory_count",
+          "taken_at"
+        ],
+        "title": "StorageSource",
+        "type": "object"
+      },
+      "StorageSourcesResponse": {
+        "description": "Cross-source treemap data.",
+        "properties": {
+          "sources": {
+            "description": "Sources ordered by size descending.",
+            "items": {
+              "$ref": "#/components/schemas/StorageSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "StorageSourcesResponse",
+        "type": "object"
+      },
+      "StorageTreeResponse": {
+        "description": "Recursive subtree bounded by a node budget.",
+        "properties": {
+          "color_by": {
+            "description": "Colour dimension used.",
+            "title": "Color By",
+            "type": "string"
+          },
+          "enforced": {
+            "description": "Whether permission filtering was applied.",
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "node_count": {
+            "description": "Nodes returned.",
+            "title": "Node Count",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Normalised root path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "root": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TreeNode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Root node; null when the path is empty or not visible."
+          },
+          "source_id": {
+            "description": "Source id.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the node budget was hit.",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_id",
+          "path",
+          "color_by",
+          "enforced",
+          "node_count",
+          "truncated",
+          "root"
+        ],
+        "title": "StorageTreeResponse",
         "type": "object"
       },
       "StuckScanOut": {
@@ -7964,6 +10093,79 @@
           "access_token"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "TreeNode": {
+        "description": "A node of the nested treemap.",
+        "properties": {
+          "children": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TreeNode"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Child nodes, largest first.",
+            "title": "Children"
+          },
+          "color_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Colour bucket key.",
+            "title": "Color Key"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entry id; absent for synthetic nodes.",
+            "title": "Id"
+          },
+          "kind": {
+            "description": "`file`, `directory` or `other`.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Base name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "Node size in bytes.",
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "path",
+          "size_bytes"
+        ],
+        "title": "TreeNode",
         "type": "object"
       },
       "UserCreate": {
@@ -8983,14 +11185,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -9010,7 +11219,17 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PrincipalAccessResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FileAccessResponse"
+                    }
+                  ],
+                  "title": "Response Access Query"
+                }
               }
             },
             "description": "Successful Response"
@@ -9073,7 +11292,7 @@
             ]
           }
         ],
-        "summary": "Access Query",
+        "summary": "Blast-radius lookup",
         "tags": [
           "access"
         ]
@@ -10169,7 +12388,16 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "$ref": "#/components/schemas/ExtensionTrendPoint"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Response Get Extension Trend",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -10232,7 +12460,7 @@
             ]
           }
         ],
-        "summary": "Get Extension Trend",
+        "summary": "Per-extension trend",
         "tags": [
           "analytics"
         ]
@@ -10282,7 +12510,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ForecastResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -10345,7 +12575,7 @@
             ]
           }
         ],
-        "summary": "Get Forecast",
+        "summary": "Capacity forecast",
         "tags": [
           "analytics"
         ]
@@ -10371,7 +12601,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LargestFile"
+                  },
+                  "title": "Response Get Largest Files",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -10434,7 +12670,7 @@
             ]
           }
         ],
-        "summary": "Get Largest Files",
+        "summary": "Largest files",
         "tags": [
           "analytics"
         ]
@@ -10460,7 +12696,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerDistribution"
+                }
               }
             },
             "description": "Successful Response"
@@ -10523,7 +12761,7 @@
             ]
           }
         ],
-        "summary": "Get Owner Distribution",
+        "summary": "Owner distribution",
         "tags": [
           "analytics"
         ]
@@ -10536,7 +12774,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StorageBySource"
+                  },
+                  "title": "Response Get Storage By Source",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -10599,7 +12843,7 @@
             ]
           }
         ],
-        "summary": "Get Storage By Source",
+        "summary": "Storage by source",
         "tags": [
           "analytics"
         ]
@@ -10612,7 +12856,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StorageByType"
+                  },
+                  "title": "Response Get Storage By Type",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -10675,7 +12925,7 @@
             ]
           }
         ],
-        "summary": "Get Storage By Type",
+        "summary": "Storage by file type",
         "tags": [
           "analytics"
         ]
@@ -10724,7 +12974,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeriesPoint"
+                  },
+                  "title": "Response Get Timeseries",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -10787,7 +13043,7 @@
             ]
           }
         ],
-        "summary": "Get Timeseries",
+        "summary": "Size or file-count history",
         "tags": [
           "analytics"
         ]
@@ -11072,13 +13328,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
+          "302": {
+            "description": "Redirect to the SPA; sets the refresh cookie, or `/login?error=<code>` on failure."
           },
           "401": {
             "content": {
@@ -11131,7 +13382,7 @@
             "description": "Request failed validation."
           }
         },
-        "summary": "Oidc Callback",
+        "summary": "Finish OIDC login",
         "tags": [
           "auth"
         ]
@@ -11142,13 +13393,8 @@
         "description": "Redirect the user to the configured OIDC provider for authentication.",
         "operationId": "oidc_login",
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
+          "302": {
+            "description": "Redirect to the OIDC provider; sets short-lived state cookies."
           },
           "401": {
             "content": {
@@ -11201,7 +13447,7 @@
             "description": "Request failed validation."
           }
         },
-        "summary": "Oidc Login",
+        "summary": "Start OIDC login",
         "tags": [
           "auth"
         ]
@@ -12158,7 +14404,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AccessRisksResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -12221,7 +14469,7 @@
             ]
           }
         ],
-        "summary": "Get Access Risks",
+        "summary": "World-readable file count",
         "tags": [
           "dashboard"
         ]
@@ -12234,7 +14482,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummary"
+                }
               }
             },
             "description": "Successful Response"
@@ -12297,7 +14547,7 @@
             ]
           }
         ],
-        "summary": "Get Summary",
+        "summary": "Dashboard summary",
         "tags": [
           "dashboard"
         ]
@@ -12324,13 +14574,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -12349,7 +14607,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DuplicateGroup_"
+                }
               }
             },
             "description": "Successful Response"
@@ -12412,7 +14672,7 @@
             ]
           }
         ],
-        "summary": "List Duplicates",
+        "summary": "List duplicate groups",
         "tags": [
           "duplicates"
         ]
@@ -12532,14 +14792,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -12559,7 +14826,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DuplicateFile_"
+                }
               }
             },
             "description": "Successful Response"
@@ -12622,7 +14891,7 @@
             ]
           }
         ],
-        "summary": "Get Duplicate Files",
+        "summary": "Files sharing a content hash",
         "tags": [
           "duplicates"
         ]
@@ -12698,13 +14967,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -12714,6 +14991,7 @@
             "schema": {
               "default": 50,
               "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -12724,11 +15002,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntryResponse"
-                  },
-                  "title": "Response List Entries",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntryResponse_"
                 }
               }
             },
@@ -12792,7 +15066,7 @@
             ]
           }
         ],
-        "summary": "List Entries",
+        "summary": "List entries",
         "tags": [
           "entries"
         ]
@@ -13010,11 +15284,14 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Raw file bytes, served with the entry's MIME type."
           },
           "401": {
             "content": {
@@ -13074,7 +15351,7 @@
             ]
           }
         ],
-        "summary": "Get Content",
+        "summary": "Download file content",
         "tags": [
           "entries"
         ]
@@ -16297,15 +18574,17 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "HTML page that posts the result to `window.opener` and closes itself."
           },
           "401": {
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
@@ -16315,7 +18594,7 @@
           },
           "403": {
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
@@ -16325,7 +18604,7 @@
           },
           "404": {
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
@@ -16335,7 +18614,7 @@
           },
           "409": {
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
@@ -16345,7 +18624,7 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "text/html": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
@@ -16354,7 +18633,7 @@
             "description": "Request failed validation."
           }
         },
-        "summary": "Callback",
+        "summary": "OAuth redirect target",
         "tags": [
           "oauth"
         ]
@@ -17091,7 +19370,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeDeletedResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -17154,7 +19435,7 @@
             ]
           }
         ],
-        "summary": "Purge Deleted",
+        "summary": "Purge soft-deleted entries",
         "tags": [
           "purge"
         ]
@@ -17179,7 +19460,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeSourceResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -17242,7 +19525,7 @@
             ]
           }
         ],
-        "summary": "Purge Source",
+        "summary": "Purge a source's entries",
         "tags": [
           "purge"
         ]
@@ -17611,7 +19894,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryApproved"
+                }
               }
             },
             "description": "Successful Response"
@@ -17674,7 +19959,7 @@
             ]
           }
         ],
-        "summary": "Approve Discovery",
+        "summary": "Approve a scanner discovery request",
         "tags": [
           "scanners"
         ]
@@ -18732,10 +21017,23 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProbeRequest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Long Poll Probes"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "204": {
+            "description": "No probe within the poll window; reconnect."
           },
           "401": {
             "content": {
@@ -18793,7 +21091,7 @@
             "scannerJWT": []
           }
         ],
-        "summary": "Long Poll Probes",
+        "summary": "Long-poll for a reachability probe",
         "tags": [
           "Scanner protocol (internal)"
         ]
@@ -19012,10 +21310,23 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/LeasedScan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Long Poll Scan Joins"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "204": {
+            "description": "No scan to join within the poll window; reconnect."
           },
           "401": {
             "content": {
@@ -19073,7 +21384,7 @@
             "scannerJWT": []
           }
         ],
-        "summary": "Long Poll Scan Joins",
+        "summary": "Long-poll for a scan to join",
         "tags": [
           "Scanner protocol (internal)"
         ]
@@ -19099,7 +21410,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceReachabilityRow"
+                  },
+                  "title": "Response List Scanner Source Reachability",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -19162,7 +21479,7 @@
             ]
           }
         ],
-        "summary": "List Scanner Source Reachability",
+        "summary": "Scanner reachability per source",
         "tags": [
           "scanners"
         ]
@@ -19314,13 +21631,21 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "offset",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 0,
-              "title": "Offset",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
@@ -19330,6 +21655,7 @@
             "schema": {
               "default": 50,
               "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -19340,11 +21666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ScanResponse"
-                  },
-                  "title": "Response List Scans",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ScanResponse_"
                 }
               }
             },
@@ -19408,7 +21730,7 @@
             ]
           }
         ],
-        "summary": "List Scans",
+        "summary": "List scans",
         "tags": [
           "scans"
         ]
@@ -19439,10 +21761,23 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/LeasedScan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Lease Scan"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "204": {
+            "description": "No pending work; retry later."
           },
           "401": {
             "content": {
@@ -19500,7 +21835,7 @@
             "scannerJWT": []
           }
         ],
-        "summary": "Lease Scan",
+        "summary": "Lease a pending scan",
         "tags": [
           "Scanner protocol (internal)"
         ]
@@ -21144,7 +23479,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsListResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -21207,7 +23544,7 @@
             ]
           }
         ],
-        "summary": "List Settings",
+        "summary": "List server settings",
         "tags": [
           "server-settings"
         ]
@@ -22131,7 +24468,7 @@
     },
     "/api/v1/sources/{source_id}/audit": {
       "get": {
-        "description": "Per-source audit timeline. Visible to any user with read access\nto the source — the same gate that lets them browse its files.\n\nIncludes orphaned `source_deleted` events whose payload encodes the\noriginal source ID (the source row is gone by the time we record\nthe event, so we can't FK it). Without this, the timeline would\nabruptly end at the second-to-last event for any deleted source.\n\nPagination is offset-based but `total` is intentionally not\ncomputed — for high-traffic sources the COUNT(*) doubles every\npage request's cost. The UI uses page-by-page navigation; if it\nneeds an exact total later we can add an opt-in flag.",
+        "description": "Per-source audit timeline. Visible to any user with read access\nto the source — the same gate that lets them browse its files.\n\nIncludes orphaned `source_deleted` events whose payload encodes the\noriginal source ID (the source row is gone by the time we record\nthe event, so we can't FK it). Without this, the timeline would\nabruptly end at the second-to-last event for any deleted source.\n\nCursor-paginated; no total is computed — for high-traffic sources\nthe COUNT(*) would double every page request's cost.",
         "operationId": "get_source_audit",
         "parameters": [
           {
@@ -22145,25 +24482,32 @@
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`.",
             "in": "query",
-            "name": "page",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 1,
-              "minimum": 1,
-              "title": "Page",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from a previous `next_cursor`.",
+              "title": "Cursor"
             }
           },
           {
             "in": "query",
-            "name": "page_size",
+            "name": "limit",
             "required": false,
             "schema": {
               "default": 50,
               "maximum": 200,
               "minimum": 1,
-              "title": "Page Size",
+              "title": "Limit",
               "type": "integer"
             }
           }
@@ -22173,7 +24517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuditEventList"
+                  "$ref": "#/components/schemas/Page_AuditEventOut_"
                 }
               }
             },
@@ -22237,7 +24581,7 @@
             ]
           }
         ],
-        "summary": "Get Source Audit",
+        "summary": "Source audit timeline",
         "tags": [
           "sources"
         ]
@@ -22988,7 +25332,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StorageChildrenResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -23051,7 +25397,7 @@
             ]
           }
         ],
-        "summary": "List Children",
+        "summary": "Directory children",
         "tags": [
           "storage"
         ]
@@ -23065,7 +25411,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StorageSourcesResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -23128,7 +25476,7 @@
             ]
           }
         ],
-        "summary": "List Storage Sources",
+        "summary": "Cross-source treemap",
         "tags": [
           "storage"
         ]
@@ -23213,7 +25561,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StorageTreeResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -23276,7 +25626,7 @@
             ]
           }
         ],
-        "summary": "Get Tree",
+        "summary": "Nested subtree",
         "tags": [
           "storage"
         ]

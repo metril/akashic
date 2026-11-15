@@ -156,7 +156,13 @@ async def get_providers(db: AsyncSession = Depends(get_db)) -> ProvidersResponse
     )
 
 
-@router.get("/oidc/login")
+@router.get(
+    "/oidc/login",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_302_FOUND,
+    summary="Start OIDC login",
+    responses={302: {"description": "Redirect to the OIDC provider; sets short-lived state cookies."}},
+)
 async def oidc_login() -> Response:
     """Redirect the user to the configured OIDC provider for authentication."""
     _require_oidc()
@@ -185,7 +191,13 @@ async def oidc_login() -> Response:
     return response
 
 
-@router.get("/oidc/callback")
+@router.get(
+    "/oidc/callback",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_302_FOUND,
+    summary="Finish OIDC login",
+    responses={302: {"description": "Redirect to the SPA; sets the refresh cookie, or `/login?error=<code>` on failure."}},
+)
 async def oidc_callback(
     code: str | None = Query(None, description="Authorization code returned by the OIDC provider"),
     state: str | None = Query(None),

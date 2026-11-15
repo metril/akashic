@@ -119,6 +119,14 @@ class ApproveBody(BaseModel):
     pool: str = Field(default="default", min_length=1, max_length=64)
 
 
+class DiscoveryApproved(BaseModel):
+    """The scanner created for an approved discovery request."""
+
+    scanner_id: uuid.UUID = Field(description="Id of the newly registered scanner.")
+    name: str = Field(description="Scanner name.")
+    pool: str = Field(description="Scanner pool.")
+
+
 class DenyBody(BaseModel):
     reason: str | None = Field(default=None, max_length=255)
 
@@ -358,6 +366,8 @@ def _terminal_or_404(row: ScannerDiscoveryRequest | None) -> ScannerDiscoveryReq
 
 @router.post(
     "/scanner-discovery-requests/{discovery_id}/approve",
+    response_model=DiscoveryApproved,
+    summary="Approve a scanner discovery request",
     tags=["scanners"],
 )
 async def approve_discovery(

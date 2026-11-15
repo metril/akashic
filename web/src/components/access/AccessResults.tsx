@@ -15,7 +15,8 @@ interface PrincipalToFiles {
   summary: { file_count: number; total_size_bytes: number; source_count: number };
   by_source: { source_id: string; source_name: string; file_count: number }[];
   sample: SampleHit[];
-  next_offset: number | null;
+  next_cursor: string | null;
+  limit: number;
 }
 
 interface SampleHit {
@@ -163,7 +164,7 @@ export function PrincipalToFilesResults({
         <CardHeader
           title="Sample"
           description={
-            data.next_offset != null
+            data.next_cursor != null
               ? `${data.sample.length} of many — next page available`
               : `${data.sample.length} files`
           }

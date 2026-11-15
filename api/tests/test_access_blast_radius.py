@@ -11,6 +11,7 @@ once and skip duplicating it on every assertion.
 """
 from unittest.mock import AsyncMock, patch
 
+from akashic.schemas.common import decode_offset_cursor
 import pytest
 
 from akashic.models.entry import Entry
@@ -157,17 +158,18 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
     assert names[str(src_a.id)] == "share-a"
 
     assert len(body["sample"]) == 2
-    # next_offset is None when sample size < limit (default limit=20).
-    assert body["next_offset"] is None
+    # next_cursor is None when sample size < limit (default limit=20).
+    assert body["next_cursor"] is None
+    assert body["limit"] == 20
 
 
 @pytest.mark.asyncio
-async def test_principal_to_files_pagination_signals_next_offset(client, db_session):
+async def test_principal_to_files_pagination_signals_next_cursor(client, db_session):
     token = await _register_login(client)
     src = await _make_source(db_session)
     await db_session.commit()
 
-    # 5 hits with limit=5 → next_offset should advance.
+    # 5 hits with limit=5 → next_cursor should advance.
     hits = [
         {"id": f"e{i}", "source_id": str(src.id), "path": f"/p/{i}",
          "filename": f"f{i}", "size_bytes": 10}
@@ -192,7 +194,7 @@ async def test_principal_to_files_pagination_signals_next_offset(client, db_sess
     assert r.status_code == 200
     body = r.json()
     assert body["summary"]["file_count"] == 50
-    assert body["next_offset"] == 5  # offset 0 + limit 5
+    assert decode_offset_cursor(body["next_cursor"]) == 5  # offset 0 + limit 5
 
 
 @pytest.mark.asyncio

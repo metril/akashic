@@ -30,6 +30,8 @@ from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
 from akashic.models.user import User
 
+from akashic.schemas.dashboard import AccessRisksResponse, DashboardSummary
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
@@ -89,7 +91,7 @@ def _aggregate_jsonb(snapshots: list[ScanSnapshot], field: str) -> dict[str, dic
     return out
 
 
-@router.get("/summary")
+@router.get("/summary", response_model=DashboardSummary, summary="Dashboard summary")
 async def get_summary(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -254,7 +256,12 @@ _risk_cache: dict[str, tuple[float, dict]] = {}
 _risk_lock = asyncio.Lock()
 
 
-@router.get("/access-risks")
+@router.get(
+    "/access-risks",
+    response_model=AccessRisksResponse,
+    response_model_exclude_unset=True,
+    summary="World-readable file count",
+)
 async def get_access_risks(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),

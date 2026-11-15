@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,35 @@ class SettingValue(BaseModel):
     key: str
     value: Any
     set: bool | None = None  # secrets only
+
+
+class SettingDescription(BaseModel):
+    """A setting with its metadata and current value."""
+
+    key: str = Field(description="Setting key.")
+    type: str = Field(description="Value type, e.g. `bool`, `int`, `str`.")
+    group: str = Field(description="Group key the setting belongs to.")
+    description: str = Field(description="Human-readable explanation.")
+    secret: bool = Field(description="Whether the value is a secret (returned masked).")
+    restart: bool = Field(description="Whether changing it needs a restart.")
+    default: Any = Field(description="Default value.")
+    value: Any = Field(description="Current value; the mask for a set secret.")
+    choices: list[Any] | None = Field(description="Allowed values, when constrained.")
+    set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
+
+
+class SettingGroup(BaseModel):
+    """A labelled group of settings."""
+
+    key: str = Field(description="Group key.")
+    label: str = Field(description="Group display label.")
+    settings: list[SettingDescription] = Field(description="Settings in the group.")
+
+
+class SettingsListResponse(BaseModel):
+    """All server settings, grouped."""
+
+    groups: list[SettingGroup] = Field(description="Setting groups in display order.")
 
 
 class SettingPatch(BaseModel):
@@ -105,7 +134,7 @@ async def _rows(db: AsyncSession) -> dict[str, Any]:
     return {r.key: r.value for r in (await db.execute(select(ServerSetting))).scalars()}
 
 
-@router.get("")
+@router.get("", response_model=SettingsListResponse, summary="List server settings")
 async def list_settings(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("settings:read"),

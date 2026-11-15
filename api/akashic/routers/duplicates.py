@@ -2,7 +2,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.schemas.common import Page, offset_from_cursor, offset_page
 from akashic.routers.browse import _should_enforce_perms
 from akashic.services.access_query import user_principal_tokens, viewable_clause
 from akashic.services.audit import record_event
@@ -23,15 +24,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/duplicates", tags=["duplicates"])
 
 
-@router.get("")
+class DuplicateGroup(BaseModel):
+    """A set of files sharing one content hash."""
+
+    content_hash: str = Field(description="Shared content hash.")
+    count: int = Field(description="Number of copies.")
+    total_size: int = Field(description="Combined size of all copies, in bytes.")
+    file_size: int = Field(description="Size of a single copy, in bytes.")
+    wasted_bytes: int = Field(description="Bytes reclaimable by keeping one copy.")
+
+
+class DuplicateFile(BaseModel):
+    """One copy within a duplicate group."""
+
+    id: uuid.UUID = Field(description="Entry id.")
+    source_id: uuid.UUID = Field(description="Owning source id.")
+    path: str = Field(description="Full path.")
+    filename: str = Field(description="Base name.")
+    extension: str | None = Field(description="Extension without the dot.")
+    size_bytes: int | None = Field(description="Size in bytes.")
+    content_hash: str | None = Field(description="Content hash.")
+    mime_type: str | None = Field(description="Detected MIME type.")
+    fs_modified_at: str | None = Field(description="Filesystem modified time, ISO 8601.")
+    first_seen_at: str = Field(description="First time a scan saw the entry, ISO 8601.")
+    last_seen_at: str = Field(description="Most recent scan sighting, ISO 8601.")
+    is_deleted: bool = Field(description="Whether the entry is soft-deleted.")
+
+
+@router.get("", response_model=Page[DuplicateGroup], summary="List duplicate groups")
 async def list_duplicates(
     min_size: int | None = None,
-    offset: int = 0,
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
+    offset = offset_from_cursor(cursor)
     base_filter = [
         Entry.kind == "file",
         Entry.is_deleted == False,  # noqa: E712
@@ -54,12 +83,12 @@ async def list_duplicates(
     if min_size:
         stmt = stmt.having(func.min(Entry.size_bytes) >= min_size)
     stmt = restrict_sources(stmt, principal)
-    stmt = stmt.order_by(func.sum(Entry.size_bytes).desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(func.sum(Entry.size_bytes).desc()).offset(offset).limit(limit + 1)
 
     result = await db.execute(stmt)
     rows = result.all()
 
-    return [
+    groups = [
         {
             "content_hash": row.content_hash,
             "count": row.count,
@@ -69,29 +98,31 @@ async def list_duplicates(
         }
         for row in rows
     ]
+    return offset_page(groups, offset, limit)
 
 
-@router.get("/{content_hash}/files")
+@router.get("/{content_hash}/files", response_model=Page[DuplicateFile], summary="Files sharing a content hash")
 async def get_duplicate_files(
     content_hash: str,
-    offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
     limit: int = Query(default=500, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
+    offset = offset_from_cursor(cursor)
     stmt = select(Entry).where(
         Entry.kind == "file",
         Entry.content_hash == content_hash,
         Entry.is_deleted == False,  # noqa: E712
-    ).order_by(Entry.id).offset(offset).limit(limit)
+    ).order_by(Entry.id).offset(offset).limit(limit + 1)
     stmt = restrict_sources(stmt, principal)
     if await _should_enforce_perms(principal, False, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     result = await db.execute(stmt)
     entries = result.scalars().all()
-    return [
+    files = [
         {
             "id": str(e.id),
             "source_id": str(e.source_id),
@@ -108,6 +139,7 @@ async def get_duplicate_files(
         }
         for e in entries
     ]
+    return offset_page(files, offset, limit)
 
 
 # ── Bulk delete ────────────────────────────────────────────────────────────

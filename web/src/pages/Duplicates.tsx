@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { DuplicateGroup, FileEntry } from "../types";
+import type { DuplicateGroup, FileEntry, Paginated } from "../types";
 import {
   Card,
   CardHeader,
@@ -80,8 +80,12 @@ function DuplicateGroupRow({ group, canDeleteCopies, autoOpen }: DuplicateGroupR
 
   const filesQuery = useQuery<FileEntry[]>({
     queryKey: ["duplicates", group.content_hash, "files"],
-    queryFn: () =>
-      api.get<FileEntry[]>(`/duplicates/${group.content_hash}/files`),
+    queryFn: async () =>
+      (
+        await api.get<Paginated<FileEntry>>(
+          `/duplicates/${group.content_hash}/files`,
+        )
+      ).items,
     enabled: expanded,
   });
   const files = filesQuery.data ?? [];
@@ -401,7 +405,8 @@ export default function Duplicates() {
     error,
   } = useQuery<DuplicateGroup[]>({
     queryKey: ["duplicates"],
-    queryFn: () => api.get<DuplicateGroup[]>("/duplicates"),
+    queryFn: async () =>
+      (await api.get<Paginated<DuplicateGroup>>("/duplicates")).items,
   });
 
   const sorted = [...(groups ?? [])].sort(

@@ -6,6 +6,7 @@ import binascii
 import json
 from typing import Any, Generic, TypeVar
 
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 T = TypeVar("T")
@@ -78,3 +79,21 @@ def decode_offset_cursor(cursor: str | None) -> int:
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
         raise ValueError("invalid cursor")
     return offset
+
+
+def offset_from_cursor(cursor: str | None) -> int:
+    """Offset for an offset-paged route; HTTP 422 on a malformed cursor."""
+    try:
+        return decode_offset_cursor(cursor)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid cursor") from None
+
+
+def offset_page(rows: list[Any], offset: int, limit: int) -> dict[str, Any]:
+    """Build a :class:`Page` body from ``limit + 1`` fetched rows starting at ``offset``."""
+    more = len(rows) > limit
+    return {
+        "items": rows[:limit],
+        "next_cursor": encode_offset_cursor(offset + limit) if more else None,
+        "limit": limit,
+    }

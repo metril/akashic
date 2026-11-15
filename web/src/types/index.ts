@@ -569,6 +569,13 @@ export type {
   AuditEventList,
 } from "../lib/auditTypes";
 
+/** Cursor-paginated list envelope (`Page[T]` in the API). */
+export interface Paginated<T> {
+  items: T[];
+  next_cursor: string | null;
+  limit: number;
+}
+
 // --- Scopes and API tokens (hand-written; replaced by generated types later) ---
 
 export interface CurrentUser {

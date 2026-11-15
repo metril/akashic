@@ -30,7 +30,9 @@ from akashic.models.entry import Entry
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.schemas.access import FileAccessResponse, PrincipalAccessResponse
 from akashic.schemas.acl import ACL
+from akashic.schemas.common import encode_offset_cursor, offset_from_cursor
 from akashic.services.acl_denorm import denormalize_acl
 from akashic.services.audit import record_event
 from akashic.services.search import get_meili_client
@@ -107,14 +109,18 @@ def _token_kind(token: str) -> str:
 # ── Principal → files ──────────────────────────────────────────────────────
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=PrincipalAccessResponse | FileAccessResponse,
+    summary="Blast-radius lookup",
+)
 async def access_query(
     request: Request,
     principal: str | None = Query(default=None),
     file: uuid.UUID | None = Query(default=None),
     right: str = Query(default="read", pattern="^(read|write|delete)$"),
     source_id: uuid.UUID | None = None,
-    offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     caller: Principal = require_scope("access:read", source_scoped=True),
@@ -141,6 +147,7 @@ async def access_query(
     # `*` principal returns the world-readable file list) are exactly
     # the kind admins later want to ask "who looked at that?" — and
     # the events table is already the right place.
+    offset = offset_from_cursor(cursor)
     audit_payload: dict = {"right": right, "offset": offset, "limit": limit}
     if principal is not None:
         audit_payload["principal"] = principal
@@ -268,9 +275,7 @@ async def _principal_to_files(
         or []
     )
 
-    next_offset_value: int | None = offset + limit
-    if len(sample_hits) < limit:
-        next_offset_value = None
+    next_cursor = encode_offset_cursor(offset + limit) if len(sample_hits) >= limit else None
 
     return {
         "principal": {
@@ -287,7 +292,8 @@ async def _principal_to_files(
         },
         "by_source": by_source,
         "sample": sample_hits,
-        "next_offset": next_offset_value,
+        "next_cursor": next_cursor,
+        "limit": limit,
     }
 
 

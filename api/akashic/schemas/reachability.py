@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProbeRequest(BaseModel):
@@ -23,10 +23,10 @@ class ProbeRequest(BaseModel):
     response uses) and POSTs back to /probes/{request_id}/report.
     """
 
-    request_id: uuid.UUID
-    source_id: uuid.UUID
-    source_type: str
-    connection_config: dict
+    request_id: uuid.UUID = Field(description="Probe request id; echoed back in the report URL.")
+    source_id: uuid.UUID = Field(description="Source to probe.")
+    source_type: str = Field(description="Connector type of the source.")
+    connection_config: dict = Field(description="Merged host and source connection config, secrets included.")
 
 
 class ProbeReport(BaseModel):

@@ -260,14 +260,16 @@ async def test_audit_endpoint_paginates(client: AsyncClient):
     for i in range(3):
         await client.patch(f"/api/v1/sources/{sid}", json={"name": f"src5-rev{i}"})
 
-    audit = await client.get(f"/api/v1/sources/{sid}/audit?page=1&page_size=2")
+    audit = await client.get(f"/api/v1/sources/{sid}/audit?limit=2")
     body = audit.json()
-    assert body["page"] == 1
-    assert body["page_size"] == 2
+    assert body["limit"] == 2
     assert len(body["items"]) == 2
+    assert body["next_cursor"] is not None
 
-    # Page 2 has the rest.
-    audit2 = await client.get(f"/api/v1/sources/{sid}/audit?page=2&page_size=2")
+    # The next cursor has the rest.
+    audit2 = await client.get(
+        f"/api/v1/sources/{sid}/audit", params={"limit": 2, "cursor": body["next_cursor"]},
+    )
     page2 = audit2.json()
     assert len(page2["items"]) >= 2  # 1 create + 3 updates ≥ 4 total
 

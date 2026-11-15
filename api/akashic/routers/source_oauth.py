@@ -335,7 +335,12 @@ _callback_limiter = make_limiter(
 )
 
 
-@router.get("/callback")
+@router.get(
+    "/callback",
+    response_class=HTMLResponse,
+    summary="OAuth redirect target",
+    responses={200: {"description": "HTML page that posts the result to `window.opener` and closes itself."}},
+)
 async def callback(
     request: Request,
     code: str | None = Query(default=None),

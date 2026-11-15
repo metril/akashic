@@ -324,7 +324,7 @@ async def test_long_poll_endpoint_returns_queued_payload(
     payload = {
         "scan_id": str(uuid.uuid4()),
         "scan_type": "full",
-        "source": {"id": str(uuid.uuid4()), "type": "smb"},
+        "source": {"id": str(uuid.uuid4()), "type": "smb", "connection_config": {}},
         "api_jwt": "stub",
     }
     await redis.lpush(_join_channel(s.id), json.dumps(payload))

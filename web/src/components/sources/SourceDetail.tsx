@@ -8,7 +8,7 @@ import {
   useDeleteSource,
   useUpdateSource,
 } from "../../hooks/useSources";
-import type { Scan } from "../../types";
+import type { Paginated, Scan } from "../../types";
 import { AllowedScannersPanel } from "./AllowedScannersPanel";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import {
@@ -635,10 +635,12 @@ const DisplayRows = memo(function DisplayRows({
   // single-row fetch keyed on source id.
   const lastScanQuery = useQuery<Scan[]>({
     queryKey: ["scans", "last-completed", source.id],
-    queryFn: () =>
-      api.get<Scan[]>(
-        `/scans?source_id=${source.id}&status=completed&limit=1`,
-      ),
+    queryFn: async () =>
+      (
+        await api.get<Paginated<Scan>>(
+          `/scans?source_id=${source.id}&status=completed&limit=1`,
+        )
+      ).items,
     staleTime: 30_000,
   });
   const lastScan = lastScanQuery.data?.[0] ?? null;

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import type { Paginated } from "../types";
 
 export interface AuditEvent {
   id: string;
@@ -12,13 +13,6 @@ export interface AuditEvent {
   payload: Record<string, unknown>;
 }
 
-export interface AuditEventList {
-  items: AuditEvent[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
 /**
  * Per-source audit timeline. Filtered server-side via the
  * `/api/v1/sources/{id}/audit` endpoint that gates on read-access to
@@ -29,15 +23,16 @@ export interface AuditEventList {
  */
 export function useSourceAudit(
   sourceId: string | null | undefined,
-  page: number = 1,
-  pageSize: number = 50,
+  cursor: string | null = null,
+  limit: number = 50,
   enabled: boolean = true,
 ) {
-  return useQuery<AuditEventList>({
-    queryKey: ["sources", sourceId, "audit", page, pageSize],
+  return useQuery<Paginated<AuditEvent>>({
+    queryKey: ["sources", sourceId, "audit", cursor, limit],
     queryFn: () =>
-      api.get<AuditEventList>(
-        `/sources/${sourceId}/audit?page=${page}&page_size=${pageSize}`,
+      api.get<Paginated<AuditEvent>>(
+        `/sources/${sourceId}/audit?limit=${limit}` +
+          (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""),
       ),
     enabled: enabled && !!sourceId,
   });

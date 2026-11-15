@@ -441,7 +441,7 @@ async def test_limited_token_can_still_use_its_own_source(client, world, limited
     r = await client.get("/api/v1/sources", headers=h)
     assert [s["name"] for s in r.json()] == ["SRC-A"]
     r = await client.get("/api/v1/scans", headers=h)
-    assert [s["id"] for s in r.json()] == [str(world["sa"])]
+    assert [s["id"] for s in r.json()["items"]] == [str(world["sa"])]
 
 
 @pytest.mark.asyncio

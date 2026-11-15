@@ -38,7 +38,7 @@ async def test_viewer_sees_all_sources_everywhere(client: AsyncClient, db_sessio
         assert r.status_code == 200 and len(r.json()["entries"]) == 1
     assert (await client.get("/api/v1/dashboard/summary", headers=h)).status_code == 200
     r = await client.get("/api/v1/entries", headers=h)
-    assert r.status_code == 200 and len(r.json()) == 2
+    assert r.status_code == 200 and len(r.json()["items"]) == 2
 
 
 @pytest.mark.asyncio

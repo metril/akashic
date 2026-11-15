@@ -15,13 +15,18 @@ from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
 from akashic.models.user import User
 
+from akashic.schemas.analytics import (
+    ExtensionTrendPoint, ForecastResponse, LargestFile, OwnerDistribution,
+    SeriesPoint, StorageBySource, StorageByType,
+)
+
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
 
 
-@router.get("/storage-by-type")
+@router.get("/storage-by-type", response_model=list[StorageByType], summary="Storage by file type")
 async def get_storage_by_type(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -46,7 +51,7 @@ async def get_storage_by_type(
     ]
 
 
-@router.get("/storage-by-source")
+@router.get("/storage-by-source", response_model=list[StorageBySource], summary="Storage by source")
 async def get_storage_by_source(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -78,7 +83,7 @@ async def get_storage_by_source(
     ]
 
 
-@router.get("/largest-files")
+@router.get("/largest-files", response_model=list[LargestFile], summary="Largest files")
 async def get_largest_files(
     n: int = Query(default=10, le=100),
     db: AsyncSession = Depends(get_db),
@@ -112,7 +117,7 @@ async def get_largest_files(
 # ── Time-series endpoints (driven by scan_snapshots) ──────────────────────
 
 
-@router.get("/timeseries")
+@router.get("/timeseries", response_model=list[SeriesPoint], summary="Size or file-count history")
 async def get_timeseries(
     source_id: uuid.UUID,
     metric: str = Query(default="size", pattern="^(size|count)$"),
@@ -143,7 +148,7 @@ async def get_timeseries(
     return [{"taken_at": r.taken_at.isoformat(), "value": int(r.value)} for r in rows]
 
 
-@router.get("/forecast")
+@router.get("/forecast", response_model=ForecastResponse, summary="Capacity forecast")
 async def get_forecast(
     source_id: uuid.UUID,
     horizon_days: int = Query(default=30, ge=1, le=365),
@@ -224,7 +229,7 @@ async def get_forecast(
     }
 
 
-@router.get("/extension-trend")
+@router.get("/extension-trend", response_model=dict[str, list[ExtensionTrendPoint]], summary="Per-extension trend")
 async def get_extension_trend(
     source_id: uuid.UUID,
     extensions: str = Query(..., description="comma-separated, e.g. pdf,mp4,docx"),
@@ -267,7 +272,7 @@ async def get_extension_trend(
     return out
 
 
-@router.get("/owner-distribution")
+@router.get("/owner-distribution", response_model=OwnerDistribution, summary="Owner distribution")
 async def get_owner_distribution(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

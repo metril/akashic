@@ -29,7 +29,7 @@ const EVENT_COLOR: Record<string, string> = {
 };
 
 export function SourceAuditTab({ sourceId, visible }: SourceAuditTabProps) {
-  const { data, isLoading, error } = useSourceAudit(sourceId, 1, 50, visible);
+  const { data, isLoading, error } = useSourceAudit(sourceId, null, 50, visible);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!visible) return null;

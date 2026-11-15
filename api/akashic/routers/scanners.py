@@ -559,18 +559,22 @@ async def revoke_claim_token(
 
 
 class SourceReachabilityRow(BaseModel):
-    source_id: uuid.UUID
-    source_name: str
-    source_type: str
-    host_name: str | None
-    currently_allowed: bool
-    ok: bool | None
-    last_probed_at: datetime | None
-    step: str | None
-    error: str | None
+    source_id: uuid.UUID = Field(description="Source id.")
+    source_name: str = Field(description="Source display name.")
+    source_type: str = Field(description="Connector type.")
+    host_name: str | None = Field(description="Host the source belongs to, if any.")
+    currently_allowed: bool = Field(description="Whether the scanner may claim work for this source.")
+    ok: bool | None = Field(description="Latest probe outcome; null when never probed.")
+    last_probed_at: datetime | None = Field(description="When the latest probe completed.")
+    step: str | None = Field(description="Probe step that failed, if any.")
+    error: str | None = Field(description="Probe error message, if any.")
 
 
-@router.get("/scanners/{scanner_id}/source-reachability")
+@router.get(
+    "/scanners/{scanner_id}/source-reachability",
+    response_model=list[SourceReachabilityRow],
+    summary="Scanner reachability per source",
+)
 async def list_scanner_source_reachability(
     scanner_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

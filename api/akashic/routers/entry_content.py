@@ -13,7 +13,7 @@ from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,7 +110,15 @@ def _decode_text(buf: bytes) -> tuple[str | None, str | None]:
 # ── /content ───────────────────────────────────────────────────────────────
 
 
-@router.get("/{entry_id}/content")
+@router.get(
+    "/{entry_id}/content",
+    response_class=Response,
+    summary="Download file content",
+    responses={200: {
+        "description": "Raw file bytes, served with the entry's MIME type.",
+        "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+    }},
+)
 async def get_content(
     entry_id: uuid.UUID,
     as_attachment: bool = Query(default=False, alias="attachment"),

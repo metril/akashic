@@ -59,6 +59,8 @@ from akashic.services.access_query import (
     viewable_clause,
 )
 
+from akashic.schemas.storage import StorageChildrenResponse, StorageSourcesResponse, StorageTreeResponse
+
 router = APIRouter(prefix="/storage", tags=["storage"])
 
 
@@ -134,7 +136,7 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, sees_all: bool) -> st
 # ── Top-level: one rectangle per source ────────────────────────────────────
 
 
-@router.get("/sources")
+@router.get("/sources", response_model=StorageSourcesResponse, summary="Cross-source treemap")
 async def list_storage_sources(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -176,7 +178,7 @@ async def list_storage_sources(
 # ── Drill-down: immediate children of parent_path ──────────────────────────
 
 
-@router.get("/children")
+@router.get("/children", response_model=StorageChildrenResponse, summary="Directory children")
 async def list_children(
     source_id: uuid.UUID,
     path: str = Query(default="/"),
@@ -672,7 +674,7 @@ async def _fetch_tree_rows_v2(
     return rows
 
 
-@router.get("/tree")
+@router.get("/tree", response_model=StorageTreeResponse, summary="Nested subtree")
 async def get_tree(
     source_id: uuid.UUID = Query(...),
     path: str = Query(default="/"),

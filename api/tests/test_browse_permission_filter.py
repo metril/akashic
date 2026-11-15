@@ -263,7 +263,7 @@ async def test_entries_list_and_by_hash_filtered_for_viewer(
     h = await _viewer(db_session, source)
     r = await client.get(f"/api/v1/entries?source_id={source.id}", headers=h)
     assert r.status_code == 200, r.text
-    assert sorted(e["path"] for e in r.json()) == ["/a", "/c"]
+    assert sorted(e["path"] for e in r.json()["items"]) == ["/a", "/c"]
     r = await client.get("/api/v1/entries/by-hash/h1", headers=h)
     assert sorted(e["path"] for e in r.json()) == ["/a", "/c"]
 

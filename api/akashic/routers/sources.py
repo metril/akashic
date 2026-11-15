@@ -14,7 +14,8 @@ from akashic.models.entry import Entry
 from akashic.models.host import Host
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.schemas.audit import AuditEventList, AuditEventOut
+from akashic.schemas.audit import AuditEventOut
+from akashic.schemas.common import Page, offset_from_cursor, offset_page
 from akashic.schemas.reachability import (
     PerScannerHistory,
     ReachabilityHistory,
@@ -306,11 +307,11 @@ async def get_source(
     return source
 
 
-@router.get("/{source_id}/audit", response_model=AuditEventList)
+@router.get("/{source_id}/audit", response_model=Page[AuditEventOut], summary="Source audit timeline")
 async def get_source_audit(
     source_id: uuid.UUID,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -322,12 +323,11 @@ async def get_source_audit(
     the event, so we can't FK it). Without this, the timeline would
     abruptly end at the second-to-last event for any deleted source.
 
-    Pagination is offset-based but `total` is intentionally not
-    computed — for high-traffic sources the COUNT(*) doubles every
-    page request's cost. The UI uses page-by-page navigation; if it
-    needs an exact total later we can add an opt-in flag.
+    Cursor-paginated; no total is computed — for high-traffic sources
+    the COUNT(*) would double every page request's cost.
     """
     user = principal.user
+    offset = offset_from_cursor(cursor)
     await check_source_access(source_id, principal, db)
 
     from sqlalchemy import or_
@@ -340,22 +340,11 @@ async def get_source_audit(
             AuditEvent.payload["deleted_source_id"].astext == str(source_id),
         ))
         .order_by(AuditEvent.occurred_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size + 1)  # +1 to detect "more pages exist"
+        .offset(offset)
+        .limit(limit + 1)  # +1 to detect "more pages exist"
     )
     rows = (await db.execute(stmt)).scalars().all()
-    has_more = len(rows) > page_size
-    if has_more:
-        rows = rows[:page_size]
-    return AuditEventList(
-        items=[AuditEventOut.model_validate(r) for r in rows],
-        # `total = -1` signals "unknown — use page+has_more instead".
-        # Frontend reads `len(items) < page_size or has_more` to render
-        # next/prev controls.
-        total=-1,
-        page=page,
-        page_size=page_size,
-    )
+    return offset_page([AuditEventOut.model_validate(r) for r in rows], offset, limit)
 
 
 # A source-limited token may change only these: nothing that changes where or how

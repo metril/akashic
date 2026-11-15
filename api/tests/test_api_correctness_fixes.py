@@ -322,8 +322,16 @@ async def test_duplicate_files_limit_offset(
     ])
     await db_session.commit()
     h = {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
-    r = await client.get("/api/v1/duplicates/h1/files?limit=2&offset=4", headers=h)
-    assert r.status_code == 200 and len(r.json()) == 1
+    from akashic.schemas.common import encode_offset_cursor
+    r = await client.get(
+        "/api/v1/duplicates/h1/files",
+        params={"limit": 2, "cursor": encode_offset_cursor(4)}, headers=h,
+    )
+    assert r.status_code == 200 and len(r.json()["items"]) == 1 and r.json()["next_cursor"] is None
+    r = await client.get("/api/v1/duplicates/h1/files?limit=2", headers=h)
+    assert r.json()["next_cursor"] is not None
+    r = await client.get("/api/v1/duplicates/h1/files?cursor=garbage", headers=h)
+    assert r.status_code == 422
     r = await client.get("/api/v1/duplicates/h1/files?limit=999999", headers=h)
     assert r.status_code == 422
 

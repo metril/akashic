@@ -17,6 +17,7 @@ from akashic.schemas.entry import (
     EntryVersionResponse,
     _EntrySourceRef,
 )
+from akashic.schemas.common import Page, offset_from_cursor, offset_page
 from akashic.routers.browse import _should_enforce_perms
 from akashic.services.access_query import (
     user_can_view,
@@ -28,18 +29,19 @@ from akashic.services.tag_inheritance import get_tags_for_entry
 router = APIRouter(prefix="/entries", tags=["entries"])
 
 
-@router.get("", response_model=list[EntryResponse])
+@router.get("", response_model=Page[EntryResponse], summary="List entries")
 async def list_entries(
     source_id: uuid.UUID | None = None,
     kind: str | None = None,
     extension: str | None = None,
     path_prefix: str | None = None,
-    offset: int = 0,
-    limit: int = Query(default=50, le=200),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
+    limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
+    offset = offset_from_cursor(cursor)
     if source_id:
         await check_source_access(source_id, principal, db)
 
@@ -54,9 +56,9 @@ async def list_entries(
         stmt = stmt.where(Entry.path.startswith(path_prefix))
     if await _should_enforce_perms(principal, True, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
-    stmt = stmt.order_by(Entry.path).offset(offset).limit(limit)
+    stmt = stmt.order_by(Entry.path).offset(offset).limit(limit + 1)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    return offset_page(list(result.scalars().all()), offset, limit)
 
 
 @router.get("/by-hash/{content_hash}", response_model=list[EntryResponse])

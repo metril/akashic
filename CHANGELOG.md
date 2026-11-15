@@ -15,6 +15,7 @@ detail.
 - **Unversioned `/api/*` returns 410** with error code `api_version_required`, and unversioned `/ws/*` is refused. Update scripts, CLI wrappers and integrations to `/api/v1/...` and `/ws/v1/...`. The in-repo web UI, CLI, scanner and Home Assistant integration are already migrated. Swagger stays at `/api/docs`; the spec moved to `/api/v1/openapi.json`.
 - **OIDC and source-OAuth callback URIs changed** to `https://<host>/api/v1/auth/oidc/callback` and `https://<host>/api/v1/oauth/callback`. Update the redirect URIs registered at your identity provider and at Google, Microsoft and Dropbox. Old URIs get a temporary 308 redirect so sign-in keeps working in the meantime; the redirect will be removed in a later release. The `oidc_redirect_uri` default changed too; set it explicitly in Settings → Server if you rely on the default.
 - **The refresh cookie path is now `/api/v1/auth`.** Everyone is signed out once and must log in again.
+- **List endpoints return a `{items, next_cursor, limit}` envelope** instead of a bare array and take an opaque `cursor` in place of `offset`/`page`: `GET /entries`, `GET /scans`, `GET /duplicates`, `GET /duplicates/{hash}/files` and `GET /sources/{id}/audit` (which no longer returns `total`/`page`/`page_size`). `GET /access?principal=` takes `cursor` and returns `next_cursor` and `limit` instead of `next_offset`. Pass the previous response's `next_cursor` to get the next page; `null` means the last page. Search, browse, the admin audit log and scan logs keep their existing paging.
 
 ### Added
 

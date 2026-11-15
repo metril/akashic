@@ -12,6 +12,7 @@ from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.schemas.common import Page, offset_from_cursor, offset_page
 from akashic.schemas.scan import ScanResponse
 
 router = APIRouter(prefix="/scans", tags=["scans"])
@@ -157,16 +158,17 @@ async def trigger_scan(
     )
 
 
-@router.get("", response_model=list[ScanResponse])
+@router.get("", response_model=Page[ScanResponse], summary="List scans")
 async def list_scans(
     source_id: uuid.UUID | None = None,
     status: str | None = None,
-    offset: int = 0,
-    limit: int = Query(default=50, le=200),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
+    limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:read", source_scoped=True),
 ):
     user = principal.user
+    offset = offset_from_cursor(cursor)
     if source_id:
         await check_source_access(source_id, principal, db)
 
@@ -181,9 +183,9 @@ async def list_scans(
             stmt = stmt.where(Scan.status == statuses[0])
         elif statuses:
             stmt = stmt.where(Scan.status.in_(statuses))
-    stmt = stmt.order_by(Scan.started_at.desc().nulls_first()).offset(offset).limit(limit)
+    stmt = stmt.order_by(Scan.started_at.desc().nulls_first()).offset(offset).limit(limit + 1)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    return offset_page(list(result.scalars().all()), offset, limit)
 
 
 @router.get("/{scan_id}", response_model=ScanResponse)

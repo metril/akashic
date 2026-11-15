@@ -2,6 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,24 @@ async def _cleanup_meilisearch_for_source(source_id: str, db_url: str):
         logger.warning("Meilisearch cleanup failed for source %s: %s", source_id, exc)
 
 
-@router.post("/source/{source_id}")
+class PurgeSourceResponse(BaseModel):
+    """Outcome of purging a source's entries."""
+
+    source_id: uuid.UUID = Field(description="Purged source id.")
+    files_removed: int = Field(description="Files deleted from the index.")
+    directories_removed: int = Field(description="Directories deleted from the index.")
+    total_removed: int = Field(description="Files plus directories removed.")
+
+
+class PurgeDeletedResponse(BaseModel):
+    """Outcome of purging old soft-deleted entries."""
+
+    files_removed: int = Field(description="Files permanently removed.")
+    total_removed: int = Field(description="Files plus directories permanently removed.")
+    threshold_days: int = Field(description="Age threshold that was applied, in days.")
+
+
+@router.post("/source/{source_id}", response_model=PurgeSourceResponse, summary="Purge a source's entries")
 async def purge_source(
     source_id: uuid.UUID,
     background_tasks: BackgroundTasks,
@@ -82,7 +100,7 @@ async def purge_source(
     }
 
 
-@router.post("/deleted")
+@router.post("/deleted", response_model=PurgeDeletedResponse, summary="Purge soft-deleted entries")
 async def purge_deleted(
     older_than_days: int = Query(default=30, ge=1),
     db: AsyncSession = Depends(get_db),

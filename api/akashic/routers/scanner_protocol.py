@@ -30,7 +30,7 @@ from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.routers.scanners import ScannerEffectiveConfig, effective_scanner_config
 from akashic.protocol import ACCEPTED_MAX, ACCEPTED_MIN, PROTOCOL_VERSION
-from akashic.schemas.reachability import ProbeReport
+from akashic.schemas.reachability import ProbeReport, ProbeRequest
 from akashic.services.scanner_auth import verify_scanner_jwt
 from akashic.services.source_config import (
     effective_chunk_size,
@@ -60,29 +60,29 @@ class HandshakeResponse(BaseModel):
 
 
 class LeasedSource(BaseModel):
-    id: uuid.UUID
-    type: str
-    connection_config: dict
-    exclude_patterns: list[str] | None = None
+    id: uuid.UUID = Field(description="Source id.")
+    type: str = Field(description="Connector type.")
+    connection_config: dict = Field(description="Merged host and source connection config, secrets included.")
+    exclude_patterns: list[str] | None = Field(default=None, description="Glob patterns to skip while scanning.")
     # Cap on cooperating scanners per scan (default 1). Agents that
     # support unit-coordinated scanning use this to switch between the
     # legacy single-walker path and the work-units lease loop. Older
     # agents simply ignore the field. v0.35.0 — this is the *resolved*
     # value (source ?? host ?? 1); the agent receives a concrete int and
     # never has to know about host inheritance.
-    max_parallel_scanners: int = 1
+    max_parallel_scanners: int = Field(default=1, description="Resolved cap on cooperating scanners for this scan.")
     # v0.35.0 — work-unit entry budget (resolved source ?? host ?? 2000).
     # The agent passes it to scanner.Run as the shallow-split budget;
     # an older API that omits the field leaves it 0 and the scanner
     # falls back to its own default.
-    scan_chunk_size: int = 2000
+    scan_chunk_size: int = Field(default=2000, description="Resolved work-unit entry budget.")
 
 
 class LeasedScan(BaseModel):
-    scan_id: uuid.UUID
-    scan_type: str
-    source: LeasedSource
-    api_jwt: str | None
+    scan_id: uuid.UUID = Field(description="Leased scan id.")
+    scan_type: str = Field(description="`full` or `incremental`.")
+    source: LeasedSource = Field(description="Source to scan.")
+    api_jwt: str | None = Field(description="Short-lived ingest token for the agent; null if none could be minted.")
     """Short-lived user JWT for the agent to use on /api/v1/ingest/batch
     and /api/v1/scans/{id}/heartbeat. None if the api couldn't determine
     a default user (no admin found) — agents treat this as a 5xx."""
@@ -352,7 +352,12 @@ class LeaseRequest(BaseModel):
     agent_version: str | None = Field(default=None, max_length=32)
 
 
-@router.post("/scans/lease")
+@router.post(
+    "/scans/lease",
+    response_model=LeasedScan | None,
+    summary="Lease a pending scan",
+    responses={204: {"description": "No pending work; retry later."}},
+)
 async def lease_scan(
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -730,7 +735,12 @@ async def complete_scan(
 # reachability event channel.
 
 
-@router.get("/scanners/{scanner_id}/probes/long-poll")
+@router.get(
+    "/scanners/{scanner_id}/probes/long-poll",
+    response_model=ProbeRequest | None,
+    summary="Long-poll for a reachability probe",
+    responses={204: {"description": "No probe within the poll window; reconnect."}},
+)
 async def long_poll_probes(
     scanner_id: uuid.UUID,
     response: Response,
@@ -761,7 +771,12 @@ async def long_poll_probes(
     return payload
 
 
-@router.get("/scanners/{scanner_id}/scans/long-poll")
+@router.get(
+    "/scanners/{scanner_id}/scans/long-poll",
+    response_model=LeasedScan | None,
+    summary="Long-poll for a scan to join",
+    responses={204: {"description": "No scan to join within the poll window; reconnect."}},
+)
 async def long_poll_scan_joins(
     scanner_id: uuid.UUID,
     response: Response,

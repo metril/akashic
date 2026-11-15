@@ -217,11 +217,13 @@ func (c *Client) ListScans(ctx context.Context, limit int) ([]Scan, error) {
 		return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 
-	var scans []Scan
-	if err := json.NewDecoder(resp.Body).Decode(&scans); err != nil {
+	var page struct {
+		Items []Scan `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		return nil, err
 	}
-	return scans, nil
+	return page.Items, nil
 }
 
 // GetScan fetches a single scan by ID. Returns an APIError with
@@ -298,11 +300,13 @@ func (c *Client) ListDuplicates(ctx context.Context, minSize int64) ([]Duplicate
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, apiMessage(string(body)))
 	}
 
-	var groups []DuplicateGroup
-	if err := json.NewDecoder(resp.Body).Decode(&groups); err != nil {
+	var page struct {
+		Items []DuplicateGroup `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
 		return nil, err
 	}
-	return groups, nil
+	return page.Items, nil
 }
 
 func (c *Client) ListTags(ctx context.Context) ([]Tag, error) {
