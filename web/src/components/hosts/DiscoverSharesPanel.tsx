@@ -21,6 +21,8 @@ interface ShareRow {
    *  prefix would be redundant. v0.5.5. */
   name: string;
   selected: boolean;
+  /** The host already has a source for this share (decided server-side). */
+  alreadyAdded: boolean;
 }
 
 /**
@@ -52,14 +54,17 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
     listShares.mutate(host.id, {
       onSuccess: (res) => {
         setDiscovered(res);
+        const attached = new Set(res.already_added);
         const next: ShareRow[] = (res.shares ?? []).map((share) => {
+          const already = attached.has(share);
           return {
             share,
             // v0.5.5: was `${host.name}/${share}` — the host header on
             // the Sources page already labels the parent, so the prefix
             // was redundant noise.
             name: share,
-            selected: true,
+            selected: !already,
+            alreadyAdded: already,
           };
         });
         setRows(next);
@@ -68,12 +73,12 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host.id]);
 
-  const selectableCount = rows.length;
-  const selectedCount = rows.filter((r) => r.selected).length;
+  const selectableCount = rows.filter((r) => !r.alreadyAdded).length;
+  const selectedCount = rows.filter((r) => r.selected && !r.alreadyAdded).length;
 
   function toggleAll(checked: boolean) {
     setRows((prev) =>
-      prev.map((r) => ({ ...r, selected: checked })),
+      prev.map((r) => (r.alreadyAdded ? r : { ...r, selected: checked })),
     );
   }
 
@@ -89,7 +94,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
 
   async function handleAdd() {
     const toAdd = rows
-      .filter((r) => r.selected)
+      .filter((r) => r.selected && !r.alreadyAdded)
       .map((r) => ({ name: r.name.trim(), share: r.share }));
     if (toAdd.length === 0) {
       toast.error("Select at least one share to add.");
@@ -105,7 +110,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
       loading: `Adding ${toAdd.length} source${toAdd.length === 1 ? "" : "s"}…`,
       success: (r) =>
         r.skipped > 0
-          ? `Added ${r.created}; skipped ${r.skipped} (name conflict).`
+          ? `Added ${r.created}; skipped ${r.skipped} (already added or name taken).`
           : `Added ${r.created} source${r.created === 1 ? "" : "s"}.`,
       error: (e: unknown) =>
         `Couldn't add shares: ${e instanceof Error ? e.message : "unknown error"}.`,
@@ -190,11 +195,14 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
         {rows.map((r, idx) => (
           <li
             key={r.share}
-            className="flex items-start gap-2 p-2 rounded-md border border-line"
+            className={`flex items-start gap-2 p-2 rounded-md border ${
+              r.alreadyAdded ? "bg-app border-line-subtle" : "border-line"
+            }`}
           >
             <input
               type="checkbox"
               checked={r.selected}
+              disabled={r.alreadyAdded}
               onChange={(e) => setRowSelected(idx, e.target.checked)}
               className="mt-1.5 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
             />
@@ -203,7 +211,13 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
                 <code className="text-xs text-fg font-mono truncate">
                   {r.share}
                 </code>
+                {r.alreadyAdded && (
+                  <span className="text-[11px] text-fg-muted italic">
+                    (already added)
+                  </span>
+                )}
               </div>
+              {!r.alreadyAdded && (
               <input
                   type="text"
                   value={r.name}
@@ -211,6 +225,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
                   placeholder="Source name"
                   className="w-full rounded-md border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
               />
+              )}
             </div>
           </li>
         ))}

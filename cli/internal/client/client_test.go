@@ -161,13 +161,22 @@ func TestClient_TagFile(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string][]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/tags" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"id":"` + idScan + `","name":"invoices","color":"#fff"}]`))
+			return
+		}
 		gotMethod, gotPath = r.Method, r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
-	if err := newClient(t, server.URL).TagFile(context.Background(), scanID, "invoices"); err != nil {
+	tag, err := newClient(t, server.URL).TagFile(context.Background(), scanID, "invoices")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if tag.Name != "invoices" || tag.Id.String() != idScan {
+		t.Errorf("tag = %+v", tag)
 	}
 	if gotMethod != http.MethodPost || gotPath != "/api/v1/entries/"+idScan+"/tags" {
 		t.Errorf("got %s %s", gotMethod, gotPath)

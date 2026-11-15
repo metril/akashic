@@ -230,13 +230,27 @@ func (c *Client) CreateTag(ctx context.Context, name string) (*apiclient.TagResp
 	return resp.JSON201, nil
 }
 
-// TagFile applies the named tag to an entry (POST /entries/{id}/tags, 204).
-func (c *Client) TagFile(ctx context.Context, entryID uuid.UUID, tagName string) error {
+// TagFile applies the named tag to an entry (POST /entries/{id}/tags, 204; the
+// server creates the catalogue tag on demand) and returns that tag, looked up
+// by name, since the apply call itself returns no body.
+func (c *Client) TagFile(ctx context.Context, entryID uuid.UUID, tagName string) (*apiclient.TagResponse, error) {
 	resp, err := c.api.ApplyTagsToEntryWithResponse(ctx, entryID, apiclient.ApplyTagsToEntryJSONRequestBody{Tags: []string{tagName}})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return check(resp.StatusCode(), resp.Body)
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	tags, err := c.ListTags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range tags {
+		if tags[i].Name == tagName {
+			return &tags[i], nil
+		}
+	}
+	return nil, fmt.Errorf("tag %q was applied but is missing from the tag catalogue", tagName)
 }
 
 func (c *Client) PurgeSource(ctx context.Context, sourceID uuid.UUID) error {

@@ -50,7 +50,8 @@ if [ -z "$base_spec" ]; then
     echo "No release tag reachable from HEAD; skipping the breaking-change gate."
     exit 0
   fi
-  if [ -z "$(git ls-tree --name-only "$tag" -- openapi.json)" ]; then
+  spec_at_tag="$(git ls-tree --name-only "$tag" -- openapi.json)"
+  if [ -z "$spec_at_tag" ]; then
     echo "Last release tag $tag has no openapi.json; skipping the breaking-change gate."
     exit 0
   fi

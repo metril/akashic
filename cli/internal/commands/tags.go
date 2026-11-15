@@ -26,10 +26,11 @@ func NewTagCmd(c *client.Client) *cobra.Command {
 			if err != nil {
 				return &ExitErr{Code: ExitUserErr, Err: err}
 			}
-			if err := c.TagFile(ctx, fileID, addTagName); err != nil {
+			tag, err := c.TagFile(ctx, fileID, addTagName)
+			if err != nil {
 				return fmt.Errorf("tag file: %w", err)
 			}
-			fmt.Printf("Tagged file %s with tag %q\n", addFileID, addTagName)
+			fmt.Fprintf(cmd.OutOrStdout(), "Tagged file %s with tag %q (id: %s)\n", addFileID, tag.Name, tag.Id)
 			return nil
 		},
 	}

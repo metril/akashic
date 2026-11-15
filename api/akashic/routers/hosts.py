@@ -778,6 +778,28 @@ _SHARE_KEY_BY_TYPE = {
 }
 
 
+def _share_identity(host_type: str, value: str) -> str:
+    """Normalise a share key so equivalent spellings compare equal: SMB share
+    names are case-insensitive, NFS export paths ignore a trailing slash."""
+    if host_type == "smb":
+        return value.casefold()
+    if host_type == "nfs":
+        return value.rstrip("/") or "/"
+    return value
+
+
+async def _attached_share_identities(db: AsyncSession, host: Host, share_key: str) -> set[str]:
+    """Identities of the shares already attached to ``host`` as sources."""
+    configs = (await db.execute(
+        select(Source.connection_config).where(Source.host_id == host.id)
+    )).scalars().all()
+    return {
+        _share_identity(host.type, v)
+        for cfg in configs
+        if isinstance(v := (cfg or {}).get(share_key), str)
+    }
+
+
 @router.post(
     "/{host_id}/list-shares",
     response_model=ListSharesResponse,
@@ -785,7 +807,7 @@ _SHARE_KEY_BY_TYPE = {
     description=(
         "Enumerates the shares, exports or buckets visible to the host's credentials. On failure "
         "the response is still 200 with an empty list and the failing `step` and `error`. Records "
-        "a `host_shares_listed` audit event.\n"
+        "a `host_shares_listed` audit event. `already_added` lists the shares that already have a source on this host.\n"
         "Requires scope `hosts:write`.\n"
         "Errors: 400 for host types without shares; 404 if the host does not exist."
     ),
@@ -830,8 +852,11 @@ async def list_host_shares(
             "error": result.error,
         },
     )
+    share_key = _SHARE_KEY_BY_TYPE[host.type]
+    attached = await _attached_share_identities(db, host, share_key)
     return ListSharesResponse(
         shares=result.shares, step=result.step, error=result.error,
+        already_added=[sh for sh in result.shares if _share_identity(host.type, sh) in attached],
     )
 
 
@@ -843,7 +868,7 @@ async def list_host_shares(
         "Creates one source per entry in `shares`, attached to the host. Each `share` becomes the "
         "share key of the source's connection config (`share` for SMB, `export_path` for NFS, "
         "`bucket` for S3); credentials stay on the host. The optional settings apply to every "
-        "created source. Entries whose name is already used are skipped and counted in `skipped`. "
+        "created source. Entries whose share is already attached to the host (SMB names compare case-insensitively, NFS ignores a trailing slash), repeated in the request, or whose source name is taken are skipped and counted in `skipped`. "
         "Records a `host_shares_batch_added` audit event when at least one source is created.\n"
         "Requires scope `hosts:write`.\n"
         "Errors: 400 for host types without shares or `max_parallel_scanners` outside 1-16; 404 "
@@ -889,7 +914,15 @@ async def add_host_shares(
 
     created_ids: list[uuid.UUID] = []
     skipped = 0
+    # Dedupe by the share key itself (not just the generated name): a share
+    # already attached to this host, or repeated within the batch, is skipped.
+    seen = await _attached_share_identities(db, host, share_key)
     for item in body.shares:
+        identity = _share_identity(host.type, item.share)
+        if identity in seen:
+            skipped += 1
+            continue
+        seen.add(identity)
         source = Source(
             name=item.name,
             type=host.type,

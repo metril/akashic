@@ -132,11 +132,15 @@ jobs:
       - name: Dump spec
         run: python api/scripts/dump_openapi.py
       - name: Committed openapi.json is current
-        run: git diff --exit-code openapi.json || { echo "::error::openapi.json is stale; run 'make openapi' and commit it"; exit 1; }
+        # `git status --porcelain` (not `git diff`) so a new untracked generated file also fails.
+        run: |
+          stale="$(git status --porcelain -- openapi.json)"
+          [ -z "$stale" ] || { echo "$stale"; echo "::error::openapi.json is stale; run 'make openapi' and commit it"; exit 1; }
       - name: Committed docs/api.md is current
         run: |
           python api/scripts/render_api_md.py
-          git diff --exit-code docs/api.md || { echo "::error::docs/api.md is stale; run 'make openapi' and commit it"; exit 1; }
+          stale="$(git status --porcelain -- docs/api.md)"
+          [ -z "$stale" ] || { echo "$stale"; echo "::error::docs/api.md is stale; run 'make openapi' and commit it"; exit 1; }
 
   api-breaking-gate:
     name: API breaking-change gate
@@ -168,8 +172,8 @@ jobs:
           for m in scanner cli; do
             (cd "$m" && go tool oapi-codegen -config internal/apiclient/oapi-codegen.yaml ../openapi.json)
           done
-          git diff --exit-code -- scanner/internal/apiclient cli/internal/apiclient \
-            || { echo "::error::Go API clients are stale; run 'make openapi' and commit them"; exit 1; }
+          stale="$(git status --porcelain -- scanner/internal/apiclient cli/internal/apiclient)"
+          [ -z "$stale" ] || { echo "$stale"; echo "::error::Go API clients are stale; run 'make openapi' and commit them"; exit 1; }
       - name: Run go test
         working-directory: scanner
         run: go test -race ./...
@@ -199,7 +203,8 @@ jobs:
             cp /w/web/package.json /w/web/package-lock.json /tmp/gen/web/ && cd /tmp/gen/web &&
             npm ci --no-audit --no-fund && npm run generate:api &&
             cp src/api/schema.d.ts /w/web/src/api/schema.d.ts'
-          git diff --exit-code -- web/src/api/schema.d.ts
+          stale="$(git status --porcelain -- web/src/api/schema.d.ts)"
+          [ -z "$stale" ] || { echo "$stale"; echo "::error::web/src/api/schema.d.ts is stale; run 'make openapi' and commit it"; exit 1; }
       - name: Typecheck
         working-directory: web
         run: npx tsc --noEmit

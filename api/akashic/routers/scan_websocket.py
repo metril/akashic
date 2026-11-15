@@ -14,6 +14,7 @@ missed lines via `GET /api/v1/scans/{id}/log?since=<last_ts>`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -29,6 +30,7 @@ from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
 from akashic.schemas.ws_events import (
+    HANDLER_EVENTS,
     WsError, WsPing, WsPendingDiscovery, WsScanListEntry, WsScanListSnapshot,
     WsScanLogLine, WsScanSnapshot, WsScannersSnapshot,
 )
@@ -57,8 +59,9 @@ async def _resolve_principal(token: str, db: AsyncSession, scope: str) -> tuple[
 
 
 def _frame(event: BaseModel) -> dict:
-    """Serialise a documented frame model for `send_json`."""
-    return event.model_dump(mode="json")
+    """Serialise a handler-written frame for `send_json`; only documented
+    `HANDLER_EVENTS` models qualify (pub/sub frames are checked by `scan_pubsub`)."""
+    return json.loads(scan_pubsub._encode(event, HANDLER_EVENTS))
 
 
 def _scan_snapshot(scan: Scan, recent_lines: list[WsScanLogLine]) -> WsScanSnapshot:

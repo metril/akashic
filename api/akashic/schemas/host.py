@@ -64,6 +64,7 @@ class ListSharesResponse(ApiModel):
     shares: list[str] = Field(default=[], description="Names of the shares, exports or buckets found; empty on failure.")
     step: str | None = Field(default=None, description="Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success.")
     error: str | None = Field(default=None, description="Failure message; null on success.")
+    already_added: list[str] = Field(default=[], description="The entries of `shares` that already have a source attached to this host (compared by share key, not source name).")
 
 
 class AddSharesItem(ApiModel):
@@ -86,7 +87,7 @@ class AddSharesRequest(ApiModel):
 
 class AddSharesResponse(ApiModel):
     created: int = Field(description="Number of sources created.")
-    skipped: int = Field(description="Number of entries skipped because a source with that name already exists.")
+    skipped: int = Field(description="Number of entries skipped because the host already has a source for that share, or the source name is taken.")
     sources: list[uuid.UUID] = Field(description="Ids of the sources that were created.")
 
 

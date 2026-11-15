@@ -203,7 +203,7 @@ def render(spec: dict[str, Any]) -> str:
     if sockets:
         out += [
             "", "## WebSockets", "",
-            "Browsers cannot set headers on the handshake, so authenticate with `?token=<jwt>` (an access token or API token). "
+            "Browsers cannot set headers on the handshake, so authenticate with `?token=<jwt>`, a login access token. Personal API tokens (`akp_...`) are not accepted on WebSockets: the socket is closed with code 1008. "
             "Auth failures close the socket with code 1008 before any frame is sent. Every frame is a JSON object with a `kind` "
             "discriminator; the server sends a `ping` frame every 30 seconds and an `error` frame when its live feed breaks "
             "(fall back to polling and reconnect). On every connect the first frame is a `snapshot`.",

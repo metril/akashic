@@ -1030,7 +1030,7 @@ export interface paths {
         put?: never;
         /**
          * Add shares as sources
-         * @description Creates one source per entry in `shares`, attached to the host. Each `share` becomes the share key of the source's connection config (`share` for SMB, `export_path` for NFS, `bucket` for S3); credentials stay on the host. The optional settings apply to every created source. Entries whose name is already used are skipped and counted in `skipped`. Records a `host_shares_batch_added` audit event when at least one source is created.
+         * @description Creates one source per entry in `shares`, attached to the host. Each `share` becomes the share key of the source's connection config (`share` for SMB, `export_path` for NFS, `bucket` for S3); credentials stay on the host. The optional settings apply to every created source. Entries whose share is already attached to the host (SMB names compare case-insensitively, NFS ignores a trailing slash), repeated in the request, or whose source name is taken are skipped and counted in `skipped`. Records a `host_shares_batch_added` audit event when at least one source is created.
          *     Requires scope `hosts:write`.
          *     Errors: 400 for host types without shares or `max_parallel_scanners` outside 1-16; 404 if the host does not exist.
          */
@@ -1074,7 +1074,7 @@ export interface paths {
         put?: never;
         /**
          * List shares on a host
-         * @description Enumerates the shares, exports or buckets visible to the host's credentials. On failure the response is still 200 with an empty list and the failing `step` and `error`. Records a `host_shares_listed` audit event.
+         * @description Enumerates the shares, exports or buckets visible to the host's credentials. On failure the response is still 200 with an empty list and the failing `step` and `error`. Records a `host_shares_listed` audit event. `already_added` lists the shares that already have a source on this host.
          *     Requires scope `hosts:write`.
          *     Errors: 400 for host types without shares; 404 if the host does not exist.
          */
@@ -3253,7 +3253,7 @@ export interface components {
             created: number;
             /**
              * Skipped
-             * @description Number of entries skipped because a source with that name already exists.
+             * @description Number of entries skipped because the host already has a source for that share, or the source name is taken.
              */
             skipped: number;
             /**
@@ -6518,6 +6518,12 @@ export interface components {
          *     `config`); `shares` is empty in that case.
          */
         ListSharesResponse: {
+            /**
+             * Already Added
+             * @description The entries of `shares` that already have a source attached to this host (compared by share key, not source name).
+             * @default []
+             */
+            already_added: string[];
             /**
              * Error
              * @description Failure message; null on success.

@@ -18,6 +18,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # v0.48.0 moves the refresh cookie to Path=/api/v1/auth, so browsers can no
+    # longer present the old one: revoke every live refresh token so the forced
+    # re-login is real (an old token cannot be replayed from another client).
+    # The downgrade does not restore them.
+    op.execute(
+        "UPDATE refresh_tokens SET revoked_at = now(), revoke_reason = 'api_v1_cookie_path' "
+        "WHERE revoked_at IS NULL"
+    )
     op.create_table(
         "api_tokens",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),

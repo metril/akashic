@@ -11,6 +11,7 @@ detail.
 
 ### Breaking
 
+- **Error responses have one shape**: every non-2xx body is now `{code, message, detail?, request_id}` (also in the `X-Request-ID` header). Read `message` instead of `detail` for the human-readable text, and branch on the stable `code` (e.g. `not_found`, `validation_error`, `insufficient_scope`) rather than on the status or message wording. `detail` is only extra structure, such as field errors for `validation_error`.
 - **Scanners must be upgraded to v0.48.0 before the API.** The scanner protocol moves to version 2 and the handshake rejects older agents (426 once they reach it; unversioned paths answer 410). Upgrade all scanners together with the API.
 - **Unversioned `/api/*` returns 410** with error code `api_version_required`, and unversioned `/ws/*` is refused. Update scripts, CLI wrappers and integrations to `/api/v1/...` and `/ws/v1/...`. The in-repo web UI, CLI, scanner and Home Assistant integration are already migrated. Swagger stays at `/api/docs`; the spec moved to `/api/v1/openapi.json`.
 - **OIDC and source-OAuth callback URIs changed** to `https://<host>/api/v1/auth/oidc/callback` and `https://<host>/api/v1/oauth/callback`. Update the redirect URIs registered at your identity provider and at Google, Microsoft and Dropbox. Old URIs get a temporary 308 redirect so sign-in keeps working in the meantime; the redirect will be removed in a later release. The `oidc_redirect_uri` default changed too; set it explicitly in Settings → Server if you rely on the default.

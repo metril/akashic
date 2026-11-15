@@ -410,3 +410,66 @@ def test_share_enumerator_dispatch_unknown_type():
     assert res.shares == []
     assert res.step == "config"
     assert "ftp" in (res.error or "")
+
+
+# ── dedupe by share key ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_add_shares_dedupes_by_share_not_just_name(client: AsyncClient):
+    host_id = await _create_host(client, type_="smb")
+    first = await client.post(
+        f"/api/v1/hosts/{host_id}/add-shares",
+        json={"shares": [{"name": "one", "share": "Public"}]},
+    )
+    assert first.json()["created"] == 1
+    # Same share under a different name, a differently-cased spelling, and a
+    # repeat inside the request: only the genuinely new share is created.
+    r = await client.post(
+        f"/api/v1/hosts/{host_id}/add-shares",
+        json={"shares": [
+            {"name": "two", "share": "Public"},
+            {"name": "three", "share": "PUBLIC"},
+            {"name": "four", "share": "Eng"},
+            {"name": "five", "share": "eng"},
+        ]},
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["created"], r.json()["skipped"]) == (1, 3)
+
+
+@pytest.mark.asyncio
+async def test_add_shares_nfs_ignores_trailing_slash(client: AsyncClient):
+    host_id = await _create_host(client, type_="nfs")
+    await client.post(
+        f"/api/v1/hosts/{host_id}/add-shares",
+        json={"shares": [{"name": "a", "share": "/srv/data"}]},
+    )
+    r = await client.post(
+        f"/api/v1/hosts/{host_id}/add-shares",
+        json={"shares": [{"name": "b", "share": "/srv/data/"}]},
+    )
+    assert (r.json()["created"], r.json()["skipped"]) == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_list_shares_flags_already_added(client: AsyncClient, monkeypatch):
+    host_id = await _create_host(client, type_="smb")
+    other_host = await _create_host(client, type_="smb")
+    await client.post(
+        f"/api/v1/hosts/{host_id}/add-shares",
+        json={"shares": [{"name": "pub", "share": "Public"}]},
+    )
+    # A source on a different host with the same share must not count.
+    await client.post(
+        f"/api/v1/hosts/{other_host}/add-shares",
+        json={"shares": [{"name": "eng-other", "share": "Engineering"}]},
+    )
+    monkeypatch.setattr(
+        share_enumerator, "list_shares",
+        lambda *a, **kw: share_enumerator.ListSharesResult(shares=["public", "Engineering", "Marketing"]),
+    )
+    r = await client.post(f"/api/v1/hosts/{host_id}/list-shares")
+    assert r.status_code == 200, r.text
+    assert r.json()["shares"] == ["public", "Engineering", "Marketing"]
+    assert r.json()["already_added"] == ["public"]

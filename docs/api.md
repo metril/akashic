@@ -971,7 +971,7 @@ Errors: 400 for out-of-range scan controls or a credential profile of a differen
 
 Auth: `userJWT`, scope `hosts:write`
 
-Creates one source per entry in `shares`, attached to the host. Each `share` becomes the share key of the source's connection config (`share` for SMB, `export_path` for NFS, `bucket` for S3); credentials stay on the host. The optional settings apply to every created source. Entries whose name is already used are skipped and counted in `skipped`. Records a `host_shares_batch_added` audit event when at least one source is created.
+Creates one source per entry in `shares`, attached to the host. Each `share` becomes the share key of the source's connection config (`share` for SMB, `export_path` for NFS, `bucket` for S3); credentials stay on the host. The optional settings apply to every created source. Entries whose share is already attached to the host (SMB names compare case-insensitively, NFS ignores a trailing slash), repeated in the request, or whose source name is taken are skipped and counted in `skipped`. Records a `host_shares_batch_added` audit event when at least one source is created.
 Requires scope `hosts:write`.
 Errors: 400 for host types without shares or `max_parallel_scanners` outside 1-16; 404 if the host does not exist.
 
@@ -1025,7 +1025,7 @@ Errors: 400 if any scanner id is unknown; 404 if the host does not exist.
 
 Auth: `userJWT`, scope `hosts:write`
 
-Enumerates the shares, exports or buckets visible to the host's credentials. On failure the response is still 200 with an empty list and the failing `step` and `error`. Records a `host_shares_listed` audit event.
+Enumerates the shares, exports or buckets visible to the host's credentials. On failure the response is still 200 with an empty list and the failing `step` and `error`. Records a `host_shares_listed` audit event. `already_added` lists the shares that already have a source on this host.
 Requires scope `hosts:write`.
 Errors: 400 for host types without shares; 404 if the host does not exist.
 
@@ -3964,7 +3964,7 @@ Errors: 403 if the caller does not hold the lease; 404 if the unit does not exis
 
 ## WebSockets
 
-Browsers cannot set headers on the handshake, so authenticate with `?token=<jwt>` (an access token or API token). Auth failures close the socket with code 1008 before any frame is sent. Every frame is a JSON object with a `kind` discriminator; the server sends a `ping` frame every 30 seconds and an `error` frame when its live feed breaks (fall back to polling and reconnect). On every connect the first frame is a `snapshot`.
+Browsers cannot set headers on the handshake, so authenticate with `?token=<jwt>`, a login access token. Personal API tokens (`akp_...`) are not accepted on WebSockets: the socket is closed with code 1008. Auth failures close the socket with code 1008 before any frame is sent. Every frame is a JSON object with a `kind` discriminator; the server sends a `ping` frame every 30 seconds and an `error` frame when its live feed breaks (fall back to polling and reconnect). On every connect the first frame is a `snapshot`.
 
 ### `/ws/v1/scans/{scan_id}`
 
@@ -4128,7 +4128,7 @@ One row in an /add-shares batch.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `created` | `integer` | yes | Number of sources created. |
-| `skipped` | `integer` | yes | Number of entries skipped because a source with that name already exists. |
+| `skipped` | `integer` | yes | Number of entries skipped because the host already has a source for that share, or the source name is taken. |
 | `sources` | array of `string` (`uuid`) | yes | Ids of the sources that were created. |
 
 <a id="schema-adminapitokenresponse"></a>
@@ -5318,6 +5318,7 @@ used by the source-tester (`connect`, `auth`, `mount`, `list`,
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `already_added` | array of `string` | yes | The entries of `shares` that already have a source attached to this host (compared by share key, not source name). |
 | `error` | `string` \| `null` | yes | Failure message; null on success. |
 | `shares` | array of `string` | yes | Names of the shares, exports or buckets found; empty on failure. |
 | `step` | `string` \| `null` | yes | Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success. |

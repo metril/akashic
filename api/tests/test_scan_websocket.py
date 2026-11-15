@@ -321,3 +321,36 @@ async def test_ws_reduced_scope_is_closed(app, admin_user, fixture_scan, monkeyp
     monkeypatch.setattr(dependencies, "scopes_for_role", lambda role: frozenset(SCOPES) - {missing})
     token = create_access_token({"sub": str(admin_user.id)})
     _assert_closed_1008(app, path.format(scan=fixture_scan.id), token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", _WS_PATHS)
+async def test_ws_rejects_api_tokens(app, setup_db, admin_user, fixture_scan, path):
+    """A valid personal API token (full scopes) is still closed with 1008: sockets take login JWTs only."""
+    from akashic.auth.api_tokens import generate_token
+    from akashic.auth.scopes import SCOPES
+    from akashic.models.api_token import ApiToken
+
+    plain, prefix, digest = generate_token()
+    async with setup_db() as s:
+        s.add(ApiToken(
+            id=uuid.uuid4(), user_id=admin_user.id, name="ws", token_prefix=prefix,
+            token_hash=digest, scopes=sorted(SCOPES),
+        ))
+        await s.commit()
+    _assert_closed_1008(app, path.format(scan=fixture_scan.id), plain)
+
+
+def test_frame_accepts_only_handler_events():
+    from akashic.routers.scan_websocket import _frame
+    from akashic.schemas.ws_events import WsPing, WsScanState
+
+    assert _frame(WsPing(kind="ping")) == {"kind": "ping"}
+    state = WsScanState(
+        kind="scan.state", source_id="s", scan_id="c", scan_status="pending",
+        source_status="online", scan_type="full", files_found=0,
+    )
+    with pytest.raises(TypeError):
+        _frame(state)
+    with pytest.raises(TypeError):
+        _frame({"kind": "ping"})  # type: ignore[arg-type]
