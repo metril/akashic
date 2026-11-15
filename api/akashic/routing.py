@@ -108,13 +108,15 @@ def _scan_raises(tree: ast.AST, globs: dict[str, Any]) -> tuple[set[int], bool]:
                 found |= _METHODS_RAISING[fname]
             if fname.endswith("Response"):  # returned (not raised) error responses
                 for kw in node.keywords:
-                    if kw.arg == "status_code" and isinstance(kw.value, (ast.Constant, ast.Attribute)):
-                        v = kw.value
-                        code = v.value if isinstance(v, ast.Constant) else (
-                            int(v.attr[5:8]) if re.match(r"HTTP_\d{3}_", v.attr) else 0
-                        )
-                        if isinstance(code, int) and code >= 400:
-                            found.add(code)
+                    if kw.arg != "status_code":
+                        continue
+                    v = kw.value
+                    if isinstance(v, ast.Constant) and isinstance(v.value, int):
+                        found.add(v.value)
+                    elif isinstance(v, ast.Attribute) and re.match(r"HTTP_\d{3}_", v.attr):
+                        found.add(int(v.attr[5:8]))
+                    else:  # a variable status: cannot be derived, needs @raises
+                        dynamic = True
         if not (isinstance(node, ast.Call) and _is_http_exception(node.func, globs)):
             continue
         cands = [kw.value for kw in node.keywords if kw.arg == "status_code"] + node.args[:1]
@@ -130,22 +132,131 @@ def _scan_raises(tree: ast.AST, globs: dict[str, Any]) -> tuple[set[int], bool]:
     return {c for c in found if c >= 400}, dynamic
 
 
-def _callee(node: ast.Call, globs: dict[str, Any]) -> Any:
-    """Resolve ``f(...)``, ``module.f(...)`` and ``GLOBAL_OBJ.method(...)`` to a function."""
-    fn = node.func
-    if isinstance(fn, ast.Name):
-        return globs.get(fn.id)
-    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-        base = globs.get(fn.value.id)
-        return getattr(base, fn.attr, None) if base is not None else None
+def _chain(expr: ast.expr) -> list[str] | None:
+    """``a.b.c`` -> ``["a", "b", "c"]``; None for anything else."""
+    parts: list[str] = []
+    while isinstance(expr, ast.Attribute):
+        parts.append(expr.attr)
+        expr = expr.value
+    if not isinstance(expr, ast.Name):
+        return None
+    parts.append(expr.id)
+    return parts[::-1]
+
+
+def _akashic(obj: Any) -> bool:
+    mod = getattr(obj, "__module__", None) or getattr(type(obj), "__module__", "")
+    return str(mod).startswith(SCANNED_MODULE_PREFIXES)
+
+
+def _as_class(ann: Any, globs: dict[str, Any]) -> Any:
+    """The akashic class named by an annotation (``X``, ``X | None``, ``Annotated[X, ...]``, or a string)."""
+    import typing
+
+    if isinstance(ann, str):
+        try:
+            ann = eval(ann, globs)  # noqa: S307 - our own annotations
+        except Exception:
+            return None
+    if inspect.isclass(ann):
+        return ann if _akashic(ann) else None
+    for arg in typing.get_args(ann):
+        found = _as_class(arg, globs)
+        if found is not None:
+            return found
     return None
 
 
-_DIRECT_CACHE: dict[Any, tuple[set[int], bool, list[Any]] | None] = {}
+def _owner_class(fn: Any) -> Any:
+    """The class a method was defined in, found from its qualified name."""
+    parts = fn.__qualname__.split(".")[:-1]
+    obj: Any = fn.__globals__.get(parts[0]) if parts else None
+    for part in parts[1:]:
+        obj = getattr(obj, part, None)
+    return obj if inspect.isclass(obj) else None
 
 
-def _direct(fn: Any) -> tuple[set[int], bool, list[Any]] | None:
-    """(codes, unacknowledged dynamic raise, callees) for ``fn`` alone, or None if not scannable."""
+def _local_types(fn: Any, tree: ast.AST) -> dict[str, Any]:
+    """Variables whose class is known: annotated parameters, ``x = Cls(...)``, ``self``/``cls``."""
+    out: dict[str, Any] = {}
+    node = next((n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))), None)
+    if node is None:
+        return out
+    args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+    for a in args:
+        if a.annotation is not None:
+            cls = _as_class(ast.unparse(a.annotation), fn.__globals__)
+            if cls is not None:
+                out[a.arg] = cls
+    owner = _owner_class(fn)
+    if owner is not None and node.args.args:
+        out[node.args.args[0].arg] = owner
+    for n in ast.walk(node):
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name):
+            cls = fn.__globals__.get(n.value.func.id)
+            if inspect.isclass(cls) and _akashic(cls):
+                out.update({t.id: cls for t in n.targets if isinstance(t, ast.Name)})
+    return out
+
+
+def _subclass_methods(cls: Any, name: str) -> list[Any]:
+    out = []
+    for sub in cls.__subclasses__():
+        meth = sub.__dict__.get(name)
+        if meth is not None:
+            out.append(meth)
+        out.extend(_subclass_methods(sub, name))
+    return out
+
+
+def _callee(
+    node: ast.Call, fn: Any, local_types: dict[str, Any],
+) -> tuple[list[Any], str | None]:
+    """Resolve a call to the akashic functions it can run.
+
+    Followed: ``f()``, ``module.f()``, ``GLOBAL_OBJ.method()``, ``Cls()`` (its
+    ``__init__``), ``self.method()`` / ``cls.method()`` (including subclass
+    overrides), and ``var.method()`` where ``var`` is an annotated parameter or
+    ``var = Cls(...)``. Returns ``(targets, unresolved_method_name)``: the second
+    is set when the receiver's type is unknown (a variable bound to a call's
+    result, an attribute assigned in ``__init__``, ...); the scanner then
+    considers every akashic method of that name. Calls on non-akashic receivers
+    (SQLAlchemy sessions, stdlib, ...) are ignored.
+    """
+    globs = fn.__globals__
+    chain = _chain(node.func)
+    if chain is None:
+        # ``Cls(...).method()``, ``f().method()``: receiver is a call result.
+        if isinstance(node.func, ast.Attribute):
+            return [], node.func.attr
+        return [], None
+    root = chain[0]
+    if root in local_types:
+        obj: Any = local_types[root]
+    elif root in globs:
+        obj = globs[root]
+    else:
+        return [], (chain[-1] if len(chain) > 1 else None)
+    for attr in chain[1:]:
+        if not _akashic(obj):
+            return [], None  # external receiver: not ours to follow
+        obj = getattr(obj, attr, None)
+        if obj is None:  # instance attribute set at runtime: type unknown
+            return [], chain[-1]
+    if len(chain) == 2 and root in local_types:  # overrides in subclasses may run instead
+        return [obj, *_subclass_methods(local_types[root], chain[1])], None
+    if inspect.isclass(obj) and _akashic(obj):
+        init = obj.__dict__.get("__init__")
+        return ([init] if init is not None else []), None
+    return [obj], None
+
+
+_DIRECT_CACHE: dict[Any, tuple[set[int], bool, list[Any], list[str]] | None] = {}
+
+
+def _direct(fn: Any) -> tuple[set[int], bool, list[Any], list[str]] | None:
+    """(codes, unacknowledged dynamic raise, callees, unresolved method names) for ``fn`` alone,
+    or None if not scannable."""
     if fn in _DIRECT_CACHE:
         return _DIRECT_CACHE[fn]
     try:
@@ -158,16 +269,41 @@ def _direct(fn: Any) -> tuple[set[int], bool, list[Any]] | None:
     if declared:
         codes |= declared
         dynamic = False
-    callees = []
+    callees: list[Any] = []
+    unresolved: list[str] = []
+    local_types = _local_types(fn, tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            target = _callee(node, fn.__globals__)
-            target = getattr(target, "__func__", target)
-            if inspect.isfunction(target):
-                callees.append(target)
-    result = (codes, dynamic, callees)
+            targets, name = _callee(node, fn, local_types)
+            for target in targets:
+                target = inspect.unwrap(getattr(target, "__func__", target))
+                if isinstance(target, (staticmethod, classmethod)):
+                    target = target.__func__
+                if inspect.isfunction(target):
+                    callees.append(target)
+            if name is not None and not name.startswith("__"):
+                unresolved.append(name)
+    result = (codes, dynamic, callees, unresolved)
     _DIRECT_CACHE[fn] = result
     return result
+
+
+def _methods_named(name: str) -> list[Any]:
+    """Every method called ``name`` on an akashic class currently loaded."""
+    import sys
+
+    out: list[Any] = []
+    for mod_name, mod in list(sys.modules.items()):
+        if not mod_name.startswith(SCANNED_MODULE_PREFIXES) or mod is None:
+            continue
+        for cls in list(vars(mod).values()):
+            if inspect.isclass(cls) and cls.__module__ == mod_name:
+                meth = cls.__dict__.get(name)
+                if isinstance(meth, (staticmethod, classmethod)):
+                    meth = meth.__func__
+                if inspect.isfunction(meth):
+                    out.append(meth)
+    return out
 
 
 def scan_raises(
@@ -191,13 +327,16 @@ def scan_raises(
         res = _direct(fn)
         if res is None:
             return
-        c, dynamic, callees = res
+        c, dynamic, callees, unresolved = res
         codes.update(c)
         here = chain + [fn.__qualname__]
         if dynamic:
             bad.append(here)
         for callee in callees:
             visit(callee, here)
+        for name in unresolved:  # receiver type unknown: every akashic method of that name
+            for callee in _methods_named(name):
+                visit(callee, here)
 
     visit(endpoint, [])
     return codes, bad

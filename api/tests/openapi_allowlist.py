@@ -553,7 +553,5 @@ ALLOWLIST: dict[str, frozenset[str]] = {
         '_HostInline.name',
         '_HostInline.type',
         '_TagApplyBody.tags',
-        'akashic__schemas__user__TokenResponse.access_token',
-        'akashic__schemas__user__TokenResponse.token_type',
     }),
 }

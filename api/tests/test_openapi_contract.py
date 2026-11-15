@@ -474,3 +474,89 @@ def test_runtime_audit_fails_closed():
     assert audit_observed(spec, [("GET", "/ghost", "/api/v1/ghost", 200, True)])
     # excluded from the schema: skipped
     assert audit_observed(spec, [("GET", "/ghost", "/api/v1/ghost", 200, False)]) == []
+
+
+# ── call-graph resolution (routing._callee) ────────────────────────────────
+
+from fastapi.responses import JSONResponse as _JSONResponse
+
+
+def _returns_variable_status(code: int):
+    return _JSONResponse({"detail": "x"}, status_code=code)
+
+
+@_routing.raises(409)
+def _returns_acknowledged(code: int):
+    return _JSONResponse({"detail": "x"}, status_code=code)
+
+
+class _Guard:
+    def run(self):
+        self._deny()
+
+    def _deny(self):
+        raise _HTTPException(status_code=423)
+
+    @staticmethod
+    def static_deny():
+        raise _HTTPException(status_code=451)
+
+
+class _SubGuard(_Guard):
+    def _deny(self):
+        raise _HTTPException(status_code=429)
+
+
+class _Holder:
+    def __init__(self):
+        self.guard = _Guard()  # attribute assigned at runtime: the receiver type is unknown
+
+    def go(self):
+        self.guard.run()
+
+
+class _External:
+    def fetch(self):
+        return {}.get("x")
+
+
+def test_returned_response_with_variable_status_needs_raises(scan_this_module):
+    codes, bad = _routing.scan_raises(_returns_variable_status)
+    assert bad and not codes
+    codes, bad = _routing.scan_raises(_returns_acknowledged)
+    assert codes == {409} and not bad
+    router = _routing.ApiRouter()
+    with pytest.raises(RuntimeError, match="not acknowledged.*bad_resp -> _returns_variable_status"):
+        @router.get("/vr")
+        def bad_resp():
+            return _returns_variable_status(500)
+
+
+def test_self_calls_and_subclass_overrides_are_followed(scan_this_module):
+    codes, bad = _routing.scan_raises(_Guard.run)
+    assert codes == {423, 429} and not bad  # the override in _SubGuard may run instead
+
+
+def test_annotated_parameters_and_local_instances_are_followed(scan_this_module):
+    def with_param(g: _Guard):
+        g.static_deny()
+
+    def with_local():
+        g = _Guard()
+        g._deny()
+
+    with_param.__module__ = with_local.__module__ = __name__
+    assert _routing.scan_raises(with_param)[0] == {451}
+    assert 423 in _routing.scan_raises(with_local)[0]
+
+
+def test_unresolved_receiver_falls_back_to_method_name(scan_this_module):
+    """``self.guard.run()``: ``guard`` is set in ``__init__``, so every akashic method named
+    ``run`` is considered (fail closed); the codes are documented, never silently dropped."""
+    codes, _ = _routing.scan_raises(_Holder.go)
+    assert {423, 429} <= codes
+
+
+def test_external_receivers_are_not_flagged(scan_this_module):
+    """``{}.get`` / SQLAlchemy sessions are not akashic: no fallback, no false positives."""
+    assert _routing.scan_raises(_External.fetch) == (set(), [])

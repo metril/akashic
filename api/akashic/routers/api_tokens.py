@@ -204,8 +204,9 @@ async def update_my_token(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke an API token",
     description=(
-        "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds. "
-        "Records an `api_token_revoked` audit event.\n"
+        "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds "
+        "without changing it and without recording an audit event; otherwise records an "
+        "`api_token_revoked` audit event.\n"
         "Requires scope `tokens:write`. Errors: 404 if the token does not exist or is not yours."
     ),
 )
@@ -248,8 +249,8 @@ async def list_all_tokens(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke any user's API token",
     description=(
-        "Revokes any user's token. Idempotent. Records an `api_token_revoked` audit event with "
-        "`by_admin: true`.\n"
+        "Revokes any user's token. Idempotent: an already revoked token succeeds with no change and no "
+        "audit event. Otherwise records an `api_token_revoked` audit event with `by_admin: true`.\n"
         "Requires scope `tokens:admin`. Errors: 404 if the token does not exist."
     ),
 )

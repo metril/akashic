@@ -79,7 +79,7 @@ async def list_duplicates(
         Entry.is_deleted == False,  # noqa: E712
         Entry.content_hash.isnot(None),
     ]
-    if await _should_enforce_perms(principal, False, db):
+    if await _should_enforce_perms(principal, True, db):
         base_filter.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
@@ -119,8 +119,8 @@ async def list_duplicates(
     response_model=Page[DuplicateFile],
     summary="Files sharing a content hash",
     description=(
-        "The individual copies in one duplicate group, ordered by entry id. Files hidden by per- "
-        "user ACL filtering are omitted.\n"
+        "The individual copies in one duplicate group, ordered by entry id. Files hidden by per-user "
+        "ACL filtering are omitted.\n"
         "Requires scope `files:read`. Source-limited API tokens only see their permitted sources. "
         "Errors: 422 for a malformed `cursor`."
     ),
@@ -140,7 +140,7 @@ async def get_duplicate_files(
         Entry.is_deleted == False,  # noqa: E712
     ).order_by(Entry.id).offset(offset).limit(limit + 1)
     stmt = restrict_sources(stmt, principal)
-    if await _should_enforce_perms(principal, False, db):
+    if await _should_enforce_perms(principal, True, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     result = await db.execute(stmt)

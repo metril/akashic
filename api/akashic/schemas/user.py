@@ -63,5 +63,7 @@ class ScopeCatalog(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    access_token: str = Field(description="Short-lived JWT access token; send it as a bearer token.")
+    token_type: str = Field(default="bearer", description="Always `bearer`.")
+
+    model_config = {"json_schema_extra": {'examples': [{'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', 'token_type': 'bearer'}]}}

@@ -10671,6 +10671,32 @@
         "title": "TestSourcesResultRow",
         "type": "object"
       },
+      "TokenResponse": {
+        "examples": [
+          {
+            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            "token_type": "bearer"
+          }
+        ],
+        "properties": {
+          "access_token": {
+            "description": "Short-lived JWT access token; send it as a bearer token.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "description": "Always `bearer`.",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
       "TreeNode": {
         "description": "A node of the nested treemap.",
         "properties": {
@@ -11629,50 +11655,6 @@
         ],
         "title": "_TagApplyBody",
         "type": "object"
-      },
-      "akashic__routers__auth__TokenResponse": {
-        "examples": [
-          {
-            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            "token_type": "bearer"
-          }
-        ],
-        "properties": {
-          "access_token": {
-            "description": "Short-lived JWT access token; send it as a bearer token.",
-            "title": "Access Token",
-            "type": "string"
-          },
-          "token_type": {
-            "default": "bearer",
-            "description": "Always `bearer`.",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "TokenResponse",
-        "type": "object"
-      },
-      "akashic__schemas__user__TokenResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "TokenResponse",
-        "type": "object"
       }
     },
     "securitySchemes": {
@@ -11744,7 +11726,7 @@
   "paths": {
     "/api/v1/access": {
       "get": {
-        "description": "Answers one of two questions, selected by which parameter is given.\n`principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.\n`file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.\nRequires scope `access:read`. Source-limited API tokens only see their permitted sources. Every lookup is recorded as an `access_lookup` audit event.\nErrors: 400 if both or neither of `principal` and `file` are given; 404 if the entry (or `source_id`) does not exist or is outside the token's sources; 422 for a malformed `cursor` or invalid parameter.",
+        "description": "Answers one of two questions, selected by which parameter is given.\n`principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.\n`file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.\nRequires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.\nErrors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.",
         "operationId": "access_query",
         "parameters": [
           {
@@ -12749,7 +12731,7 @@
     },
     "/api/v1/admin/tokens/{token_id}": {
       "delete": {
-        "description": "Revokes any user's token. Idempotent. Records an `api_token_revoked` audit event with `by_admin: true`.\nRequires scope `tokens:admin`. Errors: 404 if the token does not exist.",
+        "description": "Revokes any user's token. Idempotent: an already revoked token succeeds with no change and no audit event. Otherwise records an `api_token_revoked` audit event with `by_admin: true`.\nRequires scope `tokens:admin`. Errors: 404 if the token does not exist.",
         "operationId": "revoke_any_token",
         "parameters": [
           {
@@ -13455,7 +13437,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/akashic__routers__auth__TokenResponse"
+                  "$ref": "#/components/schemas/TokenResponse"
                 }
               }
             },
@@ -13803,7 +13785,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/akashic__routers__auth__TokenResponse"
+                  "$ref": "#/components/schemas/TokenResponse"
                 }
               }
             },
@@ -14950,7 +14932,7 @@
     },
     "/api/v1/duplicates/{content_hash}/files": {
       "get": {
-        "description": "The individual copies in one duplicate group, ordered by entry id. Files hidden by per- user ACL filtering are omitted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources. Errors: 422 for a malformed `cursor`.",
+        "description": "The individual copies in one duplicate group, ordered by entry id. Files hidden by per-user ACL filtering are omitted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources. Errors: 422 for a malformed `cursor`.",
         "operationId": "get_duplicate_files",
         "parameters": [
           {
@@ -18201,7 +18183,7 @@
     },
     "/api/v1/me/tokens/{token_id}": {
       "delete": {
-        "description": "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds. Records an `api_token_revoked` audit event.\nRequires scope `tokens:write`. Errors: 404 if the token does not exist or is not yours.",
+        "description": "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds without changing it and without recording an audit event; otherwise records an `api_token_revoked` audit event.\nRequires scope `tokens:write`. Errors: 404 if the token does not exist or is not yours.",
         "operationId": "revoke_my_token",
         "parameters": [
           {
@@ -25145,7 +25127,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/akashic__schemas__user__TokenResponse"
+                  "$ref": "#/components/schemas/TokenResponse"
                 }
               }
             },

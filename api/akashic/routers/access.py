@@ -122,9 +122,10 @@ def _token_kind(token: str) -> str:
         "`file`: who can reach this file? Returns the principals holding `right` on the entry, "
         "computed from its stored ACL, mode, uid and gid.\n"
         "Requires scope `access:read`. Source-limited API tokens only see their permitted "
-        "sources. Every lookup is recorded as an `access_lookup` audit event.\n"
-        "Errors: 400 if both or neither of `principal` and `file` are given; 404 if the entry (or "
-        "`source_id`) does not exist or is outside the token's sources; 422 for a malformed "
+        "sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.\n"
+        "Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does "
+        "not exist or is outside the token's sources, or if `source_id` names a source outside the "
+        "token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed "
         "`cursor` or invalid parameter."
     ),
 )

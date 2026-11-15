@@ -27,6 +27,7 @@ from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.audit import record_event
 from akashic.services.rate_limit import make_limiter
+from akashic.schemas.user import TokenResponse
 
 
 REFRESH_COOKIE = "akashic_refresh"
@@ -101,13 +102,6 @@ class LDAPLoginRequest(BaseModel):
     password: str = Field(min_length=1, description="LDAP password.")
 
     model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
-
-
-class TokenResponse(BaseModel):
-    access_token: str = Field(description="Short-lived JWT access token; send it as a bearer token.")
-    token_type: str = Field(default="bearer", description="Always `bearer`.")
-
-    model_config = {"json_schema_extra": {'examples': [{'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', 'token_type': 'bearer'}]}}
 
 
 class ProvidersResponse(BaseModel):
