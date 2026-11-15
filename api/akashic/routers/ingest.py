@@ -341,7 +341,32 @@ def _snapshot_version(entry: Entry, scan_id) -> EntryVersion:
     )
 
 
-@router.post("/batch", response_model=ScanBatchResponse)
+@router.post(
+    "/batch",
+    response_model=ScanBatchResponse,
+    summary="Ingest a batch of scanned entries",
+    description=(
+        "Scanner protocol. Posts the files and directories a scanner observed, up to 10,000 per "
+        "request. Entries are upserted by `(source_id, path)`: new paths are created with an initial "
+        "version snapshot, changed ones are updated and versioned, and entries previously marked "
+        "deleted are resurrected. Duplicate paths inside one batch keep the last. The first batch "
+        "moves a `pending` scan to `running`; live counters update the scan's `files_*` totals. The "
+        "response lists `extract_candidates`, the new or changed files whose text the scanner should "
+        "extract and send to `POST /ingest/content`.\n"
+        "With `is_final` true on a scan that does not use parallel work units, the scan is completed "
+        "in the same call: entries the scan did not see are marked deleted (and `moved` events "
+        "recorded when the same hash reappears elsewhere), the source goes `online` and records "
+        "`last_scan_at`, and the subtree roll-up, snapshot and `scan.completed` webhooks run in the "
+        "background. For a scan using work units, finalization happens when the last unit completes "
+        "instead. A retried final batch on an already completed scan is a no-op.\n"
+        "Authenticated with the short-lived ingest token (`api_jwt`) delivered in the scan lease "
+        "response, scheme `ingestJWT`; a normal user token or API token is rejected. 401 for a "
+        "missing, invalid or expired token.\n"
+        "Errors: 400 if `scan_id` belongs to another source; 404 if the scan does not exist (scans "
+        "are created by `POST /scans/trigger`, never by ingest); 409 if the scan was cancelled or "
+        "failed; 413 above 10,000 entries; 422 for a malformed body."
+    ),
+)
 async def ingest_batch(
     batch: ScanBatchIn,
     background_tasks: BackgroundTasks,
@@ -900,7 +925,22 @@ async def _bump_tika_counters(count: int) -> None:
         logger.debug("tika counter bump failed: %s", exc)
 
 
-@router.post("/content", response_model=ContentBatchResponse)
+@router.post(
+    "/content",
+    response_model=ContentBatchResponse,
+    summary="Ingest extracted file text",
+    description=(
+        "Scanner protocol. Posts text extracted from files (plain text decode or Apache Tika), up to "
+        "500 items, keyed by `(source_id, path)`; the text is merged into the search documents so "
+        "full-text search can match file contents. Paths that do not resolve to an indexed file "
+        "(content raced ahead of the metadata batch, or the file was deleted) are skipped and picked "
+        "up by the next scan. Only `content_text` is touched.\n"
+        "Authenticated with the short-lived ingest token (`api_jwt`) delivered in the scan lease "
+        "response, scheme `ingestJWT`; a normal user token or API token is rejected. 401 for a "
+        "missing, invalid or expired token.\n"
+        "Errors: 422 for a malformed body or more than 500 items."
+    ),
+)
 async def ingest_content(
     batch: ContentBatchIn,
     db: AsyncSession = Depends(get_db),

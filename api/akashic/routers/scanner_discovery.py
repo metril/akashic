@@ -13,6 +13,7 @@ scanner within ~50ms instead of waiting for the next 5s poll.
 """
 from __future__ import annotations
 
+from typing import Annotated
 import asyncio
 import logging
 import secrets
@@ -21,7 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,47 +78,51 @@ async def _check_rate_limit(request: Request) -> None:
 
 
 class DiscoverRequest(BaseModel):
-    public_key_pem: str = Field(min_length=1)
-    hostname: str | None = Field(default=None, max_length=255)
-    agent_version: str | None = Field(default=None, max_length=32)
-    requested_pool: str | None = Field(default=None, max_length=64)
+    public_key_pem: str = Field(min_length=1, description="The scanner's freshly generated Ed25519 public key, PEM encoded.")
+    hostname: str | None = Field(default=None, max_length=255, description="Scanner host name, shown to the approving admin.")
+    agent_version: str | None = Field(default=None, max_length=32, description="Agent build version.")
+    requested_pool: str | None = Field(default=None, max_length=64, description="Pool the scanner asks to join; the admin decides the actual pool.")
+
+    model_config = {"json_schema_extra": {'examples': [{'public_key_pem': '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----\n', 'hostname': 'scanner01.example.com', 'agent_version': '0.48.0', 'requested_pool': 'default'}]}}
 
 
 class DiscoverResponse(BaseModel):
-    discovery_id: uuid.UUID
-    pairing_code: str
-    expires_at: datetime
-    poll_after_seconds: int
+    discovery_id: uuid.UUID = Field(description="Id to poll for the outcome.")
+    pairing_code: str = Field(description="Short code (`ABCD-EFGH`) to display so the admin can match the request to this host.")
+    expires_at: datetime = Field(description="When the request lapses if undecided.")
+    poll_after_seconds: int = Field(description="Suggested delay before polling the status endpoint.")
 
 
 class DiscoverStatus(BaseModel):
-    status: str  # pending | approved | denied | expired
-    expires_at: datetime | None = None
-    scanner_id: uuid.UUID | None = None
-    name: str | None = None
-    pool: str | None = None
-    server_protocol_version: int | None = None
-    deny_reason: str | None = None
+    status: str = Field(description="`pending`, `approved`, `denied` or `expired`.")
+    expires_at: datetime | None = Field(default=None, description="While pending: when the request lapses.")
+    scanner_id: uuid.UUID | None = Field(default=None, description="When approved: id of the registered scanner (the `kid` for signing JWTs).")
+    name: str | None = Field(default=None, description="When approved: scanner name.")
+    pool: str | None = Field(default=None, description="When approved: scanner pool.")
+    server_protocol_version: int | None = Field(default=None, description="When approved: the protocol version the server speaks.")
+    deny_reason: str | None = Field(default=None, description="When denied: the admin's reason, if given.")
 
 
 class DiscoveryAdminSummary(BaseModel):
-    id: uuid.UUID
-    pairing_code: str
-    hostname: str | None
-    agent_version: str | None
-    requested_pool: str | None
-    requested_at: datetime
-    expires_at: datetime
-    status: str
-    decided_at: datetime | None
-    deny_reason: str | None
-    approved_scanner_id: uuid.UUID | None
-    key_fingerprint: str
+    id: uuid.UUID = Field(description="Discovery request id.")
+    pairing_code: str = Field(description="Pairing code the scanner displays.")
+    hostname: str | None = Field(description="Scanner host name.")
+    agent_version: str | None = Field(description="Agent build version.")
+    requested_pool: str | None = Field(description="Pool the scanner asked for.")
+    requested_at: datetime = Field(description="When the request was made.")
+    expires_at: datetime = Field(description="When the request lapses if undecided.")
+    status: str = Field(description="`pending`, `approved`, `denied` or `expired`.")
+    decided_at: datetime | None = Field(description="When an admin approved or denied it.")
+    deny_reason: str | None = Field(description="Reason given on denial.")
+    approved_scanner_id: uuid.UUID | None = Field(description="Scanner created on approval.")
+    key_fingerprint: str = Field(description="Fingerprint of the scanner's public key; compare it with the one shown on the host.")
 
 
 class ApproveBody(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
-    pool: str = Field(default="default", min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=64, description="Name for the new scanner; must be unique.", examples=['nas-scanner-1'])
+    pool: str = Field(default="default", min_length=1, max_length=64, description="Pool the scanner joins.")
+
+    model_config = {"json_schema_extra": {'examples': [{'name': 'nas-scanner-1', 'pool': 'default'}]}}
 
 
 class DiscoveryApproved(BaseModel):
@@ -129,7 +134,9 @@ class DiscoveryApproved(BaseModel):
 
 
 class DenyBody(BaseModel):
-    reason: str | None = Field(default=None, max_length=255)
+    reason: str | None = Field(default=None, max_length=255, description="Reason shown to the scanner.")
+
+    model_config = {"json_schema_extra": {'examples': [{'reason': 'Unknown host'}]}}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
@@ -140,6 +147,19 @@ class DenyBody(BaseModel):
     response_model=DiscoverResponse,
     status_code=status.HTTP_201_CREATED,
     tags=[SCANNER_TAG],
+    summary="Request scanner enrolment",
+    description=(
+        "Scanner protocol, enrolment by approval. An unenrolled scanner posts its freshly generated "
+        "public key and receives a pairing code to show the operator; an admin approves or denies it "
+        "in the UI (`POST /scanner-discovery-requests/{id}/approve`). Poll `GET "
+        "/scanners/discover/{discovery_id}` for the outcome. A second request with the same key while "
+        "one is pending returns the existing request. Requests expire after 15 minutes. Records a "
+        "`scanner_discovery_requested` audit event.\n"
+        "Public (the approval is the gate), rate limited to 5 requests per minute per client, and "
+        "disabled by default: it answers 404 unless discovery is enabled in the server settings.\n"
+        "Errors: 400 if `public_key_pem` is not a valid Ed25519 public key; 404 if discovery is "
+        "disabled; 422 for a malformed body; 429 when rate limited."
+    ),
 )
 async def discover_scanner(
     body: DiscoverRequest,
@@ -239,9 +259,20 @@ def _to_status(row: ScannerDiscoveryRequest, scanner: Scanner | None) -> Discove
     "/scanners/discover/{discovery_id}",
     response_model=DiscoverStatus,
     tags=[SCANNER_TAG],
+    summary="Poll a discovery request",
+    description=(
+        "Scanner protocol. Long-polls for the outcome of a discovery request: returns at once when it "
+        "is no longer pending, otherwise waits up to about 25 seconds for the admin's decision and "
+        "then answers with the current state. `status` is `pending`, `approved` (with `scanner_id`, "
+        "`name`, `pool` and the server protocol version: continue with the handshake), `denied` (with "
+        "`deny_reason`) or `expired`. A pending request past its expiry is marked `expired`.\n"
+        "Public: the unguessable `discovery_id` is the credential. Answers 404 while discovery is "
+        "disabled.\n"
+        "Errors: 404 if discovery is disabled or the request does not exist."
+    ),
 )
 async def discover_status(
-    discovery_id: uuid.UUID,
+    discovery_id: Annotated[uuid.UUID, Path(description="Id returned when the request was created.")],
     db: AsyncSession = Depends(get_db),
 ):
     """Long-poll for the discovery's terminal state. Returns
@@ -320,6 +351,12 @@ async def discover_status(
     "/scanner-discovery-requests",
     response_model=list[DiscoveryAdminSummary],
     tags=["scanners"],
+    summary="List scanner discovery requests",
+    description=(
+        "Pending requests plus those decided in the last 24 hours, newest first, each with its "
+        "pairing code and the key fingerprint to compare with the scanner host.\n"
+        "Requires scope `scanners:read`. Not available to source-limited tokens."
+    ),
 )
 async def list_discovery_requests(
     db: AsyncSession = Depends(get_db),
@@ -368,11 +405,19 @@ def _terminal_or_404(row: ScannerDiscoveryRequest | None) -> ScannerDiscoveryReq
 @router.post(
     "/scanner-discovery-requests/{discovery_id}/approve",
     response_model=DiscoveryApproved,
-    summary="Approve a scanner discovery request",
     tags=["scanners"],
+    summary="Approve a scanner discovery request",
+    description=(
+        "Registers the requesting scanner under the given name and pool and tells the waiting scanner "
+        "it was approved. The scanner is created with no source or scan-type restriction; use `PATCH "
+        "/scanners/{scanner_id}` to restrict it. Records a `scanner_discovery_approved` audit event.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the request does not exist; 409 if the "
+        "scanner name is in use; 410 if the request was already decided or has expired; 422 for a "
+        "malformed body."
+    ),
 )
 async def approve_discovery(
-    discovery_id: uuid.UUID,
+    discovery_id: Annotated[uuid.UUID, Path(description="Discovery request to approve.")],
     body: ApproveBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -437,9 +482,16 @@ async def approve_discovery(
     "/scanner-discovery-requests/{discovery_id}/deny",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["scanners"],
+    summary="Deny a scanner discovery request",
+    description=(
+        "Rejects a pending request, optionally with a reason the scanner sees. Records a "
+        "`scanner_discovery_denied` audit event.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the request does not exist; 410 if it was "
+        "already decided or has expired; 422 for a malformed body."
+    ),
 )
 async def deny_discovery(
-    discovery_id: uuid.UUID,
+    discovery_id: Annotated[uuid.UUID, Path(description="Discovery request to deny.")],
     body: DenyBody,
     request: Request,
     db: AsyncSession = Depends(get_db),

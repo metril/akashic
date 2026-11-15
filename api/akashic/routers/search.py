@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
@@ -135,25 +135,49 @@ def _parse_search_as(raw: str | None) -> SearchAsOverride | None:
         raise HTTPException(status_code=422, detail=f"Invalid search_as: {exc}")
 
 
-@router.get("", response_model=SearchPage, summary="Search files")
+@router.get(
+    "",
+    response_model=SearchPage,
+    summary="Search files",
+    description=(
+        "Searches indexed files by name and, where extracted, content. `mode` selects fuzzy full-text "
+        "matching (served by the search index, with typo tolerance and facet counts), `glob` or "
+        "`regex` matching against the file name or path (served from the database). The request falls "
+        "back to the database when the search index is unavailable or a filter predicate cannot be "
+        "expressed there; `facet_distribution` is then null. Results can be narrowed by source, "
+        "extension and size, by the `filters` predicate list, and by permission: with "
+        "`permission_filter` set to `readable` or `writable` only files the caller's linked "
+        "filesystem identities may read or write are returned (the default is `readable` once the "
+        "caller has identities bound, otherwise `all`). Each hit carries `dup_count`, the number of "
+        "other copies within the same visibility.\n"
+        "Offset cursor pagination: pass `next_cursor` back as `cursor`; `total` is an estimate on the "
+        "index path. Callers allowed to bypass ACL filtering (scope `users:write`) can pass "
+        "`search_as` to see results exactly as a given filesystem identity would; each use is "
+        "recorded as a `search_as_used` audit event.\n"
+        "Requires scope `files:read`. Source-limited API tokens only search their permitted sources. "
+        "Errors: 400 for an invalid extension, regular expression or `filters` value; 403 if "
+        "`search_as` is used without the bypass scope; 404 if `source_id` is outside the token's "
+        "sources; 422 for a malformed `search_as`, `cursor` or other parameter."
+    ),
+)
 async def search(
-    q: str = Query(default=""),
-    mode: SearchMode = Query(default="fuzzy"),
-    source_id: uuid.UUID | None = None,
-    extension: str | None = None,
-    min_size: int | None = None,
-    max_size: int | None = None,
-    permission_filter: PermissionFilter | None = None,
-    search_as: str | None = Query(default=None),
-    filters: str | None = Query(default=None, description="base64url(json) predicate list"),
-    sort: SortField = Query(default="relevance"),
-    order: SortOrder = Query(default="desc"),
+    q: str = Query(default="", description="Search text. Empty returns everything matching the filters.", examples=['quarterly report']),
+    mode: SearchMode = Query(default="fuzzy", description="`fuzzy` (default) is full-text and typo tolerant; `glob` matches shell wildcards against the name (or the path when the pattern contains `/`); `regex` matches a regular expression against the path."),
+    source_id: Annotated[uuid.UUID | None, Query(description="Only files in this source.")] = None,
+    extension: Annotated[str | None, Query(description="Only files with this extension, without the dot (letters and digits, up to 20).", examples=['pdf'])] = None,
+    min_size: Annotated[int | None, Query(description="Only files at least this many bytes.")] = None,
+    max_size: Annotated[int | None, Query(description="Only files at most this many bytes.")] = None,
+    permission_filter: Annotated[PermissionFilter | None, Query(description="`all`, `readable` or `writable`. Defaults to `readable` for callers with bound filesystem identities, otherwise `all`.")] = None,
+    search_as: str | None = Query(default=None, description="Callers allowed to bypass ACL filtering only: a JSON object `{\"type\": ..., \"identifier\": ..., \"groups\": [...]}` (type one of `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical`) to search as that identity.", examples=['{"type": "posix_uid", "identifier": "1000", "groups": ["100"]}']),
+    filters: str | None = Query(default=None, description="Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters.", examples=['W3sia2luZCI6ImV4dGVuc2lvbiIsInZhbHVlIjoicGRmIn1d']),
+    sort: SortField = Query(default="relevance", description="Sort key; `relevance` (default) uses the full-text ranking."),
+    order: SortOrder = Query(default="desc", description="Sort direction; ignored for `relevance`."),
     # v0.4.14 — Search page is now infinite-scroll, so the page size
     # default should be something a viewport actually fills. Cap at 500
     # so one bad client can't ask for the entire index in a single
     # round-trip.
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=100, ge=1, le=500, description="Page size."),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),

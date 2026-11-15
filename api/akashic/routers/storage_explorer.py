@@ -36,7 +36,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query
@@ -137,7 +137,16 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, sees_all: bool) -> st
 # ── Top-level: one rectangle per source ────────────────────────────────────
 
 
-@router.get("/sources", response_model=StorageSourcesResponse, summary="Cross-source treemap")
+@router.get(
+    "/sources",
+    response_model=StorageSourcesResponse,
+    summary="Cross-source treemap",
+    description=(
+        "One row per visible source, sized by the totals of its most recent scan snapshot (zero when "
+        "never scanned), largest first. Not paginated.\n"
+        "Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources."
+    ),
+)
 async def list_storage_sources(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -184,16 +193,20 @@ async def list_storage_sources(
     response_model=StorageChildrenResponse,
     summary="Directory children",
     description=(
-        "Not paginated: returns the top `limit` children by size plus an aggregate "
-        "`other` bucket for the rest, which is what a treemap needs."
+        "Not paginated: returns the top `limit` children of a directory by size plus an aggregate "
+        "`other` bucket for the rest, which is what a treemap needs. Each child carries the size and "
+        "a colour key chosen by `color_by`. When per-user ACL filtering applies, entries hidden from "
+        "the caller are folded into a synthetic `<hidden>` bucket.\n"
+        "Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter."
     ),
 )
 async def list_children(
-    source_id: uuid.UUID,
-    path: str = Query(default="/"),
-    color_by: ColorMode = Query(default="type"),
-    show_all: bool = Query(default=False),
-    limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=1000),
+    source_id: Annotated[uuid.UUID, Query(description="Source to look inside.")],
+    path: str = Query(default="/", description="Directory whose immediate children to return.", examples=['/projects']),
+    color_by: ColorMode = Query(default="type", description="Colour dimension: `type` (extension or directory), `age` (hot under 30 days, warm under a year, else cold), `owner`, or `risk` (marks world- or authenticated-readable entries; only for callers who bypass ACL filtering, others get `type`)."),
+    show_all: bool = Query(default=False, description="For callers allowed to bypass ACL filtering: include entries regardless of filesystem permissions. Ignored for everyone else."),
+    limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=1000, description="Children to return before the remainder is grouped as `other`."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
@@ -683,14 +696,26 @@ async def _fetch_tree_rows_v2(
     return rows
 
 
-@router.get("/tree", response_model=StorageTreeResponse, summary="Nested subtree")
+@router.get(
+    "/tree",
+    response_model=StorageTreeResponse,
+    summary="Nested subtree",
+    description=(
+        "Recursive expansion of a directory into one nested tree sized to a node budget, ready to "
+        "feed a treemap. `truncated` is true when the budget was reached; each directory then carries "
+        "an `other` bucket for the size not shown. ACL filtering and the `<hidden>` bucket behave as "
+        "for the children endpoint.\n"
+        "Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter."
+    ),
+)
 async def get_tree(
-    source_id: uuid.UUID = Query(...),
-    path: str = Query(default="/"),
-    max_nodes: int = Query(default=_DEFAULT_TREE_NODES, ge=1, le=_MAX_TREE_NODES),
-    min_bytes: int = Query(default=0, ge=0),
-    color_by: ColorMode = Query(default="type"),
-    show_all: bool = Query(default=False),
+    source_id: uuid.UUID = Query(..., description="Source to expand."),
+    path: str = Query(default="/", description="Directory to start from.", examples=['/']),
+    max_nodes: int = Query(default=_DEFAULT_TREE_NODES, ge=1, le=_MAX_TREE_NODES, description="Maximum nodes in the response."),
+    min_bytes: int = Query(default=0, ge=0, description="Skip entries smaller than this many bytes (they count toward `other`)."),
+    color_by: ColorMode = Query(default="type", description="Colour dimension: `type`, `age`, `owner` or `risk` (as for the children endpoint)."),
+    show_all: bool = Query(default=False, description="For callers allowed to bypass ACL filtering: include entries regardless of filesystem permissions. Ignored for everyone else."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):

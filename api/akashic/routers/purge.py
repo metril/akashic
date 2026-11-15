@@ -1,10 +1,11 @@
+from typing import Annotated
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 
 from pydantic import BaseModel, Field
 from akashic.routing import ApiRouter
-from fastapi import BackgroundTasks, Depends, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,9 +52,22 @@ class PurgeDeletedResponse(BaseModel):
     threshold_days: int = Field(description="Age threshold that was applied, in days.")
 
 
-@router.post("/source/{source_id}", response_model=PurgeSourceResponse, summary="Purge a source's entries")
+@router.post(
+    "/source/{source_id}",
+    response_model=PurgeSourceResponse,
+    summary="Purge a source's entries",
+    description=(
+        "Irreversibly deletes every indexed entry (files and directories) of one source from the "
+        "database and, in the background, from the search index. The source itself, its scans and its "
+        "credentials are kept; a later scan re-indexes it. Records a purge log row "
+        "(`purge_type=source`) attributed to the caller.\n"
+        "Requires scope `data:purge`, which is destructive and never part of a default role; not "
+        "available to source-limited tokens. Errors: 404 if the source does not exist; 422 for a "
+        "malformed id."
+    ),
+)
 async def purge_source(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source whose entries are deleted.")],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("data:purge"),
@@ -101,9 +115,21 @@ async def purge_source(
     }
 
 
-@router.post("/deleted", response_model=PurgeDeletedResponse, summary="Purge soft-deleted entries")
+@router.post(
+    "/deleted",
+    response_model=PurgeDeletedResponse,
+    summary="Purge soft-deleted entries",
+    description=(
+        "Permanently removes entries that were soft-deleted (no longer seen by scans) more than "
+        "`older_than_days` days ago, in chunks of 5000, and removes their file documents from the "
+        "search index. Records a purge log row (`purge_type=deleted`) attributed to the caller. "
+        "Entries deleted more recently are untouched.\n"
+        "Requires scope `data:purge`, which is destructive and never part of a default role; not "
+        "available to source-limited tokens. Errors: 422 for `older_than_days` below 1."
+    ),
+)
 async def purge_deleted(
-    older_than_days: int = Query(default=30, ge=1),
+    older_than_days: int = Query(default=30, ge=1, description="Only entries soft-deleted at least this many days ago are purged.", examples=[30]),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("data:purge"),
 ):

@@ -1,9 +1,7 @@
-"""OpenAPI contract: every route is documented, and the committed spec is current.
+"""OpenAPI contract: every route and schema field is documented, and the committed spec is current.
 
-Existing gaps live in ``tests/openapi_allowlist.py`` (a ratchet): a *new*
-violation fails, and so does an allowlist entry that has since been fixed,
-so the list can only shrink. Regenerate it after fixing things with
-``make openapi-allowlist``.
+There is no allowlist: any violation (missing summary, error responses,
+description, ...) fails directly.
 """
 from __future__ import annotations
 
@@ -19,7 +17,6 @@ from akashic.main import create_app
 from akashic.auth.scopes import ROLE_SCOPES, SCOPES
 from akashic.openapi import SCANNER_TAG, TAGS
 from akashic.schemas.common import ErrorResponse
-from tests.openapi_allowlist import ALLOWLIST
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = REPO_ROOT / "openapi.json"
@@ -260,16 +257,8 @@ def violations(app, spec):
 
 
 @pytest.mark.parametrize("category", CATEGORIES)
-def test_contract_ratchet(violations, category):
-    allowed = set(ALLOWLIST.get(category, ()))
-    found = violations[category]
-    new = sorted(found - allowed)
-    stale = sorted(allowed - found)
-    assert not new, f"new {category} violations (fix them; do not allowlist): {new}"
-    assert not stale, (
-        f"{category} allowlist entries are now fixed; remove them "
-        f"(`make openapi-allowlist`): {stale}"
-    )
+def test_contract(violations, category):
+    assert not violations[category], f"{category} violations: {sorted(violations[category])}"
 
 
 def test_every_tag_is_described():
@@ -560,3 +549,36 @@ def test_unresolved_receiver_falls_back_to_method_name(scan_this_module):
 def test_external_receivers_are_not_flagged(scan_this_module):
     """``{}.get`` / SQLAlchemy sessions are not akashic: no fallback, no false positives."""
     assert _routing.scan_raises(_External.fetch) == (set(), [])
+
+
+def test_model_examples_validate():
+    """Every `examples` entry on every schema validates against its model."""
+    import importlib
+    import pkgutil
+
+    import akashic
+    from pydantic import BaseModel
+
+    for mod in pkgutil.walk_packages(akashic.__path__, "akashic."):
+        if mod.name.startswith(("akashic.tools", "akashic.workers")):
+            continue
+        try:
+            importlib.import_module(mod.name)
+        except Exception:  # noqa: BLE001 - optional heavy modules are not schemas
+            continue
+
+    def subclasses(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from subclasses(sub)
+
+    checked = 0
+    for model in set(subclasses(BaseModel)):
+        if not model.__module__.startswith("akashic") or model.__pydantic_generic_metadata__["parameters"]:
+            continue
+        extra = model.model_config.get("json_schema_extra")
+        examples = extra.get("examples") if isinstance(extra, dict) else None
+        for example in examples or []:
+            model.model_validate(example)
+            checked += 1
+    assert checked > 50, f"only {checked} examples found; the walk is not reaching the schemas"

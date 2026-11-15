@@ -1,4 +1,4 @@
-.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner bootstrap-scanner-legacy openapi openapi-allowlist
+.PHONY: up down restart web api scanner watch logs ps build bootstrap-scanner bootstrap-scanner-legacy openapi
 
 up:
 	docker compose up -d
@@ -80,7 +80,3 @@ ps:
 # Redis. CI fails if the committed file is stale.
 openapi:
 	python api/scripts/dump_openapi.py
-
-# Rewrite the contract-test ratchet after fixing violations (shrink-only).
-openapi-allowlist:
-	python api/scripts/regen_openapi_allowlist.py

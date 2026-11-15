@@ -20,7 +20,20 @@ router = ApiRouter(prefix="/users", tags=["users"])
 _REGISTER_LOCK_KEY = 0x414B5348_01  # arbitrary constant: "AKSH"+1
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register the first admin",
+    description=(
+        "Bootstrap endpoint: creates the very first account, which becomes an `admin`. Public, but "
+        "only works while no user exists; afterwards registration is closed and accounts are created "
+        "by an admin with `POST /users/create`. Concurrent calls are serialized so only one becomes "
+        "admin.\n"
+        "Errors: 403 once any user exists; 409 if the username is taken; 422 for an invalid username "
+        "or password (3-64 character username, 8-128 character password of at most 72 UTF-8 bytes)."
+    ),
+)
 async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     # Serialize bootstrap: without the lock two concurrent registers both
     # see count==0 and both become admin. Released at commit/rollback.
@@ -51,7 +64,18 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.post("/create", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/create",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a user",
+    description=(
+        "Creates a new account with the `viewer` role.\n"
+        "Requires scope `users:write`. Errors: 409 if the username is taken; 422 for an invalid "
+        "username or password (3-64 character username, 8-128 character password of at most 72 UTF-8 "
+        "bytes)."
+    ),
+)
 async def create_user(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
@@ -80,7 +104,18 @@ _login_limiter = make_limiter(
 )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Log in with a password",
+    description=(
+        "Verifies a local username and password. Returns a short-lived JWT access token and sets the "
+        "`akashic_refresh` HttpOnly cookie (scoped to `/api/v1/auth`) that `POST /auth/refresh` "
+        "exchanges for new access tokens. Public.\n"
+        "Rate limited to 10 attempts per minute per username. Errors: 401 for an unknown user or "
+        "wrong password; 422 for a malformed body; 429 when rate limited."
+    ),
+)
 async def login(
     request: Request,
     data: UserLogin,
@@ -104,7 +139,11 @@ async def login(
     "",
     response_model=list[UserResponse],
     summary="List users",
-    description="Every user account, ordered by username.",
+    description=(
+        "Every user account, ordered by username, with its role. Password hashes are never returned. "
+        "Not paginated.\n"
+        "Requires scope `users:read`. Not available to source-limited tokens."
+    ),
 )
 async def list_users(
     db: AsyncSession = Depends(get_db),

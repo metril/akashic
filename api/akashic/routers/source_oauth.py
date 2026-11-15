@@ -44,6 +44,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+from typing import Annotated
 import logging
 import uuid
 from datetime import timezone
@@ -51,7 +52,7 @@ from html import escape as html_escape
 from urllib.parse import urlparse
 
 from akashic.routing import ApiRouter
-from fastapi import Cookie, Depends, HTTPException, Query, Request, status
+from fastapi import Cookie, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,7 +110,17 @@ def _summary_for_app(cfg: OAuthAppConfig) -> OAuthAppConfigSummary:
     )
 
 
-@router.get("/providers", response_model=list[OAuthAppConfigSummary])
+@router.get(
+    "/providers",
+    response_model=list[OAuthAppConfigSummary],
+    summary="List OAuth providers",
+    description=(
+        "Every OAuth provider the server supports (`google`, `microsoft`, `dropbox`), with whether an app (client "
+        "id and secret) is configured. Unconfigured providers are returned with empty `client_id` and "
+        "`redirect_uri` and `has_secret: false`. The secret is never returned.\n"
+        "Requires scope `credentials:read`. Not available to source-limited tokens."
+    ),
+)
 async def list_providers(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:read"),
@@ -139,9 +150,20 @@ async def list_providers(
     return out
 
 
-@router.put("/providers/{provider}", response_model=OAuthAppConfigSummary)
+@router.put(
+    "/providers/{provider}",
+    response_model=OAuthAppConfigSummary,
+    summary="Configure an OAuth provider",
+    description=(
+        "Creates or updates the OAuth app (client id, client secret, redirect URI) for a provider. "
+        "The secret is stored encrypted and never returned. On update, omit `client_secret` to keep "
+        "the stored one.\n"
+        "Requires scope `credentials:write`. Errors: 400 for an unknown provider, or a missing "
+        "`client_secret` when creating; 422 for a malformed body."
+    ),
+)
 async def upsert_provider(
-    provider: str,
+    provider: Annotated[str, Path(description="Provider key from `GET /oauth/providers`.", examples=['google'])],
     body: OAuthAppConfigUpsert,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),
@@ -192,9 +214,18 @@ async def upsert_provider(
     return _summary_for_app(cfg)
 
 
-@router.delete("/providers/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/providers/{provider}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove an OAuth provider configuration",
+    description=(
+        "Forgets the provider's client id and secret. Idempotent: succeeds when nothing is "
+        "configured. Existing credentials stay but can no longer refresh.\n"
+        "Requires scope `credentials:write`."
+    ),
+)
 async def delete_provider(
-    provider: str,
+    provider: Annotated[str, Path(description="Provider key.", examples=['google'])],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),
 ) -> None:
@@ -214,10 +245,23 @@ async def delete_provider(
 # -----------------------------------------------------------------------------
 
 
-@router.post("/start", response_model=OAuthStartResponse)
+@router.post(
+    "/start",
+    response_model=OAuthStartResponse,
+    summary="Start an OAuth authorization",
+    description=(
+        "Builds the provider authorization URL for a source credential and returns it with the signed "
+        "`state`. Open the URL in a browser window; the provider redirects to `GET /oauth/callback`, "
+        "which stores the credential. The flow is bound to the caller's browser session (refresh "
+        "cookie) and the state is short-lived. With `mode` `associate` the credential attaches to "
+        "`source_id`; with `test` it is verified and then discarded.\n"
+        "Requires scope `credentials:write`. Errors: 400 for an unknown provider or mode; 412 if the "
+        "provider has no configured app; 422 for a malformed body."
+    ),
+)
 async def start_authorize(
     body: OAuthStartRequest,
-    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE, description="Browser refresh cookie; binds the flow to the current session. Sent automatically by browsers."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),
 ) -> OAuthStartResponse:
@@ -339,16 +383,26 @@ _callback_limiter = make_limiter(
 @router.get(
     "/callback",
     response_class=HTMLResponse,
-    summary="OAuth redirect target",
     responses={200: {"description": "HTML page that posts the result to `window.opener` and closes itself."}},
+    summary="OAuth redirect target",
+    description=(
+        "The `redirect_uri` the provider sends the browser back to. Verifies the signed `state` and "
+        "that the same user and browser session that started the flow is completing it, exchanges "
+        "`code` for tokens and stores the credential (or, in `test` mode, verifies and discards it). "
+        "Always answers 200 with a small HTML page that posts the result to `window.opener` "
+        "(restricted to the configured callback origin) and closes itself; failures, including rate "
+        "limiting, are reported on the page rather than as HTTP errors.\n"
+        "Public: the signed `state` is the credential. Rate limited to 10 requests per minute per "
+        "client."
+    ),
 )
 async def callback(
     request: Request,
-    code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-    error: str | None = Query(default=None),
-    error_description: str | None = Query(default=None),
-    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    code: str | None = Query(default=None, description="Authorization code from the provider."),
+    state: str | None = Query(default=None, description="Signed state from `POST /oauth/start`."),
+    error: str | None = Query(default=None, description="Provider error code, when the user denied access."),
+    error_description: str | None = Query(default=None, description="Provider's human-readable error."),
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE, description="Browser refresh cookie, compared with the session that started the flow."),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     try:
@@ -570,7 +624,16 @@ def _summary_for_credential(cred: SourceOAuthCredential) -> OAuthCredentialSumma
     )
 
 
-@router.get("/credentials", response_model=list[OAuthCredentialSummary])
+@router.get(
+    "/credentials",
+    response_model=list[OAuthCredentialSummary],
+    summary="List OAuth credentials",
+    description=(
+        "Every stored OAuth credential, newest first, with the connected account and the source it is "
+        "attached to. Tokens are never returned.\n"
+        "Requires scope `credentials:read`. Not available to source-limited tokens."
+    ),
+)
 async def list_credentials(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:read"),
@@ -582,10 +645,17 @@ async def list_credentials(
 
 
 @router.delete(
-    "/credentials/{credential_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/credentials/{credential_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an OAuth credential",
+    description=(
+        "Forgets a stored credential; a source that uses it can no longer be scanned until it is "
+        "reconnected. Idempotent: succeeds when it does not exist.\n"
+        "Requires scope `credentials:write`."
+    ),
 )
 async def delete_credential(
-    credential_id: uuid.UUID,
+    credential_id: Annotated[uuid.UUID, Path(description="Credential to delete.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),
 ) -> None:
@@ -597,10 +667,18 @@ async def delete_credential(
 
 
 @router.post(
-    "/credentials/{credential_id}/refresh", response_model=OAuthRefreshResponse
+    "/credentials/{credential_id}/refresh",
+    response_model=OAuthRefreshResponse,
+    summary="Refresh an OAuth credential now",
+    description=(
+        "Discards the cached access token and mints a new one from the stored refresh token, to "
+        "confirm the credential still works. Returns the new access token.\n"
+        "Requires scope `credentials:write`. Errors: 404 if the credential does not exist; 502 if the "
+        "provider refused the refresh."
+    ),
 )
 async def force_refresh(
-    credential_id: uuid.UUID,
+    credential_id: Annotated[uuid.UUID, Path(description="Credential to refresh.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),
 ) -> OAuthRefreshResponse:

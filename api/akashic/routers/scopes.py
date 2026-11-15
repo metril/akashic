@@ -14,8 +14,9 @@ router = ApiRouter(tags=["auth"])
     response_model=ScopeCatalog,
     summary="List scopes and role bundles",
     description=(
-        "Every scope the API defines, and the scopes each role grants. "
-        "Requires authentication but no particular scope."
+        "Every scope the API defines, and the scopes each role grants. Clients use it to build token "
+        "pickers. Requires authentication but no particular scope. Errors: 401 for missing or invalid "
+        "credentials."
     ),
 )
 async def list_scopes(_: Principal = Depends(get_principal)) -> ScopeCatalog:

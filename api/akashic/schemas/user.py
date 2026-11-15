@@ -12,9 +12,9 @@ _BCRYPT_MAX_BYTES = 72
 
 
 class UserCreate(BaseModel):
-    username: str = Field(..., min_length=3, max_length=64)
-    password: str = Field(..., min_length=8, max_length=128)
-    email: str | None = None
+    username: str = Field(..., min_length=3, max_length=64, description="Login name, 3-64 characters.", examples=['alice'])
+    password: str = Field(..., min_length=8, max_length=128, description="Password, 8-128 characters and at most 72 UTF-8 bytes (bcrypt's limit).")
+    email: str | None = Field(default=None, description="Optional contact address.")
 
     @field_validator("password")
     @classmethod
@@ -26,18 +26,22 @@ class UserCreate(BaseModel):
             )
         return v
 
+    model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple', 'email': 'alice@example.com'}]}}
+
 
 class UserLogin(BaseModel):
-    username: str
-    password: str
+    username: str = Field(description="Login name.")
+    password: str = Field(description="Account password.")
+
+    model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
 
 
 class UserResponse(BaseModel):
-    id: uuid.UUID
-    username: str
-    email: str | None
-    role: str
-    created_at: datetime
+    id: uuid.UUID = Field(description="User id.")
+    username: str = Field(description="Login name.")
+    email: str | None = Field(description="Contact address, if set.")
+    role: str = Field(description="Role bundle: `admin` or `viewer`.")
+    created_at: datetime = Field(description="When the account was created.")
 
     model_config = {"from_attributes": True}
 

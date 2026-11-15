@@ -7,11 +7,12 @@ destructive actions are written to the audit log.
 """
 from __future__ import annotations
 
+from typing import Annotated
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,71 +47,86 @@ _TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 # — schemas —
 
 class OverviewOut(BaseModel):
-    scans_by_status: dict[str, int]
-    scans_active: int
-    entries_total: int
-    sources_total: int
-    scanners_total: int
-    scanners_online: int
-    scan_log_rows: int
-    scan_log_purgeable: int
-    log_retention_days: int
-    meili_documents: int | None
+    scans_by_status: dict[str, int] = Field(description="Number of scans in each status (`pending`, `running`, `completed`, `failed`, `cancelled`).")
+    scans_active: int = Field(description="Scans that are `pending` or `running`.")
+    entries_total: int = Field(description="Indexed entries (files and directories) across all sources.")
+    sources_total: int = Field(description="Number of sources.")
+    scanners_total: int = Field(description="Number of registered scanners.")
+    scanners_online: int = Field(description="Scanners seen within the last 90 seconds.")
+    scan_log_rows: int = Field(description="Scan log rows stored.")
+    scan_log_purgeable: int = Field(description="Log rows of scans that ended more than the retention period ago; the hourly sweep deletes these.")
+    log_retention_days: int = Field(description="Days a finished scan's logs are kept.")
+    meili_documents: int | None = Field(description="Documents in the search index; null if the search service could not be reached.")
 
 
 class StuckScanOut(BaseModel):
-    scan_id: uuid.UUID
-    source_id: uuid.UUID | None
-    source_name: str | None
-    status: str
-    scan_type: str
-    started_at: datetime | None
-    last_heartbeat_at: datetime | None
-    age_seconds: float | None
-    assigned_scanner_id: uuid.UUID | None
-    assigned_scanner_name: str | None
+    scan_id: uuid.UUID = Field(description="Scan id.")
+    source_id: uuid.UUID | None = Field(description="Source being scanned; null if it was deleted.")
+    source_name: str | None = Field(description="Source name.")
+    status: str = Field(description="`pending` or `running`.")
+    scan_type: str = Field(description="`full` or `incremental`.")
+    started_at: datetime | None = Field(description="When the scan started; null while still waiting for a scanner.")
+    last_heartbeat_at: datetime | None = Field(description="Last progress heartbeat from the scanner.")
+    age_seconds: float | None = Field(description="Seconds since the scan started.")
+    assigned_scanner_id: uuid.UUID | None = Field(description="Scanner holding the lease, if any.")
+    assigned_scanner_name: str | None = Field(description="Name of that scanner.")
 
 
 class CancelOut(BaseModel):
-    scan_id: uuid.UUID
-    status: str
+    scan_id: uuid.UUID = Field(description="Scan id.")
+    status: str = Field(description="Scan status after the call (`cancelled`, or the terminal status it already had).")
 
 
 class WatchdogOut(BaseModel):
-    active_before: int
-    active_after: int
+    active_before: int = Field(description="Active scans before the pass.")
+    active_after: int = Field(description="Active scans after the pass.")
 
 
 class PurgeLogsRequest(BaseModel):
-    older_than_days: int | None = Field(default=None, ge=0)
-    scan_id: uuid.UUID | None = None
+    older_than_days: int | None = Field(default=None, ge=0, description="Delete logs of finished scans that completed more than this many days ago (`0` for all finished scans). Mutually exclusive with `scan_id`.")
+    scan_id: uuid.UUID | None = Field(default=None, description="Delete all logs of this one scan, whatever its status. Mutually exclusive with `older_than_days`.")
+
+    model_config = {"json_schema_extra": {'examples': [{'older_than_days': 14}]}}
 
 
 class PurgeLogsOut(BaseModel):
-    deleted: int
+    deleted: int = Field(description="Log rows deleted.")
 
 
 class JobOut(BaseModel):
-    id: uuid.UUID
-    kind: str
-    status: str
-    params: dict
-    result: dict | None
-    error: str | None
-    started_at: datetime
-    finished_at: datetime | None
+    id: uuid.UUID = Field(description="Job id.")
+    kind: str = Field(description="Job kind: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
+    status: str = Field(description="`running`, `succeeded` or `failed`.")
+    params: dict = Field(description="Parameters the job was started with.")
+    result: dict | None = Field(description="Result when finished, e.g. `{\"rows_affected\": 1200}`.")
+    error: str | None = Field(description="Error message when the job failed.")
+    started_at: datetime = Field(description="When the job started.")
+    finished_at: datetime | None = Field(description="When the job finished; null while running.")
 
     model_config = {"from_attributes": True}
 
 
 class StartJobRequest(BaseModel):
-    kind: str
-    params: dict = Field(default_factory=dict)
+    kind: str = Field(description="Job to run: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
+    params: dict = Field(default_factory=dict, description="Optional job parameters: `batch_size` (`reindex_search`, `backfill_viewable`) and `source_id` (the three backfills and `warm_groups`).")
+
+    model_config = {"json_schema_extra": {'examples': [{'kind': 'reindex_search', 'params': {'batch_size': 100}}]}}
 
 
 # — endpoints —
 
-@router.get("/overview", response_model=OverviewOut)
+@router.get(
+    "/overview",
+    response_model=OverviewOut,
+    summary="System state overview",
+    description=(
+        "Counts for the Maintenance page: scans by status and how many are active, total entries, "
+        "sources and scanners, scanners seen within the last 90 seconds, scan log rows and how many "
+        "the retention sweep (7 days after a scan ends) would delete, and the Meilisearch document "
+        "count (null if the search service cannot be reached).\n"
+        "Requires scope `maintenance:write`. Not available to source-limited tokens."
+    ),
+)
 async def overview(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("maintenance:write"),
@@ -172,7 +188,17 @@ async def overview(
     )
 
 
-@router.get("/scans/stuck", response_model=list[StuckScanOut])
+@router.get(
+    "/scans/stuck",
+    response_model=list[StuckScanOut],
+    summary="List active scans",
+    description=(
+        "Every scan that is still `pending` or `running`, across all sources, oldest first, with the "
+        "assigned scanner and the age since start. Use it to find scans that stopped making progress; "
+        "combine with the heartbeat time to judge.\n"
+        "Requires scope `maintenance:write`. Not available to source-limited tokens."
+    ),
+)
 async def stuck_scans(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("maintenance:write"),
@@ -205,9 +231,20 @@ async def stuck_scans(
     return out
 
 
-@router.post("/scans/{scan_id}/cancel", response_model=CancelOut)
+@router.post(
+    "/scans/{scan_id}/cancel",
+    response_model=CancelOut,
+    summary="Force-cancel a scan",
+    description=(
+        "Cancels a `pending` or `running` scan regardless of who started it, marking it `cancelled` "
+        "with reason `admin` and returning its source to `online`. Idempotent: a scan that already "
+        "ended is returned unchanged with its current status. The scanner notices on its next "
+        "heartbeat. Records a `maintenance.scan_cancel` audit event.\n"
+        "Requires scope `maintenance:write`. Errors: 404 if the scan does not exist."
+    ),
+)
 async def cancel_stuck_scan(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan to cancel.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("maintenance:write"),
@@ -229,7 +266,18 @@ async def cancel_stuck_scan(
     return CancelOut(scan_id=scan_id, status=status)
 
 
-@router.post("/watchdog/run", response_model=WatchdogOut)
+@router.post(
+    "/watchdog/run",
+    response_model=WatchdogOut,
+    summary="Run the stale-scan watchdog now",
+    description=(
+        "Runs the watchdog pass immediately instead of waiting for the scheduler (up to 60 seconds): "
+        "leases that expired are re-queued, then scans idle past the stale threshold are failed. "
+        "Returns the number of active scans before and after. Records a `maintenance.watchdog_run` "
+        "audit event.\n"
+        "Requires scope `maintenance:write`."
+    ),
+)
 async def run_watchdog(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -258,7 +306,19 @@ async def run_watchdog(
     return WatchdogOut(active_before=before, active_after=after)
 
 
-@router.post("/logs/purge", response_model=PurgeLogsOut)
+@router.post(
+    "/logs/purge",
+    response_model=PurgeLogsOut,
+    summary="Purge scan logs",
+    description=(
+        "Deletes scan log entries. Give exactly one of `older_than_days` (delete the logs of every "
+        "finished scan that completed more than that many days ago; `0` deletes all finished scans' "
+        "logs) or `scan_id` (delete one scan's logs whatever its status). Records a "
+        "`maintenance.logs_purge` audit event.\n"
+        "Requires scope `maintenance:write`. Errors: 400 unless exactly one of the two fields is "
+        "given; 422 for a negative number of days."
+    ),
+)
 async def purge_logs(
     body: PurgeLogsRequest,
     request: Request,
@@ -287,7 +347,15 @@ async def purge_logs(
     return PurgeLogsOut(deleted=deleted)
 
 
-@router.get("/jobs", response_model=list[JobOut])
+@router.get(
+    "/jobs",
+    response_model=list[JobOut],
+    summary="List maintenance jobs",
+    description=(
+        "The 20 most recent maintenance jobs, newest first, with status, parameters and result.\n"
+        "Requires scope `maintenance:write`."
+    ),
+)
 async def list_jobs(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("maintenance:write"),
@@ -301,7 +369,22 @@ async def list_jobs(
     return [JobOut.model_validate(r) for r in rows]
 
 
-@router.post("/jobs", response_model=JobOut, status_code=202)
+@router.post(
+    "/jobs",
+    response_model=JobOut,
+    status_code=202,
+    summary="Start a maintenance job",
+    description=(
+        "Starts a long-running job in the background and returns immediately (202) with a `running` "
+        "job; poll `GET /admin/maintenance/jobs` for the outcome. Kinds: `reindex_search` (rebuild "
+        "the search index; optional `batch_size`), `backfill_subtree_sizes` (optional `source_id`), "
+        "`backfill_viewable` (optional `batch_size`, `source_id`) and `warm_groups` (optional "
+        "`source_id`). Only one job of a kind runs at a time. The job does not survive an API "
+        "restart; it is then marked `failed`. Records a `maintenance.job_start` audit event.\n"
+        "Requires scope `maintenance:write`. Errors: 400 for an unknown `kind`; 409 if a job of that "
+        "kind is already running; 422 for a malformed body."
+    ),
+)
 async def start_job(
     body: StartJobRequest,
     request: Request,

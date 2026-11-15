@@ -1,7 +1,8 @@
+from typing import Annotated
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Path, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +16,22 @@ from akashic.schemas.webhook import WebhookCreate, WebhookResponse
 router = ApiRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-@router.post("", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WebhookResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a webhook",
+    description=(
+        "Registers an outgoing webhook for the calling user. Matching events are POSTed to `url` as "
+        "JSON with an `X-Akashic-Signature` header: the hex HMAC-SHA256 of the request body (compact "
+        "JSON, keys sorted) keyed with `secret`. Scan webhooks (`scan.completed`, `scan.failed`) "
+        "carry `event`, `scan_id` and `source_id`, and fire only for webhooks owned by users whose "
+        "role holds `scans:write`.\n"
+        "The URL must resolve to a public address; private, loopback and link-local targets are "
+        "refused, and re-checked at delivery time.\n"
+        "Requires scope `webhooks:write`. Errors: 422 for a malformed body or an unsafe URL."
+    ),
+)
 async def create_webhook(
     data: WebhookCreate,
     db: AsyncSession = Depends(get_db),
@@ -38,7 +54,16 @@ async def create_webhook(
     return webhook
 
 
-@router.get("", response_model=list[WebhookResponse])
+@router.get(
+    "",
+    response_model=list[WebhookResponse],
+    summary="List your webhooks",
+    description=(
+        "The calling user's webhooks, newest first. Webhooks are private to their owner. The `secret` "
+        "is never returned.\n"
+        "Requires scope `webhooks:read`."
+    ),
+)
 async def list_webhooks(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("webhooks:read"),
@@ -50,9 +75,18 @@ async def list_webhooks(
     return result.scalars().all()
 
 
-@router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{webhook_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a webhook",
+    description=(
+        "Permanently deletes one of your webhooks.\n"
+        "Requires scope `webhooks:write`. Errors: 404 if the webhook does not exist or belongs to "
+        "another user."
+    ),
+)
 async def delete_webhook(
-    webhook_id: uuid.UUID,
+    webhook_id: Annotated[uuid.UUID, Path(description="Webhook id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("webhooks:write"),
 ):

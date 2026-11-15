@@ -8,13 +8,14 @@ management lives in ``routers/scanners.py``.
 """
 from __future__ import annotations
 
+from typing import Annotated
 import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter, raises
-from fastapi import Depends, HTTPException, Request, Response, status
+from fastapi import Depends, HTTPException, Path, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from akashic.services.rate_limit import make_limiter
@@ -44,20 +45,22 @@ router = ApiRouter(tags=[SCANNER_TAG])
 
 
 class HandshakeRequest(BaseModel):
-    protocol_version: int
-    version: str | None = None
-    hostname: str | None = None
+    protocol_version: int = Field(description="Scanner protocol version the agent speaks. This server accepts version 2 only.", examples=[2])
+    version: str | None = Field(default=None, description="Agent build version, e.g. `0.48.0`.")
+    hostname: str | None = Field(default=None, description="Host the agent runs on.")
     # Legacy (v0.36.0): ignored; concurrency is admin-configured now.
-    max_concurrent_units: int | None = None
+    max_concurrent_units: int | None = Field(default=None, description="Work units the agent can walk at once; informational.")
+
+    model_config = {"json_schema_extra": {'examples': [{'protocol_version': 2, 'version': '0.48.0', 'hostname': 'scanner01.example.com', 'max_concurrent_units': 2}]}}
 
 
 class HandshakeResponse(BaseModel):
-    config: ScannerEffectiveConfig | None = None
-    accepted: bool
-    server_protocol_version: int
-    accepted_min: int
-    accepted_max: int
-    reason: str | None = None
+    config: ScannerEffectiveConfig | None = Field(default=None, description="Effective scanner configuration; present only when accepted.")
+    accepted: bool = Field(description="Whether the agent's protocol version is supported. When false the response status is 426.")
+    server_protocol_version: int = Field(description="Protocol version this server speaks.")
+    accepted_min: int = Field(description="Lowest agent protocol version accepted.")
+    accepted_max: int = Field(description="Highest agent protocol version accepted.")
+    reason: str | None = Field(default=None, description="Why the handshake was rejected.")
 
 
 class LeasedSource(BaseModel):
@@ -106,10 +109,10 @@ def _check_claim_rate_limit(request: Request) -> None:
 
 
 class ClaimRequest(BaseModel):
-    token: str = Field(min_length=8, max_length=128)
-    public_key_pem: str = Field(min_length=1)
-    hostname: str | None = Field(default=None, max_length=255)
-    agent_version: str | None = Field(default=None, max_length=32)
+    token: str = Field(min_length=8, max_length=128, description="One-time claim token from `POST /scanner-claim-tokens`.")
+    public_key_pem: str = Field(min_length=1, description="The scanner's freshly generated Ed25519 public key, PEM encoded. The private key stays on the scanner.")
+    hostname: str | None = Field(default=None, max_length=255, description="RFC 1123 host name of the scanner host.")
+    agent_version: str | None = Field(default=None, max_length=32, description="Agent build version.")
 
     @field_validator("hostname")
     @classmethod
@@ -130,18 +133,35 @@ class ClaimRequest(BaseModel):
             )
         return v
 
+    model_config = {"json_schema_extra": {'examples': [{'token': 'akcl_3f9a1c7d2e8b4a60', 'public_key_pem': '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----\n', 'hostname': 'scanner01.example.com', 'agent_version': '0.48.0'}]}}
+
 
 class ClaimResponse(BaseModel):
-    scanner_id: uuid.UUID
-    name: str
-    pool: str
-    server_protocol_version: int
+    scanner_id: uuid.UUID = Field(description="Id of the new scanner; use it as the JWT `kid` and `sub`.")
+    name: str = Field(description="Generated scanner name.")
+    pool: str = Field(description="Pool the scanner belongs to.")
+    server_protocol_version: int = Field(description="Protocol version this server speaks.")
 
 
 @router.post(
     "/scanners/claim",
     response_model=ClaimResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Enrol a scanner with a claim token",
+    description=(
+        "Scanner protocol, step 0 of the flow `claim -> handshake -> lease -> heartbeat -> complete`. "
+        "A scanner host holding a one-time claim token (from `POST /scanner-claim-tokens`) posts its "
+        "own freshly generated Ed25519 public key; the server registers a scanner with the token's "
+        "pool and restrictions, marks the token used and returns the scanner id. The private key "
+        "never leaves the scanner. The name is `<token label>-<short id>`. Afterwards sign every "
+        "request with that key (the `kid` header is the scanner id) and call the handshake. Records a "
+        "`scanner_claim_token_redeemed` audit event.\n"
+        "No bearer auth: the token is the credential. Rate limited to 5 attempts per minute per "
+        "client.\n"
+        "Errors: 400 if `public_key_pem` is invalid; 401 for an unknown token; 409 if the key is "
+        "already registered; 410 if the token was already used or has expired; 422 for a malformed "
+        "body; 429 when rate limited."
+    ),
 )
 @raises(401, 410)  # ClaimError carries its own status (bad / expired / used token)
 async def claim_with_token(
@@ -241,7 +261,27 @@ async def claim_with_token(
 # ── Agent endpoints (scanner-JWT auth) ───────────────────────────────────
 
 
-@router.post("/scanners/handshake", response_model=HandshakeResponse)
+@router.post(
+    "/scanners/handshake",
+    response_model=HandshakeResponse,
+    responses={426: {"model": HandshakeResponse, "description": "Protocol version not accepted; the body says which versions are."}},
+    summary="Scanner handshake and version check",
+    description=(
+        "Scanner protocol, step 1 after enrolment and on every agent start. The agent sends its "
+        "`protocol_version` (this server speaks and accepts protocol version 2 only; the accepted "
+        "range is returned as `accepted_min` and `accepted_max`). If it is in range the response "
+        "carries the scanner's effective configuration (Tika URL, extraction workers, concurrent "
+        "units). Otherwise the server answers 426 with `accepted: false` and a `reason`, and the "
+        "agent must upgrade before leasing work. The reported version, hostname and last-seen time "
+        "are recorded even when rejected.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 426 when the protocol version is outside the accepted range (body is a "
+        "`HandshakeResponse`); 422 for a malformed body."
+    ),
+)
 async def handshake(
     body: HandshakeRequest,
     db: AsyncSession = Depends(get_db),
@@ -291,9 +331,21 @@ async def handshake(
 @router.post(
     "/scanners/{scanner_id}/heartbeat",
     response_model=ScannerEffectiveConfig,
+    summary="Scanner liveness heartbeat",
+    description=(
+        "Scanner protocol. Marks the scanner online (it counts as online for 90 seconds) and returns "
+        "its current effective configuration, so settings changed by an admin reach a running agent. "
+        "Send roughly every 30 seconds. Separate from the per-scan heartbeat on `POST "
+        "/scans/{scan_id}/heartbeat`.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner."
+    ),
 )
 async def scanner_heartbeat(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="The calling scanner's own id.")],
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
 ):
@@ -351,14 +403,33 @@ class LeaseRequest(BaseModel):
     binary even after an in-place image upgrade (the claim-time
     version otherwise goes stale). Older agents post an empty object;
     the field stays None and nothing changes."""
-    agent_version: str | None = Field(default=None, max_length=32)
+    agent_version: str | None = Field(default=None, max_length=32, description="Running agent build version; updates the version shown for the scanner.")
+
+    model_config = {"json_schema_extra": {'examples': [{'agent_version': '0.48.0'}]}}
 
 
 @router.post(
     "/scans/lease",
     response_model=LeasedScan | None,
-    summary="Lease a pending scan",
     responses={204: {"description": "No pending work; retry later."}},
+    summary="Lease a pending scan",
+    description=(
+        "Scanner protocol, step 2. Atomically claims one `pending` (or expired-lease) scan whose pool "
+        "matches the scanner's pool, restricted to the scanner's allowed sources and scan types, "
+        "oldest first. The lease lasts 60 seconds and is kept alive by the scan heartbeat. Marks the "
+        "scan `running` and its source `scanning`. The response carries the merged source connection "
+        "config (secrets included, plus a fresh OAuth `access_token` when the source uses OAuth) and "
+        "`api_jwt`, a short-lived (24 h) ingest token for `POST /ingest/batch`, `/ingest/content` and "
+        "the per-scan progress endpoints.\n"
+        "Returns 204 when nothing is pending; poll again after a short wait. Poll the join long-poll "
+        "`GET /scanners/{scanner_id}/scans/long-poll` as well when the source allows several parallel "
+        "scanners.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the scanner is disabled."
+    ),
 )
 async def lease_scan(
     response: Response,
@@ -592,16 +663,32 @@ async def lease_scan(
 
 
 class CompleteRequest(BaseModel):
-    status: str = Field(pattern="^(completed|failed|cancelled)$")
-    error_message: str | None = None
+    status: str = Field(pattern="^(completed|failed|cancelled)$", description="Terminal status: `completed`, `failed` or `cancelled`.")
+    error_message: str | None = Field(default=None, description="Failure detail, recorded on the scan.")
+
+    model_config = {"json_schema_extra": {'examples': [{'status': 'completed'}]}}
 
 
 @router.post(
     "/scans/{scan_id}/complete",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Complete a scan lease",
+    description=(
+        "Scanner protocol, final step. Releases the lease and records the terminal `status` "
+        "(`completed`, `failed` or `cancelled`) with an optional error message; sets the source back "
+        "to `online` (or `failed`), updates `last_scan_at` and the scanner's reachability result for "
+        "a successful scan, and notifies subscribers. Idempotent for the same status. Only the "
+        "scanner holding the lease may complete it.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the caller does not hold the lease; 404 if the scan does not exist; 409 if "
+        "the scan already ended with a different status; 422 for a malformed body."
+    ),
 )
 async def complete_scan(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan whose lease the caller holds.")],
     body: CompleteRequest,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -740,11 +827,22 @@ async def complete_scan(
 @router.get(
     "/scanners/{scanner_id}/probes/long-poll",
     response_model=ProbeRequest | None,
-    summary="Long-poll for a reachability probe",
     responses={204: {"description": "No probe within the poll window; reconnect."}},
+    summary="Long-poll for a reachability probe",
+    description=(
+        "Scanner protocol. Blocks up to 30 seconds until the server asks this scanner to test whether "
+        "it can reach a (local) source, then returns the probe with the merged connection config; "
+        "answer it with `POST /scanners/{scanner_id}/probes/{request_id}/report`. Returns 204 when "
+        "none arrived; reconnect immediately. Also marks the scanner seen.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner or the scanner is disabled."
+    ),
 )
 async def long_poll_probes(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="The calling scanner's own id.")],
     response: Response,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -776,11 +874,23 @@ async def long_poll_probes(
 @router.get(
     "/scanners/{scanner_id}/scans/long-poll",
     response_model=LeasedScan | None,
-    summary="Long-poll for a scan to join",
     responses={204: {"description": "No scan to join within the poll window; reconnect."}},
+    summary="Long-poll for a scan to join",
+    description=(
+        "Scanner protocol, parallel scans. Blocks up to 30 seconds until a scan on a source with "
+        "`max_parallel_scanners` above 1 needs more scanners, then returns the same payload as `POST "
+        "/scans/lease` so the agent can dispatch it identically, then lease units with `POST "
+        "/scans/{scan_id}/work/lease`. Returns 204 when there is nothing to join; reconnect "
+        "immediately. Also marks the scanner seen.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner or the scanner is disabled."
+    ),
 )
 async def long_poll_scan_joins(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="The calling scanner's own id.")],
     response: Response,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -823,10 +933,22 @@ async def long_poll_scan_joins(
 @router.post(
     "/scanners/{scanner_id}/probes/{request_id}/report",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Report a probe result",
+    description=(
+        "Scanner protocol. Delivers the outcome of a probe received from the probe long-poll: stored "
+        "as the scanner's latest reachability for the source and forwarded to whoever requested the "
+        "test.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner; 404 if the source does not "
+        "exist; 422 for a malformed body."
+    ),
 )
 async def report_probe_result(
-    scanner_id: uuid.UUID,
-    request_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="The calling scanner's own id.")],
+    request_id: Annotated[uuid.UUID, Path(description="Probe request id from the long-poll payload.")],
     body: "ProbeReport",
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -883,17 +1005,32 @@ async def report_probe_result(
 
 
 class OAuthAccessTokenRequest(BaseModel):
-    source_id: uuid.UUID
+    source_id: uuid.UUID = Field(description="Leased source to mint a token for.")
+
+    model_config = {"json_schema_extra": {'examples': [{'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6'}]}}
 
 
 class OAuthAccessTokenResponse(BaseModel):
-    access_token: str
-    expires_at: datetime | None
+    access_token: str = Field(description="Fresh provider access token.")
+    expires_at: datetime | None = Field(description="When the access token expires, if the provider says.")
 
 
 @router.post(
     "/scanners/oauth/access-token",
     response_model=OAuthAccessTokenResponse,
+    summary="Mint an OAuth access token for a leased source",
+    description=(
+        "Scanner protocol. Returns a fresh access token for an OAuth-backed source (for example "
+        "Google Drive) when a long scan outlives the token delivered with the lease. Only a scanner "
+        "currently holding a running scan or unit lease on the source may ask.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the scanner has no active lease on the source; 404 if the source has no "
+        "connected OAuth credential; 502 if the provider refused the refresh; 422 for a malformed "
+        "body."
+    ),
 )
 async def scanner_mint_oauth_access_token(
     body: OAuthAccessTokenRequest,

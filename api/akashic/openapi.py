@@ -42,7 +42,16 @@ TAGS: list[dict[str, str]] = [
     {"name": "maintenance", "description": "Long-running maintenance jobs (reindex, rebuild, cleanup)."},
     {"name": "server-settings", "description": "Runtime server configuration."},
     {"name": "health", "description": "Dependency health and service status."},
-    {"name": SCANNER_TAG, "description": "Endpoints spoken only by scanner agents (ingest, leases, heartbeats, discovery). Not a public integration surface."},
+    {"name": SCANNER_TAG, "description": (
+        "Endpoints spoken only by scanner agents; not a public integration surface. Protocol version 2 is required "
+        "(the handshake answers 426 to anything else). Flow: enrol (`POST /scanners/claim` with a claim token, or "
+        "`POST /scanners/discover` and wait for approval) -> `POST /scanners/handshake` on every start -> repeat "
+        "`POST /scans/lease` (and the join long-poll `GET /scanners/{scanner_id}/scans/long-poll`) -> while holding "
+        "a lease, `POST /scans/{scan_id}/heartbeat`, `POST /ingest/batch` and `/ingest/content`, log posts, and for "
+        "parallel scans `POST /scans/{scan_id}/work/lease|split|{unit_id}/heartbeat|complete|fail` -> "
+        "`POST /scans/{scan_id}/complete`. Scanner requests are signed with an Ed25519 JWT (`kid` is the scanner id); "
+        "ingest, heartbeat and log calls use the `api_jwt` ingest token returned by the lease."
+    )},
 ]
 
 SECURITY_SCHEMES: dict[str, dict[str, Any]] = {

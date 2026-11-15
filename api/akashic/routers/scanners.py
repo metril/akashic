@@ -6,12 +6,13 @@ long-polls) lives in `routers/scanner_protocol.py`.
 """
 from __future__ import annotations
 
+from typing import Annotated
 import logging
 import uuid
 from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from sqlalchemy import select, text
@@ -37,28 +38,30 @@ _ALLOWED_SCAN_TYPES = {"incremental", "full"}
 
 
 class ScannerCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
-    pool: str = Field(default="default", min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=64, description="Unique scanner name.")
+    pool: str = Field(default="default", min_length=1, max_length=64, description="Pool the scanner serves; scans are only leased to scanners in their pool.")
+
+    model_config = {"json_schema_extra": {'examples': [{'name': 'nas-scanner-1', 'pool': 'default'}]}}
 
 
 class ScannerPatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=64)
-    pool: str | None = Field(default=None, min_length=1, max_length=64)
-    enabled: bool | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=64, description="New unique name.")
+    pool: str | None = Field(default=None, min_length=1, max_length=64, description="New pool.")
+    enabled: bool | None = Field(default=None, description="Enable or disable; a disabled scanner cannot authenticate.")
     # Sentinels: omitted = leave unchanged; explicit `null` (via the
     # `clear_*` flags below) = clear back to "unrestricted".
-    allowed_source_ids: list[uuid.UUID] | None = None
-    allowed_scan_types: list[str] | None = None
-    clear_allowed_source_ids: bool = False
-    clear_allowed_scan_types: bool = False
+    allowed_source_ids: list[uuid.UUID] | None = Field(default=None, description="Restrict the scanner to these sources. Omit to leave unchanged.")
+    allowed_scan_types: list[str] | None = Field(default=None, description="Restrict the scanner to these scan types (`incremental`, `full`). Omit to leave unchanged.")
+    clear_allowed_source_ids: bool = Field(default=False, description="Remove the source restriction.")
+    clear_allowed_scan_types: bool = Field(default=False, description="Remove the scan type restriction.")
     # Per-scanner config. Omitted = unchanged; use clear_* to revert to
     # the inherited default.
-    tika_url: str | None = Field(default=None, max_length=512)
-    extract_workers: int | None = Field(default=None, ge=1, le=64)
-    max_concurrent_units: int | None = Field(default=None, ge=1, le=32)
-    clear_tika_url: bool = False
-    clear_extract_workers: bool = False
-    clear_max_concurrent_units: bool = False
+    tika_url: str | None = Field(default=None, max_length=512, description="Tika server for text extraction, `http://` or `https://`; an empty string disables extraction on this scanner.")
+    extract_workers: int | None = Field(default=None, ge=1, le=64, description="Concurrent text extraction workers (1-64).")
+    max_concurrent_units: int | None = Field(default=None, ge=1, le=32, description="Work units walked at once (1-32).")
+    clear_tika_url: bool = Field(default=False, description="Revert to the server's Tika URL.")
+    clear_extract_workers: bool = Field(default=False, description="Revert to the default worker count.")
+    clear_max_concurrent_units: bool = Field(default=False, description="Revert to the default of 1.")
 
     @field_validator("tika_url")
     @classmethod
@@ -71,18 +74,20 @@ class ScannerPatch(BaseModel):
             raise ValueError("tika_url must start with http:// or https://")
         return v
 
+    model_config = {"json_schema_extra": {'examples': [{'enabled': True, 'allowed_scan_types': ['incremental'], 'extract_workers': 8}]}}
+
 
 class ScannerCreated(BaseModel):
     """Returned ONCE on /POST /api/v1/scanners. The private_key_pem field
     isn't persisted on the api side — copy it now or rotate later."""
 
-    id: uuid.UUID
-    name: str
-    pool: str
-    public_key_pem: str
-    private_key_pem: str
-    key_fingerprint: str
-    protocol_version: int
+    id: uuid.UUID = Field(description="Scanner id (the JWT `kid` and `sub`).")
+    name: str = Field(description="Scanner name.")
+    pool: str = Field(description="Scanner pool.")
+    public_key_pem: str = Field(description="Public key the server verifies JWTs with.")
+    private_key_pem: str = Field(description="Private key, shown only in this response. Install it on the scanner host.")
+    key_fingerprint: str = Field(description="Fingerprint of the public key.")
+    protocol_version: int = Field(description="Protocol version this server speaks.")
 
 
 # Agent defaults when a scanner has no override (mirror the Go agent).
@@ -91,9 +96,9 @@ DEFAULT_MAX_CONCURRENT_UNITS = 1
 
 
 class ScannerEffectiveConfig(BaseModel):
-    tika_url: str
-    extract_workers: int
-    max_concurrent_units: int
+    tika_url: str = Field(description="Tika URL the agent uses; empty when extraction is off.")
+    extract_workers: int = Field(description="Text extraction workers.")
+    max_concurrent_units: int = Field(description="Work units walked at once.")
 
 
 def effective_scanner_config(s: Scanner) -> ScannerEffectiveConfig:
@@ -106,25 +111,25 @@ def effective_scanner_config(s: Scanner) -> ScannerEffectiveConfig:
 
 
 class ScannerSummary(BaseModel):
-    id: uuid.UUID
-    name: str
-    pool: str
-    key_fingerprint: str
-    hostname: str | None
-    version: str | None
-    protocol_version: int | None
-    registered_at: datetime
-    last_seen_at: datetime | None
-    enabled: bool
-    online: bool
-    allowed_source_ids: list[uuid.UUID] | None = None
-    allowed_scan_types: list[str] | None = None
+    id: uuid.UUID = Field(description="Scanner id.")
+    name: str = Field(description="Scanner name.")
+    pool: str = Field(description="Pool the scanner serves.")
+    key_fingerprint: str = Field(description="Fingerprint of the registered public key.")
+    hostname: str | None = Field(description="Host the agent reported at handshake.")
+    version: str | None = Field(description="Agent build version.")
+    protocol_version: int | None = Field(description="Protocol version the agent reported.")
+    registered_at: datetime = Field(description="When the scanner was registered.")
+    last_seen_at: datetime | None = Field(description="Last time the scanner made any request.")
+    enabled: bool = Field(description="Whether the scanner may authenticate.")
+    online: bool = Field(description="Whether it was seen within the last 90 seconds.")
+    allowed_source_ids: list[uuid.UUID] | None = Field(default=None, description="Sources the scanner is restricted to; null for any.")
+    allowed_scan_types: list[str] | None = Field(default=None, description="Scan types the scanner is restricted to; null for any.")
     # Admin-set per-scanner config; NULL = inherit. `effective_config`
     # is what the agent actually receives.
-    tika_url: str | None = None
-    extract_workers: int | None = None
-    max_concurrent_units: int | None = None
-    effective_config: "ScannerEffectiveConfig | None" = None
+    tika_url: str | None = Field(default=None, description="Admin override of the Tika URL; null inherits the server setting.")
+    extract_workers: int | None = Field(default=None, description="Admin override of the extraction workers; null inherits the default.")
+    max_concurrent_units: int | None = Field(default=None, description="Admin override of concurrent units; null inherits the default.")
+    effective_config: "ScannerEffectiveConfig | None" = Field(default=None, description="The configuration the agent actually receives.")
 
     model_config = {"from_attributes": True}
 
@@ -170,6 +175,14 @@ def _to_summary(s: Scanner) -> ScannerSummary:
     "/scanners",
     response_model=ScannerCreated,
     status_code=status.HTTP_201_CREATED,
+    summary="Register a scanner",
+    description=(
+        "Creates a scanner and generates its Ed25519 keypair on the server. The private key is "
+        "returned once and never stored; deliver it to the scanner host. Prefer claim tokens, which "
+        "keep the private key on the scanner host.\n"
+        "Requires scope `scanners:write`. Errors: 409 if the name is in use; 422 for a malformed "
+        "body."
+    ),
 )
 async def create_scanner(
     body: ScannerCreate,
@@ -204,7 +217,17 @@ async def create_scanner(
     )
 
 
-@router.get("/scanners", response_model=list[ScannerSummary])
+@router.get(
+    "/scanners",
+    response_model=list[ScannerSummary],
+    summary="List scanners",
+    description=(
+        "Every registered scanner, ordered by name, with its restrictions, reported version and "
+        "whether it is online (seen within the last 90 seconds). `effective_config` is the "
+        "configuration the agent actually receives.\n"
+        "Requires scope `scanners:read`."
+    ),
+)
 async def list_scanners(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:read"),
@@ -217,11 +240,19 @@ class ScannerCounts(BaseModel):
     """Lightweight count summary for the Sources page banner — avoids
     re-fetching the whole scanner list per page mount."""
 
-    registered: int
-    online: int
+    registered: int = Field(description="Registered scanners.")
+    online: int = Field(description="Scanners seen within the last 90 seconds.")
 
 
-@router.get("/scanners/summary", response_model=ScannerCounts)
+@router.get(
+    "/scanners/summary",
+    response_model=ScannerCounts,
+    summary="Count scanners",
+    description=(
+        "How many scanners are registered and how many are online (seen within the last 90 seconds).\n"
+        "Requires scope `scanners:read`."
+    ),
+)
 async def scanners_summary(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:read"),
@@ -233,9 +264,20 @@ async def scanners_summary(
     )
 
 
-@router.patch("/scanners/{scanner_id}", response_model=ScannerSummary)
+@router.patch(
+    "/scanners/{scanner_id}",
+    response_model=ScannerSummary,
+    summary="Update a scanner",
+    description=(
+        "Changes a scanner's name, pool, enabled flag, allowed sources and scan types and per-scanner "
+        "settings. Omitted fields are left unchanged; the `clear_*` flags reset a restriction or "
+        "setting to unrestricted or inherited. A disabled scanner cannot authenticate.\n"
+        "Requires scope `scanners:write`. Errors: 400 for unknown source ids or scan types (allowed: "
+        "`incremental`, `full`); 404 if the scanner does not exist; 422 for invalid values."
+    ),
+)
 async def patch_scanner(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="Scanner to update.")],
     body: ScannerPatch,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:write"),
@@ -309,9 +351,15 @@ async def _validate_source_ids(
 @router.post(
     "/scanners/{scanner_id}/rotate",
     response_model=ScannerCreated,
+    summary="Rotate a scanner key",
+    description=(
+        "Generates a new keypair for the scanner and returns the new private key once. The old key "
+        "stops authenticating immediately, so the agent must be reconfigured.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the scanner does not exist."
+    ),
 )
 async def rotate_scanner(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="Scanner whose key to replace.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:write"),
 ):
@@ -341,9 +389,15 @@ async def rotate_scanner(
 @router.delete(
     "/scanners/{scanner_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a scanner",
+    description=(
+        "Removes the scanner. Scans it was leasing go back to `pending` and unassigned so another "
+        "scanner can take them. A running agent is refused from then on.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the scanner does not exist."
+    ),
 )
 async def delete_scanner(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="Scanner to delete.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:write"),
 ):
@@ -379,11 +433,13 @@ async def delete_scanner(
 
 
 class ClaimTokenCreate(BaseModel):
-    label: str = Field(min_length=1, max_length=64)
-    pool: str = Field(default="default", min_length=1, max_length=64)
-    ttl_minutes: int = Field(default=60, ge=1, le=60 * 24 * 30)
-    allowed_source_ids: list[uuid.UUID] | None = None
-    allowed_scan_types: list[str] | None = None
+    label: str = Field(min_length=1, max_length=64, description="Name for the token, used to name scanners enrolled with it.", examples=['branch-office'])
+    pool: str = Field(default="default", min_length=1, max_length=64, description="Pool scanners enrolled with the token join.")
+    ttl_minutes: int = Field(default=60, ge=1, le=60 * 24 * 30, description="Minutes until the token expires (1 to 43200, 30 days).")
+    allowed_source_ids: list[uuid.UUID] | None = Field(default=None, description="Restrict enrolled scanners to these sources; null for any.")
+    allowed_scan_types: list[str] | None = Field(default=None, description="Restrict enrolled scanners to these scan types (`incremental`, `full`); null for any.")
+
+    model_config = {"json_schema_extra": {'examples': [{'label': 'branch-office', 'pool': 'default', 'ttl_minutes': 60}]}}
 
 
 class ClaimTokenCreated(BaseModel):
@@ -391,27 +447,27 @@ class ClaimTokenCreated(BaseModel):
     `token` field isn't persisted on the api side (we keep only its
     sha256 hash) — copy it now or revoke and regenerate."""
 
-    id: uuid.UUID
-    label: str
-    pool: str
-    allowed_source_ids: list[uuid.UUID] | None
-    allowed_scan_types: list[str] | None
-    token: str
-    expires_at: datetime
-    snippets: dict[str, str]
+    id: uuid.UUID = Field(description="Token id.")
+    label: str = Field(description="Token label.")
+    pool: str = Field(description="Pool for enrolled scanners.")
+    allowed_source_ids: list[uuid.UUID] | None = Field(description="Source restriction for enrolled scanners.")
+    allowed_scan_types: list[str] | None = Field(description="Scan type restriction for enrolled scanners.")
+    token: str = Field(description="The plaintext claim token, shown only in this response.")
+    expires_at: datetime = Field(description="When the token expires.")
+    snippets: dict[str, str] = Field(description="Ready-to-paste install commands keyed by format (`shell`, `docker_run`, `compose`, `k8s`, `env`), with the token filled in.")
 
 
 class ClaimTokenSummary(BaseModel):
-    id: uuid.UUID
-    label: str
-    pool: str
-    allowed_source_ids: list[uuid.UUID] | None
-    allowed_scan_types: list[str] | None
-    status: str  # "active" | "used" | "expired"
-    created_at: datetime
-    expires_at: datetime
-    used_at: datetime | None
-    used_by_scanner_id: uuid.UUID | None
+    id: uuid.UUID = Field(description="Token id.")
+    label: str = Field(description="Token label.")
+    pool: str = Field(description="Pool for enrolled scanners.")
+    allowed_source_ids: list[uuid.UUID] | None = Field(description="Source restriction for enrolled scanners.")
+    allowed_scan_types: list[str] | None = Field(description="Scan type restriction for enrolled scanners.")
+    status: str = Field(description="`active`, `used` or `expired`.")
+    created_at: datetime = Field(description="When the token was created.")
+    expires_at: datetime = Field(description="When the token expires (or expired, or was revoked).")
+    used_at: datetime | None = Field(description="When the token was redeemed.")
+    used_by_scanner_id: uuid.UUID | None = Field(description="Scanner created by redeeming it.")
 
 
 def _api_url_from_request(request: Request) -> str:
@@ -433,6 +489,15 @@ def _api_url_from_request(request: Request) -> str:
     "/scanner-claim-tokens",
     response_model=ClaimTokenCreated,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a scanner claim token",
+    description=(
+        "Mints a one-time token that lets a new scanner host enrol itself with `POST "
+        "/scanners/claim`, and ready-to-paste install snippets. The token is returned once; only its "
+        "hash is kept. It expires after `ttl_minutes` and can be revoked until used. Scanners created "
+        "from it get its pool and restrictions. Records a `scanner_claim_token_created` audit event.\n"
+        "Requires scope `scanners:write`. Errors: 400 for unknown source ids or scan types; 422 for a "
+        "malformed body."
+    ),
 )
 async def create_claim_token(
     body: ClaimTokenCreate,
@@ -492,6 +557,12 @@ async def create_claim_token(
 @router.get(
     "/scanner-claim-tokens",
     response_model=list[ClaimTokenSummary],
+    summary="List scanner claim tokens",
+    description=(
+        "Every claim token, newest first, with its derived status (`active`, `used` or `expired`) and "
+        "the scanner that used it. The secret is never returned.\n"
+        "Requires scope `scanners:read`."
+    ),
 )
 async def list_claim_tokens(
     db: AsyncSession = Depends(get_db),
@@ -522,9 +593,15 @@ async def list_claim_tokens(
 @router.delete(
     "/scanner-claim-tokens/{token_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a scanner claim token",
+    description=(
+        "Expires an unused token immediately. Records a `scanner_claim_token_revoked` audit event.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the token does not exist; 410 if it was "
+        "already used."
+    ),
 )
 async def revoke_claim_token(
-    token_id: uuid.UUID,
+    token_id: Annotated[uuid.UUID, Path(description="Claim token to revoke.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:write"),
@@ -575,9 +652,14 @@ class SourceReachabilityRow(BaseModel):
     "/scanners/{scanner_id}/source-reachability",
     response_model=list[SourceReachabilityRow],
     summary="Scanner reachability per source",
+    description=(
+        "For one scanner, its latest probe result against every source, and whether it is currently "
+        "allowed to claim work for it. Sources never probed show `ok: null`. Does not run any probes.\n"
+        "Requires scope `scanners:read`. Errors: 404 if the scanner does not exist."
+    ),
 )
 async def list_scanner_source_reachability(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="Scanner to report on.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:read"),
 ):
@@ -633,28 +715,39 @@ class TestSourcesRequest(BaseModel):
     Omit → test every source the scanner is currently allowed to claim.
     """
 
-    source_ids: list[uuid.UUID] | None = None
+    source_ids: list[uuid.UUID] | None = Field(default=None, description="Sources to probe; omit to probe every source the scanner may claim.")
+
+    model_config = {"json_schema_extra": {'examples': [{'source_ids': ['3fa85f64-5717-4562-b3fc-2c963f66afa6']}]}}
 
 
 class TestSourcesResultRow(BaseModel):
-    source_id: uuid.UUID
-    ok: bool | None
-    step: str | None
-    error: str | None
-    pending: bool = False
-    completed_at: datetime | None = None
+    source_id: uuid.UUID = Field(description="Probed source.")
+    ok: bool | None = Field(description="Probe outcome; null while pending.")
+    step: str | None = Field(description="Probe step that failed, if any.")
+    error: str | None = Field(description="Probe error message, if any.")
+    pending: bool = Field(default=False, description="True when the scanner did not answer within 5 seconds.")
+    completed_at: datetime | None = Field(default=None, description="When the probe finished.")
 
 
 class TestSourcesResponse(BaseModel):
-    results: list[TestSourcesResultRow]
+    results: list[TestSourcesResultRow] = Field(description="One row per probed source.")
 
 
 @router.post(
     "/scanners/{scanner_id}/test-sources",
     response_model=TestSourcesResponse,
+    summary="Test sources from a scanner",
+    description=(
+        "Probes sources from this scanner's point of view and stores the results. Without "
+        "`source_ids`, every source the scanner may claim (allowed list and pool) is tested. Network "
+        "sources are probed by the API; local sources are delegated to the scanner and wait up to 5 "
+        "seconds, after which the row is `pending: true`.\n"
+        "Requires scope `scanners:write`. Errors: 404 if the scanner does not exist; 422 for a "
+        "malformed body."
+    ),
 )
 async def test_scanner_sources(
-    scanner_id: uuid.UUID,
+    scanner_id: Annotated[uuid.UUID, Path(description="Scanner to probe from.")],
     body: TestSourcesRequest | None = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scanners:write"),

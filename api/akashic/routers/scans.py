@@ -1,9 +1,9 @@
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from akashic.routing import ApiRouter
-from fastapi import BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,25 +20,43 @@ router = ApiRouter(prefix="/scans", tags=["scans"])
 
 
 class ScanTriggerRequest(BaseModel):
-    source_name: str | None = None
-    source_id: uuid.UUID | None = None
-    scan_type: Literal["incremental", "full"] = "incremental"
+    source_name: str | None = Field(default=None, description="Name of the source to scan. Give this or `source_id`.")
+    source_id: uuid.UUID | None = Field(default=None, description="Id of the source to scan. Give this or `source_name`.")
+    scan_type: Literal["incremental", "full"] = Field(default="incremental", description="`incremental` (default) walks and compares against the previous scan; `full` re-reads everything.")
+
+    model_config = {"json_schema_extra": {'examples': [{'source_name': 'nas-projects', 'scan_type': 'incremental'}]}}
 
 
 class ScanTriggerResponse(BaseModel):
-    scan_id: uuid.UUID
-    source_id: uuid.UUID
-    source_name: str
-    scan_type: str
-    last_scan_at: str | None
+    scan_id: uuid.UUID = Field(description="The queued scan, or the scan already pending or running for the source.")
+    source_id: uuid.UUID = Field(description="Source being scanned.")
+    source_name: str = Field(description="Source name.")
+    scan_type: str = Field(description="`incremental` or `full`.")
+    last_scan_at: str | None = Field(description="ISO-8601 time of the source's last completed scan; null if never.")
     # v0.5.6 — true when this call inserted a fresh Scan row, false
     # when the dedup branch returned an already-pending/running scan.
     # Lets the bulk-trigger UI distinguish "newly queued" from
     # "already queued" without timestamp-fuzzing.
-    created: bool = True
+    created: bool = Field(default=True, description="False when an existing pending or running scan was returned instead of creating one.")
+
+    model_config = {"json_schema_extra": {'examples': [{'scan_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'source_name': 'nas-projects', 'scan_type': 'incremental', 'last_scan_at': '2026-04-27T22:00:00+00:00', 'created': True}]}}
 
 
-@router.post("/trigger", response_model=ScanTriggerResponse)
+@router.post(
+    "/trigger",
+    response_model=ScanTriggerResponse,
+    summary="Trigger a scan",
+    description=(
+        "Queues a scan for a source, identified by `source_id` or `source_name`. The scan is created "
+        "`pending` in the pool the source prefers (or any pool) and a scanner agent leases it within "
+        "seconds; nothing runs on the API host. If the source already has a `pending` or `running` "
+        "scan, that scan is returned with `created: false` instead of starting a second one. "
+        "Publishes a scan state event to live subscribers.\n"
+        "Requires scope `scans:write`. Source-limited API tokens may trigger only their permitted "
+        "sources. Errors: 400 if neither `source_id` nor `source_name` is given; 404 if the source "
+        "does not exist or is outside the token's sources; 422 for a malformed body."
+    ),
+)
 async def trigger_scan(
     data: ScanTriggerRequest,
     background: BackgroundTasks,
@@ -159,12 +177,23 @@ async def trigger_scan(
     )
 
 
-@router.get("", response_model=Page[ScanResponse], summary="List scans")
+@router.get(
+    "",
+    response_model=Page[ScanResponse],
+    summary="List scans",
+    description=(
+        "Scans across the visible sources, newest start first (scans not yet started first). "
+        "Cursor-paginated; `total` is not computed.\n"
+        "Requires scope `scans:read`. Source-limited API tokens only see scans of their permitted "
+        "sources. Errors: 404 if `source_id` is outside the token's sources; 422 for a malformed "
+        "`cursor` or invalid parameter."
+    ),
+)
 async def list_scans(
-    source_id: uuid.UUID | None = None,
-    status: str | None = None,
+    source_id: Annotated[uuid.UUID | None, Query(description="Only scans of this source.")] = None,
+    status: Annotated[str | None, Query(description="Only scans in this status; several may be given comma separated. Statuses are `pending`, `running`, `completed`, `failed` and `cancelled`.", examples=['pending,running'])] = None,
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:read", source_scoped=True),
 ):
@@ -189,9 +218,18 @@ async def list_scans(
     return offset_page(list(result.scalars().all()), offset, limit)
 
 
-@router.get("/{scan_id}", response_model=ScanResponse)
+@router.get(
+    "/{scan_id}",
+    response_model=ScanResponse,
+    summary="Get a scan",
+    description=(
+        "One scan with its counters, progress and timing.\n"
+        "Requires scope `scans:read`. Source-limited API tokens only see scans of their permitted "
+        "sources. Errors: 404 if the scan does not exist or is outside the token's sources."
+    ),
+)
 async def get_scan(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:read", source_scoped=True),
 ):
@@ -205,8 +243,8 @@ async def get_scan(
 
 
 class CancelResponse(BaseModel):
-    scan_id: uuid.UUID
-    status: str
+    scan_id: uuid.UUID = Field(description="Scan id.")
+    status: str = Field(description="Scan status after the call (`cancelled`, or the status it already had).")
 
 
 async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
@@ -275,9 +313,21 @@ async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
     return scan.status
 
 
-@router.post("/{scan_id}/cancel", response_model=CancelResponse)
+@router.post(
+    "/{scan_id}/cancel",
+    response_model=CancelResponse,
+    summary="Cancel a scan",
+    description=(
+        "Marks a `pending` or `running` scan `cancelled` with reason `user`, returns its source to "
+        "`online` and notifies subscribers. The scanner learns of it from the next heartbeat (409) "
+        "and stops. Idempotent: a scan that already ended is returned unchanged with its current "
+        "status.\n"
+        "Requires scope `scans:write`. Source-limited API tokens may cancel only scans of their "
+        "permitted sources. Errors: 404 if the scan does not exist or is outside the token's sources."
+    ),
+)
 async def cancel_scan(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan to cancel.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:write", source_scoped=True),
 ):

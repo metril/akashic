@@ -10,7 +10,7 @@ import uuid
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, require_scope
@@ -23,15 +23,17 @@ router = ApiRouter(prefix="/sources", tags=["sources"])
 
 
 class TestSourceRequest(BaseModel):
-    type: str
-    connection_config: dict
+    type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`, `webdav`, `gdrive`.")
+    connection_config: dict = Field(description="Connection settings for the type, as for source creation. May include `oauth_credential_id` for OAuth-backed types.")
     # v0.31.3 — credential-profile-backed / host-attached sources. The
     # probe must be run with the profile's (encrypted) credentials and
     # the host's connection-level config merged in, exactly as a real
     # scan resolves them — otherwise an SMB source whose password lives
     # in a profile is always tested with no password and fails.
-    credential_profile_id: uuid.UUID | None = None
-    host_id: uuid.UUID | None = None
+    credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile whose credentials are merged under the inline config.")
+    host_id: uuid.UUID | None = Field(default=None, description="Host whose connection settings and credentials are merged under the inline config.")
+
+    model_config = {"json_schema_extra": {'examples': [{'type': 'smb', 'connection_config': {'host': 'nas.example.com', 'share': 'data', 'username': 'svc-akashic', 'password': 's3cret'}}]}}
 
 
 # Allow-list of connection_config keys that are safe to record in the audit
@@ -71,7 +73,21 @@ def _audit_payload(req: TestSourceRequest, result: TestResult) -> dict:
     }
 
 
-@router.post("/test", response_model=TestResult)
+@router.post(
+    "/test",
+    response_model=TestResult,
+    summary="Test a source connection before saving",
+    description=(
+        "Runs the connection probe for a source that does not exist yet, exactly as the \"Test "
+        "connection\" button does. A `credential_profile_id` and `host_id` are merged under the inline "
+        "`connection_config` with the same precedence a real scan uses (host profile, host, source "
+        "profile, inline). Never echoes credentials. Records a `source_test_run` audit event holding "
+        "only an allow-list of non-secret connection fields and the result.\n"
+        "A probe that fails is still a 200 response with `ok: false`; inspect `step` and `error`.\n"
+        "Requires scope `sources:write`. Not available to source-limited tokens, because it probes "
+        "arbitrary endpoints. Errors: 422 for a malformed body."
+    ),
+)
 async def post_test(
     body: TestSourceRequest,
     request: Request = None,

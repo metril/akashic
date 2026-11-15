@@ -1,9 +1,10 @@
+from typing import Annotated
 import uuid
 from datetime import datetime
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from fastapi import Depends, HTTPException, Path, Query, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,7 +138,27 @@ async def _validate_smb_password_requirement(
         )
 
 
-@router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=SourceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a source",
+    description=(
+        "Registers a storage source. `connection_config` holds the type's connection settings; attach "
+        "a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection "
+        "settings and credentials, which `connection_config` overrides. For OAuth-backed types pass "
+        "`oauth_credential_id` inside `connection_config` to attach an unattached credential. "
+        "`is_removable` is inferred from the type and path when omitted. The scan-control values are "
+        "validated. Publishes a `source.created` event and records a `source_created` audit event "
+        "(secrets omitted).\n"
+        "Requires scope `sources:write`. Not available to source-limited tokens, since a new source "
+        "is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile "
+        "of a different type, a hostless type given a host, an invalid SMB password setup or "
+        "out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or "
+        "`oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a "
+        "malformed body."
+    ),
+)
 async def create_source(
     data: SourceCreate,
     request: Request,
@@ -280,7 +301,17 @@ async def create_source(
     return source
 
 
-@router.get("", response_model=list[SourceListResponse])
+@router.get(
+    "",
+    response_model=list[SourceListResponse],
+    summary="List sources",
+    description=(
+        "Every visible source ordered by name, in a lean shape: no connection config, with a "
+        "server-rendered `summary` line for display. Not paginated. Fetch one source for its full "
+        "(secret-masked) configuration.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources."
+    ),
+)
 async def list_sources(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
@@ -293,9 +324,20 @@ async def list_sources(
     return [SourceListResponse.from_source(s) for s in result.scalars().all()]
 
 
-@router.get("/{source_id}", response_model=SourceResponse)
+@router.get(
+    "/{source_id}",
+    response_model=SourceResponse,
+    summary="Get a source",
+    description=(
+        "A source with its connection configuration, scan settings and status. Values of "
+        "secret-looking keys (password, secret, key, token, credentials, private_key) are masked as "
+        "`***`.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source does not exist or is outside the token's sources."
+    ),
+)
 async def get_source(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -308,11 +350,23 @@ async def get_source(
     return source
 
 
-@router.get("/{source_id}/audit", response_model=Page[AuditEventOut], summary="Source audit timeline")
+@router.get(
+    "/{source_id}/audit",
+    response_model=Page[AuditEventOut],
+    summary="Source audit timeline",
+    description=(
+        "Audit events for one source, newest first, including the `source_deleted` event of a source "
+        "that no longer exists when queried by its former id. Cursor-paginated; `total` is not "
+        "computed.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source is outside the token's sources; 422 for a malformed `cursor` or "
+        "invalid parameter."
+    ),
+)
 async def get_source_audit(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=200, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -357,15 +411,26 @@ LIMITED_UPDATE_FIELDS = frozenset({
 
 
 @router.patch(
-    "/{source_id}", response_model=SourceResponse,
+    "/{source_id}",
+    response_model=SourceResponse,
+    summary="Update a source",
     description=(
-        "A source-limited token may change only: " + ", ".join(sorted(LIMITED_UPDATE_FIELDS)) +
-        ". Changing `connection_config`, `credential_profile_id` or `host_id` is refused "
-        "with 403 `source_limited`."
+        "Changes the fields that are sent; omitted fields are untouched. `connection_config` is "
+        "merged key by key into the stored one, and a secret key sent as `***` keeps its stored "
+        "value. The new state is validated as for creation. Publishes a `source.updated` event and "
+        "records a `source_updated` audit event with the before and after of what changed (secrets "
+        "omitted). A source-limited token may change only: exclude_patterns, is_removable, "
+        "max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing "
+        "`connection_config`, `credential_profile_id` or `host_id` is refused with 403 "
+        "`source_limited`.\n"
+        "Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a "
+        "hostless type given a host, removing a required host, a masked `***` in a non-secret key, an "
+        "invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or "
+        "profile) does not exist or is outside the token's sources; 422 for a malformed body."
     ),
 )
 async def update_source(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to update.")],
     data: SourceUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -534,18 +599,27 @@ async def update_source(
     return source
 
 
-@router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{source_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a source",
+    description=(
+        "Deletes the source. By default its entries are kept as orphans with no source (still "
+        "searchable, content unavailable) and can later be re-attached to another source with `POST "
+        "/sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans "
+        "are kept, detached from the source. The search index is updated, a `source.deleted` event is "
+        "published and a `source_deleted` audit event records the details.\n"
+        "Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the "
+        "token's sources."
+    ),
+)
 async def delete_source(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to delete.")],
     request: Request,
     purge_entries: bool = Query(
         False,
         description=(
-            "When true, also delete every indexed entry from this source. "
-            "Default false: source row is removed but entries survive with "
-            "source_id=NULL — they stay searchable, content fetch returns "
-            "404, and they can be re-attached to a new source via "
-            "POST /sources/{id}/reattach-orphans."
+            "Also delete every indexed entry of the source instead of keeping them as orphans."
         ),
     ),
     db: AsyncSession = Depends(get_db),
@@ -624,12 +698,22 @@ async def delete_source(
 
 
 class SourceEntryCount(BaseModel):
-    count: int
+    count: int = Field(description="Entries (excluding soft-deleted) in the source.")
 
 
-@router.get("/{source_id}/entry-count", response_model=SourceEntryCount)
+@router.get(
+    "/{source_id}/entry-count",
+    response_model=SourceEntryCount,
+    summary="Count a source's entries",
+    description=(
+        "Number of entries (files and directories, excluding soft-deleted ones) the source holds; "
+        "shows what deleting it with `purge_entries` would remove.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source is outside the token's sources."
+    ),
+)
 async def get_source_entry_count(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -650,15 +734,22 @@ async def get_source_entry_count(
 
 
 class OrphanMatchCount(BaseModel):
-    count: int
+    count: int = Field(description="Orphaned entries whose path matches an entry of the source.")
 
 
 @router.get(
     "/{source_id}/orphan-match-count",
     response_model=OrphanMatchCount,
+    summary="Count recoverable orphans",
+    description=(
+        "How many orphaned entries (entries whose source was deleted) share a path with an entry of "
+        "this source, i.e. what `POST /sources/{source_id}/reattach-orphans` could recover.\n"
+        "Requires scope `sources:write`. Not available to source-limited tokens, since orphans belong "
+        "to no source."
+    ),
 )
 async def get_orphan_match_count(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to match orphans against.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
@@ -674,23 +765,38 @@ async def get_orphan_match_count(
 
 
 class ReattachRequest(BaseModel):
-    strategy: str = "path"  # "path" | "path_and_hash"
-    dry_run: bool = True
+    strategy: str = Field(default="path", description="`path` matches path, name and kind; `path_and_hash` also requires an equal content hash.")
+    dry_run: bool = Field(default=True, description="When true (default) only count what would be re-attached.")
+
+    model_config = {"json_schema_extra": {'examples': [{'strategy': 'path_and_hash', 'dry_run': True}]}}
 
 
 class ReattachResponse(BaseModel):
-    matched: int
-    conflicts: int
-    ambiguous: int
-    committed: bool
+    matched: int = Field(description="Orphans that match exactly one entry and can be re-attached.")
+    conflicts: int = Field(description="Matches that cannot be applied because of a conflict.")
+    ambiguous: int = Field(description="Orphans matching more than one entry; left alone.")
+    committed: bool = Field(description="True when the re-attachment was applied; false for a dry run.")
+
+    model_config = {"json_schema_extra": {'examples': [{'matched': 1200, 'conflicts': 3, 'ambiguous': 1, 'committed': False}]}}
 
 
 @router.post(
     "/{source_id}/reattach-orphans",
     response_model=ReattachResponse,
+    summary="Re-attach orphaned entries",
+    description=(
+        "Moves orphaned entries (source deleted earlier, entries kept) into this source where their "
+        "path, name and kind match a freshly scanned entry (`path_and_hash` also requires the same "
+        "content hash). The orphan keeps its tags, version history and audit trail and the duplicate "
+        "fresh entry is removed. With `dry_run` true (the default) nothing changes and the counts "
+        "show what would happen: `conflicts` and `ambiguous` matches are not moved. The search index "
+        "is updated and a `source_orphans_reattached` audit event is recorded.\n"
+        "Requires scope `sources:write`. Not available to source-limited tokens. Errors: 400 for an "
+        "unknown strategy; 404 if the source does not exist; 422 for a malformed body."
+    ),
 )
 async def reattach_orphans(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to attach orphans to.")],
     body: ReattachRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -788,20 +894,22 @@ class TestScannersRequest(BaseModel):
     a per-row "Test now" button reuse the same endpoint.
     """
 
-    scanner_ids: list[uuid.UUID] | None = None
+    scanner_ids: list[uuid.UUID] | None = Field(default=None, description="Scanners to ask; omit for every eligible online scanner.")
+
+    model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33']}]}}
 
 
 class TestScannersResultRow(BaseModel):
-    scanner_id: uuid.UUID | None
-    ok: bool | None
-    step: str | None
-    error: str | None
-    pending: bool = False
-    completed_at: datetime | None = None
+    scanner_id: uuid.UUID | None = Field(description="Scanner asked.")
+    ok: bool | None = Field(description="Probe outcome; null while pending.")
+    step: str | None = Field(description="Probe step that failed, if any.")
+    error: str | None = Field(description="Probe error message, if any.")
+    pending: bool = Field(default=False, description="True when the scanner did not answer within 5 seconds.")
+    completed_at: datetime | None = Field(default=None, description="When the probe finished.")
 
 
 class TestScannersResponse(BaseModel):
-    results: list[TestScannersResultRow]
+    results: list[TestScannersResultRow] = Field(description="One row per scanner asked.")
 
 
 _ONLINE_THRESHOLD_SECONDS = 120
@@ -852,9 +960,19 @@ def _eligible_scanners_for(
 @router.post(
     "/{source_id}/test-scanners",
     response_model=TestScannersResponse,
+    summary="Test a source from its scanners",
+    description=(
+        "Asks scanners to probe the source from their own network position with their own "
+        "credentials. Without `scanner_ids`, every enabled scanner permitted for this source (pool "
+        "and allow-list) that was seen in the last two minutes is asked. Answers arriving within 5 "
+        "seconds are returned in place; slower ones are `pending: true` and arrive later on the "
+        "reachability event stream. Results are stored in the reachability history.\n"
+        "Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the "
+        "token's sources; 422 for a malformed body."
+    ),
 )
 async def test_source_scanners(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to probe.")],
     body: TestScannersRequest | None = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:write", source_scoped=True),
@@ -925,22 +1043,30 @@ class ReachabilitySummary(BaseModel):
     landed for this source.
     """
 
-    ok: bool | None
-    last_at: datetime | None
-    last_step: str | None
-    last_error: str | None
-    last_scanner_id: uuid.UUID | None
+    ok: bool | None = Field(description="True if the latest probe succeeded or a scan completed after the latest probe; false if the latest probe failed; null with no data.")
+    last_at: datetime | None = Field(description="When the deciding probe or scan finished.")
+    last_step: str | None = Field(description="Probe step that failed, if any.")
+    last_error: str | None = Field(description="Probe error message, if any.")
+    last_scanner_id: uuid.UUID | None = Field(description="Scanner that ran the latest probe.")
     # Scanner display name when last_scanner_id is set, so the badge
     # tooltip can say "Verified by scanner X" without a follow-up GET.
-    last_scanner_name: str | None = None
+    last_scanner_name: str | None = Field(default=None, description="Name of that scanner.")
 
 
 @router.get(
     "/{source_id}/reachability-summary",
     response_model=ReachabilitySummary,
+    summary="Source reachability summary",
+    description=(
+        "Whether the source is reachable, from the most recent probe by any scanner, or a completed "
+        "scan that finished after it (a successful scan proves reachability). `ok` is null when there "
+        "is no data yet.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source does not exist or is outside the token's sources."
+    ),
 )
 async def get_source_reachability_summary(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -1027,10 +1153,16 @@ async def get_source_reachability_summary(
 @router.get(
     "/{source_id}/reachability-history",
     response_model=ReachabilityHistory,
+    summary="Source reachability history",
+    description=(
+        "Recent probe outcomes for the source, grouped by scanner, newest first. Not paginated.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source does not exist or is outside the token's sources."
+    ),
 )
 async def get_source_reachability_history(
-    source_id: uuid.UUID,
-    limit: int = 20,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
+    limit: Annotated[int, Query(description="Outcomes per scanner; values are clamped to 1-20.")] = 20,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -1073,15 +1205,15 @@ async def get_source_reachability_history(
 class ScannerReachabilityRow(BaseModel):
     """One row in the source detail's eligibility checklist."""
 
-    scanner_id: uuid.UUID
-    name: str
-    pool: str | None
-    online: bool
-    currently_allowed: bool
-    ok: bool | None
-    last_probed_at: datetime | None
-    step: str | None
-    error: str | None
+    scanner_id: uuid.UUID = Field(description="Scanner id.")
+    name: str = Field(description="Scanner name.")
+    pool: str | None = Field(description="Scanner pool.")
+    online: bool = Field(description="Whether the scanner was seen within the last 2 minutes.")
+    currently_allowed: bool = Field(description="Whether the scanner may claim work for the source.")
+    ok: bool | None = Field(description="Latest probe outcome; null when never probed.")
+    last_probed_at: datetime | None = Field(description="When the latest probe finished.")
+    step: str | None = Field(description="Probe step that failed, if any.")
+    error: str | None = Field(description="Probe error message, if any.")
     # v0.42.0 — the per-scanner 5-row history slice was removed.
     # The AllowedScannersPanel only ever rendered one sparkline of
     # colored dots from it, and the user explicitly asked for the
@@ -1089,9 +1221,20 @@ class ScannerReachabilityRow(BaseModel):
     # v0.41.0 Reachability tab, served by /reachability-history).
 
 
-@router.get("/{source_id}/scanner-reachability", response_model=list[ScannerReachabilityRow])
+@router.get(
+    "/{source_id}/scanner-reachability",
+    response_model=list[ScannerReachabilityRow],
+    summary="Scanner reachability for a source",
+    description=(
+        "Every registered scanner with whether it may claim this source, whether it is online (seen "
+        "within 2 minutes) and its latest probe result for the source. Does not run any probes; use "
+        "`POST /sources/{source_id}/test-scanners` for that.\n"
+        "Requires scope `sources:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source does not exist or is outside the token's sources."
+    ),
+)
 async def list_source_scanner_reachability(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
@@ -1145,16 +1288,31 @@ async def list_source_scanner_reachability(
 
 
 class AllowedScannersRequest(BaseModel):
-    scanner_ids: list[uuid.UUID]
+    scanner_ids: list[uuid.UUID] = Field(description="Scanners that should be allowed to scan the source; all others are excluded.")
+
+    model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33']}]}}
 
 
 class AllowedScannersResponse(BaseModel):
-    updated_scanners: int
+    updated_scanners: int = Field(description="Scanners whose allow-list changed.")
 
 
-@router.patch("/{source_id}/allowed-scanners", response_model=AllowedScannersResponse)
+@router.patch(
+    "/{source_id}/allowed-scanners",
+    response_model=AllowedScannersResponse,
+    summary="Set the scanners allowed for a source",
+    description=(
+        "Makes exactly the listed scanners eligible to scan this source by editing each scanner's own "
+        "allow-list: listed scanners gain the source, other scanners lose it (a scanner that could "
+        "scan every source is narrowed to all others). Idempotent. Records a "
+        "`source_allowed_scanners_updated` audit event.\n"
+        "Requires scope `sources:write`. Not available to source-limited tokens, since it rewrites "
+        "other scanners' settings. Errors: 400 for unknown scanner ids; 404 if the source does not "
+        "exist; 422 for a malformed body."
+    ),
+)
 async def patch_source_allowed_scanners(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Path(description="Source to configure.")],
     body: AllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),

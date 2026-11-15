@@ -39,10 +39,10 @@ class ProbeReport(BaseModel):
     even be the same one receiving the report under horizontal scale).
     """
 
-    ok: bool
-    step: Optional[str] = None
-    error: Optional[str] = None
-    source_id: uuid.UUID
+    ok: bool = Field(description="Whether the source was reachable.")
+    step: Optional[str] = Field(default=None, description="Step that failed, e.g. `connect` or `auth`.")
+    error: Optional[str] = Field(default=None, description="Error message when it failed.")
+    source_id: uuid.UUID = Field(description="Source that was probed.")
 
 
 # v0.41.0 — response shape for GET /api/v1/sources/{id}/reachability-history.
@@ -50,18 +50,18 @@ class ProbeReport(BaseModel):
 
 
 class ReachabilityOutcome(BaseModel):
-    ok: bool
-    step: Optional[str] = None
-    error: Optional[str] = None
-    started_at: datetime
-    completed_at: datetime
+    ok: bool = Field(description="Whether the source was reachable.")
+    step: Optional[str] = Field(default=None, description="Step that failed, if any.")
+    error: Optional[str] = Field(default=None, description="Error message, if any.")
+    started_at: datetime = Field(description="When the probe started.")
+    completed_at: datetime = Field(description="When the probe finished.")
 
 
 class PerScannerHistory(BaseModel):
-    scanner_id: Optional[uuid.UUID] = None
-    scanner_name: Optional[str] = None
-    outcomes: list[ReachabilityOutcome]
+    scanner_id: Optional[uuid.UUID] = Field(default=None, description="Scanner id; null for results not tied to a scanner.")
+    scanner_name: Optional[str] = Field(default=None, description="Scanner name.")
+    outcomes: list[ReachabilityOutcome] = Field(description="Recent outcomes, newest first.")
 
 
 class ReachabilityHistory(BaseModel):
-    per_scanner: list[PerScannerHistory]
+    per_scanner: list[PerScannerHistory] = Field(description="History grouped by scanner.")

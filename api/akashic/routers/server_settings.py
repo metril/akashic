@@ -11,10 +11,10 @@ unchanged; an explicit "" clears it.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +35,9 @@ router = ApiRouter(prefix="/server-settings", tags=["server-settings"])
 
 
 class SettingValue(BaseModel):
-    key: str
-    value: Any
-    set: bool | None = None  # secrets only
+    key: str = Field(description="Setting key.")
+    value: Any = Field(description="Current value; for a set secret, the mask.")
+    set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
 
 
 class SettingDescription(BaseModel):
@@ -70,11 +70,15 @@ class SettingsListResponse(BaseModel):
 
 
 class SettingPatch(BaseModel):
-    value: Any = None
+    value: Any = Field(default=None, description="New value, coerced to the setting's type. For a secret: `null` or the mask keeps it, an empty string clears it.")
+
+    model_config = {"json_schema_extra": {'examples': [{'value': True}]}}
 
 
 class BulkPatch(BaseModel):
-    values: dict[str, Any]
+    values: dict[str, Any] = Field(description="New values keyed by setting key.")
+
+    model_config = {"json_schema_extra": {'examples': [{'values': {'browse_enforce_perms': True}}]}}
 
 
 def _public(spec: Spec, stored: Any, present: bool) -> tuple[Any, bool | None]:
@@ -135,7 +139,17 @@ async def _rows(db: AsyncSession) -> dict[str, Any]:
     return {r.key: r.value for r in (await db.execute(select(ServerSetting))).scalars()}
 
 
-@router.get("", response_model=SettingsListResponse, summary="List server settings")
+@router.get(
+    "",
+    response_model=SettingsListResponse,
+    summary="List server settings",
+    description=(
+        "Every server setting grouped for display, each with its type, default, current value and "
+        "whether changing it needs a restart. Secret values are never returned: `value` is a mask "
+        "when set and empty when not, and `set` says which.\n"
+        "Requires scope `settings:read`."
+    ),
+)
 async def list_settings(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("settings:read"),
@@ -153,9 +167,18 @@ async def list_settings(
     return {"groups": groups}
 
 
-@router.get("/{key}", response_model=SettingValue)
+@router.get(
+    "/{key}",
+    response_model=SettingValue,
+    summary="Get a server setting",
+    description=(
+        "One setting's current value. For a secret, `value` is the mask when set or empty when not, "
+        "and `set` says which.\n"
+        "Requires scope `settings:read`. Errors: 404 for an unknown key."
+    ),
+)
 async def get_setting_endpoint(
-    key: str,
+    key: Annotated[str, Path(description="Setting key, as listed by `GET /server-settings`.", examples=['browse_enforce_perms'])],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("settings:read"),
 ):
@@ -200,9 +223,21 @@ async def _apply(
     return out
 
 
-@router.patch("/{key}", response_model=SettingValue)
+@router.patch(
+    "/{key}",
+    response_model=SettingValue,
+    summary="Change a server setting",
+    description=(
+        "Sets one setting. The value is coerced to the setting's type. For a secret, `null` or the "
+        "mask leaves it unchanged and an empty string clears it. The change is broadcast to every "
+        "worker and recorded as a `server_setting_updated` audit event (secret values "
+        "redacted); settings marked as needing a restart apply after one.\n"
+        "Requires scope `settings:write`. Errors: 404 for an unknown key; 422 if the value is invalid "
+        "for the setting."
+    ),
+)
 async def patch_setting(
-    key: str,
+    key: Annotated[str, Path(description="Setting key, as listed by `GET /server-settings`.", examples=['browse_enforce_perms'])],
     body: SettingPatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -213,7 +248,19 @@ async def patch_setting(
     return (await _apply(db, request, user, {key: body.value}))[key]
 
 
-@router.patch("", response_model=dict[str, SettingValue])
+@router.patch(
+    "",
+    response_model=dict[str, SettingValue],
+    summary="Change several server settings",
+    description=(
+        "Sets many settings in one request. The request is atomic: every value is validated first and "
+        "nothing is stored if any is invalid. Secret and audit semantics are as for a single change; "
+        "one `server_setting_updated` event is recorded. Returns every submitted key with its new "
+        "public value.\n"
+        "Requires scope `settings:write`. Errors: 404 if any key is unknown; 422 if any value is "
+        "invalid (the error names the key)."
+    ),
+)
 async def patch_settings_bulk(
     body: BulkPatch,
     request: Request,

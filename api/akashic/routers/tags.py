@@ -17,11 +17,12 @@ The Phase-C plan called for a separate `tags_apply.py` router; collapsing
 both surfaces into this single file avoids two routers writing to the
 same tables and keeps related auth rules visible together.
 """
+from typing import Annotated
 import logging
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import BackgroundTasks, Depends, HTTPException, status
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,7 +102,18 @@ async def _build_doc_with_tags(entry: Entry, db: AsyncSession) -> dict:
 # ── Catalogue ─────────────────────────────────────────────────────────────
 
 
-@router.post("/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tags",
+    response_model=TagResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a tag",
+    description=(
+        "Adds a tag to the catalogue with an optional colour. Tags are also created automatically the "
+        "first time they are applied; this is the explicit path for setting a colour up front.\n"
+        "Requires scope `tags:write`. Not available to source-limited tokens, since the catalogue is "
+        "global. Errors: 409 if the tag exists; 422 for a malformed body."
+    ),
+)
 async def create_tag(
     data: TagCreate,
     db: AsyncSession = Depends(get_db),
@@ -121,7 +133,16 @@ async def create_tag(
     return tag
 
 
-@router.get("/tags", response_model=list[TagResponse])
+@router.get(
+    "/tags",
+    response_model=list[TagResponse],
+    summary="List tags",
+    description=(
+        "The tag catalogue ordered by name. A source-limited token sees only tags used on its "
+        "permitted sources. Not paginated.\n"
+        "Requires scope `tags:read`."
+    ),
+)
 async def list_tags(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:read", source_scoped=True),
@@ -138,13 +159,22 @@ async def list_tags(
 
 
 class TagUsageResponse(BaseModel):
-    name: str
-    color: str | None
-    direct_count: int
-    inherited_count: int
+    name: str = Field(description="Tag name.")
+    color: str | None = Field(description="Display colour, if set.")
+    direct_count: int = Field(description="Entries tagged directly.")
+    inherited_count: int = Field(description="Entries that inherit the tag from a tagged directory.")
 
 
-@router.get("/tags/usage", response_model=list[TagUsageResponse])
+@router.get(
+    "/tags/usage",
+    response_model=list[TagUsageResponse],
+    summary="Tag usage",
+    description=(
+        "For each tag, how many entries carry it directly and how many only inherit it from a tagged "
+        "directory. A source-limited token counts only its permitted sources. Not paginated.\n"
+        "Requires scope `tags:read`."
+    ),
+)
 async def list_tag_usage(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:read", source_scoped=True),
@@ -183,9 +213,19 @@ async def list_tag_usage(
     ]
 
 
-@router.delete("/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/tags/{tag_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a tag",
+    description=(
+        "Deletes the tag from the catalogue and removes every direct and inherited application of it, "
+        "across all sources. Irreversible.\n"
+        "Requires scope `tags:write`. Not available to source-limited tokens, since the effect is "
+        "global. Errors: 404 if the tag does not exist."
+    ),
+)
 async def delete_tag_catalogue(
-    tag_id: uuid.UUID,
+    tag_id: Annotated[uuid.UUID, Path(description="Tag to delete.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
@@ -206,7 +246,9 @@ async def delete_tag_catalogue(
 
 
 class _TagApplyBody(BaseModel):
-    tags: list[str] = Field(min_length=1)
+    tags: list[str] = Field(min_length=1, description="Tag names to apply (at least one).")
+
+    model_config = {"json_schema_extra": {'examples': [{'tags': ['invoice', '2026']}]}}
 
 
 async def _ensure_catalogue_entries(
@@ -238,9 +280,18 @@ async def _ensure_catalogue_entries(
 @router.post(
     "/entries/{entry_id}/tags",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Tag an entry",
+    description=(
+        "Applies one or more tags, by name, directly to an entry; missing tags are added to the "
+        "catalogue. Tagging a directory makes every descendant inherit the tag. The search index is "
+        "updated in the background.\n"
+        "Requires scope `tags:write`. A source-limited token may apply only tags that already exist, "
+        "and only on entries in its sources. Errors: 404 if the entry does not exist or is outside "
+        "the token's sources; 422 for an empty tag list."
+    ),
 )
 async def apply_tags_to_entry(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry to tag.")],
     body: _TagApplyBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -278,10 +329,18 @@ async def apply_tags_to_entry(
 @router.delete(
     "/entries/{entry_id}/tags/{tag}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a tag from an entry",
+    description=(
+        "Removes a directly applied tag. Copies inherited from this entry are removed from its "
+        "descendants, but descendants that were tagged directly keep theirs. The search index is "
+        "updated in the background.\n"
+        "Requires scope `tags:write`. Errors: 404 if the entry does not exist or is outside the "
+        "token's sources."
+    ),
 )
 async def remove_tag_from_entry(
-    entry_id: uuid.UUID,
-    tag: str,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry to remove the tag from.")],
+    tag: Annotated[str, Path(description="Tag name.", examples=['invoice'])],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:write", source_scoped=True),
@@ -304,9 +363,20 @@ async def remove_tag_from_entry(
     )
 
 
-@router.get("/entries/{entry_id}/tags", response_model=list[dict])
+@router.get(
+    "/entries/{entry_id}/tags",
+    response_model=list[dict],
+    summary="List an entry's tags",
+    description=(
+        "The tags on an entry as a list of `{tag, inherited, inherited_from_path}`: direct tags "
+        "first, then inherited ones, each with the path of the directory it came from. A tag applied "
+        "both directly and by inheritance appears twice.\n"
+        "Requires scope `tags:read`. Source-limited API tokens only see entries of their permitted "
+        "sources. Errors: 404 if the entry does not exist or is outside the token's sources."
+    ),
+)
 async def get_entry_tags(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tags:read", source_scoped=True),
 ):
@@ -324,11 +394,24 @@ async def get_entry_tags(
 
 
 class _BulkApplyBody(BaseModel):
-    entry_ids: list[uuid.UUID] = Field(min_length=1)
-    tags: list[str] = Field(min_length=1)
+    entry_ids: list[uuid.UUID] = Field(min_length=1, description="Entries to tag (at least one).")
+    tags: list[str] = Field(min_length=1, description="Tag names to apply to each entry (at least one).")
+
+    model_config = {"json_schema_extra": {'examples': [{'entry_ids': ['3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10'], 'tags': ['invoice']}]}}
 
 
-@router.post("/tags/bulk-apply", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/tags/bulk-apply",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Tag many entries",
+    description=(
+        "Applies every listed tag to every listed entry, as for single-entry tagging (directories "
+        "propagate to descendants). All-or-nothing: if any entry is unknown or outside the caller's "
+        "sources, nothing is applied. The search index is updated in the background.\n"
+        "Requires scope `tags:write`. A source-limited token may apply only existing tags. Errors: "
+        "404 if some entries do not exist or are outside the token's sources; 422 for empty lists."
+    ),
+)
 async def bulk_apply(
     body: _BulkApplyBody,
     background_tasks: BackgroundTasks,

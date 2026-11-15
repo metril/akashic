@@ -8,12 +8,13 @@ WS endpoint can fan out to connected browsers.
 """
 from __future__ import annotations
 
+from typing import Annotated
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Path, Query
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,9 +62,26 @@ async def _load_scan_with_write(
     return scan
 
 
-@router.post("/{scan_id}/heartbeat", status_code=204, tags=[SCANNER_TAG])
+@router.post(
+    "/{scan_id}/heartbeat",
+    status_code=204,
+    tags=[SCANNER_TAG],
+    summary="Report scan progress",
+    description=(
+        "Scanner protocol. Posted about once a second while a scan runs: current path, counters, "
+        "phase and adaptive batch size. Stores them on the scan, renews the 60 second scan lease and "
+        "relays progress to live subscribers. A `pending` scan becomes `running`. Doubles as the "
+        "cancellation channel: once the scan has been cancelled or has ended the call fails with 409 "
+        "and the scanner must stop.\n"
+        "Authenticated with the short-lived ingest token (`api_jwt`) delivered in the scan lease "
+        "response, scheme `ingestJWT`; a normal user token or API token is rejected. 401 for a "
+        "missing, invalid or expired token.\n"
+        "Errors: 404 if the scan does not exist; 409 if the scan is `cancelled`, `completed` or "
+        "`failed` (the detail carries `status`, `reason` and `message`); 422 for a malformed body."
+    ),
+)
 async def post_heartbeat(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan being reported on.")],
     body: HeartbeatIn,
     db: AsyncSession = Depends(get_db),
     # Scanner agent presents the ingest-audience JWT minted at lease
@@ -267,9 +285,24 @@ async def _scanner_name(
     return await scan_broadcast.resolve_scanner_name(db, scanner_id)
 
 
-@router.post("/{scan_id}/log", status_code=204, tags=[SCANNER_TAG])
+@router.post(
+    "/{scan_id}/log",
+    status_code=204,
+    tags=[SCANNER_TAG],
+    summary="Post scan log lines",
+    description=(
+        "Scanner protocol. Stores up to 200 structured log lines (`info`, `warn`, `error`) for the "
+        "scan, attributed to the leasing scanner, and relays them to live subscribers. An empty list "
+        "is accepted and ignored. Read back with `GET /scans/{scan_id}/log`.\n"
+        "Authenticated with the short-lived ingest token (`api_jwt`) delivered in the scan lease "
+        "response, scheme `ingestJWT`; a normal user token or API token is rejected. 401 for a "
+        "missing, invalid or expired token.\n"
+        "Errors: 404 if the scan does not exist; 422 for a malformed body, more than 200 lines or a "
+        "message over 8192 characters."
+    ),
+)
 async def post_log_batch(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan the lines belong to.")],
     body: LogBatchIn,
     db: AsyncSession = Depends(get_db),
     # Ingest-audience JWT — see post_heartbeat for the rationale.
@@ -303,9 +336,23 @@ async def post_log_batch(
     )
 
 
-@router.post("/{scan_id}/stderr", status_code=204, tags=[SCANNER_TAG])
+@router.post(
+    "/{scan_id}/stderr",
+    status_code=204,
+    tags=[SCANNER_TAG],
+    summary="Post scanner stderr output",
+    description=(
+        "Scanner protocol. Stores up to 200 chunks (4096 characters each) of the scanner process's "
+        "stderr as log lines of level `stderr`, and relays them to live subscribers. An empty list is "
+        "accepted and ignored.\n"
+        "Authenticated with the short-lived ingest token (`api_jwt`) delivered in the scan lease "
+        "response, scheme `ingestJWT`; a normal user token or API token is rejected. 401 for a "
+        "missing, invalid or expired token.\n"
+        "Errors: 404 if the scan does not exist; 422 for a malformed body."
+    ),
+)
 async def post_stderr_batch(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan the output belongs to.")],
     body: StderrBatchIn,
     db: AsyncSession = Depends(get_db),
     # Ingest-audience JWT — see post_heartbeat for the rationale.
@@ -345,23 +392,25 @@ async def post_stderr_batch(
     tags=["scans"],
     summary="Scan log lines",
     description=(
-        "Oldest first. `next_cursor` always points just after the last returned line "
-        "(null only for an empty page), so a client can tail the log by re-sending it; "
-        "a page shorter than `limit` means the end was reached."
+        "Oldest first. `next_cursor` always points just after the last returned line (null only for "
+        "an empty page), so a client can tail the log by re-sending it; a page shorter than `limit` "
+        "means the end was reached. Includes structured lines and scanner stderr; filter with `kind`.\n"
+        "Requires scope `scans:read`. Source-limited API tokens only see scans of their permitted "
+        "sources. Errors: 404 if the scan does not exist or is outside the token's sources; 422 for a "
+        "malformed `cursor` or invalid parameter."
     ),
 )
 async def get_log(
-    scan_id: uuid.UUID,
-    since: datetime | None = Query(None, description="Return entries strictly after this timestamp"),
+    scan_id: Annotated[uuid.UUID, Path(description="Scan whose log to read.")],
+    since: datetime | None = Query(None, description="Return only entries strictly after this timestamp. Prefer `cursor`, which is lossless when many lines share a timestamp."),
     cursor: str | None = Query(
         None,
         description=(
-            "Opaque cursor from a previous `next_cursor`; returns lines strictly after it. "
-            "Lossless when many lines share a timestamp."
+            "Opaque cursor from a previous `next_cursor`; returns lines strictly after it."
         ),
     ),
-    kind: str = Query("all", pattern="^(structured|stderr|all)$"),
-    limit: int = Query(2000, ge=1, le=2000),
+    kind: str = Query("all", pattern="^(structured|stderr|all)$", description="`structured` for scanner log lines, `stderr` for process output, `all` for both.", examples=['all']),
+    limit: int = Query(2000, ge=1, le=2000, description="Maximum lines to return."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("scans:read", source_scoped=True),
 ) -> Page[LogEntryOut]:

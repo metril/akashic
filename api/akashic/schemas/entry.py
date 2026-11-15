@@ -34,29 +34,29 @@ class EntryIn(BaseModel):
     gid: int | None = Field(default=None, description="Numeric group id on POSIX storage; null elsewhere.")
     owner_name: str | None = Field(default=None, description="Owner name or SID as reported by the storage system.")
     group_name: str | None = Field(default=None, description="Group name or SID as reported by the storage system.")
-    acl: ACL | None = None
-    xattrs: dict[str, str] | None = None
+    acl: ACL | None = Field(default=None, description="Access control list as read from the storage system; null when it reports none.")
+    xattrs: dict[str, str] | None = Field(default=None, description="Extended attributes as name to value strings.")
 
-    fs_created_at: datetime | None = None
+    fs_created_at: datetime | None = Field(default=None, description="Creation time on the storage system.")
     fs_modified_at: datetime | None = Field(default=None, description="Modification time on the storage system.")
-    fs_accessed_at: datetime | None = None
+    fs_accessed_at: datetime | None = Field(default=None, description="Last access time on the storage system.")
 
     # Phase B — connectors that walk depth-first emit per-directory
     # subtree totals. Optional; the API-side rollup CTE backfills NULL
     # rows after ingest as a safety net for connectors that can't
     # compute these cheaply.
-    subtree_size_bytes: int | None = None
-    subtree_file_count: int | None = None
-    subtree_dir_count: int | None = None
+    subtree_size_bytes: int | None = Field(default=None, description="Directories only: total bytes below it, when the connector computes this; otherwise filled in after the scan.")
+    subtree_file_count: int | None = Field(default=None, description="Directories only: files below it, when computed by the connector.")
+    subtree_dir_count: int | None = Field(default=None, description="Directories only: directories below it, when computed by the connector.")
 
     # v0.6.0 — Tier 3 self-hosted libraries (Paperless-ngx, Immich)
     # carry provider-specific metadata that doesn't fit the filesystem
     # fields. Filesystem connectors leave this None.
-    domain_metadata: dict | None = None
+    domain_metadata: dict | None = Field(default=None, description="Provider-specific metadata for document libraries (such as Paperless or Immich); null for filesystems.")
 
     # v0.13.0 — opaque cloud-drive identifier (Drive/OneDrive/Dropbox).
     # Filesystem connectors leave this None.
-    native_id: str | None = None
+    native_id: str | None = Field(default=None, description="Provider's own identifier for cloud-drive entries; null for filesystems.")
 
 
 class EntryResponse(BaseModel):

@@ -21,11 +21,12 @@ exactly as today — the unit table is empty for them and the legacy
 """
 from __future__ import annotations
 
+from typing import Annotated
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import BackgroundTasks, Depends, HTTPException, Response, status
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -52,33 +53,37 @@ _LEASE_SECONDS = 60
 
 
 class WorkUnitOut(BaseModel):
-    id: uuid.UUID
-    scan_id: uuid.UUID
-    path: str
-    status: str
-    lease_expires_at: datetime | None = None
+    id: uuid.UUID = Field(description="Work unit id.")
+    scan_id: uuid.UUID = Field(description="Scan the unit belongs to.")
+    path: str = Field(description="Directory subtree to walk, relative to the source root; empty for the root.")
+    status: str = Field(description="Unit status; `running` while leased.")
+    lease_expires_at: datetime | None = Field(default=None, description="When the lease lapses unless renewed with a heartbeat.")
 
 
 class SplitRequest(BaseModel):
     """Bulk-add child units. Idempotent on (scan_id, path) — safe to
     retry."""
 
-    parent_unit_id: uuid.UUID | None = None
-    child_paths: list[str] = Field(default_factory=list)
+    parent_unit_id: uuid.UUID | None = Field(default=None, description="Unit the paths were split from; null when enqueueing the root.")
+    child_paths: list[str] = Field(default_factory=list, description="Directory paths to add as pending units.")
+
+    model_config = {"json_schema_extra": {'examples': [{'parent_unit_id': None, 'child_paths': ['', 'projects', 'archive/2023']}]}}
 
 
 class SplitResponse(BaseModel):
-    created: int
-    skipped: int  # rows that already existed (idempotent retry)
+    created: int = Field(description="Units created.")
+    skipped: int = Field(description="Paths that already existed (idempotent retry).")
 
 
 class CompleteUnitRequest(BaseModel):
-    error_message: str | None = None
+    error_message: str | None = Field(default=None, description="Why the unit failed.")
     # v0.34.0 — when true, /work/{id}/fail requeues the unit (status back
     # to `pending`) for retry instead of marking it permanently `failed`.
     # The scanner sets it on a transient SMB stall so a flaky share
     # doesn't permanently drop the unit's subtree from the index.
-    requeue: bool = False
+    requeue: bool = Field(default=False, description="Return the unit to the queue for another attempt (up to 3 attempts) instead of failing it.")
+
+    model_config = {"json_schema_extra": {'examples': [{'error_message': 'connection reset', 'requeue': True}]}}
 
 
 # A unit failed-with-requeue this many times falls back to a permanent
@@ -264,9 +269,24 @@ async def _broadcast_terminal(
 @router.post(
     "/scans/{scan_id}/work/lease",
     responses={204: {"description": "No work unit available right now; keep polling."}},
+    summary="Lease a work unit",
+    description=(
+        "Scanner protocol, parallel scans. Atomically claims the next pending work unit (a directory "
+        "subtree) of the scan for the calling scanner, or an expired lease left by a dead scanner, "
+        "for 60 seconds. Extend it with the unit heartbeat. The first lease moves a `pending` scan to "
+        "`running`.\n"
+        "Returns 204 when there is no unit to take (the scanner is done with this scan). The number "
+        "of distinct scanners working one scan is capped by the source's `max_parallel_scanners`.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 404 if the scan does not exist; 409 if the scan has ended (detail `reason: "
+        "scan-terminal`) or the parallel-scanner cap is reached while work remains."
+    ),
 )
 async def lease_unit(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan whose work queue to lease from.")],
     response: Response,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -378,10 +398,21 @@ async def lease_unit(
 @router.post(
     "/scans/{scan_id}/work/{unit_id}/heartbeat",
     response_model=WorkUnitOut,
+    summary="Extend a work unit lease",
+    description=(
+        "Scanner protocol, parallel scans. Renews the 60 second lease on a unit the scanner holds. "
+        "Send it more often than every 60 seconds while walking the unit.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the caller does not hold the lease; 404 if the unit does not exist in the "
+        "scan; 409 if the unit has already finished."
+    ),
 )
 async def heartbeat_unit(
-    scan_id: uuid.UUID,
-    unit_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan the unit belongs to.")],
+    unit_id: Annotated[uuid.UUID, Path(description="Leased work unit.")],
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
 ) -> WorkUnitOut:
@@ -415,10 +446,24 @@ async def heartbeat_unit(
 @router.post(
     "/scans/{scan_id}/work/{unit_id}/complete",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Complete a work unit",
+    description=(
+        "Scanner protocol, parallel scans. Marks a leased unit completed. When it was the last "
+        "unfinished unit the scan itself is finalized in the same transaction: stale entries are "
+        "swept, the source returns to `online` and records `last_scan_at`, subscribers are notified, "
+        "and the subtree roll-up, snapshot and `scan.completed` webhooks run in the background. A "
+        "scan with failed units finishes `completed` if any unit succeeded and `failed` otherwise.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the caller does not hold the lease; 404 if the scan or unit does not exist; "
+        "409 if the scan has ended or the unit is not running."
+    ),
 )
 async def complete_unit(
-    scan_id: uuid.UUID,
-    unit_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan the unit belongs to.")],
+    unit_id: Annotated[uuid.UUID, Path(description="Leased work unit.")],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -489,10 +534,23 @@ async def complete_unit(
 @router.post(
     "/scans/{scan_id}/work/{unit_id}/fail",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Fail or requeue a work unit",
+    description=(
+        "Scanner protocol, parallel scans. Reports that a leased unit could not be finished. With "
+        "`requeue` true the unit returns to the queue for another scanner, up to 3 attempts in total; "
+        "otherwise (or after the third attempt) it becomes `failed`, which may finalize the scan as "
+        "described for unit completion.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 403 if the caller does not hold the lease; 404 if the scan or unit does not exist; "
+        "409 if the scan has ended or the unit is not running."
+    ),
 )
 async def fail_unit(
-    scan_id: uuid.UUID,
-    unit_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan the unit belongs to.")],
+    unit_id: Annotated[uuid.UUID, Path(description="Leased work unit.")],
     body: CompleteUnitRequest,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
@@ -559,9 +617,22 @@ async def fail_unit(
 @router.post(
     "/scans/{scan_id}/work/split",
     response_model=SplitResponse,
+    summary="Add work units",
+    description=(
+        "Scanner protocol, parallel scans. Adds pending units for subdirectories the scanner chooses "
+        "not to walk itself, so other scanners can lease them; the first scanner on a fresh scan also "
+        "uses it to enqueue the root unit (`parent_unit_id` null, `child_paths` `[\"\"]`). Idempotent "
+        "per path: paths that already exist are counted in `skipped`, so retrying is safe. Scanners "
+        "that may join this scan are notified.\n"
+        "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
+        "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
+        "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "Errors: 404 if the scan does not exist; 409 if the scan has ended."
+    ),
 )
 async def split_units(
-    scan_id: uuid.UUID,
+    scan_id: Annotated[uuid.UUID, Path(description="Scan to add units to.")],
     body: SplitRequest,
     db: AsyncSession = Depends(get_db),
     scanner: Scanner = Depends(verify_scanner_jwt),
