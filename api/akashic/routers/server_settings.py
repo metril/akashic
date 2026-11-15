@@ -25,6 +25,7 @@ from akashic.database import get_db
 from akashic.models.server_setting import ServerSetting
 from akashic.models.user import User
 from akashic.services import scan_pubsub
+from akashic.services.scan_pubsub import SettingChanged
 from akashic.services.audit import record_event
 from akashic.services.runtime_settings import (
     GROUPS, MASK, REGISTRY, Spec, coerce, decode_stored, encode_stored,
@@ -204,10 +205,9 @@ async def _apply(
     await load_snapshot(db)
     if prepared:
         # Bust cache + reload snapshot on every worker/process.
-        await scan_pubsub.publish_scanner_event({
-            "kind": "setting.changed",
-            "key": next(iter(prepared)) if len(prepared) == 1 else None,
-        })
+        await scan_pubsub.publish_scanner_event(SettingChanged(
+            key=next(iter(prepared)) if len(prepared) == 1 else None,
+        ))
         await record_event(
             db=db, user=user, event_type="server_setting_updated",
             request=request,

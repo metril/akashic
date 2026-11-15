@@ -6970,7 +6970,7 @@ One active scan in the `/ws/v1/scans` snapshot.
 | `current_path` | `string` \| `null` | yes | Path currently being walked. |
 | `files_found` | `integer` | yes | Files found so far. |
 | `scan_id` | `string` | yes | Scan id. |
-| `scan_status` | `string` | yes | Scan status. |
+| `scan_status` | `"pending"` \| `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"` | yes | Scan status. |
 | `scan_type` | `string` | yes | Scan type (`incremental` or `full`). |
 | `scanner_id` | `string` \| `null` | yes | Assigned scanner id. |
 | `scanner_name` | `string` \| `null` | yes | Assigned scanner name. |
@@ -7075,7 +7075,7 @@ Scan state change on `/ws/v1/scans` (the source-list stream).
 | `files_found` | `integer` | yes | Files found so far. |
 | `kind` | `"scan.state"` | yes | Frame discriminator. |
 | `scan_id` | `string` | yes | Scan id. |
-| `scan_status` | `string` | yes | Scan status. |
+| `scan_status` | `"pending"` \| `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"` | yes | Scan status. |
 | `scan_type` | `string` | yes | Scan type (`incremental` or `full`). |
 | `scanner_id` | `string` \| `null` | yes | Assigned scanner id. |
 | `scanner_name` | `string` \| `null` | yes | Assigned scanner name. |

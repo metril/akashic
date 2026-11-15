@@ -40,13 +40,17 @@ if [ -z "$base_spec" ]; then
     echo "::error::shallow clone: cannot find the last release tag (checkout with fetch-depth: 0)"
     exit 1
   fi
-  tag="$(git -c versionsort.suffix=- tag --merged HEAD --list 'v[0-9]*' --sort=-version:refname \
-          | grep -Ev -- '-' | grep -vxFf <(git tag --points-at HEAD) | head -n1 || true)"
+  # git runs unguarded (set -e fails the gate on any git error); only grep's
+  # "no match" status (1) is tolerated, via the explicit `|| [ $? -eq 1 ]`.
+  tags="$(git -c versionsort.suffix=- tag --merged HEAD --list 'v[0-9]*' --sort=-version:refname)"
+  at_head="$(git tag --points-at HEAD)"
+  tag="$(printf '%s\n' "$tags" | { grep -Ev -- '-' || [ $? -eq 1 ]; } \
+          | { grep -vxFf <(printf '%s\n' "$at_head") || [ $? -eq 1 ]; } | head -n1)"
   if [ -z "$tag" ]; then
     echo "No release tag reachable from HEAD; skipping the breaking-change gate."
     exit 0
   fi
-  if ! git cat-file -e "$tag:openapi.json" 2>/dev/null; then
+  if [ -z "$(git ls-tree --name-only "$tag" -- openapi.json)" ]; then
     echo "Last release tag $tag has no openapi.json; skipping the breaking-change gate."
     exit 0
   fi

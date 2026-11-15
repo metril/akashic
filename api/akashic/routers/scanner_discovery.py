@@ -21,6 +21,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from akashic.schemas.ws_events import WsScannerDiscoveryApproved, WsScannerDiscoveryDenied, WsScannerDiscoveryRequested
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
 from akashic.schemas.base import ApiModel
@@ -212,16 +213,15 @@ async def discover_scanner(
     await db.commit()
     await db.refresh(row)
 
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.discovery_requested",
-        "discovery_id": str(row.id),
-        "pairing_code": row.pairing_code,
-        "hostname": row.hostname,
-        "agent_version": row.agent_version,
-        "requested_pool": row.requested_pool,
-        "expires_at": row.expires_at.isoformat(),
-        "key_fingerprint": row.key_fingerprint,
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerDiscoveryRequested(
+        discovery_id=str(row.id),
+        pairing_code=row.pairing_code,
+        hostname=row.hostname,
+        agent_version=row.agent_version,
+        requested_pool=row.requested_pool,
+        expires_at=row.expires_at.isoformat(),
+        key_fingerprint=row.key_fingerprint,
+    ))
     await record_event(
         db=db, user=None, event_type="scanner_discovery_requested",
         request=request,
@@ -459,13 +459,12 @@ async def approve_discovery(
     await db.commit()
     await db.refresh(scanner)
 
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.discovery_approved",
-        "discovery_id": str(row.id),
-        "scanner_id": str(scanner.id),
-        "scanner_name": scanner.name,
-        "pool": scanner.pool,
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerDiscoveryApproved(
+        discovery_id=str(row.id),
+        scanner_id=str(scanner.id),
+        scanner_name=scanner.name,
+        pool=scanner.pool,
+    ))
     await record_event(
         db=db, user=user, event_type="scanner_discovery_approved",
         request=request,
@@ -509,11 +508,10 @@ async def deny_discovery(
     row.decided_by_user_id = user.id
     row.deny_reason = body.reason
     await db.commit()
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.discovery_denied",
-        "discovery_id": str(row.id),
-        "deny_reason": row.deny_reason,
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerDiscoveryDenied(
+        discovery_id=str(row.id),
+        deny_reason=row.deny_reason,
+    ))
     await record_event(
         db=db, user=user, event_type="scanner_discovery_denied",
         request=request,

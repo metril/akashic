@@ -22,11 +22,13 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
+from pydantic import BaseModel
 from redis.asyncio import Redis
 
 from akashic.config import settings
+from akashic.schemas.ws_events import SCAN_EVENTS, SCANNER_EVENTS, SOURCE_EVENTS, WsScanLog, WsScanProgress
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +62,35 @@ def _client() -> Redis:
     return _redis
 
 
-async def publish(scan_id: uuid.UUID, event: dict[str, Any]) -> None:
+class SettingChanged(BaseModel):
+    """Internal cache-bust sent on the scanners channel when server settings change.
+    Never a WebSocket frame: `/ws/v1/scanners` drops it before forwarding."""
+
+    kind: Literal["setting.changed"] = "setting.changed"
+    key: str | None = None
+
+
+# Internal events the channels may carry besides documented WebSocket frames.
+INTERNAL_EVENT_MODELS: tuple[type[BaseModel], ...] = (SettingChanged,)
+
+
+def _encode(event: BaseModel, allowed: tuple[type[BaseModel], ...]) -> str:
+    """Serialise a frame built from one of ``allowed`` (by exact type); anything
+    else is a programming error, raised rather than swallowed like broker failures."""
+    if type(event) not in allowed:
+        raise TypeError(f"{type(event).__name__} is not a documented event for this channel")
+    return event.model_dump_json()
+
+
+async def publish(scan_id: uuid.UUID, event: WsScanProgress | WsScanLog) -> None:
     """Fire-and-forget publish; logs and swallows on Redis failure so we
     never break the producing endpoint over a transient broker hiccup.
 
     The persisted DB row is the source of truth; pub/sub is only the live
     fan-out. Reconnecting WS clients backfill via `GET /api/v1/scans/{id}/log`.
     """
+    payload = _encode(event, SCAN_EVENTS)
     try:
-        payload = json.dumps(event, default=str)
         await _client().publish(_channel(scan_id), payload)
     except Exception as exc:  # noqa: BLE001
         logger.warning("scan_pubsub.publish failed for scan=%s: %s", scan_id, exc)
@@ -118,13 +140,13 @@ async def subscribe(scan_id: uuid.UUID) -> AsyncIterator[dict[str, Any]]:
             logger.debug("scan_pubsub aclose noise: %s", exc)
 
 
-async def publish_source_event(event: dict[str, Any]) -> None:
+async def publish_source_event(event: BaseModel) -> None:
     """Source CRUD + scan transition events for the list-level
     WebSocket (/ws/v1/scans). Same fire-and-forget semantics as
     publish() — broker hiccups don't break the producing endpoint.
     """
+    payload = _encode(event, SOURCE_EVENTS)
     try:
-        payload = json.dumps(event, default=str)
         await _client().publish(SOURCES_CHANNEL, payload)
     except Exception as exc:  # noqa: BLE001
         logger.warning("scan_pubsub.publish_source_event failed: %s", exc)
@@ -159,7 +181,7 @@ async def subscribe_sources() -> AsyncIterator[dict[str, Any]]:
             logger.debug("scan_pubsub sources aclose noise: %s", exc)
 
 
-async def publish_scanner_event(event: dict[str, Any]) -> None:
+async def publish_scanner_event(event: BaseModel) -> None:
     """Scanner-lifecycle events for the admin-only /ws/v1/scanners stream.
 
     Same fire-and-forget contract as `publish()` — broker hiccups log
@@ -167,8 +189,8 @@ async def publish_scanner_event(event: dict[str, Any]) -> None:
     DB row remains the source of truth; pubsub is only the live
     fan-out.
     """
+    payload = _encode(event, SCANNER_EVENTS + INTERNAL_EVENT_MODELS)
     try:
-        payload = json.dumps(event, default=str)
         await _client().publish(SCANNERS_CHANNEL, payload)
     except Exception as exc:  # noqa: BLE001
         logger.warning("scan_pubsub.publish_scanner_event failed: %s", exc)

@@ -217,7 +217,7 @@ async def test_host_crud_publishes_host_changed(client: AsyncClient, monkeypatch
     captured: list[dict] = []
 
     async def _cap(event):
-        captured.append(event)
+        captured.append(event.model_dump(mode="json"))
 
     monkeypatch.setattr(scan_pubsub, "publish_source_event", _cap)
 

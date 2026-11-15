@@ -62,7 +62,7 @@ def anchor(kind: str, name: str) -> str:
     return f'<a id="{kind}-{name.lower().replace("_", "-")}"></a>'
 
 
-def render_security(op: dict[str, Any], schemes: dict[str, Any]) -> str:
+def render_security(op: dict[str, Any]) -> str:
     sec = op.get("security")
     if not sec:
         return "None (public)"
@@ -103,11 +103,11 @@ def render_responses(responses: dict[str, Any]) -> list[str]:
     return out
 
 
-def render_operation(path: str, method: str, op: dict[str, Any], path_params: list[dict[str, Any]], schemes: dict[str, Any]) -> list[str]:
+def render_operation(path: str, method: str, op: dict[str, Any], path_params: list[dict[str, Any]]) -> list[str]:
     out = ["", f"{anchor('op', op['operationId'])}", f"#### `{method.upper()} {path}`", "", f"**{op.get('summary', '')}**" + f" (`{op['operationId']}`)"]
     if op.get("deprecated"):
         out += ["", "_Deprecated._"]
-    out += ["", f"Auth: {render_security(op, schemes)}"]
+    out += ["", f"Auth: {render_security(op)}"]
     if op.get("description"):
         out += ["", op["description"].strip()]
     out += render_params(path_params + op.get("parameters", []))
@@ -197,7 +197,7 @@ def render(spec: dict[str, Any]) -> str:
             out += ["", desc]
         out += [""] + [f"- `{m.upper()} {p}`: {op.get('summary', '')}" for p, m, op, _ in by_tag[tag]]
         for p, m, op, pp in by_tag[tag]:
-            out += render_operation(p, m, op, pp, schemes)
+            out += render_operation(p, m, op, pp)
 
     sockets = spec.get("x-websockets", [])
     if sockets:

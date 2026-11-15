@@ -25,6 +25,7 @@ from typing import Annotated
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from akashic.schemas.ws_events import WsScanState
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, Response, status
 from akashic.schemas.base import ApiModel
@@ -248,19 +249,18 @@ async def _broadcast_terminal(
     scan: Scan, source: Source, scanner: Scanner, new_status: str,
 ) -> None:
     from akashic.services import scan_broadcast, scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(source.id),
-        "scan_id": str(scan.id),
-        "scan_status": new_status,
-        "source_status": source.status,
-        "scanner_id": str(scanner.id),
-        "scanner_name": scanner.name,
-        "scan_type": scan.scan_type,
-        "files_found": scan.files_found or 0,
-        "current_path": None,
-        "started_at": scan.started_at.isoformat() if scan.started_at else None,
-    })
+    await scan_pubsub.publish_source_event(WsScanState(
+        source_id=str(source.id),
+        scan_id=str(scan.id),
+        scan_status=new_status,
+        source_status=source.status,
+        scanner_id=str(scanner.id),
+        scanner_name=scanner.name,
+        scan_type=scan.scan_type,
+        files_found=scan.files_found or 0,
+        current_path=None,
+        started_at=scan.started_at.isoformat() if scan.started_at else None,
+    ))
     await scan_broadcast.clear_broadcast(str(scan.id))
 
 

@@ -28,7 +28,7 @@ const INITIAL = {
 function snapshotEvent(scans: Array<{
   scan_id: string;
   source_id: string;
-  scan_status?: string;
+  scan_status?: "pending" | "running" | "completed" | "failed" | "cancelled";
   files_found?: number;
   current_path?: string | null;
   started_at?: string | null;

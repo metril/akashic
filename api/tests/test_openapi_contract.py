@@ -873,27 +873,42 @@ def test_unresolvable_akashic_local_import_raises(scan_this_module):
     assert _routing._local_imports(_ast.parse("def f():\n    import not_installed_pkg_xyz\n")) == {}
 
 
-def test_every_ws_frame_kind_the_server_sends_has_a_schema():
-    """Each ``"kind": "<literal>"`` a WebSocket producer emits has a Ws* component, and vice versa."""
-    import re
-    import typing
+def test_every_ws_frame_model_belongs_to_a_channel():
+    """Each documented frame (any model with a `kind`) is assigned to a channel that may carry it."""
+    from akashic.schemas import ws_events as w
 
-    from akashic.schemas.ws_events import WS_EVENT_MODELS
+    framed = {m for m in w.WS_EVENT_MODELS if "kind" in m.model_fields}
+    channelled = set(w.SCAN_EVENTS + w.SOURCE_EVENTS + w.SCANNER_EVENTS + w.HANDLER_EVENTS)
+    assert framed == channelled
+    assert set(w.WS_EVENT_MODELS) - framed == {w.WsScanLogLine, w.WsScanListEntry, w.WsPendingDiscovery}
 
-    documented: set[str] = set()
-    for model in WS_EVENT_MODELS:
-        kind = model.model_fields.get("kind")
-        if kind is not None:
-            documented.update(typing.get_args(kind.annotation))
 
-    pattern = re.compile(r'"kind":\s*"([\w.]+)"')
-    sent: set[str] = set()
-    for path in (REPO_ROOT / "api" / "akashic").rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        # server_settings publishes `setting.changed` on its own internal channel, never to a socket.
-        if ("scan_pubsub" in text or path.name == "scan_websocket.py") and path.name != "server_settings.py":
-            sent.update(pattern.findall(text))
-    assert sent == documented, f"sent but undocumented: {sorted(sent - documented)}; documented but never sent: {sorted(documented - sent)}"
+def test_publish_helpers_accept_only_documented_events():
+    """Frames reach a socket only as Ws* models of the right channel (or a declared internal event), and carry every field."""
+    import json
+
+    import pytest
+
+    from akashic.schemas import ws_events as w
+    from akashic.services import scan_pubsub as ps
+
+    state = w.WsScanState(
+        kind="scan.state", source_id="s", scan_id="c", scan_status="pending",
+        source_status="online", scan_type="full", files_found=0,
+    )
+    wire = json.loads(ps._encode(state, ps.SOURCE_EVENTS))
+    assert {"started_at", "current_batch_size", "scanner_id", "current_path"} <= wire.keys()
+
+    # Raw dicts, and models from another channel, are programming errors.
+    with pytest.raises(TypeError):
+        ps._encode({"kind": "scan.state"}, ps.SOURCE_EVENTS)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        ps._encode(state, ps.SCANNER_EVENTS)
+    with pytest.raises(TypeError):
+        ps._encode(ps.SettingChanged(), ps.SOURCE_EVENTS)
+    # Internal events are only allowed where declared, and are not documented frames.
+    ps._encode(ps.SettingChanged(), ps.SCANNER_EVENTS + ps.INTERNAL_EVENT_MODELS)
+    assert not set(ps.INTERNAL_EVENT_MODELS) & set(w.WS_EVENT_MODELS)
 
 
 def test_error_code_catalog_matches_the_code():

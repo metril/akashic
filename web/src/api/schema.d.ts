@@ -10694,6 +10694,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default error
              * @constant
              */
             kind: "error";
@@ -10716,6 +10717,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default host.changed
              * @constant
              */
             kind: "host.changed";
@@ -10777,6 +10779,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default ping
              * @constant
              */
             kind: "ping";
@@ -10805,8 +10808,9 @@ export interface components {
             /**
              * Scan Status
              * @description Scan status.
+             * @enum {string}
              */
-            scan_status: string;
+            scan_status: "pending" | "running" | "completed" | "failed" | "cancelled";
             /**
              * Scan Type
              * @description Scan type (`incremental` or `full`).
@@ -10849,6 +10853,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default snapshot
              * @constant
              */
             kind: "snapshot";
@@ -10963,6 +10968,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default progress
              * @constant
              */
             kind: "progress";
@@ -11061,6 +11067,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default snapshot
              * @constant
              */
             kind: "snapshot";
@@ -11140,6 +11147,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scan.state
              * @constant
              */
             kind: "scan.state";
@@ -11151,8 +11159,9 @@ export interface components {
             /**
              * Scan Status
              * @description Scan status.
+             * @enum {string}
              */
-            scan_status: string;
+            scan_status: "pending" | "running" | "completed" | "failed" | "cancelled";
             /**
              * Scan Type
              * @description Scan type (`incremental` or `full`).
@@ -11195,6 +11204,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.claim_redeemed
              * @constant
              */
             kind: "scanner.claim_redeemed";
@@ -11227,6 +11237,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.deleted
              * @constant
              */
             kind: "scanner.deleted";
@@ -11249,6 +11260,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.discovery_approved
              * @constant
              */
             kind: "scanner.discovery_approved";
@@ -11287,6 +11299,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.discovery_denied
              * @constant
              */
             kind: "scanner.discovery_denied";
@@ -11304,6 +11317,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.discovery_expired
              * @constant
              */
             kind: "scanner.discovery_expired";
@@ -11343,6 +11357,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.discovery_requested
              * @constant
              */
             kind: "scanner.discovery_requested";
@@ -11366,6 +11381,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default scanner.updated
              * @constant
              */
             kind: "scanner.updated";
@@ -11383,6 +11399,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default snapshot
              * @constant
              */
             kind: "snapshot";
@@ -11400,6 +11417,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default source.created
              * @constant
              */
             kind: "source.created";
@@ -11432,6 +11450,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default source.deleted
              * @constant
              */
             kind: "source.deleted";
@@ -11449,6 +11468,7 @@ export interface components {
             /**
              * Kind
              * @description Frame discriminator.
+             * @default source.updated
              * @constant
              */
             kind: "source.updated";

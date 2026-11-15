@@ -12,6 +12,7 @@ from croniter import croniter
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.schemas.ws_events import WsScanState, WsScannerDiscoveryExpired
 from akashic.config import settings
 from akashic.services.runtime_settings import rt
 from akashic.database import async_session
@@ -89,18 +90,17 @@ async def _try_trigger_source(db: AsyncSession, source: Source, now: datetime):
     )
 
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(source.id),
-        "scan_id": str(scan.id),
-        "scan_status": "pending",
-        "source_status": source.status,
-        "scanner_id": None,
-        "scanner_name": None,
-        "scan_type": "incremental",
-        "files_found": 0,
-        "current_path": None,
-    })
+    await scan_pubsub.publish_source_event(WsScanState(
+        source_id=str(source.id),
+        scan_id=str(scan.id),
+        scan_status="pending",
+        source_status=source.status,
+        scanner_id=None,
+        scanner_name=None,
+        scan_type="incremental",
+        files_found=0,
+        current_path=None,
+    ))
 
 
 async def _has_open_scan(db: AsyncSession, source_id) -> bool:
@@ -392,21 +392,20 @@ async def _finalize_orphaned_complete_scans():
                 _rollup_subtree_aggregates,
                 _write_scan_snapshot,
             )
-            await scan_pubsub.publish_source_event({
-                "kind": "scan.state",
-                "source_id": str(source.id),
-                "scan_id": str(scan.id),
-                "scan_status": new_status,
-                "source_status": source.status,
-                "scanner_id": None,
-                "scanner_name": None,
-                "scan_type": scan.scan_type,
-                "files_found": scan.files_found or 0,
-                "current_path": None,
-                "started_at": (
+            await scan_pubsub.publish_source_event(WsScanState(
+                source_id=str(source.id),
+                scan_id=str(scan.id),
+                scan_status=new_status,
+                source_status=source.status,
+                scanner_id=None,
+                scanner_name=None,
+                scan_type=scan.scan_type,
+                files_found=scan.files_found or 0,
+                current_path=None,
+                started_at=(
                     scan.started_at.isoformat() if scan.started_at else None
                 ),
-            })
+            ))
             await scan_broadcast.clear_broadcast(str(scan.id))
             _spawn_bg(_rollup_subtree_aggregates(
                 str(source.id), settings.database_url))
@@ -777,10 +776,9 @@ async def _discovery_expiry_loop():
                 if rows:
                     await db.commit()
                     for row in rows:
-                        await scan_pubsub.publish_scanner_event({
-                            "kind": "scanner.discovery_expired",
-                            "discovery_id": str(row.id),
-                        })
+                        await scan_pubsub.publish_scanner_event(WsScannerDiscoveryExpired(
+                            discovery_id=str(row.id),
+                        ))
                     logger.info("Expired %d discovery requests", len(rows))
         except asyncio.CancelledError:
             raise

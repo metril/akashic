@@ -224,7 +224,7 @@ async def test_handshake_publishes_scanner_updated(
     captured: list[dict] = []
 
     async def _cap(event):
-        captured.append(event)
+        captured.append(event.model_dump(mode="json"))
 
     monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
 
@@ -260,7 +260,7 @@ async def test_patch_and_delete_publish_scanner_events(
     captured: list[dict] = []
 
     async def _cap(event):
-        captured.append(event)
+        captured.append(event.model_dump(mode="json"))
 
     monkeypatch.setattr(scan_pubsub, "publish_scanner_event", _cap)
 

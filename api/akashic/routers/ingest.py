@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from akashic.schemas.ws_events import WsScanState
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import case, exists, func, select
@@ -801,25 +802,24 @@ async def ingest_batch(
     scanner_name = await scan_broadcast.resolve_scanner_name(
         db, scan.assigned_scanner_id,
     )
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(batch.source_id),
-        "scan_id": str(batch.scan_id),
-        "scan_status": scan.status,
+    await scan_pubsub.publish_source_event(WsScanState(
+        source_id=str(batch.source_id),
+        scan_id=str(batch.scan_id),
+        scan_status=scan.status,
         # v0.31.5 — only flip the source to "online" when this batch
         # actually finalized the scan; a per-unit is_final batch on a
         # unit-coordinated scan leaves it "scanning" until the work-unit
         # path finalizes.
-        "source_status": "online" if scan_finalized_here else "scanning",
-        "scanner_id": (
+        source_status="online" if scan_finalized_here else "scanning",
+        scanner_id=(
             str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
         ),
-        "scanner_name": scanner_name,
-        "scan_type": scan.scan_type,
-        "files_found": files_found,
-        "current_path": scan.current_path,
-        "started_at": scan.started_at.isoformat() if scan.started_at else None,
-    })
+        scanner_name=scanner_name,
+        scan_type=scan.scan_type,
+        files_found=files_found,
+        current_path=scan.current_path,
+        started_at=scan.started_at.isoformat() if scan.started_at else None,
+    ))
     await scan_broadcast.record_broadcast(
         str(batch.scan_id),
         phase=scan.phase,

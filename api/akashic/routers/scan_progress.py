@@ -13,6 +13,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from akashic.schemas.ws_events import WsScanLog, WsScanLogLine, WsScanProgress, WsScanState
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query
 from sqlalchemy import select, tuple_
@@ -156,23 +157,23 @@ async def post_heartbeat(
 
     await scan_pubsub.publish(
         scan_id,
-        {
-            "kind": "progress",
-            "scan_id": str(scan_id),
-            "current_path": scan.current_path,
-            "files_scanned": body.files_scanned,
-            "bytes_scanned": body.bytes_scanned,
-            "files_skipped": body.files_skipped,
-            "dirs_walked": body.dirs_walked,
-            "dirs_queued": body.dirs_queued,
-            "total_estimated": scan.total_estimated,
-            "phase": scan.phase,
-            "ts": now.isoformat(),
+        WsScanProgress(
+            kind="progress",
+            scan_id=str(scan_id),
+            current_path=scan.current_path,
+            files_scanned=body.files_scanned,
+            bytes_scanned=body.bytes_scanned,
+            files_skipped=body.files_skipped,
+            dirs_walked=body.dirs_walked,
+            dirs_queued=body.dirs_queued,
+            total_estimated=scan.total_estimated,
+            phase=scan.phase,
+            ts=now.isoformat(),
             # v0.29.2 — surface the AIMD batch size through to the
             # Live Log header so operators can see whether the
             # adaptive batcher has converged on a high or low value.
-            "current_batch_size": scan.current_batch_size,
-        },
+            current_batch_size=scan.current_batch_size,
+        ),
     )
 
     # v0.4.11: change-detected broadcast. v0.4.7 fired this on every
@@ -199,30 +200,29 @@ async def post_heartbeat(
         scanner_name = await scan_broadcast.resolve_scanner_name(
             db, scan.assigned_scanner_id,
         )
-        await scan_pubsub.publish_source_event({
-            "kind": "scan.state",
-            "source_id": str(scan.source_id),
-            "scan_id": str(scan_id),
-            "scan_status": scan.status,
-            "source_status": "scanning",
-            "scanner_id": (
+        await scan_pubsub.publish_source_event(WsScanState(
+            source_id=str(scan.source_id),
+            scan_id=str(scan_id),
+            scan_status=scan.status,
+            source_status="scanning",
+            scanner_id=(
                 str(scan.assigned_scanner_id) if scan.assigned_scanner_id else None
             ),
-            "scanner_name": scanner_name,
-            "scan_type": scan.scan_type,
-            "files_found": files_found,
-            "current_path": scan.current_path,
+            scanner_name=scanner_name,
+            scan_type=scan.scan_type,
+            files_found=files_found,
+            current_path=scan.current_path,
             # v0.4.10 — carry started_at so the frontend's bySource map
             # can order scans correctly without losing the tiebreak in
             # recomputeBySource against older terminal scans whose
             # started_at was populated.
-            "started_at": scan.started_at.isoformat() if scan.started_at else None,
+            started_at=scan.started_at.isoformat() if scan.started_at else None,
             # v0.29.2 — latest AIMD batch size reported by the scanner.
             # Surfaced in the Live Log row tooltip so operators can see
             # whether the adaptive batcher has converged on a high or
             # low value for the current source.
-            "current_batch_size": scan.current_batch_size,
-        })
+            current_batch_size=scan.current_batch_size,
+        ))
         await scan_broadcast.record_broadcast(
             str(scan_id),
             phase=scan.phase,
@@ -316,23 +316,23 @@ async def post_log_batch(
     saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
     await scan_pubsub.publish(
         scan_id,
-        {
-            "kind": "log",
-            "scan_id": str(scan_id),
-            "lines": [
-                {
-                    "id": str(s.id),
-                    "ts": s.ts.isoformat(),
-                    "level": s.level,
-                    "message": s.message,
-                    "scanner_id": (
+        WsScanLog(
+            kind="log",
+            scan_id=str(scan_id),
+            lines=[
+                WsScanLogLine(
+                    id=str(s.id),
+                    ts=s.ts.isoformat(),
+                    level=s.level,
+                    message=s.message,
+                    scanner_id=(
                         str(s.scanner_id) if s.scanner_id else None
                     ),
-                    "scanner_name": s.scanner_name,
-                }
+                    scanner_name=s.scanner_name,
+                )
                 for s in saved
             ],
-        },
+        ),
     )
 
 
@@ -366,23 +366,23 @@ async def post_stderr_batch(
     saved = await _persist_lines(scan, rows, db, scanner_id=scanner_id)
     await scan_pubsub.publish(
         scan_id,
-        {
-            "kind": "stderr",
-            "scan_id": str(scan_id),
-            "lines": [
-                {
-                    "id": str(s.id),
-                    "ts": s.ts.isoformat(),
-                    "level": s.level,
-                    "message": s.message,
-                    "scanner_id": (
+        WsScanLog(
+            kind="stderr",
+            scan_id=str(scan_id),
+            lines=[
+                WsScanLogLine(
+                    id=str(s.id),
+                    ts=s.ts.isoformat(),
+                    level=s.level,
+                    message=s.message,
+                    scanner_id=(
                         str(s.scanner_id) if s.scanner_id else None
                     ),
-                    "scanner_name": s.scanner_name,
-                }
+                    scanner_name=s.scanner_name,
+                )
                 for s in saved
             ],
-        },
+        ),
     )
 
 

@@ -11,6 +11,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from akashic.schemas.ws_events import WsScannerDeleted, WsScannerUpdated
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
 from akashic.schemas.base import ApiModel
@@ -313,10 +314,9 @@ async def patch_scanner(
     await db.commit()
     await db.refresh(scanner)
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.updated",
-        "scanner_id": str(scanner.id),
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerUpdated(
+        scanner_id=str(scanner.id),
+    ))
     return _to_summary(scanner)
 
 
@@ -424,10 +424,9 @@ async def delete_scanner(
     await db.delete(scanner)
     await db.commit()
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.deleted",
-        "scanner_id": str(scanner_id),
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerDeleted(
+        scanner_id=str(scanner_id),
+    ))
 
 
 # ── Join tokens (self-registration) ──────────────────────────────────────

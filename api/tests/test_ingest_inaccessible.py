@@ -29,7 +29,7 @@ async def _seed(db_session, source_id):
     await db_session.flush()
     scan = Scan(
         id=uuid.uuid4(), source_id=source_id,
-        scan_type="full", status="scanning",
+        scan_type="full", status="running",
     )
     db_session.add(scan)
     await db_session.commit()

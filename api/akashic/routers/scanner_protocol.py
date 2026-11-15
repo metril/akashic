@@ -14,6 +14,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from akashic.schemas.ws_events import WsScanState, WsScannerClaimRedeemed, WsScannerUpdated
 from akashic.routing import ApiRouter, raises
 from fastapi import Depends, HTTPException, Path, Request, Response, status
 from akashic.schemas.base import ApiModel
@@ -231,13 +232,12 @@ async def claim_with_token(
     await db.refresh(scanner)
 
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.claim_redeemed",
-        "scanner_id": str(scanner.id),
-        "scanner_name": scanner.name,
-        "pool": scanner.pool,
-        "token_id": str(token_row.id),
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerClaimRedeemed(
+        scanner_id=str(scanner.id),
+        scanner_name=scanner.name,
+        pool=scanner.pool,
+        token_id=str(token_row.id),
+    ))
     await record_event(
         db=db, user=None, event_type="scanner_claim_token_redeemed",
         request=request,
@@ -299,10 +299,9 @@ async def handshake(
     # Push the freshly-reported metadata (online status, version,
     # concurrency) so admin views update without waiting for their poll.
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_scanner_event({
-        "kind": "scanner.updated",
-        "scanner_id": str(scanner.id),
-    })
+    await scan_pubsub.publish_scanner_event(WsScannerUpdated(
+        scanner_id=str(scanner.id),
+    ))
 
     accepted = ACCEPTED_MIN <= body.protocol_version <= ACCEPTED_MAX
     if not accepted:
@@ -551,19 +550,18 @@ async def lease_scan(
         else None
     )
 
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(source.id),
-        "scan_id": str(scan_id),
-        "scan_status": "running",
-        "source_status": "scanning",
-        "scanner_id": str(scanner.id),
-        "scanner_name": scanner.name,
-        "scan_type": scan_type or "incremental",
-        "files_found": 0,
-        "current_path": None,
-        "started_at": started_at_iso,
-    })
+    await scan_pubsub.publish_source_event(WsScanState(
+        source_id=str(source.id),
+        scan_id=str(scan_id),
+        scan_status="running",
+        source_status="scanning",
+        scanner_id=str(scanner.id),
+        scanner_name=scanner.name,
+        scan_type=scan_type or "incremental",
+        files_found=0,
+        current_path=None,
+        started_at=started_at_iso,
+    ))
     # v0.4.11: seed the change-detection snapshot so the heartbeat
     # arriving 1s later doesn't immediately re-broadcast the same state.
     from akashic.services import scan_broadcast
@@ -791,19 +789,18 @@ async def complete_scan(
 
     if source is not None:
         from akashic.services import scan_broadcast, scan_pubsub
-        await scan_pubsub.publish_source_event({
-            "kind": "scan.state",
-            "source_id": str(source.id),
-            "scan_id": str(scan_id),
-            "scan_status": body.status,
-            "source_status": source.status,
-            "scanner_id": str(scanner.id),
-            "scanner_name": scanner.name,
-            "scan_type": scan.scan_type,
-            "files_found": scan.files_found or 0,
-            "current_path": None,
-            "started_at": scan.started_at.isoformat() if scan.started_at else None,
-        })
+        await scan_pubsub.publish_source_event(WsScanState(
+            source_id=str(source.id),
+            scan_id=str(scan_id),
+            scan_status=body.status,
+            source_status=source.status,
+            scanner_id=str(scanner.id),
+            scanner_name=scanner.name,
+            scan_type=scan.scan_type,
+            files_found=scan.files_found or 0,
+            current_path=None,
+            started_at=scan.started_at.isoformat() if scan.started_at else None,
+        ))
         # v0.4.11: terminal state — clear the snapshot so a future
         # re-trigger of this scan_id (rare; mostly tests) starts fresh.
         await scan_broadcast.clear_broadcast(str(scan_id))

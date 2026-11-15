@@ -2,22 +2,25 @@
 so `akashic.openapi` publishes them into `components.schemas` explicitly."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from akashic.schemas.base import ApiModel
 from pydantic import BaseModel, Field
 
 
+ScanStatus: TypeAlias = Literal["pending", "running", "completed", "failed", "cancelled"]
+
+
 class WsPing(ApiModel):
     """Server keep-alive frame."""
 
-    kind: Literal["ping"] = Field(description="Frame discriminator.")
+    kind: Literal["ping"] = Field(default="ping", description="Frame discriminator.")
 
 
 class WsError(ApiModel):
     """Live stream failed; clients should fall back to polling."""
 
-    kind: Literal["error"] = Field(description="Frame discriminator.")
+    kind: Literal["error"] = Field(default="error", description="Frame discriminator.")
     message: str = Field(description="Why the live stream is unavailable.")
 
 
@@ -35,7 +38,7 @@ class WsScanLogLine(ApiModel):
 class WsScanSnapshot(ApiModel):
     """First frame on `/ws/v1/scans/{id}`: current scan state plus recent log lines."""
 
-    kind: Literal["snapshot"] = Field(description="Frame discriminator.")
+    kind: Literal["snapshot"] = Field(default="snapshot", description="Frame discriminator.")
     scan_id: str = Field(description="Scan id.")
     source_id: str = Field(description="Source being scanned.")
     status: str = Field(description="Scan status.")
@@ -62,7 +65,7 @@ class WsScanSnapshot(ApiModel):
 class WsScanProgress(ApiModel):
     """Throttled progress frame on `/ws/v1/scans/{id}`."""
 
-    kind: Literal["progress"] = Field(description="Frame discriminator.")
+    kind: Literal["progress"] = Field(default="progress", description="Frame discriminator.")
     scan_id: str = Field(description="Scan id.")
     current_path: str | None = Field(default=None, description="Path currently being walked.")
     files_scanned: int = Field(description="Files scanned so far.")
@@ -87,10 +90,10 @@ class WsScanLog(ApiModel):
 class WsScanState(ApiModel):
     """Scan state change on `/ws/v1/scans` (the source-list stream)."""
 
-    kind: Literal["scan.state"] = Field(description="Frame discriminator.")
+    kind: Literal["scan.state"] = Field(default="scan.state", description="Frame discriminator.")
     source_id: str = Field(description="Source id.")
     scan_id: str = Field(description="Scan id.")
-    scan_status: str = Field(description="Scan status.")
+    scan_status: ScanStatus = Field(description="Scan status.")
     source_status: str = Field(description="Source status.")
     scanner_id: str | None = Field(default=None, description="Assigned scanner id.")
     scanner_name: str | None = Field(default=None, description="Assigned scanner name.")
@@ -106,7 +109,7 @@ class WsScanListEntry(ApiModel):
 
     scan_id: str = Field(description="Scan id.")
     source_id: str = Field(description="Source id.")
-    scan_status: str = Field(description="Scan status.")
+    scan_status: ScanStatus = Field(description="Scan status.")
     source_status: str = Field(description="Source status.")
     scanner_id: str | None = Field(default=None, description="Assigned scanner id.")
     scanner_name: str | None = Field(default=None, description="Assigned scanner name.")
@@ -119,14 +122,14 @@ class WsScanListEntry(ApiModel):
 class WsScanListSnapshot(ApiModel):
     """First frame on `/ws/v1/scans`: the pending, running and failed scans the caller can see."""
 
-    kind: Literal["snapshot"] = Field(description="Frame discriminator.")
+    kind: Literal["snapshot"] = Field(default="snapshot", description="Frame discriminator.")
     scans: list[WsScanListEntry] = Field(description="Pending, running and recently failed scans.")
 
 
 class WsSourceCreated(ApiModel):
     """A source was created (`/ws/v1/scans`)."""
 
-    kind: Literal["source.created"] = Field(description="Frame discriminator.")
+    kind: Literal["source.created"] = Field(default="source.created", description="Frame discriminator.")
     source_id: str = Field(description="Source id.")
     source_status: str = Field(description="Source status.")
     name: str = Field(description="Source name.")
@@ -136,21 +139,21 @@ class WsSourceCreated(ApiModel):
 class WsSourceUpdated(ApiModel):
     """A source was edited; refetch it (`/ws/v1/scans`)."""
 
-    kind: Literal["source.updated"] = Field(description="Frame discriminator.")
+    kind: Literal["source.updated"] = Field(default="source.updated", description="Frame discriminator.")
     source_id: str = Field(description="Source id.")
 
 
 class WsSourceDeleted(ApiModel):
     """A source was deleted (`/ws/v1/scans`)."""
 
-    kind: Literal["source.deleted"] = Field(description="Frame discriminator.")
+    kind: Literal["source.deleted"] = Field(default="source.deleted", description="Frame discriminator.")
     source_id: str = Field(description="Source id.")
 
 
 class WsHostChanged(ApiModel):
     """A host was created, edited or deleted; refetch hosts (`/ws/v1/scans`)."""
 
-    kind: Literal["host.changed"] = Field(description="Frame discriminator.")
+    kind: Literal["host.changed"] = Field(default="host.changed", description="Frame discriminator.")
     host_id: str = Field(description="Host id.")
 
 
@@ -170,14 +173,14 @@ class WsPendingDiscovery(ApiModel):
 class WsScannersSnapshot(ApiModel):
     """First frame on `/ws/v1/scanners`: pending discovery requests."""
 
-    kind: Literal["snapshot"] = Field(description="Frame discriminator.")
+    kind: Literal["snapshot"] = Field(default="snapshot", description="Frame discriminator.")
     pending_discoveries: list[WsPendingDiscovery] = Field(description="Discovery requests awaiting approval, newest first.")
 
 
 class WsScannerClaimRedeemed(ApiModel):
     """A claim token was redeemed and a scanner registered (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.claim_redeemed"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.claim_redeemed"] = Field(default="scanner.claim_redeemed", description="Frame discriminator.")
     scanner_id: str = Field(description="New scanner id.")
     scanner_name: str = Field(description="Scanner name.")
     pool: str = Field(description="Scanner pool.")
@@ -187,7 +190,7 @@ class WsScannerClaimRedeemed(ApiModel):
 class WsScannerDiscoveryRequested(ApiModel):
     """A scanner asked to be approved (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.discovery_requested"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.discovery_requested"] = Field(default="scanner.discovery_requested", description="Frame discriminator.")
     discovery_id: str = Field(description="Discovery request id.")
     pairing_code: str = Field(description="Pairing code.")
     hostname: str | None = Field(default=None, description="Scanner host name.")
@@ -200,7 +203,7 @@ class WsScannerDiscoveryRequested(ApiModel):
 class WsScannerDiscoveryApproved(ApiModel):
     """A discovery request was approved (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.discovery_approved"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.discovery_approved"] = Field(default="scanner.discovery_approved", description="Frame discriminator.")
     discovery_id: str = Field(description="Discovery request id.")
     scanner_id: str = Field(description="New scanner id.")
     scanner_name: str = Field(description="Scanner name.")
@@ -210,7 +213,7 @@ class WsScannerDiscoveryApproved(ApiModel):
 class WsScannerDiscoveryDenied(ApiModel):
     """A discovery request was denied (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.discovery_denied"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.discovery_denied"] = Field(default="scanner.discovery_denied", description="Frame discriminator.")
     discovery_id: str = Field(description="Discovery request id.")
     deny_reason: str | None = Field(default=None, description="Operator-supplied reason.")
 
@@ -218,23 +221,39 @@ class WsScannerDiscoveryDenied(ApiModel):
 class WsScannerDiscoveryExpired(ApiModel):
     """A discovery request expired unanswered (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.discovery_expired"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.discovery_expired"] = Field(default="scanner.discovery_expired", description="Frame discriminator.")
     discovery_id: str = Field(description="Discovery request id.")
 
 
 class WsScannerUpdated(ApiModel):
     """A scanner's settings or reported metadata changed; refetch it (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.updated"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.updated"] = Field(default="scanner.updated", description="Frame discriminator.")
     scanner_id: str = Field(description="Scanner id.")
 
 
 class WsScannerDeleted(ApiModel):
     """A scanner was removed (`/ws/v1/scanners`)."""
 
-    kind: Literal["scanner.deleted"] = Field(description="Frame discriminator.")
+    kind: Literal["scanner.deleted"] = Field(default="scanner.deleted", description="Frame discriminator.")
     scanner_id: str = Field(description="Scanner id.")
 
+
+# Frames each pub/sub channel may carry. `akashic.services.scan_pubsub` accepts
+# only these (plus its declared internal events), so a frame cannot reach a
+# socket without a documented schema.
+SCAN_EVENTS: tuple[type[BaseModel], ...] = (WsScanProgress, WsScanLog)
+SOURCE_EVENTS: tuple[type[BaseModel], ...] = (
+    WsScanState, WsSourceCreated, WsSourceUpdated, WsSourceDeleted, WsHostChanged,
+)
+SCANNER_EVENTS: tuple[type[BaseModel], ...] = (
+    WsScannerClaimRedeemed, WsScannerDiscoveryRequested, WsScannerDiscoveryApproved,
+    WsScannerDiscoveryDenied, WsScannerDiscoveryExpired, WsScannerUpdated, WsScannerDeleted,
+)
+# Frames a handler writes to its own socket, not via pub/sub.
+HANDLER_EVENTS: tuple[type[BaseModel], ...] = (
+    WsScanSnapshot, WsScanListSnapshot, WsScannersSnapshot, WsPing, WsError,
+)
 
 WS_EVENT_MODELS: tuple[type[BaseModel], ...] = (
     WsPing, WsError, WsScanLogLine, WsScanSnapshot, WsScanProgress, WsScanLog,

@@ -2,6 +2,7 @@ from typing import Annotated
 import uuid
 from datetime import datetime
 
+from akashic.schemas.ws_events import WsSourceCreated, WsSourceDeleted, WsSourceUpdated
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query, Request, status
 from akashic.schemas.base import ApiModel
@@ -279,13 +280,12 @@ async def create_source(
     # Push to /ws/v1/scans subscribers so the Sources page sees the
     # new card without polling.
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "source.created",
-        "source_id": str(source.id),
-        "source_status": source.status,
-        "name": source.name,
-        "type": source.type,
-    })
+    await scan_pubsub.publish_source_event(WsSourceCreated(
+        source_id=str(source.id),
+        source_status=source.status,
+        name=source.name,
+        type=source.type,
+    ))
     await record_event(
         db=db,
         user=user,
@@ -558,10 +558,9 @@ async def update_source(
     # Push to /ws/v1/scans subscribers so other tabs/users see the edit
     # without polling (mirrors source.created / source.deleted).
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "source.updated",
-        "source_id": str(source.id),
-    })
+    await scan_pubsub.publish_source_event(WsSourceUpdated(
+        source_id=str(source.id),
+    ))
 
     after = {
         "name": source.name,
@@ -677,10 +676,9 @@ async def delete_source(
         )
 
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "source.deleted",
-        "source_id": str(deleted_id),
-    })
+    await scan_pubsub.publish_source_event(WsSourceDeleted(
+        source_id=str(deleted_id),
+    ))
     # Pass source_id=None — the row is gone and the FK on audit_events
     # would reject an INSERT referencing it. The original ID lives in
     # the payload so the timeline still surfaces the deletion.

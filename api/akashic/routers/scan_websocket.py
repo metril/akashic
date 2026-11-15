@@ -28,7 +28,12 @@ from akashic.auth.dependencies import Principal, principal_from_jwt
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
+from akashic.schemas.ws_events import (
+    WsError, WsPing, WsPendingDiscovery, WsScanListEntry, WsScanListSnapshot,
+    WsScanLogLine, WsScanSnapshot, WsScannersSnapshot,
+)
 from akashic.services import scan_pubsub
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -51,22 +56,27 @@ async def _resolve_principal(token: str, db: AsyncSession, scope: str) -> tuple[
     return principal, None
 
 
-def _scan_snapshot(scan: Scan) -> dict:
-    return {
+def _frame(event: BaseModel) -> dict:
+    """Serialise a documented frame model for `send_json`."""
+    return event.model_dump(mode="json")
+
+
+def _scan_snapshot(scan: Scan, recent_lines: list[WsScanLogLine]) -> WsScanSnapshot:
+    return WsScanSnapshot(**{
         "kind": "snapshot",
         "scan_id": str(scan.id),
         "source_id": str(scan.source_id),
         "status": scan.status,
         "phase": scan.phase,
         "current_path": scan.current_path,
-        "files_found": scan.files_found,
-        "files_new": scan.files_new,
-        "files_changed": scan.files_changed,
-        "files_deleted": scan.files_deleted,
-        "files_skipped": scan.files_skipped,
-        "bytes_scanned_so_far": scan.bytes_scanned_so_far,
-        "dirs_walked": scan.dirs_walked,
-        "dirs_queued": scan.dirs_queued,
+        "files_found": scan.files_found or 0,
+        "files_new": scan.files_new or 0,
+        "files_changed": scan.files_changed or 0,
+        "files_deleted": scan.files_deleted or 0,
+        "files_skipped": scan.files_skipped or 0,
+        "bytes_scanned_so_far": scan.bytes_scanned_so_far or 0,
+        "dirs_walked": scan.dirs_walked or 0,
+        "dirs_queued": scan.dirs_queued or 0,
         "total_estimated": scan.total_estimated,
         "previous_scan_files": scan.previous_scan_files,
         "started_at": scan.started_at.isoformat() if scan.started_at else None,
@@ -77,22 +87,23 @@ def _scan_snapshot(scan: Scan) -> dict:
         "error_message": scan.error_message,
         # v0.29.2 — latest AIMD batch size from scanner heartbeat.
         "current_batch_size": scan.current_batch_size,
-    }
+        "recent_lines": recent_lines,
+    })
 
 
-def _log_line(row: ScanLogEntry) -> dict:
+def _log_line(row: ScanLogEntry) -> WsScanLogLine:
     # v0.29.8 — include scanner_id + scanner_name so the per-line scanner
     # badge re-renders when the user closes and re-opens the panel.
     # v0.30.2 — scanner_name is read straight off the row (snapshotted
     # at write time); the prior read-time JOIN could silently drop it.
-    return {
-        "id": str(row.id),
-        "ts": row.ts.isoformat(),
-        "level": row.level,
-        "message": row.message,
-        "scanner_id": str(row.scanner_id) if row.scanner_id else None,
-        "scanner_name": row.scanner_name,
-    }
+    return WsScanLogLine(
+        id=str(row.id),
+        ts=row.ts.isoformat(),
+        level=row.level,
+        message=row.message,
+        scanner_id=str(row.scanner_id) if row.scanner_id else None,
+        scanner_name=row.scanner_name,
+    )
 
 
 @router.websocket("/scans/{scan_id}")
@@ -131,14 +142,13 @@ async def scan_stream(
                 .limit(100)
             )
         ).scalars().all()
-        snapshot = _scan_snapshot(scan)
-        snapshot["recent_lines"] = [
+        snapshot = _scan_snapshot(scan, [
             _log_line(entry) for entry in reversed(list(recent))
-        ]
+        ])
 
     await websocket.accept()
     try:
-        await websocket.send_json(snapshot)
+        await websocket.send_json(_frame(snapshot))
     except Exception as exc:  # noqa: BLE001
         logger.debug("scan_stream snapshot send failed: %s", exc)
         return
@@ -159,17 +169,17 @@ async def scan_stream(
         except Exception as exc:  # noqa: BLE001
             logger.warning("scan_stream %s: pub/sub error: %s", scan_id, exc)
             try:
-                await websocket.send_json({
-                    "kind": "error",
-                    "message": "live stream unavailable; falling back to polling",
-                })
+                await websocket.send_json(_frame(WsError(
+                    kind="error",
+                    message="live stream unavailable; falling back to polling",
+                )))
             except Exception:  # noqa: BLE001
                 pass
 
     async def _heartbeat() -> None:
         while True:
             await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
-            await websocket.send_json({"kind": "ping"})
+            await websocket.send_json(_frame(WsPing(kind="ping")))
 
     try:
         forward_task = asyncio.create_task(_forward())
@@ -354,34 +364,31 @@ async def scans_stream(
             )).scalars().all()
             source_statuses = {r.id: r.status for r in rows}
 
-    snapshot = {
-        "kind": "snapshot",
-        "scans": [
-            {
-                "scan_id": str(s.id),
-                "source_id": str(s.source_id),
-                "scan_status": s.status,
-                "source_status": source_statuses.get(s.source_id, "unknown"),
-                "scanner_id": (
-                    str(s.assigned_scanner_id)
-                    if s.assigned_scanner_id else None
-                ),
-                "scanner_name": (
-                    scanner_names.get(s.assigned_scanner_id)
-                    if s.assigned_scanner_id else None
-                ),
-                "scan_type": s.scan_type,
-                "files_found": s.files_found or 0,
-                "current_path": s.current_path,
-                "started_at": s.started_at.isoformat() if s.started_at else None,
-            }
-            for s in snapshot_scans
-        ],
-    }
+    snapshot = WsScanListSnapshot(kind="snapshot", scans=[
+        WsScanListEntry(
+            scan_id=str(s.id),
+            source_id=str(s.source_id),
+            scan_status=s.status,
+            source_status=source_statuses.get(s.source_id, "unknown"),
+            scanner_id=(
+                str(s.assigned_scanner_id)
+                if s.assigned_scanner_id else None
+            ),
+            scanner_name=(
+                scanner_names.get(s.assigned_scanner_id)
+                if s.assigned_scanner_id else None
+            ),
+            scan_type=s.scan_type,
+            files_found=s.files_found or 0,
+            current_path=s.current_path,
+            started_at=s.started_at.isoformat() if s.started_at else None,
+        )
+        for s in snapshot_scans
+    ])
 
     await websocket.accept()
     try:
-        await websocket.send_json(snapshot)
+        await websocket.send_json(_frame(snapshot))
     except Exception as exc:  # noqa: BLE001
         logger.debug("scans_stream snapshot send failed: %s", exc)
         return
@@ -401,17 +408,17 @@ async def scans_stream(
         except Exception as exc:  # noqa: BLE001
             logger.warning("scans_stream pub/sub error: %s", exc)
             try:
-                await websocket.send_json({
-                    "kind": "error",
-                    "message": "live stream unavailable; reconnect to retry",
-                })
+                await websocket.send_json(_frame(WsError(
+                    kind="error",
+                    message="live stream unavailable; reconnect to retry",
+                )))
             except Exception:  # noqa: BLE001
                 pass
 
     async def _heartbeat() -> None:
         while True:
             await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
-            await websocket.send_json({"kind": "ping"})
+            await websocket.send_json(_frame(WsPing(kind="ping")))
 
     try:
         forward_task = asyncio.create_task(_forward())
@@ -479,26 +486,23 @@ async def scanners_stream(
             .order_by(ScannerDiscoveryRequest.requested_at.desc())
         )).scalars().all()
 
-    snapshot = {
-        "kind": "snapshot",
-        "pending_discoveries": [
-            {
-                "id": str(r.id),
-                "pairing_code": r.pairing_code,
-                "hostname": r.hostname,
-                "agent_version": r.agent_version,
-                "requested_pool": r.requested_pool,
-                "requested_at": r.requested_at.isoformat(),
-                "expires_at": r.expires_at.isoformat(),
-                "key_fingerprint": r.key_fingerprint,
-            }
-            for r in rows
-        ],
-    }
+    snapshot = WsScannersSnapshot(kind="snapshot", pending_discoveries=[
+        WsPendingDiscovery(
+            id=str(r.id),
+            pairing_code=r.pairing_code,
+            hostname=r.hostname,
+            agent_version=r.agent_version,
+            requested_pool=r.requested_pool,
+            requested_at=r.requested_at.isoformat(),
+            expires_at=r.expires_at.isoformat(),
+            key_fingerprint=r.key_fingerprint,
+        )
+        for r in rows
+    ])
 
     await websocket.accept()
     try:
-        await websocket.send_json(snapshot)
+        await websocket.send_json(_frame(snapshot))
     except Exception as exc:  # noqa: BLE001
         logger.debug("scanners_stream snapshot send failed: %s", exc)
         return
@@ -510,25 +514,26 @@ async def scanners_stream(
     async def _forward() -> None:
         try:
             async for event in scan_pubsub.subscribe_scanners():
-                # `setting.changed` is internal cache-bust noise — don't
-                # leak server-settings events to the operator's UI.
+                # `setting.changed` (scan_pubsub.SettingChanged) shares this
+                # channel as an internal cache-bust; it is not a documented
+                # frame, so drop it rather than leak it to the operator's UI.
                 if isinstance(event, dict) and event.get("kind") == "setting.changed":
                     continue
                 await websocket.send_json(event)
         except Exception as exc:  # noqa: BLE001
             logger.warning("scanners_stream pub/sub error: %s", exc)
             try:
-                await websocket.send_json({
-                    "kind": "error",
-                    "message": "live stream unavailable; reconnect to retry",
-                })
+                await websocket.send_json(_frame(WsError(
+                    kind="error",
+                    message="live stream unavailable; reconnect to retry",
+                )))
             except Exception:  # noqa: BLE001
                 pass
 
     async def _heartbeat() -> None:
         while True:
             await asyncio.sleep(_SERVER_HEARTBEAT_SECONDS)
-            await websocket.send_json({"kind": "ping"})
+            await websocket.send_json(_frame(WsPing(kind="ping")))
 
     try:
         forward_task = asyncio.create_task(_forward())

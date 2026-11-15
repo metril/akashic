@@ -80,10 +80,10 @@ async def client(setup_db, admin_user: User, monkeypatch, request) -> AsyncClien
     captured_source_events: list[dict] = []
 
     async def _capture_scan_publish(scan_id, event):
-        captured_per_scan.append((scan_id, event))
+        captured_per_scan.append((scan_id, event.model_dump(mode="json")))
 
     async def _capture_source_publish(event):
-        captured_source_events.append(event)
+        captured_source_events.append(event.model_dump(mode="json"))
 
     monkeypatch.setattr(scan_pubsub, "publish", _capture_scan_publish)
     monkeypatch.setattr(

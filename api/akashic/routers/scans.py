@@ -1,6 +1,7 @@
 import uuid
 from typing import Annotated, Literal
 
+from akashic.schemas.ws_events import WsScanState
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query
 from akashic.schemas.base import ApiModel
@@ -143,18 +144,17 @@ async def trigger_scan(
     # Phase-2 multi-scanner: push to the list-level WS so the
     # Sources page sees the queued scan instantly (no 2s poll).
     from akashic.services import scan_broadcast, scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "scan.state",
-        "source_id": str(source.id),
-        "scan_id": str(scan.id),
-        "scan_status": "pending",
-        "source_status": source.status,
-        "scanner_id": None,
-        "scanner_name": None,
-        "scan_type": data.scan_type,
-        "files_found": 0,
-        "current_path": None,
-    })
+    await scan_pubsub.publish_source_event(WsScanState(
+        source_id=str(source.id),
+        scan_id=str(scan.id),
+        scan_status="pending",
+        source_status=source.status,
+        scanner_id=None,
+        scanner_name=None,
+        scan_type=data.scan_type,
+        files_found=0,
+        current_path=None,
+    ))
     # v0.4.11: seed the change-detection snapshot so the lease + first
     # heartbeat don't immediately re-broadcast the same state.
     await scan_broadcast.record_broadcast(
@@ -292,24 +292,23 @@ async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
         scanner_name = await scan_broadcast.resolve_scanner_name(
             db, scan.assigned_scanner_id,
         )
-        await scan_pubsub.publish_source_event({
-            "kind": "scan.state",
-            "source_id": str(source.id),
-            "scan_id": str(scan.id),
-            "scan_status": "cancelled",
-            "source_status": source.status,
-            "scanner_id": (
+        await scan_pubsub.publish_source_event(WsScanState(
+            source_id=str(source.id),
+            scan_id=str(scan.id),
+            scan_status="cancelled",
+            source_status=source.status,
+            scanner_id=(
                 str(scan.assigned_scanner_id)
                 if scan.assigned_scanner_id else None
             ),
-            "scanner_name": scanner_name,
-            "scan_type": scan.scan_type,
-            "files_found": scan.files_found or 0,
-            "current_path": None,
-            "started_at": (
+            scanner_name=scanner_name,
+            scan_type=scan.scan_type,
+            files_found=scan.files_found or 0,
+            current_path=None,
+            started_at=(
                 scan.started_at.isoformat() if scan.started_at else None
             ),
-        })
+        ))
         await scan_broadcast.clear_broadcast(str(scan.id))
     return scan.status
 

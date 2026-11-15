@@ -7,6 +7,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
+from akashic.schemas.ws_events import WsHostChanged
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
 from akashic.schemas.base import ApiModel
@@ -53,10 +54,9 @@ async def _publish_host_changed(host_id: uuid.UUID) -> None:
     page refreshes without polling. Rides the sources channel (hosts and
     sources are the same domain) — fire-and-forget like the source events."""
     from akashic.services import scan_pubsub
-    await scan_pubsub.publish_source_event({
-        "kind": "host.changed",
-        "host_id": str(host_id),
-    })
+    await scan_pubsub.publish_source_event(WsHostChanged(
+        host_id=str(host_id),
+    ))
 
 
 async def _source_count_for(db: AsyncSession, host_id: uuid.UUID) -> int:
