@@ -89,7 +89,7 @@ export function EntryDetail({ entryId }: Props) {
 
   return (
     <div className="divide-y divide-line-subtle">
-      <S3ExposureBanner source={entry.source as import("../api/types").Source | undefined} />
+      <S3ExposureBanner source={entry.source} />
       <Section title="Tags">
         <EntryTags
           entryId={entry.id}

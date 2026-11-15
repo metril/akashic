@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { API_BASE, ApiError, WS_BASE, client, clearToken, getToken, ok, setToken, parseApiError } from "./client";
+import { API_BASE, ApiError, WS_BASE, client, clearToken, getToken, pendingCount, ok, setToken, parseApiError } from "./client";
 
 describe("parseApiError", () => {
   it("reads the ErrorResponse envelope", () => {
@@ -71,6 +71,14 @@ describe("auth middleware", () => {
     await expect(
       client.GET("/api/v1/sources/{source_id}", { params: { path: { source_id: "x" } } }),
     ).rejects.toMatchObject({ status: 404, code: "not_found", requestId: "r1" });
+  });
+
+  it("does not leak replay state when the network fails", async () => {
+    setToken("tok");
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError("network down")).mockResolvedValue(json([]));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(client.GET("/api/v1/sources")).rejects.toThrow("network down");
+    expect(pendingCount()).toBe(0);
   });
 
   it("refreshes once on 401 and replays the request with the new token", async () => {

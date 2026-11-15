@@ -47,3 +47,37 @@ async def test_ingest_persists_source_security_metadata(
     result = await db_session.execute(select(Source).where(Source.id == source.id))
     fetched = result.scalar_one()
     assert fetched.security_metadata["is_public_inferred"] is True
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_malformed_source_security_metadata(
+    client: AsyncClient, db_session: AsyncSession
+):
+    user = User(
+        id=uuid.uuid4(), username="admin2", email="a2@b.c",
+        password_hash="x", role="admin",
+    )
+    source = Source(
+        id=uuid.uuid4(), name="b2", type="s3",
+        connection_config={"bucket": "x"},
+    )
+    db_session.add_all([user, source])
+    await db_session.commit()
+
+    token = create_ingest_token(str(user.id))
+    scan_id = await seed_scan(db_session, source.id)
+    resp = await client.post(
+        "/api/v1/ingest/batch",
+        json={
+            "source_id": str(source.id),
+            "scan_id": str(scan_id),
+            "entries": [],
+            "source_security_metadata": {"captured_at": "2026-04-26T00:00:00Z", "public_access_block": "nope"},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["code"] == "validation_error"
+
+    await db_session.refresh(source)
+    assert source.security_metadata is None

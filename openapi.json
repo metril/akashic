@@ -9012,15 +9012,13 @@
           "source_security_metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/SourceSecurityMetadata-Input"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Source-level security data (for example an S3 bucket policy) to store on the source.",
-            "title": "Source Security Metadata"
+            "description": "Source-level security data (for example an S3 bucket policy) to store on the source."
           }
         },
         "required": [
@@ -11240,7 +11238,7 @@
           "security_metadata": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SourceSecurityMetadata"
+                "$ref": "#/components/schemas/SourceSecurityMetadata-Output"
               },
               {
                 "type": "null"
@@ -11288,7 +11286,73 @@
         "title": "SourceResponse",
         "type": "object"
       },
-      "SourceSecurityMetadata": {
+      "SourceSecurityMetadata-Input": {
+        "description": "Source-level security posture the scanner captures at scan start (S3).",
+        "properties": {
+          "bucket_acl": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw S3 bucket ACL document.",
+            "title": "Bucket Acl",
+            "x-free-form": true
+          },
+          "bucket_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw S3 bucket policy document.",
+            "title": "Bucket Policy",
+            "x-free-form": true
+          },
+          "bucket_policy_present": {
+            "default": false,
+            "description": "Whether the bucket has a policy.",
+            "title": "Bucket Policy Present",
+            "type": "boolean"
+          },
+          "captured_at": {
+            "description": "When the scanner captured this, ISO 8601.",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "is_public_inferred": {
+            "default": false,
+            "description": "Whether the scanner inferred the bucket is publicly reachable.",
+            "title": "Is Public Inferred",
+            "type": "boolean"
+          },
+          "public_access_block": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicAccessBlock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Public Access Block settings, when readable."
+          }
+        },
+        "required": [
+          "captured_at"
+        ],
+        "title": "SourceSecurityMetadata",
+        "type": "object"
+      },
+      "SourceSecurityMetadata-Output": {
         "description": "Source-level security posture the scanner captures at scan start (S3).",
         "properties": {
           "bucket_acl": {
@@ -13896,16 +13960,13 @@
           "security_metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/SourceSecurityMetadata-Output"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none. Free-form: depends on the source type.",
-            "title": "Security Metadata",
-            "x-free-form": true
+            "description": "Source-level security data used when evaluating permissions (S3 sources only); null when none."
           },
           "type": {
             "description": "Source type, e.g. `local`, `smb`, `nfs`, `s3`.",

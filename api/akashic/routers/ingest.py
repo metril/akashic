@@ -705,7 +705,7 @@ async def ingest_batch(
         )
         source_row = source_result.scalar_one_or_none()
         if source_row is not None:
-            source_row.security_metadata = batch.source_security_metadata
+            source_row.security_metadata = batch.source_security_metadata.model_dump(mode="json")
 
     # v0.5.11 — accumulate inaccessible counts across batches. The
     # single-scanner path sends one IsFinal=true batch with totals; the

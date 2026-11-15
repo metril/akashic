@@ -8188,13 +8188,8 @@ export interface components {
              * @description Source being scanned.
              */
             source_id: string;
-            /**
-             * Source Security Metadata
-             * @description Source-level security data (for example an S3 bucket policy) to store on the source.
-             */
-            source_security_metadata?: {
-                [key: string]: unknown;
-            } | null;
+            /** @description Source-level security data (for example an S3 bucket policy) to store on the source. */
+            source_security_metadata?: components["schemas"]["SourceSecurityMetadata-Input"] | null;
         };
         /**
          * ScanBatchResponse
@@ -9495,7 +9490,7 @@ export interface components {
              */
             scan_schedule: string | null;
             /** @description Source-level security data reported by the scanner (S3 sources only). */
-            security_metadata: components["schemas"]["SourceSecurityMetadata"] | null;
+            security_metadata: components["schemas"]["SourceSecurityMetadata-Output"] | null;
             /**
              * Status
              * @description `online`, `scanning`, `failed` or `offline`.
@@ -9517,7 +9512,46 @@ export interface components {
          * SourceSecurityMetadata
          * @description Source-level security posture the scanner captures at scan start (S3).
          */
-        SourceSecurityMetadata: {
+        "SourceSecurityMetadata-Input": {
+            /**
+             * Bucket Acl
+             * @description Raw S3 bucket ACL document.
+             */
+            bucket_acl?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bucket Policy
+             * @description Raw S3 bucket policy document.
+             */
+            bucket_policy?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bucket Policy Present
+             * @description Whether the bucket has a policy.
+             * @default false
+             */
+            bucket_policy_present?: boolean;
+            /**
+             * Captured At
+             * @description When the scanner captured this, ISO 8601.
+             */
+            captured_at: string;
+            /**
+             * Is Public Inferred
+             * @description Whether the scanner inferred the bucket is publicly reachable.
+             * @default false
+             */
+            is_public_inferred?: boolean;
+            /** @description Public Access Block settings, when readable. */
+            public_access_block?: components["schemas"]["PublicAccessBlock"] | null;
+        };
+        /**
+         * SourceSecurityMetadata
+         * @description Source-level security posture the scanner captures at scan start (S3).
+         */
+        "SourceSecurityMetadata-Output": {
             /**
              * Bucket Acl
              * @description Raw S3 bucket ACL document.
@@ -11043,13 +11077,8 @@ export interface components {
              * @description Source name.
              */
             name: string;
-            /**
-             * Security Metadata
-             * @description Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none. Free-form: depends on the source type.
-             */
-            security_metadata: {
-                [key: string]: unknown;
-            } | null;
+            /** @description Source-level security data used when evaluating permissions (S3 sources only); null when none. */
+            security_metadata: components["schemas"]["SourceSecurityMetadata-Output"] | null;
             /**
              * Type
              * @description Source type, e.g. `local`, `smb`, `nfs`, `s3`.

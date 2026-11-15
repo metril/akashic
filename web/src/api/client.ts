@@ -180,6 +180,11 @@ const ORIGIN = typeof window !== "undefined" ? window.location.origin : "http://
 // a 401 can replay it (the original's body is consumed by the first send).
 const pending = new Map<string, Request>();
 
+/** In-flight replay clones; exposed for the leak test. */
+export function pendingCount(): number {
+  return pending.size;
+}
+
 const authMiddleware: Middleware = {
   onRequest({ request, id }) {
     if (SKIP_AUTH_PATHS.has(new URL(request.url).pathname)) return request;
@@ -187,6 +192,11 @@ const authMiddleware: Middleware = {
     const token = getToken();
     if (token) request.headers.set("Authorization", `Bearer ${token}`);
     return request;
+  },
+
+  onError({ id }) {
+    // Network failure: no response will arrive to clear the replay clone.
+    pending.delete(id);
   },
 
   async onResponse({ response, id }) {

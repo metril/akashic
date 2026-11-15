@@ -6,6 +6,7 @@ from akashic.schemas.base import ApiModel
 from pydantic import Field
 
 from akashic.schemas.entry import EntryIn
+from akashic.schemas.source import SourceSecurityMetadata
 
 
 class ScanBatchIn(ApiModel):
@@ -13,7 +14,7 @@ class ScanBatchIn(ApiModel):
     scan_id: uuid.UUID = Field(description="Leased scan these entries belong to; must belong to `source_id`.")
     entries: list[EntryIn] = Field(description="Entries observed, at most 10,000. Duplicate paths keep the last.")
     is_final: bool = Field(default=False, description="True on the scanner's last batch: finalizes a scan that does not use parallel work units.")
-    source_security_metadata: dict | None = Field(default=None, description="Source-level security data (for example an S3 bucket policy) to store on the source.")
+    source_security_metadata: SourceSecurityMetadata | None = Field(default=None, description="Source-level security data (for example an S3 bucket policy) to store on the source.")
     # v0.5.11 — entries the scanner silently skipped during walk (permission
     # denied, ENOENT mid-scan). Default 0 so legacy scanners that don't send
     # the field don't break ingest. The api accumulates these on the Scan

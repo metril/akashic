@@ -7,13 +7,14 @@ from pydantic import Field
 
 from akashic.schemas.acl import ACL
 from akashic.schemas.common import Page
+from akashic.schemas.source import SourceSecurityMetadata
 
 
 class _EntrySourceRef(ApiModel):
     id: uuid.UUID = Field(description="Source id.")
     name: str = Field(description="Source name.")
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`.")
-    security_metadata: dict | None = Field(default=None, description="Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none. Free-form: depends on the source type.", json_schema_extra={"x-free-form": True})
+    security_metadata: SourceSecurityMetadata | None = Field(default=None, description="Source-level security data used when evaluating permissions (S3 sources only); null when none.")
 
     model_config = {"from_attributes": True}
 

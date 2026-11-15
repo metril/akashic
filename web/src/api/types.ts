@@ -69,7 +69,7 @@ export type CloudDriveGrant = S["CloudDriveGrant-Output"];
 export type CloudDriveRole = CloudDriveGrant["role"];
 export type SearchAsOverride = { type: PrincipalType; identifier: string; groups: string[] };
 export type ACLType = ACL["type"];
-export type SourceSecurityMetadata = S["SourceSecurityMetadata"];
+export type SourceSecurityMetadata = S["SourceSecurityMetadata-Output"];
 export type PublicAccessBlock = S["PublicAccessBlock"];
 
 /** Cursor-paginated list envelope (`Page[T]` in the API; the spec only

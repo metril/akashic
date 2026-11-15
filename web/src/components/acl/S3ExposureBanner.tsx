@@ -1,12 +1,12 @@
 import type { Source } from "../../api/types";
 
 interface Props {
-  source: Source | undefined;
+  source: Pick<Source, "type" | "security_metadata"> | null | undefined;
 }
 
 type State = "public" | "restricted" | "mixed";
 
-function classify(source: Source): State | null {
+function classify(source: Pick<Source, "security_metadata">): State | null {
   const meta = source.security_metadata;
   if (!meta) return null;
   if (meta.is_public_inferred) return "public";
