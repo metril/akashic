@@ -34,7 +34,7 @@ class UnboundIdentityOut(ApiModel):
     user_id: uuid.UUID = Field(description="User the claim was seen for.")
     identity_type: str = Field(description="Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.")
     identifier: str = Field(description="The identifier value, e.g. a SID.")
-    confidence: str = Field(description="How the claim was obtained, e.g. `claim`.")
+    confidence: str = Field(description="How the claim was obtained, one of `claim`, `ldap`, `smb`, `name`.")
     groups: list[str] = Field(description="Group identifiers that came with the claim.")
     first_seen_at: datetime = Field(description="When the claim was first seen at login.")
     last_seen_at: datetime = Field(description="When it was last seen.")

@@ -622,3 +622,253 @@ async def test_unbound_endpoint_filters_by_user(client, db_session):
     body = r.json()
     assert len(body) == 1
     assert body[0]["identifier"] == "S-1-5-21-X-A"
+
+
+# ── smb_lookup strategy ───────────────────────────────────────────────────
+
+import json as _json
+import subprocess as _subprocess
+from types import SimpleNamespace as _NS
+
+from akashic.auth import oidc_provisioning as _op
+from akashic.services import group_resolver as _gr
+
+_DOM = "S-1-5-21-111-222-333"
+
+
+def _smb_src(name, host="dc1", username="svc", **extra):
+    cfg = {"host": host, "port": 445, "username": username, "password": "pw", "path": "/x"}
+    cfg.update(extra)
+    return Source(name=name, type="smb", connection_config=cfg, status="online")
+
+
+def _proc(rc=0, out="", err=""):
+    return _NS(returncode=rc, stdout=out, stderr=err)
+
+
+def _fake_scanner(monkeypatch, name_proc, calls=None):
+    """name_proc(argv) -> proc for resolve-name; resolve-groups returns 2 SIDs."""
+    monkeypatch.setattr(_gr, "_scanner_binary_path", lambda: "/bin/fake")
+
+    def run(argv, password="", timeout=30):
+        if calls is not None:
+            calls.append(argv)
+        if argv[1] == "resolve-name":
+            return name_proc(argv)
+        return _proc(0, _json.dumps({"groups": [f"{_DOM}-513", "junk"], "source": "samr"}))
+
+    monkeypatch.setattr(_gr, "_run_scanner", run)
+
+
+def _found(argv):
+    return _proc(0, _json.dumps({"sid": f"{_DOM}-1105", "domain": "CORP",
+                                 "domain_sid": _DOM, "kind": "user"}))
+
+
+@pytest.fixture(autouse=True)
+def _reset_smb_breaker():
+    _op.reset_smb_breaker()
+    yield
+    _op.reset_smb_breaker()
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_found_dedupes_endpoints(db_session, monkeypatch):
+    db_session.add_all([_smb_src("a"), _smb_src("b"), _smb_src("c", host="dc2")])
+    await db_session.commit()
+    calls = []
+    _fake_scanner(monkeypatch, _found, calls)
+    out = await extract_identities(
+        {"preferred_username": "alice", "groups": ["staff"]},
+        _settings(strategy="smb_lookup"), db_session,
+    )
+    assert len(out) == 1
+    i = out[0]
+    assert (i.identity_type, i.identifier, i.confidence) == ("sid", f"{_DOM}-1105", "smb")
+    assert i.groups == [f"{_DOM}-513"]
+    assert i.domain_sid == _DOM
+    assert len(i.endpoints) == 2  # a/b deduped, dc2 attributed
+    assert sum(1 for c in calls if c[1] == "resolve-name") == 2
+    assert sum(1 for c in calls if c[1] == "resolve-groups") == 1
+    assert "alice" in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_email_local_part_fallback(db_session, monkeypatch):
+    db_session.add(_smb_src("a"))
+    await db_session.commit()
+    calls = []
+    _fake_scanner(monkeypatch, _found, calls)
+    out = await extract_identities({"email": "bob@example.com"},
+                                   _settings(strategy="smb_lookup"), db_session)
+    assert out and calls[0][calls[0].index("--name") + 1] == "bob"
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_not_found_falls_to_name_match(db_session, monkeypatch):
+    db_session.add(_smb_src("a"))
+    await db_session.commit()
+    _fake_scanner(monkeypatch, lambda a: _proc(2, "", "not found"))
+    out = await extract_identities(
+        {"preferred_username": "alice", "groups": ["staff"]},
+        _settings(strategy="smb_lookup"), db_session)
+    assert [(i.identifier, i.confidence) for i in out] == [("-1", "name")]
+    assert not any(b.failures for b in _op._smb_breakers.values())  # not-found is not an outage
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_per_endpoint_breaker_isolated(db_session, monkeypatch):
+    db_session.add_all([_smb_src("a", host="bad"), _smb_src("b", host="good")])
+    await db_session.commit()
+    calls = []
+
+    def name(argv):
+        if "bad" in argv:
+            raise _subprocess.TimeoutExpired(argv, 1)
+        return _found(argv)
+
+    _fake_scanner(monkeypatch, name, calls)
+    s = _settings(strategy="smb_lookup")
+    for _ in range(3):
+        _op._smb_name_cache.clear()  # force re-query
+        out = await extract_identities({"preferred_username": "alice"}, s, db_session)
+        assert len(out) == 1  # good endpoint still works
+    assert _op._smb_breakers[("bad", 445, "svc")].is_open()
+    assert not _op._smb_breakers[("good", 445, "svc")].is_open()
+    _op._smb_name_cache.clear()
+    calls.clear()
+    await extract_identities({"preferred_username": "alice"}, s, db_session)
+    assert not any("bad" in c for c in calls)  # skipped while open
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_cache_hit_and_not_found_cached(db_session, monkeypatch):
+    db_session.add(_smb_src("a"))
+    await db_session.commit()
+    calls = []
+    _fake_scanner(monkeypatch, _found, calls)
+    s = _settings(strategy="smb_lookup")
+    await extract_identities({"preferred_username": "alice"}, s, db_session)
+    n = len(calls)
+    await extract_identities({"preferred_username": "alice"}, s, db_session)
+    assert len(calls) == n
+    calls.clear()
+    _fake_scanner(monkeypatch, lambda a: _proc(2), calls)
+    await extract_identities({"preferred_username": "nobody"}, s, db_session)
+    await extract_identities({"preferred_username": "nobody"}, s, db_session)
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload,extra", [
+    ({"sid": "S-1-5-32-544", "domain_sid": "S-1-5-32", "kind": "user"}, {}),
+    ({"sid": f"{_DOM}-512", "domain_sid": _DOM, "kind": "group"}, {}),
+    ({"sid": f"{_DOM}-1105", "domain_sid": _DOM, "kind": "user"},
+     {"principal_domain": "S-1-5-21-999"}),
+])
+async def test_smb_lookup_rejects_bad_results(db_session, monkeypatch, payload, extra):
+    db_session.add(_smb_src("a", **extra))
+    await db_session.commit()
+    _fake_scanner(monkeypatch, lambda a: _proc(0, _json.dumps(payload)))
+    out = await extract_identities({"preferred_username": "alice"},
+                                   _settings(strategy="smb_lookup"), db_session)
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_passes_domain_and_runs_concurrently(db_session, monkeypatch):
+    import time as _t
+    db_session.add_all([_smb_src(n, host=f"dc{n}", domain="CORP") for n in "abc"])
+    await db_session.commit()
+    calls = []
+
+    def slow(argv):
+        _t.sleep(0.3)
+        return _found(argv)
+
+    _fake_scanner(monkeypatch, slow, calls)
+    t0 = _t.monotonic()
+    out = await extract_identities({"preferred_username": "alice"},
+                                   _settings(strategy="smb_lookup"), db_session)
+    assert _t.monotonic() - t0 < 0.8  # 3 x 0.3s serial would be 0.9s+
+    assert len(out) == 1 and len(out[0].endpoints) == 3
+    assert all(c[c.index("--domain") + 1] == "CORP" for c in calls if c[1] == "resolve-name")
+
+
+@pytest.mark.asyncio
+async def test_smb_lookup_overall_deadline(db_session, monkeypatch):
+    import time as _t
+    db_session.add(_smb_src("a"))
+    await db_session.commit()
+    monkeypatch.setattr(_op, "_SMB_DEADLINE_S", 0.2)
+
+    def hang(argv):
+        _t.sleep(1)
+        return _found(argv)
+
+    _fake_scanner(monkeypatch, hang)
+    t0 = _t.monotonic()
+    out = await extract_identities({"preferred_username": "alice"},
+                                   _settings(strategy="smb_lookup"), db_session)
+    assert out == [] and _t.monotonic() - t0 < 0.8
+    assert _op._smb_breakers[("dc1", 445, "svc")].failures
+
+
+@pytest.mark.asyncio
+async def test_auto_order_claim_beats_smb_and_smb_beats_name(db_session, monkeypatch):
+    db_session.add(_smb_src("a"))
+    await db_session.commit()
+    calls = []
+    _fake_scanner(monkeypatch, _found, calls)
+    s = _settings(strategy="auto")
+    out = await extract_identities(
+        {"preferred_username": "alice", "onprem_sid": "S-1-5-21-9-9-9-1"}, s, db_session)
+    assert out[0].confidence == "claim" and not calls
+    out = await extract_identities(
+        {"preferred_username": "alice", "groups": ["staff"]}, s, db_session)
+    assert out[0].confidence == "smb"
+
+
+@pytest.mark.asyncio
+async def test_auto_without_db_skips_smb():
+    out = await extract_identities(
+        {"preferred_username": "alice", "groups": ["staff"]}, _settings(strategy="auto"))
+    assert out[0].confidence == "name"
+
+
+def test_source_matches_smb_identity_by_endpoint():
+    a, b = _smb_src("a"), _smb_src("b", host="other")
+    ident = ExtractedIdentity(
+        identity_type="sid", identifier=f"{_DOM}-1105", groups=[],
+        confidence="smb", domain_sid=_DOM,
+        endpoints=frozenset({("dc1", 445, "svc")}),
+    )
+    assert _source_matches(a, ident) is True
+    assert _source_matches(b, ident) is False
+    # principal_domain still takes precedence
+    c = _smb_src("c", host="other", principal_domain=_DOM)
+    assert _source_matches(c, ident) is True
+
+
+@pytest.mark.asyncio
+async def test_sync_smb_binds_matching_endpoint_and_clears_stale_name_rows(db_session, monkeypatch):
+    user = await _seed_user(db_session, "carol")
+    s1 = _smb_src("a")
+    s2 = _smb_src("b", host="elsewhere")
+    db_session.add_all([s1, s2])
+    db_session.add(FsUnboundIdentity(
+        user_id=user.id, identity_type="posix_uid", identifier="-1",
+        confidence="name", groups=["staff"],
+    ))
+    await db_session.commit()
+    _fake_scanner(monkeypatch, lambda a: _found(a) if "dc1" in a else _proc(2))
+    await sync_fs_bindings_from_claims(
+        db_session, user, {"preferred_username": "carol", "groups": ["staff"]},
+        _settings(strategy="auto"))
+    await db_session.commit()
+    bindings = (await db_session.execute(select(FsBinding))).scalars().all()
+    assert [(b.source_id, b.groups_source) for b in bindings] == [(s1.id, "smb")]
+    left = (await db_session.execute(
+        select(FsUnboundIdentity).where(FsUnboundIdentity.user_id == user.id)
+    )).scalars().all()
+    assert left == []

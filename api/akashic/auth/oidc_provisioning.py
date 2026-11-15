@@ -29,7 +29,7 @@ from typing import Any, Literal
 # test double exposing the same attributes.
 Settings = Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.models.fs_person import FsBinding, FsPerson
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 IdentityType = Literal["sid", "posix_uid", "nfsv4_principal"]
-Confidence = Literal["claim", "ldap", "name"]
+Confidence = Literal["claim", "ldap", "smb", "name"]
 
 
 @dataclass
@@ -59,6 +59,12 @@ class ExtractedIdentity:
     identifier: str
     groups: list[str]
     confidence: Confidence
+    # Set by the smb_lookup strategy: the AD domain SID the user's SID
+    # belongs to, and the (host, port, username) SMB endpoints that
+    # resolved it. _source_matches uses these to bind only to the SMB
+    # sources that actually produced the identity.
+    domain_sid: str | None = None
+    endpoints: frozenset = frozenset()
 
 
 # ── objectSid decoding ──────────────────────────────────────────────────────
@@ -386,6 +392,241 @@ async def _from_ldap_fallback_strategy(
     )]
 
 
+# ── Strategy: smb_lookup ───────────────────────────────────────────────────
+
+_SMB_CALL_TIMEOUT_S = 4          # per scanner subprocess
+_SMB_DEADLINE_S = 5.0            # whole smb_lookup, all endpoints
+_SMB_CACHE_TTL_S = 300.0
+
+# Per-endpoint breakers so one dead DC doesn't disable the others.
+_smb_breakers: dict[tuple, _LdapBreaker] = {}
+# (endpoint, username) -> (expires_monotonic, (sid, domain_sid) | None)
+_smb_name_cache: dict[tuple, tuple[float, tuple[str, str] | None]] = {}
+# (endpoint, sid) -> (expires_monotonic, groups)
+_smb_group_cache: dict[tuple, tuple[float, list[str]]] = {}
+
+
+def _smb_breaker_for(key: tuple) -> _LdapBreaker:
+    return _smb_breakers.setdefault(key, _LdapBreaker())
+
+
+def reset_smb_breaker() -> None:
+    """Clear smb_lookup breakers and caches. Tests use this."""
+    _smb_breakers.clear()
+    _smb_name_cache.clear()
+    _smb_group_cache.clear()
+
+
+def _smb_endpoint(source: Source) -> tuple[str, int, str] | None:
+    """(host, port, username) of an SMB source's merged config, or None
+    when it has no host/username (nothing to log in with)."""
+    from akashic.services.source_config import merge_host_and_source
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
+    host = cfg.get("host")
+    user = cfg.get("username")
+    if not host or not user:
+        return None
+    try:
+        port = int(cfg.get("port") or 445)
+    except (TypeError, ValueError):
+        port = 445
+    return (str(host).lower(), port, str(user).lower())
+
+
+def _smb_username(claims: dict, settings: Settings) -> str | None:
+    name = claims.get(settings.oidc_username_claim)
+    if not name:
+        email = claims.get(settings.oidc_email_claim)
+        if isinstance(email, str) and "@" in email:
+            name = email.split("@", 1)[0]
+    name = str(name).strip() if name else ""
+    return name or None
+
+
+class _SmbNotFound(Exception):
+    pass
+
+
+def _smb_resolve_name(source: Source, username: str) -> dict:
+    """Run `akashic-scanner resolve-name` against one SMB source's DC.
+    Blocking. Raises _SmbNotFound (exit 2 / rejected result) or another
+    Exception (outage)."""
+    import json
+    import subprocess
+    from akashic.services import group_resolver as gr
+    from akashic.services.source_config import merge_host_and_source
+
+    cfg = merge_host_and_source(getattr(source, "host", None), source)
+    binary = gr._scanner_binary_path()
+    if not binary:
+        raise RuntimeError("akashic-scanner binary not found")
+    argv = [
+        binary, "resolve-name", "--type=smb",
+        "--host", str(cfg["host"]),
+        "--port", str(int(cfg.get("port") or 445)),
+        "--user", str(cfg["username"]),
+        "--password-stdin",
+        "--name", username,
+    ]
+    if cfg.get("domain"):
+        argv += ["--domain", str(cfg["domain"])]
+    try:
+        proc = gr._run_scanner(
+            argv, password=cfg.get("password") or "", timeout=_SMB_CALL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("scanner timeout")
+    if proc.returncode == 2:
+        raise _SmbNotFound(username)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or f"scanner exited {proc.returncode}").strip())
+    payload = json.loads(proc.stdout)
+    sid = _decode_object_sid(payload.get("sid"))
+    # Defense in depth: only a domain user account may become an identity
+    # (not BUILTIN/well-known SIDs, groups or aliases).
+    if payload.get("kind") != "user" or not sid or not sid.startswith("S-1-5-21-"):
+        raise _SmbNotFound(f"{username}: not a domain user")
+    pd = (cfg.get("principal_domain") or "").strip().upper()
+    if pd and not sid.startswith(pd):
+        raise _SmbNotFound(f"{username}: SID outside principal_domain")
+    payload["sid"] = sid
+    return payload
+
+
+def _smb_lookup_endpoint(source: Source, username: str) -> tuple[str, str]:
+    """Blocking: name -> (sid, domain_sid)."""
+    info = _smb_resolve_name(source, username)
+    sid = info["sid"]
+    domain_sid = (info.get("domain_sid") or "").upper() or sid.rsplit("-", 1)[0]
+    return sid, domain_sid
+
+
+def _smb_groups(source: Source, sid: str) -> list[str]:
+    """Blocking: group SIDs via resolve-groups. Raises on failure."""
+    from types import SimpleNamespace
+    from akashic.services import group_resolver as gr
+    res = gr._resolve_smb_samr(
+        source, SimpleNamespace(identifier=sid), timeout=_SMB_CALL_TIMEOUT_S,
+    )
+    return [g for g in res.groups if isinstance(g, str) and g.upper().startswith("S-1-")]
+
+
+async def _smb_run(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+
+
+async def _smb_gather(coros_by_key: dict, deadline: float) -> tuple[dict, set]:
+    """Run coroutines concurrently until the shared deadline. Returns
+    ({key: result}, {keys that failed or timed out}); not-found results
+    (_SmbNotFound) map to None and are not failures."""
+    tasks = {k: asyncio.ensure_future(c) for k, c in coros_by_key.items()}
+    if tasks:
+        await asyncio.wait(tasks.values(), timeout=max(deadline - time.monotonic(), 0.0))
+    results: dict = {}
+    failed: set = set()
+    for k, t in tasks.items():
+        if not t.done():
+            t.cancel()
+            failed.add(k)
+            continue
+        exc = t.exception()
+        if exc is None:
+            results[k] = t.result()
+        elif isinstance(exc, _SmbNotFound):
+            results[k] = None
+        else:
+            logger.warning("SMB lookup via %s:%s failed: %s", k[0], k[1], exc)
+            failed.add(k)
+    return results, failed
+
+
+async def _from_smb_lookup_strategy(
+    claims: dict, settings: Settings, db: AsyncSession | None,
+) -> list[ExtractedIdentity]:
+    """Resolve the user's SID (and group SIDs) through the SMB sources'
+    stored credentials. For IdPs that emit group names only. Never raises.
+
+    Endpoints are queried concurrently under one overall deadline, each
+    behind its own breaker, with a short TTL cache of found / not-found."""
+    if db is None:
+        return []
+    username = _smb_username(claims, settings)
+    if not username:
+        return []
+
+    try:
+        sources = (
+            await db.execute(select(Source).where(Source.type == "smb"))
+        ).scalars().all()
+        endpoints: dict[tuple, Source] = {}
+        for src in sources:
+            key = _smb_endpoint(src)
+            if key is not None:
+                endpoints.setdefault(key, src)
+    except Exception:  # noqa: BLE001
+        logger.exception("SMB lookup: loading sources failed")
+        return []
+
+    now = time.monotonic()
+    deadline = now + _SMB_DEADLINE_S
+    uname = username.lower()
+
+    # Phase 1: name -> SID per endpoint (cache, then breaker, then scanner).
+    names: dict[tuple, tuple[str, str] | None] = {}
+    todo: dict = {}
+    for key, src in endpoints.items():
+        hit = _smb_name_cache.get((key, uname))
+        if hit and hit[0] > now:
+            names[key] = hit[1]
+        elif _smb_breaker_for(key).is_open(now):
+            logger.warning("SMB lookup skipped for %s:%s — circuit breaker open", key[0], key[1])
+        else:
+            todo[key] = _smb_run(_smb_lookup_endpoint, src, username)
+    res, failed = await _smb_gather(todo, deadline)
+    now = time.monotonic()
+    for key, val in res.items():
+        names[key] = val
+        _smb_name_cache[(key, uname)] = (now + _SMB_CACHE_TTL_S, val)
+        _smb_breaker_for(key).record_success()
+    for key in failed:
+        _smb_breaker_for(key).record_failure()
+
+    # Group endpoints by domain; the first (stable order) fetches groups.
+    by_domain: dict[str, list[tuple]] = {}
+    sids: dict[str, str] = {}
+    for key in endpoints:
+        val = names.get(key)
+        if val:
+            sids.setdefault(val[1], val[0])
+            by_domain.setdefault(val[1], []).append(key)
+
+    # Phase 2: group SIDs, one endpoint per domain.
+    groups: dict[str, list[str]] = {}
+    gtodo: dict = {}
+    for dom, keys in by_domain.items():
+        key = keys[0]
+        hit = _smb_group_cache.get((key, sids[dom]))
+        if hit and hit[0] > time.monotonic():
+            groups[dom] = hit[1]
+        else:
+            gtodo[(key[0], key[1], key[2], dom)] = _smb_run(_smb_groups, endpoints[key], sids[dom])
+    gres, gfailed = await _smb_gather(gtodo, deadline)
+    now = time.monotonic()
+    for gk, val in gres.items():
+        groups[gk[3]] = val or []
+        _smb_group_cache[(gk[:3], sids[gk[3]])] = (now + _SMB_CACHE_TTL_S, val or [])
+    for gk in gfailed:
+        logger.warning("SMB group resolution failed for %s", sids[gk[3]])
+
+    return [
+        ExtractedIdentity(
+            identity_type="sid", identifier=sids[dom], groups=groups.get(dom, []),
+            confidence="smb", domain_sid=dom, endpoints=frozenset(keys),
+        )
+        for dom, keys in by_domain.items()
+    ]
+
+
 # ── Strategy: name_match ────────────────────────────────────────────────────
 
 
@@ -420,11 +661,11 @@ def _from_name_match_strategy(
 
 
 async def extract_identities(
-    claims: dict, settings: Settings,
+    claims: dict, settings: Settings, db: AsyncSession | None = None,
 ) -> list[ExtractedIdentity]:
     """Apply the configured strategy and return the candidate set.
 
-    `auto` runs claim → ldap_fallback → name_match in order, taking the
+    `auto` runs claim → ldap_fallback → smb_lookup → name_match in order, taking the
     first non-empty result. `ldap_fallback` requires `ldap_server` /
     `ldap_bind_dn` to be configured; if not, it short-circuits to []
     and the caller falls through.
@@ -437,6 +678,11 @@ async def extract_identities(
         return _from_claim_strategy(claims, settings)
     if strategy == "name_match":
         return _from_name_match_strategy(claims, settings)
+    if strategy == "smb_lookup":
+        return (
+            await _from_smb_lookup_strategy(claims, settings, db)
+            or _from_name_match_strategy(claims, settings)
+        )
     if strategy == "ldap_fallback":
         return (
             await _from_ldap_fallback_strategy(claims, settings)
@@ -454,6 +700,9 @@ async def extract_identities(
     ldap_results = await _from_ldap_fallback_strategy(claims, settings)
     if ldap_results:
         return ldap_results
+    smb_results = await _from_smb_lookup_strategy(claims, settings, db)
+    if smb_results:
+        return smb_results
     return _from_name_match_strategy(claims, settings)
 
 
@@ -483,6 +732,10 @@ def _source_matches(source: Source, identity: ExtractedIdentity) -> bool:
     if identity.identity_type == "sid":
         domain = (cfg.get("principal_domain") or "").strip().upper()
         if not domain:
+            if identity.confidence == "smb":
+                # Looked up through specific SMB endpoints: bind only to
+                # sources on those endpoints.
+                return src_type == "smb" and _smb_endpoint(source) in identity.endpoints
             # No principal_domain configured. Bind only to SMB sources
             # to limit accidental cross-binding; admins should still
             # configure principal_domain explicitly.
@@ -627,7 +880,7 @@ async def sync_fs_bindings_from_claims(
     logged and swallowed — a bad claims payload must not block the
     user's login."""
     try:
-        identities = await extract_identities(claims, settings)
+        identities = await extract_identities(claims, settings, db)
     except Exception:  # noqa: BLE001
         logger.exception("OIDC identity extraction failed for user %s", user.id)
         return
@@ -656,10 +909,24 @@ async def sync_fs_bindings_from_claims(
         await db.execute(select(Source).where(Source.type.in_(candidate_types)))
     ).scalars().all()
 
+    bound_any = False
+    unbound_name = False
     for identity in identities:
         matched = [s for s in sources if _source_matches(s, identity)]
         if matched:
             for source in matched:
                 await _upsert_binding(db, person, source.id, identity)
+            bound_any = True
         else:
             await _record_unbound(db, user, identity)
+            unbound_name = unbound_name or identity.confidence == "name"
+
+    if bound_any and not unbound_name:
+        # Name-match rows from earlier logins are stale once a real
+        # binding exists.
+        await db.execute(
+            delete(FsUnboundIdentity).where(
+                FsUnboundIdentity.user_id == user.id,
+                FsUnboundIdentity.confidence == "name",
+            )
+        )

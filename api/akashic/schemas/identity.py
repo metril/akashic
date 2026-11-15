@@ -8,7 +8,7 @@ from pydantic import ConfigDict, Field, field_validator
 
 
 IdentityType = Literal["posix_uid", "sid", "nfsv4_principal", "s3_canonical"]
-GroupsSource = Literal["manual", "auto"]
+GroupsSource = Literal["manual", "auto", "claim", "ldap", "smb", "name"]
 
 
 class FsBindingIn(ApiModel):
@@ -37,7 +37,7 @@ class FsBindingPatch(ApiModel):
     identity_type: IdentityType | None = Field(default=None, description="New identifier kind.")
     identifier: str | None = Field(default=None, description="New identifier; must not be blank.")
     groups: list[str] | None = Field(default=None, description="New group identifiers, replacing the current ones.")
-    groups_source: GroupsSource | None = Field(default=None, description="Where the groups came from: `manual` or `auto`. Only callers holding `users:write` may set it.")
+    groups_source: GroupsSource | None = Field(default=None, description="Where the groups came from: `manual`, `auto`, `claim`, `ldap`, `smb` or `name`. Only callers holding `users:write` may set it.")
 
     @field_validator("identifier")
     @classmethod
@@ -68,7 +68,7 @@ class FsBindingOut(ApiModel):
     identity_type: IdentityType = Field(description="Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.")
     identifier: str = Field(description="The identifier (a uid, a SID, ...).")
     groups: list[str] = Field(description="Identifiers of the groups the principal belongs to.")
-    groups_source: GroupsSource = Field(description="Where the groups came from: `manual` (entered by hand) or `auto` (resolved from the backend).")
+    groups_source: GroupsSource = Field(description="Where the groups came from: `manual` (entered by hand), `auto` (resolved from the backend), or the OIDC login provenance `claim`, `ldap`, `smb`, `name`.")
     groups_resolved_at: datetime | None = Field(description="When the groups were last resolved automatically; null if never.")
     created_at: datetime = Field(description="When the binding was created.")
 

@@ -18,16 +18,16 @@ type LookupResult struct {
 
 // SID type values from MS-LSAT §2.2.12 (SID_NAME_USE).
 const (
-	SidTypeUser            uint16 = 1
-	SidTypeGroup           uint16 = 2
-	SidTypeDomain          uint16 = 3
-	SidTypeAlias           uint16 = 4
-	SidTypeWellKnownGroup  uint16 = 5
-	SidTypeDeletedAccount  uint16 = 6
-	SidTypeInvalid         uint16 = 7
-	SidTypeUnknown         uint16 = 8
-	SidTypeComputer        uint16 = 9
-	SidTypeLabel           uint16 = 10
+	SidTypeUser           uint16 = 1
+	SidTypeGroup          uint16 = 2
+	SidTypeDomain         uint16 = 3
+	SidTypeAlias          uint16 = 4
+	SidTypeWellKnownGroup uint16 = 5
+	SidTypeDeletedAccount uint16 = 6
+	SidTypeInvalid        uint16 = 7
+	SidTypeUnknown        uint16 = 8
+	SidTypeComputer       uint16 = 9
+	SidTypeLabel          uint16 = 10
 )
 
 // SidTypeName maps the wire-format SID_NAME_USE to the lowercase strings

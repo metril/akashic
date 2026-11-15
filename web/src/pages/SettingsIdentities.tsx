@@ -24,13 +24,16 @@ type UnboundIdentity = components["schemas"]["UnboundIdentityOut"];
  * - auto: legacy "groups were auto-resolved by the resolver service",
  *   not by OIDC. Pre-Phase-2a bindings still carry this.
  */
-function BindingSourceBadge({ source }: { source: string }) {
+export function BindingSourceBadge({ source }: { source: string }) {
   if (source === "manual") return null;
   if (source === "claim") {
     return <Badge variant="online" className="text-[10px]">claim</Badge>;
   }
   if (source === "ldap") {
     return <Badge variant="info" className="text-[10px]">ldap</Badge>;
+  }
+  if (source === "smb") {
+    return <Badge variant="info" className="text-[10px]">smb</Badge>;
   }
   if (source === "name") {
     return <Badge variant="neutral" className="text-[10px]">name</Badge>;
@@ -341,14 +344,24 @@ function AddBindingForm({
 
 
 /** Unbound identities: claims an OIDC IdP gave us at login that didn't
- * match any source's principal_domain.
+ * match any source.
  *
  * Renders nothing when there's nothing unbound — the panel is a problem
  * surface, not a feature. When it's non-empty, the user typically
  * needs to ask an admin to add their AD domain's SID prefix to a
  * source's connection_config.principal_domain.
  */
-function UnboundPanel({ rows }: { rows: UnboundIdentity[] }) {
+export function unboundHint(r: Pick<UnboundIdentity, "identity_type" | "confidence">): string {
+  if (r.identity_type === "posix_uid" && r.confidence === "name") {
+    return "Your identity provider sent group names only (no SID or uid). These can only bind to local/NFS sources. Akashic tries resolving your SID via SMB sources at login; ensure an SMB source can reach the domain controller, or configure an SID claim / LDAP.";
+  }
+  if (r.identity_type === "sid") {
+    return "No source has a matching principal_domain set. Ask an admin to set principal_domain on the SMB source for this SID's domain.";
+  }
+  return "No source of a matching type could bind this identity.";
+}
+
+export function UnboundPanel({ rows }: { rows: UnboundIdentity[] }) {
   if (rows.length === 0) return null;
   return (
     <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-4 mb-4">
@@ -359,14 +372,12 @@ function UnboundPanel({ rows }: { rows: UnboundIdentity[] }) {
           <p className="text-xs text-fg-muted mb-3">
             Your OIDC token contained {rows.length} identity claim
             {rows.length === 1 ? "" : "s"} Akashic couldn't bind to any
-            source — typically because no source has a matching{" "}
-            <code className="font-mono">principal_domain</code> set. Permission
-            filtering won't recognise these identities until an admin
-            attaches them.
+            source. Permission filtering won't recognise these identities
+            until they are bound.
           </p>
           <ul className="space-y-1 text-xs">
             {rows.map((r) => (
-              <li key={r.id} className="flex items-center gap-2">
+              <li key={r.id} className="flex flex-wrap items-center gap-2">
                 <code className="font-mono bg-surface px-1.5 py-0.5 rounded border border-line">
                   {r.identity_type}:{r.identifier}
                 </code>
@@ -376,6 +387,7 @@ function UnboundPanel({ rows }: { rows: UnboundIdentity[] }) {
                     · {r.groups.length} group{r.groups.length === 1 ? "" : "s"}
                   </span>
                 )}
+                <p className="basis-full text-fg-muted">{unboundHint(r)}</p>
               </li>
             ))}
           </ul>

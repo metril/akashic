@@ -5796,10 +5796,10 @@ export interface components {
             groups_resolved_at: string | null;
             /**
              * Groups Source
-             * @description Where the groups came from: `manual` (entered by hand) or `auto` (resolved from the backend).
+             * @description Where the groups came from: `manual` (entered by hand), `auto` (resolved from the backend), or the OIDC login provenance `claim`, `ldap`, `smb`, `name`.
              * @enum {string}
              */
-            groups_source: "manual" | "auto";
+            groups_source: "manual" | "auto" | "claim" | "ldap" | "smb" | "name";
             /**
              * Id
              * Format: uuid
@@ -5840,9 +5840,9 @@ export interface components {
             groups?: string[] | null;
             /**
              * Groups Source
-             * @description Where the groups came from: `manual` or `auto`. Only callers holding `users:write` may set it.
+             * @description Where the groups came from: `manual`, `auto`, `claim`, `ldap`, `smb` or `name`. Only callers holding `users:write` may set it.
              */
-            groups_source?: ("manual" | "auto") | null;
+            groups_source?: ("manual" | "auto" | "claim" | "ldap" | "smb" | "name") | null;
             /**
              * Identifier
              * @description New identifier; must not be blank.
@@ -10476,7 +10476,7 @@ export interface components {
         UnboundIdentityOut: {
             /**
              * Confidence
-             * @description How the claim was obtained, e.g. `claim`.
+             * @description How the claim was obtained, one of `claim`, `ldap`, `smb`, `name`.
              */
             confidence: string;
             /**

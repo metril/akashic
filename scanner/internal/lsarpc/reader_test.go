@@ -40,15 +40,15 @@ func TestSkipDomains_OneEntry(t *testing.T) {
 	binary.Write(&buf, binary.LittleEndian, uint32(0x00020014)) // Name buffer ref-id (non-zero)
 	binary.Write(&buf, binary.LittleEndian, uint32(0x00020018)) // Sid ref-id (non-zero)
 	// Deferred name: max_count, offset, actual_count, chars, align
-	binary.Write(&buf, binary.LittleEndian, uint32(4))          // max_count
-	binary.Write(&buf, binary.LittleEndian, uint32(0))          // offset
-	binary.Write(&buf, binary.LittleEndian, uint32(4))          // actual_count
-	buf.Write([]byte{'D', 0, 'O', 0, 'M', 0, '.', 0})           // 8 bytes — already aligned
+	binary.Write(&buf, binary.LittleEndian, uint32(4)) // max_count
+	binary.Write(&buf, binary.LittleEndian, uint32(0)) // offset
+	binary.Write(&buf, binary.LittleEndian, uint32(4)) // actual_count
+	buf.Write([]byte{'D', 0, 'O', 0, 'M', 0, '.', 0})  // 8 bytes — already aligned
 	// Deferred SID: max_count + SID body + align
-	binary.Write(&buf, binary.LittleEndian, uint32(4))          // sub-auth count
-	buf.WriteByte(1)                                            // revision
-	buf.WriteByte(4)                                            // sub-auth count again (in SID)
-	buf.Write([]byte{0, 0, 0, 0, 0, 5})                         // identifier authority (BE)
+	binary.Write(&buf, binary.LittleEndian, uint32(4)) // sub-auth count
+	buf.WriteByte(1)                                   // revision
+	buf.WriteByte(4)                                   // sub-auth count again (in SID)
+	buf.Write([]byte{0, 0, 0, 0, 0, 5})                // identifier authority (BE)
 	for i := 0; i < 4; i++ {
 		binary.Write(&buf, binary.LittleEndian, uint32(21+uint32(i)))
 	}

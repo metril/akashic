@@ -4904,10 +4904,14 @@
             "title": "Groups Resolved At"
           },
           "groups_source": {
-            "description": "Where the groups came from: `manual` (entered by hand) or `auto` (resolved from the backend).",
+            "description": "Where the groups came from: `manual` (entered by hand), `auto` (resolved from the backend), or the OIDC login provenance `claim`, `ldap`, `smb`, `name`.",
             "enum": [
               "manual",
-              "auto"
+              "auto",
+              "claim",
+              "ldap",
+              "smb",
+              "name"
             ],
             "title": "Groups Source",
             "type": "string"
@@ -4984,7 +4988,11 @@
               {
                 "enum": [
                   "manual",
-                  "auto"
+                  "auto",
+                  "claim",
+                  "ldap",
+                  "smb",
+                  "name"
                 ],
                 "type": "string"
               },
@@ -4992,7 +5000,7 @@
                 "type": "null"
               }
             ],
-            "description": "Where the groups came from: `manual` or `auto`. Only callers holding `users:write` may set it.",
+            "description": "Where the groups came from: `manual`, `auto`, `claim`, `ldap`, `smb` or `name`. Only callers holding `users:write` may set it.",
             "title": "Groups Source"
           },
           "identifier": {
@@ -12998,7 +13006,7 @@
         ],
         "properties": {
           "confidence": {
-            "description": "How the claim was obtained, e.g. `claim`.",
+            "description": "How the claim was obtained, one of `claim`, `ldap`, `smb`, `name`.",
             "title": "Confidence",
             "type": "string"
           },
@@ -14748,7 +14756,7 @@
   "info": {
     "description": "Universal file index: sources, scans, search, permissions and administration.",
     "title": "Akashic",
-    "version": "0.48.0"
+    "version": "0.49.0"
   },
   "openapi": "3.1.0",
   "paths": {

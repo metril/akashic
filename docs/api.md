@@ -1,7 +1,7 @@
 <!-- Generated from openapi.json by api/scripts/render_api_md.py. Do not edit; run `make openapi`. -->
 # Akashic API reference
 
-Version 0.48.0. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
+Version 0.49.0. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
 
 Universal file index: sources, scans, search, permissions and administration.
 
@@ -5055,7 +5055,7 @@ Capacity forecast for one source.
 | `fs_person_id` | `string` (`uuid`) | yes | Identity (person) the binding belongs to. |
 | `groups` | array of `string` | yes | Identifiers of the groups the principal belongs to. |
 | `groups_resolved_at` | `string` (`date-time`) \| `null` | yes | When the groups were last resolved automatically; null if never. |
-| `groups_source` | `"manual"` \| `"auto"` | yes | Where the groups came from: `manual` (entered by hand) or `auto` (resolved from the backend). |
+| `groups_source` | `"manual"` \| `"auto"` \| `"claim"` \| `"ldap"` \| `"smb"` \| `"name"` | yes | Where the groups came from: `manual` (entered by hand), `auto` (resolved from the backend), or the OIDC login provenance `claim`, `ldap`, `smb`, `name`. |
 | `id` | `string` (`uuid`) | yes | Binding id. |
 | `identifier` | `string` | yes | The identifier (a uid, a SID, ...). |
 | `identity_type` | `"posix_uid"` \| `"sid"` \| `"nfsv4_principal"` \| `"s3_canonical"` | yes | Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`. |
@@ -5067,7 +5067,7 @@ Capacity forecast for one source.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `groups` | array of `string` \| `null` | no | New group identifiers, replacing the current ones. |
-| `groups_source` | `"manual"` \| `"auto"` \| `null` | no | Where the groups came from: `manual` or `auto`. Only callers holding `users:write` may set it. |
+| `groups_source` | `"manual"` \| `"auto"` \| `"claim"` \| `"ldap"` \| `"smb"` \| `"name"` \| `null` | no | Where the groups came from: `manual`, `auto`, `claim`, `ldap`, `smb` or `name`. Only callers holding `users:write` may set it. |
 | `identifier` | `string` \| `null` | no | New identifier; must not be blank. |
 | `identity_type` | `"posix_uid"` \| `"sid"` \| `"nfsv4_principal"` \| `"s3_canonical"` \| `null` | no | New identifier kind. |
 
@@ -6840,7 +6840,7 @@ A node of the nested treemap.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `confidence` | `string` | yes | How the claim was obtained, e.g. `claim`. |
+| `confidence` | `string` | yes | How the claim was obtained, one of `claim`, `ldap`, `smb`, `name`. |
 | `first_seen_at` | `string` (`date-time`) | yes | When the claim was first seen at login. |
 | `groups` | array of `string` | yes | Group identifiers that came with the claim. |
 | `id` | `string` (`uuid`) | yes | Claim id. |

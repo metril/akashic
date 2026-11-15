@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	OpnumLsarOpenPolicy2 uint16 = 44
-	OpnumLsarLookupSids2 uint16 = 57
-	OpnumLsarClose       uint16 = 0
+	OpnumLsarOpenPolicy2  uint16 = 44
+	OpnumLsarLookupSids2  uint16 = 57
+	OpnumLsarLookupNames3 uint16 = 68
+	OpnumLsarClose        uint16 = 0
 )
 
 // PolicyHandle is the 20-byte opaque handle returned by LsarOpenPolicy2.

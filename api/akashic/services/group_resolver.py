@@ -171,7 +171,7 @@ def _run_scanner(argv: list[str], password: str = "", timeout: int = 30) -> subp
     )
 
 
-def _resolve_smb_samr(source, binding) -> ResolveResult:
+def _resolve_smb_samr(source, binding, timeout: int = 30) -> ResolveResult:
     """Resolve groups for an NT SID against an SMB source by spawning
     `akashic-scanner resolve-groups`. The Go process opens a DCE/RPC
     connection over the SMB IPC$ \\PIPE\\samr endpoint, runs the SAMR
@@ -208,7 +208,7 @@ def _resolve_smb_samr(source, binding) -> ResolveResult:
         "--sid", sid,
     ]
     try:
-        proc = _run_scanner(argv, password=password)
+        proc = _run_scanner(argv, password=password, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise ResolutionFailed("backend_error", "scanner timeout")
     except OSError as exc:

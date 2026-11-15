@@ -79,14 +79,15 @@ the matching `OIDC_*_CLAIM` overrides.
 ### Identity resolution strategy
 
 ```sh
-OIDC_STRATEGY=auto    # one of: auto | claim | ldap_fallback | name_match
+OIDC_STRATEGY=auto    # one of: auto | claim | ldap_fallback | smb_lookup | name_match
 ```
 
 | Strategy | What it does | When to pick it |
 |----------|--------------|-----------------|
-| `auto` | Try `claim` → `ldap_fallback` → `name_match` and take the first that resolves anything. | Default. Adaptive but does the most work per login. |
+| `auto` | Try `claim` → `ldap_fallback` → `smb_lookup` → `name_match` and take the first that resolves anything. | Default. Adaptive but does the most work per login. |
 | `claim` | Trust IdP claims only; never bind to LDAP. Fastest. | When the IdP can be configured to emit SID + UID + groups directly (Authentik with property mappers; Keycloak with realm-roles → group mappers). |
 | `ldap_fallback` | Bind to AD as a service account at login to fill SID / UID / group gaps left by the IdP claims. | When you can't (or don't want to) configure your IdP to emit AD-shaped claims. |
+| `smb_lookup` | Resolve the user's SID and group SIDs through the stored credentials of your SMB sources (the scanner's `resolve-name` / `resolve-groups`). Binds only to the SMB sources whose domain controller answered. Falls back to `name_match`. | IdP sends group names only and LDAP is not configured, but your sources are SMB. |
 | `name_match` | Last-resort: match group **names** as strings against POSIX/NFS source bindings. No SID resolution. | Non-AD environments where group names alone are meaningful. |
 
 ### Worked example (Authentik + AD)

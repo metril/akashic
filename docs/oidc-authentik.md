@@ -126,7 +126,7 @@ OIDC_CLIENT_ID=<from Step 4>
 OIDC_CLIENT_SECRET=<from Step 4>
 OIDC_REDIRECT_URI=http://akashic.local:8000/api/v1/auth/oidc/callback
 
-# Strategy: "auto" tries claim → ldap_fallback → name_match in order.
+# Strategy: "auto" tries claim → ldap_fallback → smb_lookup → name_match in order.
 # Pin to a single strategy if you want predictable behaviour.
 OIDC_STRATEGY=auto
 

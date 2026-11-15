@@ -5,6 +5,20 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.49.0 — 2026-11-15
+
+**OIDC users whose identity provider sends group names only now get a real Windows SID, so SMB sources finally filter search and browse for them.**
+
+### Added
+
+- **`smb_lookup` OIDC strategy**: when the IdP sends no SID or uid claim and LDAP is not configured, Akashic looks the user up by username (falling back to the email local part) on your SMB sources using their stored credentials, then resolves the user's group SIDs. `auto` now tries `claim`, `ldap_fallback`, `smb_lookup`, `name_match` in that order. The identity binds only to the SMB sources whose domain controller resolved it; any failure falls back to name matching and never blocks login. Bindings show an `smb` badge in Settings → Identities.
+
+### Changed
+
+- **Unbound identities explain themselves**: name-only identities now say they can only bind to local/NFS sources and how to fix it, instead of always blaming `principal_domain`.
+- Stale name-match unbound rows are cleared once a real binding exists.
+- `groups_source` / `confidence` accept `claim`, `ldap`, `smb` and `name` in the API schema (additive).
+
 ## v0.48.0 — 2026-11-15
 
 **Every HTTP endpoint now lives under `/api/v1` and every WebSocket under `/ws/v1`, so the API can evolve without silently breaking integrations.**

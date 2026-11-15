@@ -33,9 +33,9 @@ var realLsaResponseDomain = []byte{
 	'O', 0, 'L', 0, 'Y', 0, 'M', 0, 'P', 0, 'O', 0, 'S', 0, 0, 0, // 16 bytes
 	// Deferred for OLYMPOS SID (4 sub-authorities)
 	0x04, 0x00, 0x00, 0x00, // sub-auth count
-	0x01,                                                                                           // revision
-	0x04,                                                                                           // sub-auth count again (in SID)
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x05,                                                             // 6-byte authority (NT)
+	0x01,                               // revision
+	0x04,                               // sub-auth count again (in SID)
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // 6-byte authority (NT)
 	0x15, 0x00, 0x00, 0x00, 0xac, 0x81, 0xbf, 0xa1, 0x9a, 0x18, 0xb4, 0xcd, 0x58, 0x9e, 0x8e, 0x93, // 4 sub-authorities
 	// Translated names section (top-level)
 	0x03, 0x00, 0x00, 0x00, // nameCount = 3

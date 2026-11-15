@@ -64,7 +64,7 @@ _S = [
     _s("oidc_client_id", str, "", "oidc", "OIDC client ID.", "str"),
     _s("oidc_client_secret", str, "", "oidc", "OIDC client secret.", "str", secret=True),
     _s("oidc_redirect_uri", str, "http://localhost:8000/api/v1/auth/oidc/callback", "oidc", "OIDC redirect URI.", "str"),
-    _s("oidc_strategy", Literal["auto", "claim", "ldap_fallback", "name_match"], "auto", "oidc", "Group-to-binding resolution strategy.", "enum"),
+    _s("oidc_strategy", Literal["auto", "claim", "ldap_fallback", "smb_lookup", "name_match"], "auto", "oidc", "Group-to-binding resolution strategy.", "enum"),
     _s("oidc_username_claim", str, "preferred_username", "oidc", "Username claim.", "str"),
     _s("oidc_email_claim", str, "email", "oidc", "Email claim.", "str"),
     _s("oidc_sid_claim", str, "onprem_sid", "oidc", "AD SID claim.", "str"),
