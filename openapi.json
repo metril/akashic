@@ -6436,6 +6436,11 @@
       },
       "ScopeInfo": {
         "properties": {
+          "allowed_with_source_limit": {
+            "description": "Whether a token limited to sources may hold this scope. False scopes are refused (422) at creation.",
+            "title": "Allowed With Source Limit",
+            "type": "boolean"
+          },
           "description": {
             "description": "What the scope permits.",
             "title": "Description",
@@ -6445,11 +6450,18 @@
             "description": "Scope name, e.g. `files:read`.",
             "title": "Name",
             "type": "string"
+          },
+          "read_only": {
+            "description": "Whether the scope only reads (`:read` scopes, `files:content`, `credentials:list`). A read-only token preset is exactly these.",
+            "title": "Read Only",
+            "type": "boolean"
           }
         },
         "required": [
           "name",
-          "description"
+          "description",
+          "allowed_with_source_limit",
+          "read_only"
         ],
         "title": "ScopeInfo",
         "type": "object"

@@ -584,6 +584,10 @@ export interface CurrentUser {
 export interface ScopeInfo {
   name: string;
   description: string;
+  /** A token limited to sources may hold this scope. */
+  allowed_with_source_limit: boolean;
+  /** Only reads: the "Read-only" preset is exactly these. */
+  read_only: boolean;
 }
 
 export interface ScopeCatalog {

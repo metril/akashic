@@ -39,13 +39,13 @@ export interface DenyBody {
 
 export function useDiscoveryRequests() {
   const { has } = useScopes();
-  const canManageScanners = has("scanners:write");
+  const canReadScanners = has("scanners:read");
   const qc = useQueryClient();
 
   const list = useQuery<DiscoveryRequest[]>({
     queryKey: ["scanner-discovery-requests"],
     queryFn: () => api.get<DiscoveryRequest[]>("/scanner-discovery-requests"),
-    enabled: canManageScanners,
+    enabled: canReadScanners,
     refetchInterval: 30_000,
   });
 
@@ -88,9 +88,9 @@ export function useDiscoveryRequests() {
   // Also invalidate once on mount so a freshly-loaded page that
   // missed the most-recent event still ends up consistent.
   useEffect(() => {
-    if (!canManageScanners) return;
+    if (!canReadScanners) return;
     qc.invalidateQueries({ queryKey: ["scanner-discovery-requests"] });
-  }, [canManageScanners, qc]);
+  }, [canReadScanners, qc]);
 
   return { list, approve, deny };
 }

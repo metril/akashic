@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { useScopes } from "../../hooks/useScopes";
 import { useScopeCatalog, useTokenMutations } from "../../hooks/useApiTokens";
 import { useSources } from "../../hooks/useSources";
-import { groupScopes, type ExpiryChoice } from "../../lib/scopes";
+import { groupScopes, scopeRules, type ExpiryChoice } from "../../lib/scopes";
 import {
   canSubmitTokenForm,
   initialTokenForm,
@@ -30,6 +30,7 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const sources = useSources();
   const { create } = useTokenMutations();
   const groups = useMemo(() => groupScopes(catalog.data?.scopes ?? [], mine), [catalog.data, mine]);
+  const rules = useMemo(() => scopeRules(catalog.data?.scopes ?? []), [catalog.data]);
   const limited = isLimited(form);
 
   // The parent mounts this only while open, so closing drops the form and
@@ -45,7 +46,7 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
 
   function toggleSource(id: string) {
     const ids = form.sourceIds.includes(id) ? form.sourceIds.filter((s) => s !== id) : [...form.sourceIds, id];
-    dispatch({ type: "sources", sourceIds: ids });
+    dispatch({ type: "sources", sourceIds: ids, rules });
   }
 
   return (
@@ -68,10 +69,10 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-fg-muted">Scopes</span>
               <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "read-only", available: mine })}>
+                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "read-only", available: mine, rules })}>
                   Read-only
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "full", available: mine })}>
+                <Button size="sm" variant="secondary" onClick={() => dispatch({ type: "preset", preset: "full", available: mine, rules })}>
                   Full
                 </Button>
               </span>
@@ -80,7 +81,7 @@ export function CreateTokenDialog({ onClose }: { onClose: () => void }) {
               groups={groups}
               selected={form.scopes}
               sourceLimited={limited}
-              onToggle={(scope) => dispatch({ type: "toggle", scope })}
+              onToggle={(scope) => dispatch({ type: "toggle", scope, rules })}
             />
           </div>
           <fieldset className="space-y-1">

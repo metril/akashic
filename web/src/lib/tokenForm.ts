@@ -1,10 +1,10 @@
 import {
   expiryToIso,
-  forbiddenWithSourceLimit,
   fullPreset,
   readOnlyPreset,
   withoutSourceForbidden,
   type ExpiryChoice,
+  type ScopeRules,
 } from "./scopes";
 import type { ApiTokenCreate } from "../types";
 
@@ -19,9 +19,9 @@ export interface TokenFormState {
 export type TokenFormAction =
   | { type: "name"; name: string }
   | { type: "expiry"; expiry: ExpiryChoice }
-  | { type: "toggle"; scope: string }
-  | { type: "preset"; preset: "read-only" | "full"; available: ReadonlySet<string> }
-  | { type: "sources"; sourceIds: string[] };
+  | { type: "toggle"; scope: string; rules: ScopeRules }
+  | { type: "preset"; preset: "read-only" | "full"; available: ReadonlySet<string>; rules: ScopeRules }
+  | { type: "sources"; sourceIds: string[]; rules: ScopeRules };
 
 export const initialTokenForm: TokenFormState = {
   name: "",
@@ -44,20 +44,20 @@ export function tokenFormReducer(state: TokenFormState, a: TokenFormAction): Tok
     case "expiry":
       return { ...state, expiry: a.expiry };
     case "toggle": {
-      if (isLimited(state) && forbiddenWithSourceLimit(a.scope)) return state;
+      if (isLimited(state) && a.rules.limitRefused.has(a.scope)) return state;
       const scopes = new Set(state.scopes);
       if (!scopes.delete(a.scope)) scopes.add(a.scope);
       return { ...state, scopes };
     }
     case "preset": {
-      const base = a.preset === "full" ? fullPreset(a.available) : readOnlyPreset(a.available);
-      return { ...state, scopes: isLimited(state) ? withoutSourceForbidden(base) : base };
+      const base = a.preset === "full" ? fullPreset(a.available) : readOnlyPreset(a.available, a.rules);
+      return { ...state, scopes: isLimited(state) ? withoutSourceForbidden(base, a.rules) : base };
     }
     case "sources":
       return {
         ...state,
         sourceIds: a.sourceIds,
-        scopes: a.sourceIds.length > 0 ? withoutSourceForbidden(state.scopes) : state.scopes,
+        scopes: a.sourceIds.length > 0 ? withoutSourceForbidden(state.scopes, a.rules) : state.scopes,
       };
   }
 }

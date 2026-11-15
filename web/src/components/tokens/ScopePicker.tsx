@@ -1,5 +1,4 @@
 import type { ScopeGroup } from "../../lib/scopes";
-import { forbiddenWithSourceLimit } from "../../lib/scopes";
 
 interface ScopePickerProps {
   groups: ScopeGroup[];
@@ -15,15 +14,14 @@ export function ScopePicker({ groups, selected, onToggle, sourceLimited }: Scope
     <div className="space-y-3">
       {sourceLimited && (
         <p className="text-xs text-fg-muted">
-          A token limited to sources can only hold scopes for sources, scans and tags writes, so other write scopes are
-          disabled.
+          A token limited to sources can't hold write scopes on other resources, so those are disabled.
         </p>
       )}
       {groups.map((g) => (
         <fieldset key={g.resource} className="space-y-1">
           <legend className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{g.resource}</legend>
           {g.scopes.map((s) => {
-            const disabled = sourceLimited && forbiddenWithSourceLimit(s.name);
+            const disabled = sourceLimited && !s.allowed_with_source_limit;
             return (
               <label
                 key={s.name}

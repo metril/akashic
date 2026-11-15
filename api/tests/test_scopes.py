@@ -197,6 +197,22 @@ async def test_me_and_scope_catalog(make_client, jwt_users):
 
 
 @pytest.mark.asyncio
+async def test_scope_catalog_flags_match_constants(make_client, jwt_users):
+    from akashic.auth.scopes import SOURCE_LIMITED_WRITE_SCOPES, forbidden_with_source_limit
+
+    client = await make_client()
+    cat = (await client.get("/api/v1/scopes", headers=jwt_users["viewer"])).json()
+    refused = set(forbidden_with_source_limit(list(SCOPES)))
+    for s in cat["scopes"]:
+        assert s["allowed_with_source_limit"] == (s["name"] not in refused), s["name"]
+        assert s["read_only"] == (s["name"].endswith(":read") or s["name"] in {"files:content", "credentials:list"}), s["name"]
+    by = {s["name"]: s for s in cat["scopes"]}
+    assert all(by[n]["allowed_with_source_limit"] for n in SOURCE_LIMITED_WRITE_SCOPES)
+    assert not by["data:purge"]["allowed_with_source_limit"] and not by["tokens:admin"]["allowed_with_source_limit"]
+    assert by["files:content"]["read_only"] and by["credentials:list"]["read_only"] and not by["tags:write"]["read_only"]
+
+
+@pytest.mark.asyncio
 async def test_role_dependent_behaviour_follows_scopes(make_client, jwt_users):
     client = await make_client()
     viewer, admin = jwt_users["viewer"], jwt_users["admin"]

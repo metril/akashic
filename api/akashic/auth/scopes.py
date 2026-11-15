@@ -84,3 +84,12 @@ def forbidden_with_source_limit(scopes: "frozenset[str] | set[str] | list[str]")
         if (s.endswith(":write") or s in {"data:purge", "tokens:admin"})
         and s not in SOURCE_LIMITED_WRITE_SCOPES
     )
+
+
+# Non-`:read` scopes that still only read (no side effects).
+READ_ONLY_EXTRA_SCOPES = frozenset({"files:content", "credentials:list"})
+
+
+def is_read_only(scope: str) -> bool:
+    """True when the scope grants no way to change anything."""
+    return scope.endswith(":read") or scope in READ_ONLY_EXTRA_SCOPES

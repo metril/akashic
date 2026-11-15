@@ -21,10 +21,10 @@ import type { CurrentUser, ScopeCatalog } from "../../types";
 
 const catalog: ScopeCatalog = {
   scopes: [
-    { name: "files:read", description: "Search and read files." },
-    { name: "sources:write", description: "Change sources." },
-    { name: "webhooks:write", description: "Manage webhooks." },
-    { name: "settings:write", description: "Change settings." },
+    { name: "files:read", description: "Search and read files.", read_only: true, allowed_with_source_limit: true },
+    { name: "sources:write", description: "Change sources.", read_only: false, allowed_with_source_limit: true },
+    { name: "webhooks:write", description: "Manage webhooks.", read_only: false, allowed_with_source_limit: false },
+    { name: "settings:write", description: "Change settings.", read_only: false, allowed_with_source_limit: false },
   ],
   roles: {},
 };
@@ -63,7 +63,7 @@ describe("ScopePicker", () => {
     const html = render(true);
     expect(html).toMatch(/aria-label="webhooks:write"[^>]*disabled|disabled[^>]*aria-label="webhooks:write"/);
     expect(html).not.toMatch(/disabled[^>]*aria-label="sources:write"|aria-label="sources:write"[^>]*disabled/);
-    expect(html).toContain("other write scopes are");
+    expect(html).toContain("write scopes on other resources");
   });
 });
 

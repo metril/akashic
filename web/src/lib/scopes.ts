@@ -2,30 +2,14 @@ import type { ScopeInfo } from "../types";
 
 /**
  * Scope helpers shared by the UI gating and the API token dialog. The API
- * (`GET /scopes`) is the authority on what scopes exist; the one rule mirrored
- * here is which scopes a source-limited token may hold (the API refuses the
- * rest with 422), so the dialog can disable them up front.
+ * (`GET /scopes`) is the authority on what scopes exist and on the rules
+ * around them (read-only, allowed with a source limit); nothing is mirrored here.
  */
-
-/** Write scopes a source-limited token may hold; mirrors the API. */
-export const SOURCE_LIMITED_WRITE_SCOPES: ReadonlySet<string> = new Set([
-  "sources:write",
-  "scans:write",
-  "tags:write",
-]);
 
 export function hasScope(scopes: Iterable<string> | null | undefined, scope: string): boolean {
   if (!scopes) return false;
   for (const s of scopes) if (s === scope) return true;
   return false;
-}
-
-/** True when a token limited to sources cannot hold `scope`. */
-export function forbiddenWithSourceLimit(scope: string): boolean {
-  return (
-    (scope.endsWith(":write") || scope === "data:purge" || scope === "tokens:admin") &&
-    !SOURCE_LIMITED_WRITE_SCOPES.has(scope)
-  );
 }
 
 export interface ScopeGroup {
@@ -46,11 +30,24 @@ export function groupScopes(catalog: ScopeInfo[], available: ReadonlySet<string>
   return [...groups].map(([resource, scopes]) => ({ resource, scopes }));
 }
 
-/** "Read-only": every `:read` scope the user has, plus file content. */
-export function readOnlyPreset(available: ReadonlySet<string>): Set<string> {
-  const out = new Set<string>();
-  for (const s of available) if (s.endsWith(":read") || s === "files:content") out.add(s);
-  return out;
+/** The catalog's per-scope rules, from `GET /scopes` (the API is authoritative). */
+export interface ScopeRules {
+  /** Scopes a token limited to sources may not hold. */
+  limitRefused: ReadonlySet<string>;
+  /** Scopes for the "Read-only" preset. */
+  readOnly: ReadonlySet<string>;
+}
+
+export function scopeRules(catalog: ScopeInfo[]): ScopeRules {
+  return {
+    limitRefused: new Set(catalog.filter((s) => !s.allowed_with_source_limit).map((s) => s.name)),
+    readOnly: new Set(catalog.filter((s) => s.read_only).map((s) => s.name)),
+  };
+}
+
+/** "Read-only": the read-only scopes the user has. */
+export function readOnlyPreset(available: ReadonlySet<string>, rules: ScopeRules): Set<string> {
+  return new Set([...available].filter((s) => rules.readOnly.has(s)));
 }
 
 /** "Full": everything the user has. */
@@ -59,8 +56,8 @@ export function fullPreset(available: ReadonlySet<string>): Set<string> {
 }
 
 /** Drop the scopes a source-limited token can't hold. */
-export function withoutSourceForbidden(selected: ReadonlySet<string>): Set<string> {
-  return new Set([...selected].filter((s) => !forbiddenWithSourceLimit(s)));
+export function withoutSourceForbidden(selected: ReadonlySet<string>, rules: ScopeRules): Set<string> {
+  return new Set([...selected].filter((s) => !rules.limitRefused.has(s)));
 }
 
 export type ExpiryChoice = "30" | "90" | "365" | "never";

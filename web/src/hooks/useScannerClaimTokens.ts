@@ -51,13 +51,13 @@ export interface CreateTokenBody {
 
 export function useScannerClaimTokens() {
   const { has } = useScopes();
-  const canManageScanners = has("scanners:write");
+  const canReadScanners = has("scanners:read");
   const qc = useQueryClient();
 
   const list = useQuery<ClaimTokenSummary[]>({
     queryKey: ["scanner-claim-tokens"],
     queryFn: () => api.get<ClaimTokenSummary[]>("/scanner-claim-tokens"),
-    enabled: canManageScanners,
+    enabled: canReadScanners,
     refetchInterval: 30_000,
   });
 

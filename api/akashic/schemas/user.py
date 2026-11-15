@@ -49,6 +49,12 @@ class MeResponse(UserResponse):
 class ScopeInfo(BaseModel):
     name: str = Field(description="Scope name, e.g. `files:read`.")
     description: str = Field(description="What the scope permits.")
+    allowed_with_source_limit: bool = Field(
+        description="Whether a token limited to sources may hold this scope. False scopes are refused (422) at creation.",
+    )
+    read_only: bool = Field(
+        description="Whether the scope only reads (`:read` scopes, `files:content`, `credentials:list`). A read-only token preset is exactly these.",
+    )
 
 
 class ScopeCatalog(BaseModel):

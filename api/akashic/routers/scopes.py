@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 
 from akashic.auth.dependencies import Principal, get_principal
-from akashic.auth.scopes import ROLE_SCOPES, SCOPES
+from akashic.auth.scopes import ROLE_SCOPES, SCOPES, forbidden_with_source_limit, is_read_only
 from akashic.schemas.user import ScopeCatalog, ScopeInfo
 
 router = APIRouter(tags=["auth"])
@@ -19,6 +19,10 @@ router = APIRouter(tags=["auth"])
 )
 async def list_scopes(_: Principal = Depends(get_principal)) -> ScopeCatalog:
     return ScopeCatalog(
-        scopes=[ScopeInfo(name=n, description=d) for n, d in SCOPES.items()],
+        scopes=[ScopeInfo(
+                name=n, description=d,
+                allowed_with_source_limit=not forbidden_with_source_limit([n]),
+                read_only=is_read_only(n),
+            ) for n, d in SCOPES.items()],
         roles={role: sorted(scopes) for role, scopes in ROLE_SCOPES.items()},
     )
