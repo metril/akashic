@@ -5,7 +5,7 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
-## v0.48.0 — unreleased
+## v0.48.0 — 2026-11-15
 
 **Every HTTP endpoint now lives under `/api/v1` and every WebSocket under `/ws/v1`, so the API can evolve without silently breaking integrations.**
 
