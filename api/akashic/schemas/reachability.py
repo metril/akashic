@@ -26,7 +26,7 @@ class ProbeRequest(BaseModel):
     request_id: uuid.UUID = Field(description="Probe request id; echoed back in the report URL.")
     source_id: uuid.UUID = Field(description="Source to probe.")
     source_type: str = Field(description="Connector type of the source.")
-    connection_config: dict = Field(description="Merged host and source connection config, secrets included.")
+    connection_config: dict = Field(description="Merged host and source connection config, secrets included. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
 
 
 class ProbeReport(BaseModel):

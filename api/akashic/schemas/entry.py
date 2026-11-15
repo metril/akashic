@@ -12,7 +12,7 @@ class _EntrySourceRef(BaseModel):
     id: uuid.UUID = Field(description="Source id.")
     name: str = Field(description="Source name.")
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`.")
-    security_metadata: dict | None = Field(default=None, description="Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none.")
+    security_metadata: dict | None = Field(default=None, description="Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none. Free-form: depends on the source type.", json_schema_extra={"x-free-form": True})
 
     model_config = {"from_attributes": True}
 
@@ -52,7 +52,7 @@ class EntryIn(BaseModel):
     # v0.6.0 — Tier 3 self-hosted libraries (Paperless-ngx, Immich)
     # carry provider-specific metadata that doesn't fit the filesystem
     # fields. Filesystem connectors leave this None.
-    domain_metadata: dict | None = Field(default=None, description="Provider-specific metadata for document libraries (such as Paperless or Immich); null for filesystems.")
+    domain_metadata: dict | None = Field(default=None, description="Provider-specific metadata for document libraries (such as Paperless or Immich); null for filesystems. Free-form: keys depend on the provider.", json_schema_extra={"x-free-form": True})
 
     # v0.13.0 — opaque cloud-drive identifier (Drive/OneDrive/Dropbox).
     # Filesystem connectors leave this None.
@@ -121,7 +121,7 @@ class EntryDetailResponse(EntryResponse):
 
     acl: ACL | None = Field(default=None, description="Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none.")
     xattrs: dict[str, str] | None = Field(default=None, description="Extended attributes as name/value pairs; null when none.")
-    domain_metadata: dict | None = Field(default=None, description="Provider-specific metadata for self-hosted libraries (Paperless-ngx, Immich); null for filesystem sources.")
+    domain_metadata: dict | None = Field(default=None, description="Provider-specific metadata for self-hosted libraries (Paperless-ngx, Immich); null for filesystem sources. Free-form: keys depend on the provider.", json_schema_extra={"x-free-form": True})
     native_id: str | None = Field(default=None, description="Provider identifier for cloud-drive entries (Drive, OneDrive, Dropbox); null otherwise.")
     fs_created_at: datetime | None = Field(default=None, description="Creation time on the storage system.")
     fs_accessed_at: datetime | None = Field(default=None, description="Last access time on the storage system.")

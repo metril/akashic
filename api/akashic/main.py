@@ -289,6 +289,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    from akashic import routing
+
+    routing.refresh_all()  # complete the static error-response derivation now every module is importable
     app = FastAPI(
         title="Akashic",
         version=app_version(),

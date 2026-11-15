@@ -24,4 +24,4 @@ class AuditEventOut(BaseModel):
     source_id: uuid.UUID | None = Field(description="Source the event relates to, if any.")
     request_ip: str = Field(description="Client address of the request; empty for system events.")
     user_agent: str = Field(description="Client user agent; empty when not available.")
-    payload: dict = Field(description="Event-specific details; the shape depends on `event_type`.")
+    payload: dict = Field(description="Event-specific details; the shape depends on `event_type`. Free-form: the shape depends on the event type.", json_schema_extra={"x-free-form": True})

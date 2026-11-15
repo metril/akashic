@@ -97,8 +97,8 @@ class JobOut(BaseModel):
     id: uuid.UUID = Field(description="Job id.")
     kind: str = Field(description="Job kind: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
     status: str = Field(description="`running`, `succeeded` or `failed`.")
-    params: dict = Field(description="Parameters the job was started with.")
-    result: dict | None = Field(description="Result when finished, e.g. `{\"rows_affected\": 1200}`.")
+    params: dict = Field(description="Parameters the job was started with. Free-form: depends on the job kind.", json_schema_extra={"x-free-form": True})
+    result: dict | None = Field(description="Result when finished, e.g. `{\"rows_affected\": 1200}`. Free-form: depends on the job kind.", json_schema_extra={"x-free-form": True})
     error: str | None = Field(description="Error message when the job failed.")
     started_at: datetime = Field(description="When the job started.")
     finished_at: datetime | None = Field(description="When the job finished; null while running.")
@@ -108,7 +108,7 @@ class JobOut(BaseModel):
 
 class StartJobRequest(BaseModel):
     kind: str = Field(description="Job to run: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
-    params: dict = Field(default_factory=dict, description="Optional job parameters: `batch_size` (`reindex_search`, `backfill_viewable`) and `source_id` (the three backfills and `warm_groups`).")
+    params: dict = Field(default_factory=dict, description="Optional job parameters: `batch_size` (`reindex_search`, `backfill_viewable`) and `source_id` (the three backfills and `warm_groups`). Free-form: depends on the job kind.", json_schema_extra={"x-free-form": True})
 
     model_config = {"json_schema_extra": {'examples': [{'kind': 'reindex_search', 'params': {'batch_size': 100}}]}}
 

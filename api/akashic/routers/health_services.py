@@ -35,6 +35,7 @@ from typing import Any, Optional
 import httpx
 from akashic.routing import ApiRouter
 from fastapi import Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,6 +51,47 @@ router = ApiRouter(prefix="/health/services", tags=["health"])
 
 # In-process cache. Per-key (liveness vs activity) so the cheaper
 # liveness poll doesn't fall behind the activity poll's TTL.
+class ServiceProbe(BaseModel):
+    ok: bool = Field(description="Whether the service answered within 2 seconds.")
+    latency_ms: float | None = Field(description="Round-trip time in milliseconds; null when the probe failed.")
+    error: str | None = Field(default=None, description="Why the probe failed; absent when it succeeded.")
+
+
+class ServicesHealth(BaseModel):
+    postgres: ServiceProbe = Field(description="Postgres probe.")
+    redis: ServiceProbe = Field(description="Redis probe.")
+    meilisearch: ServiceProbe = Field(description="Meilisearch probe.")
+    tika: ServiceProbe = Field(description="Tika probe.")
+    checked_at: datetime = Field(description="When the probes ran (cached for 5 seconds).")
+
+    model_config = {"json_schema_extra": {'examples': [{'postgres': {'ok': True, 'latency_ms': 1.2}, 'redis': {'ok': True, 'latency_ms': 0.8}, 'meilisearch': {'ok': True, 'latency_ms': 4.1}, 'tika': {'ok': True, 'latency_ms': 12.5}, 'checked_at': '2026-04-27T22:00:00Z'}]}}
+
+
+class TikaActivity(BaseModel):
+    extracted_total: int | None = Field(description="Lifetime count of files whose text was extracted; null if unreadable.")
+    extracted_last_5min: int | None = Field(description="Files extracted in the last 5 minutes; null if unreadable.")
+    last_extracted_at: str | None = Field(description="ISO-8601 time the latest extraction was reported, as stored.")
+    ok: bool = Field(description="False when Redis could not be reached.")
+    error: str | None = Field(default=None, description="Why the counters could not be read.")
+
+
+class MeiliActivity(BaseModel):
+    documents_in_index: int | None = Field(description="Documents in the file index; null if unreadable.")
+    pending_tasks: int | None = Field(description="Enqueued or processing index tasks; null if unreadable.")
+    last_task_at: str | None = Field(description="Time the latest index task finished or was enqueued, as reported by Meilisearch.")
+    last_task_status: str | None = Field(description="Status of the latest index task, e.g. `succeeded`.")
+    ok: bool = Field(description="False when Meilisearch could not be reached.")
+    error: str | None = Field(default=None, description="Why Meilisearch could not be read.")
+
+
+class ServicesActivity(BaseModel):
+    tika: TikaActivity = Field(description="Text extraction throughput.")
+    meilisearch: MeiliActivity = Field(description="Search index activity.")
+    checked_at: datetime = Field(description="When the data was gathered (cached for 5 seconds).")
+
+    model_config = {"json_schema_extra": {'examples': [{'tika': {'extracted_total': 5300, 'extracted_last_5min': 42, 'last_extracted_at': '2026-04-27T22:00:00Z', 'ok': True}, 'meilisearch': {'documents_in_index': 120000, 'pending_tasks': 0, 'last_task_at': '2026-04-27T21:59:58Z', 'last_task_status': 'succeeded', 'ok': True}, 'checked_at': '2026-04-27T22:00:00Z'}]}}
+
+
 _CACHE_TTL_SECONDS = 5.0
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -126,6 +168,7 @@ async def _probe_tika() -> dict[str, Any]:
 
 @router.get(
     "",
+    response_model=ServicesHealth,
     summary="Check service health",
     description=(
         "Liveness of Postgres, Redis, Meilisearch and Tika, each probed with a 2 second timeout, "
@@ -295,6 +338,7 @@ async def _meili_activity() -> dict[str, Any]:
 
 @router.get(
     "/activity",
+    response_model=ServicesActivity,
     summary="Show service activity",
     description=(
         "Tika extraction throughput (queue depth, per-minute counters, last extraction) and "

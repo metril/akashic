@@ -12,6 +12,14 @@ Every route built through :class:`ApiRouter` gets ``responses`` derived from:
 The call graph is followed without a depth limit (a visited set stops cycles),
 through every ``akashic`` function reachable from the handler.
 
+Calls are resolved statically: plain names, ``module.f()``, ``self.m()`` (with subclass
+overrides), annotated parameters and ``x = Cls()`` locals, lazy ``import`` statements, and
+constructors. A call on a receiver of unknown type is matched by method name against every
+akashic class (``refresh_all`` imports the whole package first, so that is complete). Known
+limits: ``super()`` calls, ``getattr``/dynamic dispatch, callbacks passed as arguments and
+calls on non-akashic objects are not followed. The runtime response recorder in the test
+suite is the backstop for what the static scan cannot see.
+
 A raise whose status is not a literal (``HTTPException(status_code=err.status_code)``)
 cannot be derived. It must be acknowledged *at the function that raises it* with
 ``@raises(401, 410)``, which lists every status it can produce; those codes are
@@ -24,6 +32,7 @@ import ast
 import inspect
 import re
 import textwrap
+import weakref
 from http import HTTPStatus
 from typing import Any, Callable
 
@@ -144,13 +153,19 @@ def _chain(expr: ast.expr) -> list[str] | None:
     return parts[::-1]
 
 
+_EXTERNAL = object()  # marks a local whose class is known and is not ours (SQLAlchemy session, httpx client, ...)
+
+
 def _akashic(obj: Any) -> bool:
+    if inspect.ismodule(obj):  # modules carry no ``__module__``; ``m.f()`` must follow into akashic modules
+        return obj.__name__.startswith(SCANNED_MODULE_PREFIXES)
     mod = getattr(obj, "__module__", None) or getattr(type(obj), "__module__", "")
     return str(mod).startswith(SCANNED_MODULE_PREFIXES)
 
 
-def _as_class(ann: Any, globs: dict[str, Any]) -> Any:
-    """The akashic class named by an annotation (``X``, ``X | None``, ``Annotated[X, ...]``, or a string)."""
+def _as_class(ann: Any, globs: dict[str, Any], external: bool = False) -> Any:
+    """The akashic class named by an annotation (``X``, ``X | None``, ``Annotated[X, ...]``, or a string).
+    With ``external=True`` a resolvable non-akashic class yields ``_EXTERNAL`` instead of None."""
     import typing
 
     if isinstance(ann, str):
@@ -159,12 +174,15 @@ def _as_class(ann: Any, globs: dict[str, Any]) -> Any:
         except Exception:
             return None
     if inspect.isclass(ann):
-        return ann if _akashic(ann) else None
+        return ann if _akashic(ann) else (_EXTERNAL if external and ann is not type(None) else None)
+    ext = None
     for arg in typing.get_args(ann):
-        found = _as_class(arg, globs)
-        if found is not None:
+        found = _as_class(arg, globs, external)
+        if found is _EXTERNAL:
+            ext = found
+        elif found is not None:
             return found
-    return None
+    return ext
 
 
 def _owner_class(fn: Any) -> Any:
@@ -185,7 +203,7 @@ def _local_types(fn: Any, tree: ast.AST) -> dict[str, Any]:
     args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
     for a in args:
         if a.annotation is not None:
-            cls = _as_class(ast.unparse(a.annotation), fn.__globals__)
+            cls = _as_class(ast.unparse(a.annotation), fn.__globals__, external=True)
             if cls is not None:
                 out[a.arg] = cls
     owner = _owner_class(fn)
@@ -194,8 +212,8 @@ def _local_types(fn: Any, tree: ast.AST) -> dict[str, Any]:
     for n in ast.walk(node):
         if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name):
             cls = fn.__globals__.get(n.value.func.id)
-            if inspect.isclass(cls) and _akashic(cls):
-                out.update({t.id: cls for t in n.targets if isinstance(t, ast.Name)})
+            if inspect.isclass(cls):
+                out.update({t.id: (cls if _akashic(cls) else _EXTERNAL) for t in n.targets if isinstance(t, ast.Name)})
     return out
 
 
@@ -209,21 +227,41 @@ def _subclass_methods(cls: Any, name: str) -> list[Any]:
     return out
 
 
+def _local_imports(tree: ast.AST) -> dict[str, Any]:
+    """Names bound by ``import`` statements inside the function (handlers import lazily a lot)."""
+    import importlib
+
+    out: dict[str, Any] = {}
+    for n in ast.walk(tree):
+        try:
+            if isinstance(n, ast.Import):
+                for a in n.names:
+                    mod = importlib.import_module(a.name)
+                    out[a.asname or a.name.split(".")[0]] = mod if a.asname else importlib.import_module(a.name.split(".")[0])
+            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                mod = importlib.import_module(n.module)
+                for a in n.names:
+                    out[a.asname or a.name] = getattr(mod, a.name, None) or importlib.import_module(f"{n.module}.{a.name}")
+        except ImportError:
+            continue
+    return out
+
+
 def _callee(
-    node: ast.Call, fn: Any, local_types: dict[str, Any],
+    node: ast.Call, fn: Any, local_types: dict[str, Any], scope: dict[str, Any] | None = None,
 ) -> tuple[list[Any], str | None]:
     """Resolve a call to the akashic functions it can run.
 
     Followed: ``f()``, ``module.f()``, ``GLOBAL_OBJ.method()``, ``Cls()`` (its
     ``__init__``), ``self.method()`` / ``cls.method()`` (including subclass
     overrides), and ``var.method()`` where ``var`` is an annotated parameter or
-    ``var = Cls(...)``. Returns ``(targets, unresolved_method_name)``: the second
+    ``var = Cls(...)``, and ``module.f()`` on an akashic module (``import akashic.x as m``). Returns ``(targets, unresolved_method_name)``: the second
     is set when the receiver's type is unknown (a variable bound to a call's
     result, an attribute assigned in ``__init__``, ...); the scanner then
     considers every akashic method of that name. Calls on non-akashic receivers
     (SQLAlchemy sessions, stdlib, ...) are ignored.
     """
-    globs = fn.__globals__
+    globs = scope if scope is not None else fn.__globals__
     chain = _chain(node.func)
     if chain is None:
         # ``Cls(...).method()``, ``f().method()``: receiver is a call result.
@@ -233,6 +271,8 @@ def _callee(
     root = chain[0]
     if root in local_types:
         obj: Any = local_types[root]
+        if obj is _EXTERNAL:
+            return [], None  # receiver's class is known and is not ours: nothing to follow
     elif root in globs:
         obj = globs[root]
     else:
@@ -272,9 +312,10 @@ def _direct(fn: Any) -> tuple[set[int], bool, list[Any], list[str]] | None:
     callees: list[Any] = []
     unresolved: list[str] = []
     local_types = _local_types(fn, tree)
+    scope = {**fn.__globals__, **_local_imports(tree)}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            targets, name = _callee(node, fn, local_types)
+            targets, name = _callee(node, fn, local_types, scope)
             for target in targets:
                 target = inspect.unwrap(getattr(target, "__func__", target))
                 if isinstance(target, (staticmethod, classmethod)):
@@ -345,8 +386,12 @@ def scan_raises(
 class DocumentedRoute(APIRoute):
     def __init__(self, path: str, endpoint: Callable[..., Any], **kwargs: Any) -> None:
         super().__init__(path, endpoint, **kwargs)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """(Re)derive the documented error responses from the current call graph."""
         seen: set[Any] = set()
-        codes, bad = scan_raises(endpoint, seen)
+        codes, bad = scan_raises(self.endpoint, seen)
         dependants = list(_walk_dependants(self.dependant))
         for dep in dependants:
             c, b = scan_raises(dep.call, seen)
@@ -355,7 +400,7 @@ class DocumentedRoute(APIRoute):
         if bad:
             chains = "; ".join(" -> ".join(chain) for chain in bad)
             raise RuntimeError(
-                f"{path}: raises with a non-literal status code that is not acknowledged "
+                f"{self.path}: raises with a non-literal status code that is not acknowledged "
                 f"(call chain: {chains}); decorate the raising function with @raises(<codes>)"
             )
         names = {getattr(d.call, "__name__", "") for d in dependants}
@@ -371,9 +416,60 @@ class DocumentedRoute(APIRoute):
             self.responses.setdefault(code, error_response(code))
 
 
+_ROUTERS: "list[weakref.ref[ApiRouter]]" = []
+
+
 class ApiRouter(APIRouter):
     """APIRouter whose routes derive their documented error responses."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs.setdefault("route_class", DocumentedRoute)
         super().__init__(*args, **kwargs)
+        _ROUTERS.append(weakref.ref(self))
+
+
+_ALL_LOADED = False
+
+
+def import_all_modules(*, strict: bool = False) -> None:
+    """Import every ``akashic`` submodule so the method-name fallback sees all classes."""
+    global _ALL_LOADED
+    import importlib
+    import logging
+    import pkgutil
+    import akashic
+
+    def _on_error(name: str) -> None:
+        if strict:
+            raise ImportError(name)
+
+    for mod in pkgutil.walk_packages(akashic.__path__, "akashic.", onerror=_on_error):
+        try:
+            importlib.import_module(mod.name)
+        except Exception as exc:  # noqa: BLE001
+            if strict:
+                raise
+            logging.getLogger(__name__).warning("route scan: could not import %s: %s", mod.name, exc)
+    _ALL_LOADED = True
+
+
+_REFRESHED = False
+
+
+def refresh_all(*, force: bool = False) -> None:
+    """Import every module, then re-derive every route's responses against the complete call graph.
+
+    Routes are first derived while their router module is being imported, when only part of the
+    package is loaded; this pass closes that gap. Call it before routers are included in an app.
+    """
+    global _REFRESHED
+    if _REFRESHED and not force:  # routes are module-level singletons: once per process is enough
+        return
+    _REFRESHED = True
+    import_all_modules()
+    _DIRECT_CACHE.clear()
+    for ref in list(_ROUTERS):
+        router = ref()
+        for route in (router.routes if router is not None else ()):
+            if isinstance(route, DocumentedRoute):
+                route.refresh()

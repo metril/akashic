@@ -63,7 +63,49 @@ _SKIP_SCHEMAS = frozenset({"HTTPValidationError", "ValidationError"})
 
 CATEGORIES = (
     "summary", "response_model", "error_responses", "tag", "operation_id", "auth", "scope", "description",
+    "untyped_body",
 )
+
+FREE_FORM = "x-free-form"  # marks a field that is deliberately schemaless (declare with json_schema_extra)
+
+
+def untyped_paths(schema: dict, components: dict, path: str = "", seen: frozenset = frozenset()) -> list[str]:
+    """Locations in a response schema that are not fully typed, following $refs.
+
+    Untyped means: ``Any`` (no type), an object without properties and without a typed
+    ``additionalProperties``, or an array without typed items. A field carrying the
+    ``x-free-form`` marker is accepted and not descended into.
+    """
+    if schema.get(FREE_FORM):
+        return []
+    if "$ref" in schema:
+        name = schema["$ref"].rsplit("/", 1)[-1]
+        if name in seen:
+            return []
+        return untyped_paths(components[name], components, path or name, seen | {name})
+    out: list[str] = []
+    branches = [b for k in ("anyOf", "oneOf", "allOf") for b in schema.get(k, [])]
+    for b in branches:
+        out += untyped_paths(b, components, path, seen)
+    typ = schema.get("type")
+    if not (branches or typ or "enum" in schema or "const" in schema):
+        return [f"{path or '<root>'}: untyped (Any)"]
+    if typ == "object" or "properties" in schema:
+        props = schema.get("properties") or {}
+        extra = schema.get("additionalProperties")
+        if not props and not isinstance(extra, dict):
+            out.append(f"{path or '<root>'}: free-form object")
+        for name, sub in props.items():
+            out += untyped_paths(sub, components, f"{path}.{name}" if path else name, seen)
+        if isinstance(extra, dict):
+            out += untyped_paths(extra, components, f"{path}[*]", seen)
+    if typ == "array":
+        items = schema.get("items")
+        if not items:
+            out.append(f"{path or '<root>'}: array of untyped items")
+        else:
+            out += untyped_paths(items, components, f"{path}[]", seen)
+    return out
 
 
 def _dependency_names(route: APIRoute) -> set[str]:
@@ -204,6 +246,16 @@ def collect_violations(app, spec: dict) -> dict[str, set[str]]:
             out["auth"].add(key)
         if _is_user_route(key, route) and key not in AUTHENTICATED_ONLY and len(_required_scopes(route)) != 1:
             out["scope"].add(key)
+    components = spec.get("components", {}).get("schemas", {})
+    for path, item in spec["paths"].items():
+        for method, op in item.items():
+            if method not in {"get", "put", "post", "delete", "patch"}:
+                continue
+            for code, resp in op["responses"].items():
+                body = resp.get("content", {}).get("application/json")
+                if code.startswith("2") and body is not None:
+                    for loc in untyped_paths(body.get("schema", {}), components):
+                        out["untyped_body"].add(f"{method.upper()} {path} {code} {loc}")
     for name, schema in spec.get("components", {}).get("schemas", {}).items():
         if name in _SKIP_SCHEMAS:
             continue
@@ -228,7 +280,7 @@ def test_route_enumeration_matches_spec(app):
 
 
 def test_public_routes_are_real_and_unauthenticated(app):
-    """Ratchet: every PUBLIC_ROUTES entry exists and really has no auth dependency."""
+    """Every PUBLIC_ROUTES entry exists and really has no auth dependency."""
     by_key = dict(_routes(app))
     missing = sorted(PUBLIC_ROUTES - by_key.keys())
     assert not missing, f"PUBLIC_ROUTES entries that no longer exist: {missing}"
@@ -551,34 +603,226 @@ def test_external_receivers_are_not_flagged(scan_this_module):
     assert _routing.scan_raises(_External.fetch) == (set(), [])
 
 
-def test_model_examples_validate():
-    """Every `examples` entry on every schema validates against its model."""
+def _import_all_akashic():
+    """Import every akashic submodule; an import failure fails the calling test."""
     import importlib
     import pkgutil
 
     import akashic
-    from pydantic import BaseModel
 
-    for mod in pkgutil.walk_packages(akashic.__path__, "akashic."):
-        if mod.name.startswith(("akashic.tools", "akashic.workers")):
-            continue
-        try:
-            importlib.import_module(mod.name)
-        except Exception:  # noqa: BLE001 - optional heavy modules are not schemas
-            continue
+    for mod in pkgutil.walk_packages(akashic.__path__, "akashic.", onerror=lambda name: (_ for _ in ()).throw(ImportError(name))):
+        importlib.import_module(mod.name)
+
+
+def _all_models():
+    from pydantic import BaseModel
 
     def subclasses(cls):
         for sub in cls.__subclasses__():
             yield sub
             yield from subclasses(sub)
 
+    return [
+        m for m in set(subclasses(BaseModel))
+        if m.__module__.startswith("akashic") and not m.__pydantic_generic_metadata__["parameters"]
+    ]
+
+
+def test_model_examples_validate():
+    """Every model-level `examples` entry validates against its model."""
+    _import_all_akashic()
     checked = 0
-    for model in set(subclasses(BaseModel)):
-        if not model.__module__.startswith("akashic") or model.__pydantic_generic_metadata__["parameters"]:
-            continue
+    for model in _all_models():
         extra = model.model_config.get("json_schema_extra")
-        examples = extra.get("examples") if isinstance(extra, dict) else None
-        for example in examples or []:
+        for example in (extra.get("examples") if isinstance(extra, dict) else None) or []:
             model.model_validate(example)
             checked += 1
     assert checked > 50, f"only {checked} examples found; the walk is not reaching the schemas"
+
+
+def _field_adapter(info):
+    from typing import Annotated
+
+    from pydantic import TypeAdapter
+
+    return TypeAdapter(Annotated[info.annotation, *info.metadata] if info.metadata else info.annotation)
+
+
+def test_field_and_parameter_examples_validate(app):
+    """Field(examples=) on every model field and Query/Path/Header/Cookie/Body(examples=) on every
+    route parameter validate against the declared type and constraints."""
+    _import_all_akashic()
+    checked = 0
+    for model in _all_models():
+        for name, info in model.model_fields.items():
+            for example in info.examples or []:
+                _field_adapter(info).validate_python(example)
+                checked += 1
+    for key, route in _routes(app):
+        d = route.dependant
+        for p in [*d.path_params, *d.query_params, *d.header_params, *d.cookie_params, *d.body_params]:
+            info = p.field_info
+            for example in getattr(info, "examples", None) or []:
+                try:
+                    _field_adapter(info).validate_python(example)
+                except Exception as exc:  # noqa: BLE001
+                    raise AssertionError(f"{key} parameter {p.name}: example {example!r} invalid: {exc}") from exc
+                checked += 1
+    assert checked > 20, f"only {checked} field/parameter examples found"
+
+
+def _check_value(schema: dict, value, comps: dict, where: str) -> list[str]:
+    """Minimal JSON-schema check (types, required, enum, bounds, pattern, composition) of an example."""
+    import re
+
+    if "$ref" in schema:
+        return _check_value(comps[schema["$ref"].rsplit("/", 1)[-1]], value, comps, where)
+    errs: list[str] = []
+    for key in ("anyOf", "oneOf"):
+        if key in schema:
+            if not any(not _check_value(b, value, comps, where) for b in schema[key]):
+                return [f"{where}: {value!r} matches none of {key}"]
+    for b in schema.get("allOf", []):
+        errs += _check_value(b, value, comps, where)
+    if "const" in schema and value != schema["const"]:
+        errs.append(f"{where}: {value!r} != const {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        errs.append(f"{where}: {value!r} not in enum {schema['enum']}")
+    typ = schema.get("type")
+    types = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict, "null": type(None)}
+    if typ and not (isinstance(value, types[typ]) and not (typ in {"integer", "number"} and isinstance(value, bool))):
+        return errs + [f"{where}: {value!r} is not {typ}"]
+    if typ == "string":
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errs.append(f"{where}: shorter than minLength")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errs.append(f"{where}: longer than maxLength")
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            errs.append(f"{where}: does not match pattern {schema['pattern']}")
+        if schema.get("format") == "uuid":
+            import uuid as _uuid
+            try:
+                _uuid.UUID(value)
+            except ValueError:
+                errs.append(f"{where}: not a uuid")
+        if schema.get("format") == "date-time":
+            from datetime import datetime as _dt
+            try:
+                _dt.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                errs.append(f"{where}: not a date-time")
+    if typ in {"integer", "number"}:
+        for k, bad in (("minimum", lambda v, b: v < b), ("maximum", lambda v, b: v > b),
+                       ("exclusiveMinimum", lambda v, b: v <= b), ("exclusiveMaximum", lambda v, b: v >= b)):
+            if k in schema and bad(value, schema[k]):
+                errs.append(f"{where}: violates {k}")
+    if typ == "array":
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            errs.append(f"{where}: fewer than minItems")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            errs.append(f"{where}: more than maxItems")
+        for n, item in enumerate(value):
+            errs += _check_value(schema.get("items", {}), item, comps, f"{where}[{n}]")
+    if typ == "object":
+        for req in schema.get("required", []):
+            if req not in value:
+                errs.append(f"{where}: missing required {req!r}")
+        props = schema.get("properties", {})
+        for k, v in value.items():
+            if k in props:
+                errs += _check_value(props[k], v, comps, f"{where}.{k}")
+            elif isinstance(schema.get("additionalProperties"), dict):
+                errs += _check_value(schema["additionalProperties"], v, comps, f"{where}.{k}")
+    return errs
+
+
+def test_openapi_document_examples_validate(spec):
+    """Every example in the OpenAPI document (schema `examples`, parameter and media-type
+    `example`/`examples`) validates against its schema."""
+    comps = spec["components"]["schemas"]
+    errors: list[str] = []
+    seen = 0
+
+    def visit(node, where: str) -> None:
+        nonlocal seen
+        if isinstance(node, list):
+            for n, v in enumerate(node):
+                visit(v, f"{where}[{n}]")
+            return
+        if not isinstance(node, dict):
+            return
+        schema = node.get("schema") if isinstance(node.get("schema"), dict) else node
+        looks_like_schema = any(k in node for k in ("type", "$ref", "anyOf", "oneOf", "allOf", "properties", "enum"))
+        ex = node.get("examples")
+        if isinstance(ex, list) and looks_like_schema:
+            for n, e in enumerate(ex):
+                errors.extend(_check_value(node, e, comps, f"{where}.examples[{n}]"))
+                seen += 1
+        elif isinstance(ex, dict) and isinstance(node.get("schema"), dict):  # parameter/media type: name -> {value}
+            for name, obj in ex.items():
+                errors.extend(_check_value(node["schema"], obj.get("value"), comps, f"{where}.examples.{name}"))
+                seen += 1
+        if "example" in node and (looks_like_schema or isinstance(node.get("schema"), dict)):
+            errors.extend(_check_value(schema, node["example"], comps, f"{where}.example"))
+            seen += 1
+        for k, v in node.items():
+            if k not in ("examples", "example"):
+                visit(v, f"{where}.{k}")
+
+    visit(spec, "$")
+    assert not errors, "\n".join(errors[:20])
+    assert seen > 50, f"only {seen} OpenAPI examples found"
+
+
+def test_untyped_checker_semantics():
+    comps = {"M": {"type": "object", "properties": {"a": {"type": "object"}, "b": {"type": "object", FREE_FORM: True},
+                                                      "c": {}, "d": {"type": "array"}, "e": {"type": "object", "additionalProperties": {"type": "integer"}}}}}
+    found = untyped_paths({"$ref": "#/components/schemas/M"}, comps)
+    assert sorted(f.split(":")[0] for f in found) == ["M.a", "M.c", "M.d"]
+
+
+import akashic.auth.dependencies as _deps  # noqa: E402 - module-level alias used by the module-call test
+from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession  # noqa: E402
+
+
+def _via_module_alias():
+    _deps.check_source_access(None, None, None)  # raises 404 for a limited principal
+
+
+def _via_local_import():
+    import akashic.auth.dependencies as d
+    from akashic.auth.dependencies import check_source_access as check
+
+    d.check_source_access(None, None, None)
+    check(None, None, None)
+
+
+def _external_receiver(db: _AsyncSession):
+    db.run()  # a SQLAlchemy session: must not match akashic methods named `run`
+
+
+def _unknown_receiver(thing):
+    thing.run()
+
+
+def test_module_attribute_calls_are_followed(scan_this_module):
+    """`import akashic.x as m; m.f()` (module-level or function-local import) is followed, not dropped."""
+    assert _routing.scan_raises(_via_module_alias)[0] == {404}
+    assert _routing.scan_raises(_via_local_import)[0] == {404}
+
+
+def test_annotated_external_receiver_skips_name_fallback(scan_this_module):
+    assert _routing.scan_raises(_external_receiver) == (set(), [])
+    assert {423, 429} <= _routing.scan_raises(_unknown_receiver)[0]  # unknown type: still fail closed
+
+
+def test_every_module_imports_and_refresh_is_stable(app):
+    """The whole package imports (strict), and re-deriving all routes against the complete
+    call graph changes nothing, so build-time derivation did not miss anything."""
+    _routing.import_all_modules(strict=True)
+    before = json.dumps(app.openapi(), sort_keys=True)
+    _routing.refresh_all(force=True)
+    app.openapi_schema = None
+    assert json.dumps(app.openapi(), sort_keys=True) == before
+    # a helper defined after its route in the module (patch_scanner -> _validate_source_ids) is found
+    assert "400" in app.openapi()["paths"]["/api/v1/scanners/{scanner_id}"]["patch"]["responses"]

@@ -12,7 +12,7 @@ from akashic.schemas.source import _scrub_config
 class HostCreate(BaseModel):
     name: str = Field(description="Unique host name.")
     type: str = Field(description="Host type: `smb`, `nfs` or `s3`. Local storage has no host.")
-    connection_config: dict = Field(description="Type-specific connection settings shared by the attached sources, including any inline credentials. Secrets are masked in responses.")
+    connection_config: dict = Field(description="Type-specific connection settings shared by the attached sources, including any inline credentials. Secrets are masked in responses. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile to take credentials from; its type must match the host type.")
     max_parallel_scanners: int | None = Field(default=None, description="Most distinct scanners that may work on one scan at once (1 to 16), inherited by attached sources that leave theirs unset. Null uses the built-in default.")
     scan_chunk_size: int | None = Field(default=None, description="Entries per scan work unit (100 to 1,000,000), inherited by attached sources that leave theirs unset. Null uses the built-in default (2000).")
@@ -22,7 +22,7 @@ class HostCreate(BaseModel):
 
 class HostUpdate(BaseModel):
     name: str | None = Field(default=None, description="New unique host name.")
-    connection_config: dict | None = Field(default=None, description="Connection settings to change. A masked value (`***`) keeps the stored secret.")
+    connection_config: dict | None = Field(default=None, description="Connection settings to change. A masked value (`***`) keeps the stored secret. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile to use; null detaches the current one.")
     max_parallel_scanners: int | None = Field(default=None, description="New cap (1 to 16); null clears it so the built-in default applies.")
     scan_chunk_size: int | None = Field(default=None, description="New work-unit size (100 to 1,000,000); null clears it so the built-in default applies.")
@@ -34,7 +34,7 @@ class HostResponse(BaseModel):
     id: uuid.UUID = Field(description="Host id.")
     name: str = Field(description="Host name.")
     type: str = Field(description="Host type: `smb`, `nfs` or `s3`.")
-    connection_config: dict = Field(description="Connection settings with secrets masked as `***`.")
+    connection_config: dict = Field(description="Connection settings with secrets masked as `***`. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile in use; null when none.")
     max_parallel_scanners: int | None = Field(default=None, description="Scanner cap for the host's sources; null means the built-in default.")
     scan_chunk_size: int | None = Field(default=None, description="Work-unit size for the host's sources; null means the built-in default.")

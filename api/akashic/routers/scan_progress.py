@@ -418,11 +418,10 @@ async def get_log(
     GET handles the gap on reconnect and the full-history load the log
     viewer page-loops on mount.
 
-    v0.33.0 — the viewer pages the entire log forward with a `(ts, id)`
-    keyset: `since` alone is lossy because a scanner writes a whole batch
-    under one `ts`, so a page boundary landing mid-batch would drop lines.
-    Pass `since` + `after_id` together (the last row of the previous page)
-    and the cursor is exact.
+    The viewer pages the whole log forward with the opaque `cursor`
+    (a `(ts, id)` keyset): `since` alone is lossy because a scanner writes
+    a whole batch under one `ts`, so a page boundary landing mid-batch
+    would drop lines.
 
     v0.30.2 — scanner_name is read straight off the row (snapshotted at
     write time by _persist_lines), so the backfill renders the per-row

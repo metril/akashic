@@ -66,7 +66,7 @@ class HandshakeResponse(BaseModel):
 class LeasedSource(BaseModel):
     id: uuid.UUID = Field(description="Source id.")
     type: str = Field(description="Connector type.")
-    connection_config: dict = Field(description="Merged host and source connection config, secrets included.")
+    connection_config: dict = Field(description="Merged host and source connection config, secrets included. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     exclude_patterns: list[str] | None = Field(default=None, description="Glob patterns to skip while scanning.")
     # Cap on cooperating scanners per scan (default 1). Agents that
     # support unit-coordinated scanning use this to switch between the
@@ -277,7 +277,7 @@ async def claim_with_token(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 426 when the protocol version is outside the accepted range (body is a "
         "`HandshakeResponse`); 422 for a malformed body."
     ),
@@ -340,7 +340,7 @@ async def handshake(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if `scanner_id` is not the authenticated scanner."
     ),
 )
@@ -427,8 +427,7 @@ class LeaseRequest(BaseModel):
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
-        "Errors: 403 if the scanner is disabled."
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner."
     ),
 )
 async def lease_scan(
@@ -440,9 +439,6 @@ async def lease_scan(
     """Atomically claim one pending scan whose pool matches the
     leasing scanner's pool (or whose pool is NULL). Returns 204 with
     no body when there's nothing to do — agents back off and retry."""
-    if not scanner.enabled:
-        raise HTTPException(status_code=403, detail="scanner is disabled")
-
     # v0.30.2 — refresh the scanner's reported build version on every
     # lease poll (~5 s) so Settings → Scanners reflects the running
     # binary even after an in-place `docker compose pull` (the version
@@ -682,7 +678,7 @@ class CompleteRequest(BaseModel):
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if the caller does not hold the lease; 404 if the scan does not exist; 409 if "
         "the scan already ended with a different status; 422 for a malformed body."
     ),
@@ -837,8 +833,8 @@ async def complete_scan(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
-        "Errors: 403 if `scanner_id` is not the authenticated scanner or the scanner is disabled."
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner."
     ),
 )
 async def long_poll_probes(
@@ -855,9 +851,6 @@ async def long_poll_probes(
     """
     if scanner_id != scanner.id:
         raise HTTPException(status_code=403, detail="scanner_id mismatch")
-    if not scanner.enabled:
-        raise HTTPException(status_code=403, detail="scanner is disabled")
-
     # Heartbeat — long-poll is the agent's primary keep-alive between
     # scans, so refresh last_seen_at here too.
     scanner.last_seen_at = datetime.now(timezone.utc)
@@ -885,8 +878,8 @@ async def long_poll_probes(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
-        "Errors: 403 if `scanner_id` is not the authenticated scanner or the scanner is disabled."
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
+        "Errors: 403 if `scanner_id` is not the authenticated scanner."
     ),
 )
 async def long_poll_scan_joins(
@@ -915,9 +908,6 @@ async def long_poll_scan_joins(
     """
     if scanner_id != scanner.id:
         raise HTTPException(status_code=403, detail="scanner_id mismatch")
-    if not scanner.enabled:
-        raise HTTPException(status_code=403, detail="scanner is disabled")
-
     # Long-poll counts as a keep-alive (mirrors probes long-poll).
     scanner.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
@@ -941,7 +931,7 @@ async def long_poll_scan_joins(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if `scanner_id` is not the authenticated scanner; 404 if the source does not "
         "exist; 422 for a malformed body."
     ),
@@ -1026,7 +1016,7 @@ class OAuthAccessTokenResponse(BaseModel):
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if the scanner has no active lease on the source; 404 if the source has no "
         "connected OAuth credential; 502 if the provider refused the refresh; 422 for a malformed "
         "body."

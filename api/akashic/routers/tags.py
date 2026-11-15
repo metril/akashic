@@ -158,6 +158,14 @@ async def list_tags(
     return result.scalars().all()
 
 
+class EntryTagOut(BaseModel):
+    tag: str = Field(description="Tag name.")
+    inherited: bool = Field(description="True when the tag comes from a tagged ancestor directory rather than being applied to this entry.")
+    inherited_from_path: str | None = Field(description="Path of the ancestor directory the tag is inherited from; null for a direct tag.")
+
+    model_config = {"json_schema_extra": {'examples': [{'tag': 'invoice', 'inherited': True, 'inherited_from_path': '/projects'}]}}
+
+
 class TagUsageResponse(BaseModel):
     name: str = Field(description="Tag name.")
     color: str | None = Field(description="Display colour, if set.")
@@ -365,7 +373,7 @@ async def remove_tag_from_entry(
 
 @router.get(
     "/entries/{entry_id}/tags",
-    response_model=list[dict],
+    response_model=list[EntryTagOut],
     summary="List an entry's tags",
     description=(
         "The tags on an entry as a list of `{tag, inherited, inherited_from_path}`: direct tags "

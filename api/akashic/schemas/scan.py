@@ -142,4 +142,4 @@ class ScanResponse(BaseModel):
     inaccessible_dirs: int = Field(default=0, description="Directories the scanner could not read (permission denied or vanished mid-scan).")
     inaccessible_files: int = Field(default=0, description="Files the scanner could not read.")
 
-    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'scan_type': 'incremental', 'status': 'running', 'files_found': 12840, 'files_new': 120, 'files_changed': 14, 'files_deleted': 3, 'started_at': '2026-04-27T22:00:00Z', 'completed_at': None, 'current_path': '/projects/2026', 'phase': 'walk'}]}}
+    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'scan_type': 'incremental', 'status': 'completed', 'files_found': 12840, 'files_new': 120, 'files_changed': 14, 'files_deleted': 3, 'started_at': '2026-04-27T22:00:00Z', 'completed_at': '2026-04-27T22:09:00Z', 'current_path': '/projects/2026', 'phase': 'finalize'}]}}

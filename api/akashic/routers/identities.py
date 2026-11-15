@@ -1,9 +1,11 @@
 """CRUD for FsPerson + FsBinding (per-user identity claims)."""
 from typing import Annotated
 import uuid
+from datetime import datetime
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +26,19 @@ from akashic.schemas.identity import (
 from akashic.services.audit import record_event
 
 router = ApiRouter(prefix="/identities", tags=["identities"])
+
+
+class UnboundIdentityOut(BaseModel):
+    id: uuid.UUID = Field(description="Claim id.")
+    user_id: uuid.UUID = Field(description="User the claim was seen for.")
+    identity_type: str = Field(description="Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.")
+    identifier: str = Field(description="The identifier value, e.g. a SID.")
+    confidence: str = Field(description="How the claim was obtained, e.g. `claim`.")
+    groups: list[str] = Field(description="Group identifiers that came with the claim.")
+    first_seen_at: datetime = Field(description="When the claim was first seen at login.")
+    last_seen_at: datetime = Field(description="When it was last seen.")
+
+    model_config = {"json_schema_extra": {'examples': [{'id': '3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10', 'user_id': '5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33', 'identity_type': 'sid', 'identifier': 'S-1-5-21-1-2-3-1001', 'confidence': 'claim', 'groups': ['S-1-5-21-1-2-3-513'], 'first_seen_at': '2026-04-01T09:00:00Z', 'last_seen_at': '2026-04-27T22:00:00Z'}]}}
 
 
 def _person_with_bindings(person: FsPerson, bindings: list[FsBinding]) -> FsPersonOut:
@@ -345,6 +360,7 @@ async def delete_binding(
 
 @router.get(
     "/unbound",
+    response_model=list[UnboundIdentityOut],
     summary="List unbound identity claims",
     description=(
         "OIDC identity claims that could not be bound to any source at login, most recently seen "
@@ -358,7 +374,7 @@ async def list_unbound(
     user_id: Annotated[uuid.UUID | None, Query(description="Only claims of this user (administrators only for users other than yourself).")] = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:read"),
-) -> list[dict]:
+) -> list[UnboundIdentityOut]:
     """OIDC identities Akashic couldn't bind to a source at login.
 
     Default scope is the requesting user's own unbound identities — so
@@ -389,15 +405,15 @@ async def list_unbound(
         stmt = stmt.where(FsUnboundIdentity.user_id == user.id)
     rows = (await db.execute(stmt)).scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "user_id": str(r.user_id),
-            "identity_type": r.identity_type,
-            "identifier": r.identifier,
-            "confidence": r.confidence,
-            "groups": list(r.groups or []),
-            "first_seen_at": r.first_seen_at.isoformat(),
-            "last_seen_at": r.last_seen_at.isoformat(),
-        }
+        UnboundIdentityOut(
+            id=r.id,
+            user_id=r.user_id,
+            identity_type=r.identity_type,
+            identifier=r.identifier,
+            confidence=r.confidence,
+            groups=list(r.groups or []),
+            first_seen_at=r.first_seen_at,
+            last_seen_at=r.last_seen_at,
+        )
         for r in rows
     ]

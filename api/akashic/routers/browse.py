@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,6 +74,14 @@ def _normalize_path(path: str) -> str:
         return "/"
     # Strip trailing slash unless the whole path is just '/'
     return path.rstrip("/") or "/"
+
+
+class EffectiveCounts(BaseModel):
+    visible: int = Field(description="Direct children of the directory the caller can see.")
+    hidden: int = Field(description="Direct children hidden by per-user ACL filtering; 0 when no filter applies.")
+    enforced: bool = Field(description="Whether ACL filtering applied to this request.")
+
+    model_config = {"json_schema_extra": {'examples': [{'visible': 120, 'hidden': 4, 'enforced': True}]}}
 
 
 async def _should_enforce_perms(principal: Principal, show_all: bool, db: AsyncSession) -> bool:
@@ -415,6 +423,7 @@ async def _maybe_audit_filter(
 
 @router.get(
     "/effective-counts",
+    response_model=EffectiveCounts,
     summary="Count visible and hidden entries",
     description=(
         "For one directory, how many direct children the caller can see and how many per-user ACL "
@@ -430,7 +439,7 @@ async def effective_counts(
     show_all: bool = Query(default=False, description="For callers allowed to bypass ACL filtering: skip the filter and count everything as visible."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
-) -> dict:
+) -> EffectiveCounts:
     """How many entries under `path` the user can/can't see — feeds the
     Browse "X items hidden" footer. Cheap (two COUNT(*) queries with the
     same indexes Browse uses)."""
@@ -449,11 +458,11 @@ async def effective_counts(
 
     enforce = await _should_enforce_perms(principal, show_all, db)
     if not enforce:
-        return {"visible": total, "hidden": 0, "enforced": False}
+        return EffectiveCounts(visible=total, hidden=0, enforced=False)
 
     tokens = await user_principal_tokens(user, db)
     visible_filter = base_filter + [viewable_clause(tokens, "read")]
     visible = (await db.execute(
         select(func.count(Entry.id)).where(and_(*visible_filter))
     )).scalar() or 0
-    return {"visible": visible, "hidden": total - visible, "enforced": True}
+    return EffectiveCounts(visible=visible, hidden=total - visible, enforced=True)

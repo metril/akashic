@@ -280,7 +280,7 @@ async def _broadcast_terminal(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 404 if the scan does not exist; 409 if the scan has ended (detail `reason: "
         "scan-terminal`) or the parallel-scanner cap is reached while work remains."
     ),
@@ -405,7 +405,7 @@ async def lease_unit(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if the caller does not hold the lease; 404 if the unit does not exist in the "
         "scan; 409 if the unit has already finished."
     ),
@@ -456,7 +456,7 @@ async def heartbeat_unit(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if the caller does not hold the lease; 404 if the scan or unit does not exist; "
         "409 if the scan has ended or the unit is not running."
     ),
@@ -543,7 +543,7 @@ async def complete_unit(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 403 if the caller does not hold the lease; 404 if the scan or unit does not exist; "
         "409 if the scan has ended or the unit is not running."
     ),
@@ -627,7 +627,7 @@ async def fail_unit(
         "Authenticated by the scanner's own per-request JWT (`Authorization: Bearer <jwt>`): an "
         "Ed25519-signed (`alg=EdDSA`) token with `iss=scanner`, `sub` and header `kid` set to the "
         "scanner id, a `jti` that may be used once, and `exp` at most 5 minutes ahead (30 s clock "
-        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token.\n"
+        "skew tolerated). 401 for any invalid, expired, replayed or unknown-scanner token, and for a disabled scanner.\n"
         "Errors: 404 if the scan does not exist; 409 if the scan has ended."
     ),
 )

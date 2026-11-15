@@ -8,7 +8,7 @@ from akashic.services.url_guard import UnsafeURL, validate_outbound_url_literal
 class WebhookCreate(BaseModel):
     event_type: str = Field(description="Event to subscribe to, e.g. `scan.completed` or `scan.failed`.")
     url: str = Field(description="HTTPS or HTTP endpoint that receives the POST. Must resolve to a public address.")
-    secret: str = Field(description="Shared secret used to sign deliveries (HMAC-SHA256 in `X-Akashic-Signature`). Write-only: never returned.")
+    secret: str = Field(description="Shared secret used to sign deliveries (hex HMAC-SHA256 of the raw request body in `X-Akashic-Signature`). Write-only: never returned.")
 
     @field_validator("url")
     @classmethod

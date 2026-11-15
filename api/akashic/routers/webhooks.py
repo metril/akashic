@@ -23,8 +23,9 @@ router = ApiRouter(prefix="/webhooks", tags=["webhooks"])
     summary="Create a webhook",
     description=(
         "Registers an outgoing webhook for the calling user. Matching events are POSTed to `url` as "
-        "JSON with an `X-Akashic-Signature` header: the hex HMAC-SHA256 of the request body (compact "
-        "JSON, keys sorted) keyed with `secret`. Scan webhooks (`scan.completed`, `scan.failed`) "
+        "JSON (object keys sorted, Python's default `, ` and `: ` separators) with an "
+        "`X-Akashic-Signature` header: the hex HMAC-SHA256, keyed with `secret`, of the raw request "
+        "body exactly as received. Verify it over the bytes you received, before parsing. Scan webhooks (`scan.completed`, `scan.failed`) "
         "carry `event`, `scan_id` and `source_id`, and fire only for webhooks owned by users whose "
         "role holds `scans:write`.\n"
         "The URL must resolve to a public address; private, loopback and link-local targets are "

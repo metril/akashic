@@ -104,6 +104,12 @@ class LDAPLoginRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
 
 
+class LogoutResponse(BaseModel):
+    ok: bool = Field(description="Always true; logout is idempotent.")
+
+    model_config = {"json_schema_extra": {'examples': [{'ok': True}]}}
+
+
 class ProvidersResponse(BaseModel):
     local: bool = Field(default=True, description="Local username and password login; always available.")
     oidc: bool = Field(description="Whether OIDC single sign-on is enabled.")
@@ -393,6 +399,7 @@ async def refresh_token(
 
 @router.post(
     "/logout",
+    response_model=LogoutResponse,
     summary="Log out",
     description=(
         "Public. Revokes the presented refresh token and clears the cookie. The short-lived "
@@ -404,7 +411,7 @@ async def logout(
     response: Response,
     akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE, description="HttpOnly refresh cookie set at login."),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> LogoutResponse:
     """Revoke the presented refresh token and clear the cookie. The
     short-lived access JWT keeps working until its TTL expires; logout
     only kills the long-lived chain. Idempotent — calling without a
@@ -413,4 +420,4 @@ async def logout(
         await refresh_service.revoke(akashic_refresh, db)
         await db.commit()
     _clear_refresh_cookie(response)
-    return {"ok": True}
+    return LogoutResponse(ok=True)

@@ -36,7 +36,7 @@ router = ApiRouter(prefix="/server-settings", tags=["server-settings"])
 
 class SettingValue(BaseModel):
     key: str = Field(description="Setting key.")
-    value: Any = Field(description="Current value; for a set secret, the mask.")
+    value: Any = Field(description="Current value; for a set secret, the mask. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
     set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
 
 
@@ -49,9 +49,9 @@ class SettingDescription(BaseModel):
     description: str = Field(description="Human-readable explanation.")
     secret: bool = Field(description="Whether the value is a secret (returned masked).")
     restart: bool = Field(description="Whether changing it needs a restart.")
-    default: Any = Field(description="Default value.")
-    value: Any = Field(description="Current value; the mask for a set secret.")
-    choices: list[Any] | None = Field(description="Allowed values, when constrained.")
+    default: Any = Field(description="Default value. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
+    value: Any = Field(description="Current value; the mask for a set secret. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
+    choices: list[Any] | None = Field(description="Allowed values, when constrained. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
     set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
 
 
@@ -70,7 +70,7 @@ class SettingsListResponse(BaseModel):
 
 
 class SettingPatch(BaseModel):
-    value: Any = Field(default=None, description="New value, coerced to the setting's type. For a secret: `null` or the mask keeps it, an empty string clears it.")
+    value: Any = Field(default=None, description="New value, coerced to the setting's type. For a secret: `null` or the mask keeps it, an empty string clears it. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
 
     model_config = {"json_schema_extra": {'examples': [{'value': True}]}}
 

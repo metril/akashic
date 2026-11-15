@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 class SourceCreate(BaseModel):
     name: str = Field(description="Display name; must be unique.", examples=['nas-projects'])
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`, `webdav`, `paperless`, `immich`, `gdrive`, `onedrive` or `dropbox`.")
-    connection_config: dict = Field(description="Connection settings for the type (path, share, bucket, URL, ...). With a host, only share-level fields are needed. Secret-looking keys are masked on read.")
+    connection_config: dict = Field(description="Connection settings for the type (path, share, bucket, URL, ...). With a host, only share-level fields are needed. Secret-looking keys are masked on read. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     # Optional FK to a Host row that owns the connection-level config
     # (hostname/credentials). When provided, `connection_config` only
     # needs the share-level fields (path/share/export_path/bucket);
@@ -42,7 +42,7 @@ class SourceCreate(BaseModel):
 class SourceUpdate(BaseModel):
     name: str | None = Field(default=None, description="New display name.")
     host_id: uuid.UUID | None = Field(default=None, description="Attach to a host of the same type. Null detaches (only for hostless types).")
-    connection_config: dict | None = Field(default=None, description="Keys to merge into the stored config. A secret sent as `***` keeps its stored value.")
+    connection_config: dict | None = Field(default=None, description="Keys to merge into the stored config. A secret sent as `***` keeps its stored value. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     scan_schedule: str | None = Field(default=None, description="New cron expression; null clears the schedule.")
     exclude_patterns: list[str] | None = Field(default=None, description="New exclude patterns, replacing the list.")
     preferred_pool: str | None = Field(default=None, description="New preferred pool; null for any.")
@@ -93,7 +93,7 @@ class SourceResponse(BaseModel):
     type: str = Field(description="Source type.")
     host_id: uuid.UUID | None = Field(default=None, description="Host the source belongs to.")
     host: _HostInline | None = Field(default=None, description="Summary of that host.")
-    connection_config: dict = Field(description="Connection settings with secret-looking values replaced by `***`.")
+    connection_config: dict = Field(description="Connection settings with secret-looking values replaced by `***`. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     scan_schedule: str | None = Field(description="Cron expression for scheduled scans; null if manual only.")
     exclude_patterns: list[str] | None = Field(description="Glob patterns skipped while scanning.")
     preferred_pool: str | None = Field(default=None, description="Pool that must scan the source; null for any.")
@@ -106,7 +106,7 @@ class SourceResponse(BaseModel):
     status: str = Field(description="`online`, `scanning`, `failed` or `offline`.")
     created_at: datetime = Field(description="When the source was created.")
     updated_at: datetime = Field(description="When the source was last changed.")
-    security_metadata: dict | None = Field(default=None, description="Source-level security data reported by the scanner (for example an S3 bucket policy).")
+    security_metadata: dict | None = Field(default=None, description="Source-level security data reported by the scanner (for example an S3 bucket policy). Free-form: depends on the source type.", json_schema_extra={"x-free-form": True})
     is_removable: bool = Field(default=False, description="Whether the storage may be disconnected.")
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile merged under the config.")
 
