@@ -1,3 +1,4 @@
+from typing import Annotated
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -27,7 +28,16 @@ router = ApiRouter(prefix="/analytics", tags=["analytics"])
 _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
 
 
-@router.get("/storage-by-type", response_model=list[StorageByType], summary="Storage by file type")
+@router.get(
+    "/storage-by-type",
+    response_model=list[StorageByType],
+    summary="Storage by file type",
+    description=(
+        "File count and total bytes per extension over the non-deleted files of every visible "
+        "source, largest first. Computed live from the index. Requires scope `analytics:read`. "
+        "Source-limited API tokens only see their permitted sources."
+    ),
+)
 async def get_storage_by_type(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -52,7 +62,16 @@ async def get_storage_by_type(
     ]
 
 
-@router.get("/storage-by-source", response_model=list[StorageBySource], summary="Storage by source")
+@router.get(
+    "/storage-by-source",
+    response_model=list[StorageBySource],
+    summary="Storage by source",
+    description=(
+        "File count and total bytes per visible source over non-deleted files, largest first. "
+        "Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens "
+        "only see their permitted sources."
+    ),
+)
 async def get_storage_by_source(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -84,9 +103,18 @@ async def get_storage_by_source(
     ]
 
 
-@router.get("/largest-files", response_model=list[LargestFile], summary="Largest files")
+@router.get(
+    "/largest-files",
+    response_model=list[LargestFile],
+    summary="Largest files",
+    description=(
+        "The largest non-deleted files across visible sources, biggest first. Files hidden from "
+        "the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. "
+        "Source-limited API tokens only see their permitted sources."
+    ),
+)
 async def get_largest_files(
-    n: int = Query(default=10, le=100),
+    n: int = Query(default=10, le=100, description="Number of files to return (maximum 100).", examples=[10]),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
@@ -118,11 +146,21 @@ async def get_largest_files(
 # ── Time-series endpoints (driven by scan_snapshots) ──────────────────────
 
 
-@router.get("/timeseries", response_model=list[SeriesPoint], summary="Size or file-count history")
+@router.get(
+    "/timeseries",
+    response_model=list[SeriesPoint],
+    summary="Size or file-count history",
+    description=(
+        "History of one source's total size or file count, oldest first, one point per scan "
+        "snapshot in the window.\n"
+        "Requires scope `analytics:read`. Errors: 404 if the source is outside the token's "
+        "sources; 422 for an invalid parameter."
+    ),
+)
 async def get_timeseries(
-    source_id: uuid.UUID,
-    metric: str = Query(default="size", pattern="^(size|count)$"),
-    days: int = Query(default=90, ge=1, le=730),
+    source_id: Annotated[uuid.UUID, Query(description="Source to chart.")],
+    metric: str = Query(default="size", pattern="^(size|count)$", description="`size` plots total bytes, `count` plots file count."),
+    days: int = Query(default=90, ge=1, le=730, description="Window length in days, ending now."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
@@ -149,11 +187,22 @@ async def get_timeseries(
     return [{"taken_at": r.taken_at.isoformat(), "value": int(r.value)} for r in rows]
 
 
-@router.get("/forecast", response_model=ForecastResponse, summary="Capacity forecast")
+@router.get(
+    "/forecast",
+    response_model=ForecastResponse,
+    summary="Capacity forecast",
+    description=(
+        "Linear projection of a source's total size from its recent snapshots (least-squares "
+        "slope with a 95% interval band). With fewer than 3 snapshots in the lookback window "
+        "`forecast` is null and `reason` is `insufficient_history`.\n"
+        "Requires scope `analytics:read`. Errors: 404 if the source is outside the token's "
+        "sources; 422 for an invalid parameter."
+    ),
+)
 async def get_forecast(
-    source_id: uuid.UUID,
-    horizon_days: int = Query(default=30, ge=1, le=365),
-    lookback_days: int = Query(default=90, ge=7, le=730),
+    source_id: Annotated[uuid.UUID, Query(description="Source to forecast.")],
+    horizon_days: int = Query(default=30, ge=1, le=365, description="How many days ahead to project."),
+    lookback_days: int = Query(default=90, ge=7, le=730, description="How many days of history to fit."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
@@ -230,11 +279,22 @@ async def get_forecast(
     }
 
 
-@router.get("/extension-trend", response_model=dict[str, list[ExtensionTrendPoint]], summary="Per-extension trend")
+@router.get(
+    "/extension-trend",
+    response_model=dict[str, list[ExtensionTrendPoint]],
+    summary="Per-extension trend",
+    description=(
+        "Per-extension series (file count `n` and `bytes`) across a source's snapshots in the "
+        "window, keyed by extension. A snapshot that lacks an extension contributes zeros so each "
+        "series stays continuous.\n"
+        "Requires scope `analytics:read`. Errors: 404 if the source is outside the token's "
+        "sources; 422 for an invalid parameter."
+    ),
+)
 async def get_extension_trend(
-    source_id: uuid.UUID,
-    extensions: str = Query(..., description="comma-separated, e.g. pdf,mp4,docx"),
-    days: int = Query(default=90, ge=1, le=730),
+    source_id: Annotated[uuid.UUID, Query(description="Source to chart.")],
+    extensions: str = Query(..., description="Comma-separated extensions, without dots.", examples=['pdf,mp4,docx']),
+    days: int = Query(default=90, ge=1, le=730, description="Window length in days, ending now."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
@@ -273,9 +333,20 @@ async def get_extension_trend(
     return out
 
 
-@router.get("/owner-distribution", response_model=OwnerDistribution, summary="Owner distribution")
+@router.get(
+    "/owner-distribution",
+    response_model=OwnerDistribution,
+    summary="Owner distribution",
+    description=(
+        "File count and bytes per owner from the source's latest snapshot, largest first; empty "
+        "when the source has no snapshot. Owner SIDs are resolved to names from the principals "
+        "cache where known.\n"
+        "Requires scope `analytics:read`. Errors: 404 if the source is outside the token's "
+        "sources."
+    ),
+)
 async def get_owner_distribution(
-    source_id: uuid.UUID,
+    source_id: Annotated[uuid.UUID, Query(description="Source to summarise.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):

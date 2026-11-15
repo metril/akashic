@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Optional
+from typing import Annotated, Optional
 from urllib.parse import quote
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Path, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -40,11 +40,11 @@ router = ApiRouter(prefix="/entries", tags=["entries"])
 
 
 class PreviewResponse(BaseModel):
-    encoding: Optional[str] = None
-    text: Optional[str] = None
-    truncated: bool = False
-    byte_size_total: int = 0
-    binary: bool = False
+    encoding: Optional[str] = Field(default=None, description="Text encoding used, `utf-8` or `latin-1`; null for binary files.")
+    text: Optional[str] = Field(default=None, description="Decoded text of the first 64 KiB; null for binary files.")
+    truncated: bool = Field(default=False, description="True when the file is larger than the preview.")
+    byte_size_total: int = Field(default=0, description="Size of the whole file in bytes.")
+    binary: bool = Field(default=False, description="True when the file looks binary (a NUL byte in its first 4 KiB), in which case no text is returned.")
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -119,10 +119,21 @@ def _decode_text(buf: bytes) -> tuple[str | None, str | None]:
         "description": "Raw file bytes, served with the entry's MIME type.",
         "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
     }},
+    description=(
+        "Streams the file's bytes with the entry's MIME type. Local sources are served directly "
+        "(range requests supported); other sources are fetched through a scanner process and "
+        "streamed without a `Content-Length`, because the indexed size may be stale. Use "
+        "`attachment=true` to force a download.\n"
+        "Requires scope `files:content`. Source-limited API tokens only see their permitted "
+        "sources.\n"
+        "Errors: 400 for an unsafe path; 403 if the file is not readable by the API; 404 if the "
+        "entry is not a file, was deleted, its source is gone, it is outside the token's sources "
+        "or hidden by per-user ACL filtering, or the file is missing on disk."
+    ),
 )
 async def get_content(
-    entry_id: uuid.UUID,
-    as_attachment: bool = Query(default=False, alias="attachment"),
+    entry_id: Annotated[uuid.UUID, Path(description="Entry id of a file.")],
+    as_attachment: bool = Query(default=False, alias="attachment", description="Send `Content-Disposition: attachment` instead of `inline`."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:content", source_scoped=True),
 ):
@@ -177,9 +188,22 @@ async def get_content(
 # ── /preview ───────────────────────────────────────────────────────────────
 
 
-@router.get("/{entry_id}/preview", response_model=PreviewResponse)
+@router.get(
+    "/{entry_id}/preview",
+    response_model=PreviewResponse,
+    summary="Preview file content",
+    description=(
+        "A text preview of the first 64 KiB of the file. Files with a NUL byte in their first 4 "
+        "KiB are reported as binary with no text; text is decoded as UTF-8, falling back to "
+        "Latin-1.\n"
+        "Requires scope `files:content`. Source-limited API tokens only see their permitted "
+        "sources.\n"
+        "Errors: 400 for an unsafe path; 403 if the file is not readable by the API; 404 as for "
+        "the content endpoint; 502 if the scanner cannot fetch a non-local file."
+    ),
+)
 async def get_preview(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry id of a file.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:content", source_scoped=True),
 ):

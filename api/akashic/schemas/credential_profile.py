@@ -70,26 +70,30 @@ def merge_sentinel_credentials(existing: dict, incoming: dict) -> dict:
 
 
 class CredentialProfileCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    type: str  # one of SUPPORTED_TYPES — validated at the endpoint
-    credentials: dict = Field(default_factory=dict)
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=200, description="Unique profile name.")
+    type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
+    credentials: dict = Field(default_factory=dict, description="Credential values for the type, e.g. `username` and `password` for SMB. Stored encrypted.")
+    description: str | None = Field(default=None, description="Free-text note.")
+
+    model_config = {"json_schema_extra": {'examples': [{'name': 'Finance SMB', 'type': 'smb', 'credentials': {'username': 'svc-akashic', 'password': 's3cret'}, 'description': 'Read-only service account for the finance file servers'}]}}
 
 
 class CredentialProfileUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    credentials: dict | None = None
+    name: str | None = Field(default=None, description="New unique name.")
+    description: str | None = Field(default=None, description="New note.")
+    credentials: dict | None = Field(default=None, description="Credential values to change. A value of `***` keeps the stored value; keys not present are left as they are.")
+
+    model_config = {"json_schema_extra": {'examples': [{'credentials': {'password': 'n3w-s3cret', 'username': '***'}}]}}
 
 
 class CredentialProfileResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    type: str
-    credentials: dict = Field(default_factory=dict)
-    description: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    id: uuid.UUID = Field(description="Profile id.")
+    name: str = Field(description="Profile name.")
+    type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
+    credentials: dict = Field(default_factory=dict, description="Credential values with secrets masked as `***`.")
+    description: str | None = Field(default=None, description="Free-text note.")
+    created_at: datetime = Field(description="When the profile was created.")
+    updated_at: datetime = Field(description="When the profile was last changed.")
 
     model_config = {"from_attributes": True}
 
@@ -136,9 +140,9 @@ class CredentialProfileSummary(BaseModel):
     without a per-row scrub pass.
     """
 
-    id: uuid.UUID
-    name: str
-    type: str
-    description: str | None = None
+    id: uuid.UUID = Field(description="Profile id.")
+    name: str = Field(description="Profile name.")
+    type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
+    description: str | None = Field(default=None, description="Free-text note.")
 
     model_config = {"from_attributes": True}

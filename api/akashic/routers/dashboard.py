@@ -92,7 +92,19 @@ def _aggregate_jsonb(snapshots: list[ScanSnapshot], field: str) -> dict[str, dic
     return out
 
 
-@router.get("/summary", response_model=DashboardSummary, summary="Dashboard summary")
+@router.get(
+    "/summary",
+    response_model=DashboardSummary,
+    summary="Dashboard summary",
+    description=(
+        "Everything the landing page shows in one call: storage totals with a 30-day delta, scan "
+        "counters, growth hints for the three largest sources, top owners, fastest-growing "
+        "extensions, recent scans and identity-mapping counters. User-related counts are only "
+        "included for callers who can read users and are not source-limited.\n"
+        "Requires scope `analytics:read`. Source-limited API tokens only see their permitted "
+        "sources."
+    ),
+)
 async def get_summary(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("analytics:read", source_scoped=True),
@@ -262,6 +274,13 @@ _risk_lock = asyncio.Lock()
     response_model=AccessRisksResponse,
     response_model_exclude_unset=True,
     summary="World-readable file count",
+    description=(
+        "Count of files readable by everyone, cached for a short time (`cache_age_seconds`). Only "
+        "callers holding `audit:read` and not limited to sources get the figure; any other caller "
+        "receives 200 with `access_risks: null` so the dashboard tile can render a placeholder "
+        "without an error.\n"
+        "Requires scope `analytics:read`."
+    ),
 )
 async def get_access_risks(
     db: AsyncSession = Depends(get_db),

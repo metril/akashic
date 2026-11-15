@@ -1,9 +1,10 @@
 """Personal API tokens: your own under /me/tokens, everyone's under /admin/tokens."""
+from typing import Annotated
 import uuid
 from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request, Response, status
+from fastapi import Depends, HTTPException, Path, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,7 +75,15 @@ async def _revoke(row: ApiToken, actor: User, db: AsyncSession, request: Request
     )
 
 
-@me_router.get("", response_model=list[ApiTokenResponse], summary="List your API tokens")
+@me_router.get(
+    "",
+    response_model=list[ApiTokenResponse],
+    summary="List your API tokens",
+    description=(
+        "Your own tokens, newest first, including revoked and expired ones. The token secret is "
+        "never returned. Requires scope `tokens:read`."
+    ),
+)
 async def list_my_tokens(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:read"),
@@ -88,12 +97,18 @@ async def list_my_tokens(
 
 
 @me_router.post(
-    "", response_model=ApiTokenCreated, status_code=status.HTTP_201_CREATED,
+    "",
+    response_model=ApiTokenCreated,
+    status_code=status.HTTP_201_CREATED,
     summary="Create an API token",
     description=(
         "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. "
         "A token limited to sources (`source_ids`) cannot hold write scopes on other resources. "
-        "Requires an interactive login session: an API token cannot create tokens (403 `interactive_session_required`)."
+        "Records an `api_token_created` audit event.\n"
+        "Requires scope `tokens:write` and an interactive login session: an API token cannot "
+        "create tokens (403 `interactive_session_required`).\n"
+        "Errors: 422 for unknown scopes, scopes beyond your own, write scopes on a source-limited "
+        "token, unknown sources or an `expires_at` in the past."
     ),
 )
 async def create_my_token(
@@ -143,14 +158,20 @@ async def create_my_token(
 
 
 @me_router.patch(
-    "/{token_id}", response_model=ApiTokenResponse, summary="Rename or narrow an API token",
+    "/{token_id}",
+    response_model=ApiTokenResponse,
+    summary="Rename or narrow an API token",
     description=(
-        "Scopes can only be narrowed, never widened. To widen, create a new token. "
-        "Requires an interactive login session (403 `interactive_session_required` for an API token)."
+        "Scopes can only be narrowed, never widened; to widen, create a new token. Records an "
+        "`api_token_updated` audit event.\n"
+        "Requires scope `tokens:write` and an interactive login session (403 "
+        "`interactive_session_required` for an API token).\n"
+        "Errors: 404 if the token does not exist or is not yours; 409 if it is revoked; 422 for "
+        "unknown scopes or scopes beyond the token's current set."
     ),
 )
 async def update_my_token(
-    token_id: uuid.UUID,
+    token_id: Annotated[uuid.UUID, Path(description="Token id.")],
     request: Request,
     data: ApiTokenUpdate,
     db: AsyncSession = Depends(get_db),
@@ -179,10 +200,17 @@ async def update_my_token(
 
 
 @me_router.delete(
-    "/{token_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Revoke an API token",
+    "/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke an API token",
+    description=(
+        "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds. "
+        "Records an `api_token_revoked` audit event.\n"
+        "Requires scope `tokens:write`. Errors: 404 if the token does not exist or is not yours."
+    ),
 )
 async def revoke_my_token(
-    token_id: uuid.UUID,
+    token_id: Annotated[uuid.UUID, Path(description="Token id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:write"),
@@ -192,9 +220,14 @@ async def revoke_my_token(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@admin_router.get("", response_model=list[AdminApiTokenResponse], summary="List every user's API tokens")
+@admin_router.get(
+    "",
+    response_model=list[AdminApiTokenResponse],
+    summary="List every user's API tokens",
+    description="Every user's tokens with owner username, newest first. Requires scope `tokens:admin`.",
+)
 async def list_all_tokens(
-    user_id: uuid.UUID | None = None,
+    user_id: Annotated[uuid.UUID | None, Query(description="Only tokens owned by this user.")] = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:admin"),
 ):
@@ -211,10 +244,17 @@ async def list_all_tokens(
 
 
 @admin_router.delete(
-    "/{token_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Revoke any user's API token",
+    "/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke any user's API token",
+    description=(
+        "Revokes any user's token. Idempotent. Records an `api_token_revoked` audit event with "
+        "`by_admin: true`.\n"
+        "Requires scope `tokens:admin`. Errors: 404 if the token does not exist."
+    ),
 )
 async def revoke_any_token(
-    token_id: uuid.UUID,
+    token_id: Annotated[uuid.UUID, Path(description="Token id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("tokens:admin"),

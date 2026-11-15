@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from akashic.schemas.source import _scrub_config
 
@@ -10,33 +10,37 @@ from akashic.schemas.source import _scrub_config
 # every attached source that leaves its own field NULL. None on create
 # = no host-level setting (the built-in default applies).
 class HostCreate(BaseModel):
-    name: str
-    type: str  # "smb" | "nfs" | "s3" — local has no host
-    connection_config: dict
-    credential_profile_id: uuid.UUID | None = None
-    max_parallel_scanners: int | None = None
-    scan_chunk_size: int | None = None
+    name: str = Field(description="Unique host name.")
+    type: str = Field(description="Host type: `smb`, `nfs` or `s3`. Local storage has no host.")
+    connection_config: dict = Field(description="Type-specific connection settings shared by the attached sources, including any inline credentials. Secrets are masked in responses.")
+    credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile to take credentials from; its type must match the host type.")
+    max_parallel_scanners: int | None = Field(default=None, description="Most distinct scanners that may work on one scan at once (1 to 16), inherited by attached sources that leave theirs unset. Null uses the built-in default.")
+    scan_chunk_size: int | None = Field(default=None, description="Entries per scan work unit (100 to 1,000,000), inherited by attached sources that leave theirs unset. Null uses the built-in default (2000).")
+
+    model_config = {"json_schema_extra": {'examples': [{'name': 'fileserver01', 'type': 'smb', 'connection_config': {'host': 'fileserver01.example.com'}, 'credential_profile_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'max_parallel_scanners': 4, 'scan_chunk_size': 2000}]}}
 
 
 class HostUpdate(BaseModel):
-    name: str | None = None
-    connection_config: dict | None = None
-    credential_profile_id: uuid.UUID | None = None
-    max_parallel_scanners: int | None = None
-    scan_chunk_size: int | None = None
+    name: str | None = Field(default=None, description="New unique host name.")
+    connection_config: dict | None = Field(default=None, description="Connection settings to change. A masked value (`***`) keeps the stored secret.")
+    credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile to use; null detaches the current one.")
+    max_parallel_scanners: int | None = Field(default=None, description="New cap (1 to 16); null clears it so the built-in default applies.")
+    scan_chunk_size: int | None = Field(default=None, description="New work-unit size (100 to 1,000,000); null clears it so the built-in default applies.")
+
+    model_config = {"json_schema_extra": {'examples': [{'name': 'fileserver01-new', 'max_parallel_scanners': None}]}}
 
 
 class HostResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    type: str
-    connection_config: dict
-    credential_profile_id: uuid.UUID | None = None
-    max_parallel_scanners: int | None = None
-    scan_chunk_size: int | None = None
-    source_count: int = 0
-    created_at: datetime
-    updated_at: datetime
+    id: uuid.UUID = Field(description="Host id.")
+    name: str = Field(description="Host name.")
+    type: str = Field(description="Host type: `smb`, `nfs` or `s3`.")
+    connection_config: dict = Field(description="Connection settings with secrets masked as `***`.")
+    credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile in use; null when none.")
+    max_parallel_scanners: int | None = Field(default=None, description="Scanner cap for the host's sources; null means the built-in default.")
+    scan_chunk_size: int | None = Field(default=None, description="Work-unit size for the host's sources; null means the built-in default.")
+    source_count: int = Field(default=0, description="Number of sources attached to the host.")
+    created_at: datetime = Field(description="When the host was created.")
+    updated_at: datetime = Field(description="When the host was last changed.")
 
     model_config = {"from_attributes": True}
 
@@ -56,31 +60,33 @@ class ListSharesResponse(BaseModel):
     `config`); `shares` is empty in that case.
     """
 
-    shares: list[str] = []
-    step: str | None = None
-    error: str | None = None
+    shares: list[str] = Field(default=[], description="Names of the shares, exports or buckets found; empty on failure.")
+    step: str | None = Field(default=None, description="Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success.")
+    error: str | None = Field(default=None, description="Failure message; null on success.")
 
 
 class AddSharesItem(BaseModel):
     """One row in an /add-shares batch."""
 
-    name: str          # Source.name (must be unique across all sources)
-    share: str         # The path/share/export_path/bucket value
+    name: str = Field(description="Name for the new source; must be unique across all sources.")
+    share: str = Field(description="Share name (SMB), export path (NFS) or bucket (S3).")
 
 
 class AddSharesRequest(BaseModel):
-    shares: list[AddSharesItem]
-    scan_schedule: str | None = None
-    max_parallel_scanners: int | None = None
-    exclude_patterns: list[str] | None = None
-    preferred_pool: str | None = None
-    is_removable: bool | None = None
+    shares: list[AddSharesItem] = Field(description="Shares to create as sources.")
+    scan_schedule: str | None = Field(default=None, description="Cron expression applied to every created source; null for no schedule.")
+    max_parallel_scanners: int | None = Field(default=None, description="Scanner cap (1 to 16) for every created source; null inherits from the host.")
+    exclude_patterns: list[str] | None = Field(default=None, description="Path patterns to exclude from scans of every created source.")
+    preferred_pool: str | None = Field(default=None, description="Restrict every created source to this scanner pool; null lets any scanner claim it.")
+    is_removable: bool | None = Field(default=None, description="Whether the created sources are removable or external storage; null infers it from the host type.")
+
+    model_config = {"json_schema_extra": {'examples': [{'shares': [{'name': 'fileserver01/finance', 'share': 'finance'}, {'name': 'fileserver01/hr', 'share': 'hr'}], 'scan_schedule': '0 2 * * *', 'preferred_pool': 'site-amsterdam'}]}}
 
 
 class AddSharesResponse(BaseModel):
-    created: int
-    skipped: int  # rows whose name already existed (unique-name conflict)
-    sources: list[uuid.UUID]  # ids of the rows actually created
+    created: int = Field(description="Number of sources created.")
+    skipped: int = Field(description="Number of entries skipped because a source with that name already exists.")
+    sources: list[uuid.UUID] = Field(description="Ids of the sources that were created.")
 
 
 class HostSummary(BaseModel):

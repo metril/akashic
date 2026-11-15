@@ -14,6 +14,7 @@ principal→files query with the logged-in user's own SID set as the
 token — see plan section "Sequencing pays off twice".
 """
 from __future__ import annotations
+from typing import Annotated
 
 import logging
 import uuid
@@ -113,16 +114,28 @@ def _token_kind(token: str) -> str:
 @router.get(
     "",
     response_model=PrincipalAccessResponse | FileAccessResponse,
-    summary="Blast-radius lookup",
+    summary="Look up access (blast radius)",
+    description=(
+        "Answers one of two questions, selected by which parameter is given.\n"
+        "`principal`: what can this principal reach? Returns a summary, a per-source rollup and a "
+        "paginated sample of files the principal holds `right` on, from the search index.\n"
+        "`file`: who can reach this file? Returns the principals holding `right` on the entry, "
+        "computed from its stored ACL, mode, uid and gid.\n"
+        "Requires scope `access:read`. Source-limited API tokens only see their permitted "
+        "sources. Every lookup is recorded as an `access_lookup` audit event.\n"
+        "Errors: 400 if both or neither of `principal` and `file` are given; 404 if the entry (or "
+        "`source_id`) does not exist or is outside the token's sources; 422 for a malformed "
+        "`cursor` or invalid parameter."
+    ),
 )
 async def access_query(
     request: Request,
-    principal: str | None = Query(default=None),
-    file: uuid.UUID | None = Query(default=None),
-    right: str = Query(default="read", pattern="^(read|write|delete)$"),
-    source_id: uuid.UUID | None = None,
-    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=20, ge=1, le=100),
+    principal: str | None = Query(default=None, description="Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.", examples=['sid:S-1-5-21-1-2-3-1001']),
+    file: uuid.UUID | None = Query(default=None, description="Entry id to list principals for. Mutually exclusive with `principal`."),
+    right: str = Query(default="read", pattern="^(read|write|delete)$", description="Right to evaluate: `read`, `write` or `delete`."),
+    source_id: Annotated[uuid.UUID | None, Query(description="Restrict a `principal` lookup to this source.")] = None,
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor` (principal mode only)."),
+    limit: int = Query(default=20, ge=1, le=100, description="Page size for the sample of files (principal mode only)."),
     db: AsyncSession = Depends(get_db),
     caller: Principal = require_scope("access:read", source_scoped=True),
 ):

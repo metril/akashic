@@ -124,7 +124,16 @@ async def _probe_tika() -> dict[str, Any]:
         return {"ok": False, "latency_ms": None, "error": str(exc)[:200]}
 
 
-@router.get("")
+@router.get(
+    "",
+    summary="Check service health",
+    description=(
+        "Liveness of Postgres, Redis, Meilisearch and Tika, each probed with a 2 second timeout, "
+        "with `ok`, `latency_ms` and `error` per service and a `checked_at` timestamp. The result "
+        "is cached for 5 seconds.\n"
+        "Requires scope `health:read`."
+    ),
+)
 async def services_health(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("health:read"),
@@ -284,7 +293,16 @@ async def _meili_activity() -> dict[str, Any]:
     return out
 
 
-@router.get("/activity")
+@router.get(
+    "/activity",
+    summary="Show service activity",
+    description=(
+        "Tika extraction throughput (queue depth, per-minute counters, last extraction) and "
+        "Meilisearch activity (document count, pending tasks, last task status). An unreachable "
+        "backend reports `ok: false` rather than failing the request. Cached for 5 seconds.\n"
+        "Requires scope `health:read`."
+    ),
+)
 async def services_activity(
     principal: Principal = require_scope("health:read"),
 ) -> dict[str, Any]:

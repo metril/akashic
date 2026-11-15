@@ -1,8 +1,9 @@
 """POST /api/v1/entries/{entry_id}/effective-permissions — read-only evaluator."""
+from typing import Annotated
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Path
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,9 +25,20 @@ _acl_adapter = TypeAdapter(ACL)
 @router.post(
     "/{entry_id}/effective-permissions",
     response_model=EffectivePerms,
+    summary="Evaluate effective permissions",
+    description=(
+        "Computes, for a given principal and its groups, which rights (read, write, execute, "
+        "delete, change_perms) the entry's stored ACL, mode and ownership grant, with the ACL "
+        "entries responsible and any caveats of the model used (posix, nfsv4, nt, s3, "
+        "cloud_drive). It evaluates the stored metadata only; it does not contact the storage "
+        "system. Despite being a POST it changes nothing.\n"
+        "Requires scope `identities:read`. Source-limited API tokens only see their permitted "
+        "sources.\n"
+        "Errors: 404 if the entry does not exist or is outside the token's sources."
+    ),
 )
 async def post_effective_permissions(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry to evaluate.")],
     request: EffectivePermsRequest,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:read", source_scoped=True),

@@ -21,7 +21,7 @@ import time
 from typing import Callable, Literal, Optional
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from akashic.services.scanner_helpers import scanner_binary_path, stdin_creds_payload
 
@@ -89,15 +89,15 @@ def _backoff_sleep(base_delay: float, attempt: int) -> None:
 
 
 class TestResult(BaseModel):
-    ok: bool
-    step: Optional[Step] = None
-    error: Optional[str] = None
+    ok: bool = Field(description="Whether the connection succeeded.")
+    step: Optional[Step] = Field(default=None, description="Step that failed: `connect`, `auth`, `mount`, `list` or `config`; null on success.")
+    error: Optional[str] = Field(default=None, description="Failure message; null on success.")
     # Phase 3a — for NFS, the cascade reports which protocol path
     # validated the export. UI surfaces this so users know whether the
     # success was strong (mount3 / nfsv4) or warning-level (tcp
     # fallback). None for non-NFS source types.
-    tier: Optional[str] = None
-    warn: Optional[str] = None
+    tier: Optional[str] = Field(default=None, description="NFS only: protocol path that validated the export (strong, e.g. `mount3` or `nfsv4`, or weaker, e.g. a TCP-only fallback); null for other types.")
+    warn: Optional[str] = Field(default=None, description="Non-fatal warning about a successful result, if any.")
 
 
 def _scanner_binary_path() -> str | None:

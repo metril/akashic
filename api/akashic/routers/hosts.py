@@ -1,14 +1,15 @@
 """CRUD for the `Host` model — reusable connection targets that
 attach to many `Source` rows. See models/host.py for rationale."""
 from __future__ import annotations
+from typing import Annotated
 
 import asyncio
 import uuid
 from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from fastapi import Depends, HTTPException, Path, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,7 +105,22 @@ async def _validate_profile_type(
         )
 
 
-@router.post("", response_model=HostResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=HostResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a host",
+    description=(
+        "Creates a network host (SMB, NFS or S3) that sources attach to. Its connection config "
+        "and credential profile are inherited by those sources, and the optional scan- "
+        "distribution limits apply to every attached source that does not set its own. Secrets in "
+        "the response are masked. Records a `host_created` audit event.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 400 for an unsupported `type`, a masked-secret placeholder in "
+        "`connection_config`, out-of-range scan controls, or a credential profile of a different "
+        "type; 404 if the credential profile does not exist; 409 if the name is already used."
+    ),
+)
 async def create_host(
     data: HostCreate,
     request: Request,
@@ -151,7 +167,15 @@ async def create_host(
     return _serialize(host, source_count=0)
 
 
-@router.get("", response_model=list[HostResponse])
+@router.get(
+    "",
+    response_model=list[HostResponse],
+    summary="List hosts",
+    description=(
+        "Every host, with `source_count` so a list view can show how many shares are attached. "
+        "Secrets are masked. Requires scope `hosts:read`."
+    ),
+)
 async def list_hosts(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:read"),
@@ -176,9 +200,14 @@ async def list_hosts(
     return [_serialize(h, source_count=counts.get(h.id, 0)) for h in rows]
 
 
-@router.get("/{host_id}", response_model=HostResponse)
+@router.get(
+    "/{host_id}",
+    response_model=HostResponse,
+    summary="Get a host",
+    description="Requires scope `hosts:read`. Errors: 404 if the host does not exist.",
+)
 async def get_host(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:read"),
 ):
@@ -188,9 +217,23 @@ async def get_host(
     return _serialize(host, source_count=await _source_count_for(db, host.id))
 
 
-@router.patch("/{host_id}", response_model=HostResponse)
+@router.patch(
+    "/{host_id}",
+    response_model=HostResponse,
+    summary="Update a host",
+    description=(
+        "Partial update. In `connection_config`, masked secret values (`***`) keep the stored "
+        "secret. Only the scan controls present in the body are validated, and an explicit null "
+        "clears one so it falls back to the default. The type cannot change. Records a "
+        "`host_updated` audit event with the changed fields when something changed.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 400 for out-of-range scan controls or a credential profile of a different type; "
+        "404 if the host or credential profile does not exist; 409 if the new name is already "
+        "used."
+    ),
+)
 async def update_host(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     data: HostUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -258,9 +301,19 @@ async def update_host(
     return _serialize(host, source_count=await _source_count_for(db, host.id))
 
 
-@router.delete("/{host_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{host_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a host",
+    description=(
+        "Deletes a host that has no sources attached. Records a `host_deleted` audit event.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 404 if the host does not exist; 409 if sources are still attached (delete or "
+        "detach them first)."
+    ),
+)
 async def delete_host(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:write"),
@@ -301,8 +354,8 @@ class OnlineCheckResponse(BaseModel):
     `POST /api/v1/sources/{id}/test-scanners`.
     """
 
-    result: TestResult
-    checked_at: datetime
+    result: TestResult = Field(description="Outcome of the network probe.")
+    checked_at: datetime = Field(description="When the probe ran.")
 
 
 _DEFAULT_PORTS = {"smb": 445, "nfs": 2049}
@@ -359,9 +412,18 @@ def _probe_host(host_type: str, cfg: dict) -> TestResult:
 @router.post(
     "/{host_id}/online-check",
     response_model=OnlineCheckResponse,
+    summary="Check whether a host is online",
+    description=(
+        "A network-level probe from the API process: a TCP connect to the SMB (445) or NFS (2049) "
+        "port, or a request to the S3 endpoint. No credentials are used and no shares are listed, "
+        "so it separates DNS and firewall problems from credential problems. Credentialed "
+        "reachability is reported by scanners (see `POST /sources/{source_id}/test-scanners`). "
+        "Records a `host_online_check` audit event.\n"
+        "Requires scope `hosts:write`. Errors: 404 if the host does not exist."
+    ),
 )
 async def host_online_check(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:write"),
@@ -401,32 +463,43 @@ async def host_online_check(
 class TestSharesRequest(BaseModel):
     """Optional per-source filter; default = every attached share."""
 
-    source_ids: list[uuid.UUID] | None = None
+    source_ids: list[uuid.UUID] | None = Field(default=None, description="Only test these sources attached to the host; omit to test every attached share.")
+
+    model_config = {"json_schema_extra": {'examples': [{'source_ids': ['0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f']}]}}
 
 
 class TestSharesResultRow(BaseModel):
     """One (source, scanner) probe outcome."""
 
-    source_id: uuid.UUID
-    source_name: str
-    scanner_id: uuid.UUID
-    ok: bool | None
-    step: str | None
-    error: str | None
-    pending: bool = False
-    completed_at: datetime | None = None
+    source_id: uuid.UUID = Field(description="Source that was probed.")
+    source_name: str = Field(description="Name of that source.")
+    scanner_id: uuid.UUID = Field(description="Scanner that ran the probe.")
+    ok: bool | None = Field(description="Whether the scanner reached the source; null while the probe is pending.")
+    step: str | None = Field(description="Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success or while pending.")
+    error: str | None = Field(description="Failure message; null on success or while pending.")
+    pending: bool = Field(default=False, description="True when the scanner has not answered yet; the result arrives later on the source-reachability WebSocket channel.")
+    completed_at: datetime | None = Field(default=None, description="When the probe finished; null while pending.")
 
 
 class TestSharesResponse(BaseModel):
-    results: list[TestSharesResultRow]
+    results: list[TestSharesResultRow] = Field(description="One row per (source, eligible scanner).")
 
 
 @router.post(
     "/{host_id}/test-shares",
     response_model=TestSharesResponse,
+    summary="Test reachability of all shares",
+    description=(
+        "For every share (source) attached to the host, dispatches a credentialed probe to each "
+        "online scanner permitted to claim it and returns one row per (source, scanner). The call "
+        "waits up to 5 seconds per source; rows for scanners that have not answered yet have "
+        "`pending: true` and their results arrive later on the source-reachability WebSocket "
+        "channel. Sources with no eligible scanner produce no rows.\n"
+        "Requires scope `hosts:write`. Errors: 404 if the host does not exist."
+    ),
 )
 async def test_host_shares(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     body: TestSharesRequest | None = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:write"),
@@ -496,23 +569,30 @@ async def test_host_shares(
 
 
 class HostScannerSummaryRow(BaseModel):
-    scanner_id: uuid.UUID
-    name: str
-    pool: str | None
-    online: bool
-    currently_allowed_count: int
-    reaches_count: int
-    unreachable_count: int
-    not_yet_probed_count: int
-    total_sources: int
+    scanner_id: uuid.UUID = Field(description="Scanner id.")
+    name: str = Field(description="Scanner name.")
+    pool: str | None = Field(description="Scanner pool; null when unassigned.")
+    online: bool = Field(description="Whether the scanner has been seen recently (within about two minutes).")
+    currently_allowed_count: int = Field(description="Number of the host's sources the scanner is allowed to claim.")
+    reaches_count: int = Field(description="Number of the host's sources whose latest probe from this scanner succeeded.")
+    unreachable_count: int = Field(description="Number of the host's sources whose latest probe from this scanner failed.")
+    not_yet_probed_count: int = Field(description="Number of the host's sources this scanner has not been probed against.")
+    total_sources: int = Field(description="Number of sources attached to the host.")
 
 
 @router.get(
     "/{host_id}/scanner-reachability-summary",
     response_model=list[HostScannerSummaryRow],
+    summary="Summarise scanner reachability for a host",
+    description=(
+        "Per scanner, how many of the host's attached sources it is currently allowed to claim, "
+        "can reach, cannot reach, or has not been probed against, based on each pair's latest "
+        "probe result. Feeds the host-level scanner eligibility checklist.\n"
+        "Requires scope `hosts:read`. Errors: 404 if the host does not exist."
+    ),
 )
 async def host_scanner_reachability_summary(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:read"),
 ):
@@ -581,20 +661,30 @@ async def host_scanner_reachability_summary(
 
 
 class HostAllowedScannersRequest(BaseModel):
-    scanner_ids: list[uuid.UUID]
+    scanner_ids: list[uuid.UUID] = Field(description="Scanners that should be allowed on every source of the host; all others are removed. May be empty.")
+
+    model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['2f1d9e1a-6c1b-4f43-8d6a-3e9f7b1c2a40']}]}}
 
 
 class HostAllowedScannersResponse(BaseModel):
-    sources_touched: int
-    scanners_updated: int
+    sources_touched: int = Field(description="Number of sources attached to the host.")
+    scanners_updated: int = Field(description="Number of scanners whose allow-list actually changed.")
 
 
 @router.patch(
     "/{host_id}/allowed-scanners",
     response_model=HostAllowedScannersResponse,
+    summary="Set allowed scanners for a host",
+    description=(
+        "Applies one allowed-scanner set to every source attached to the host: scanners in "
+        "`scanner_ids` are added to each source's allow-list and all other scanners are removed "
+        "from it. Idempotent. Records a `host_allowed_scanners_applied` audit event.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 400 if any scanner id is unknown; 404 if the host does not exist."
+    ),
 )
 async def patch_host_allowed_scanners(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     body: HostAllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -687,9 +777,20 @@ _SHARE_KEY_BY_TYPE = {
 }
 
 
-@router.post("/{host_id}/list-shares", response_model=ListSharesResponse)
+@router.post(
+    "/{host_id}/list-shares",
+    response_model=ListSharesResponse,
+    summary="List shares on a host",
+    description=(
+        "Enumerates the shares, exports or buckets visible to the host's credentials. On failure "
+        "the response is still 200 with an empty list and the failing `step` and `error`. Records "
+        "a `host_shares_listed` audit event.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 400 for host types without shares; 404 if the host does not exist."
+    ),
+)
 async def list_host_shares(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("hosts:write"),
@@ -733,9 +834,23 @@ async def list_host_shares(
     )
 
 
-@router.post("/{host_id}/add-shares", response_model=AddSharesResponse)
+@router.post(
+    "/{host_id}/add-shares",
+    response_model=AddSharesResponse,
+    summary="Add shares as sources",
+    description=(
+        "Creates one source per entry in `shares`, attached to the host. Each `share` becomes the "
+        "share key of the source's connection config (`share` for SMB, `export_path` for NFS, "
+        "`bucket` for S3); credentials stay on the host. The optional settings apply to every "
+        "created source. Entries whose name is already used are skipped and counted in `skipped`. "
+        "Records a `host_shares_batch_added` audit event when at least one source is created.\n"
+        "Requires scope `hosts:write`.\n"
+        "Errors: 400 for host types without shares or `max_parallel_scanners` outside 1-16; 404 "
+        "if the host does not exist."
+    ),
+)
 async def add_host_shares(
-    host_id: uuid.UUID,
+    host_id: Annotated[uuid.UUID, Path(description="Host id.")],
     body: AddSharesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),

@@ -1,7 +1,8 @@
+from typing import Annotated
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,14 +31,24 @@ from akashic.services.tag_inheritance import get_tags_for_entry
 router = ApiRouter(prefix="/entries", tags=["entries"])
 
 
-@router.get("", response_model=Page[EntryResponse], summary="List entries")
+@router.get(
+    "",
+    response_model=Page[EntryResponse],
+    summary="List entries",
+    description=(
+        "Non-deleted entries ordered by path, optionally filtered. Entries hidden by per-user ACL "
+        "filtering are omitted.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources.\n"
+        "Errors: 404 if `source_id` is outside the token's sources; 422 for a malformed `cursor`."
+    ),
+)
 async def list_entries(
-    source_id: uuid.UUID | None = None,
-    kind: str | None = None,
-    extension: str | None = None,
-    path_prefix: str | None = None,
+    source_id: Annotated[uuid.UUID | None, Query(description="Only entries of this source.")] = None,
+    kind: Annotated[str | None, Query(description="Only this kind: `file` or `directory`.", examples=['file'])] = None,
+    extension: Annotated[str | None, Query(description="Only files with this extension, without the dot.", examples=['pdf'])] = None,
+    path_prefix: Annotated[str | None, Query(description="Only entries whose full path starts with this prefix.", examples=['/Reports/'])] = None,
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
@@ -62,9 +73,19 @@ async def list_entries(
     return offset_page(list(result.scalars().all()), offset, limit)
 
 
-@router.get("/by-hash/{content_hash}", response_model=list[EntryResponse])
+@router.get(
+    "/by-hash/{content_hash}",
+    response_model=list[EntryResponse],
+    summary="List entries by content hash",
+    description=(
+        "Every non-deleted file with this content hash across the visible sources; the "
+        "unpaginated counterpart of the duplicate group files. Entries hidden by per-user ACL "
+        "filtering are omitted.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources."
+    ),
+)
 async def get_entries_by_hash(
-    content_hash: str,
+    content_hash: Annotated[str, Path(description="Content hash to match.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
@@ -81,9 +102,21 @@ async def get_entries_by_hash(
     return result.scalars().all()
 
 
-@router.get("/{entry_id}", response_model=EntryDetailResponse)
+@router.get(
+    "/{entry_id}",
+    response_model=EntryDetailResponse,
+    summary="Get an entry",
+    description=(
+        "Full detail of one entry: metadata, ACL, extended attributes, version history, owning "
+        "source and tags (direct and inherited).\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources.\n"
+        "Errors: 404 if the entry does not exist, is outside the token's sources, or is hidden "
+        "from the caller by per-user ACL filtering (the same status in every case, so existence "
+        "is not revealed)."
+    ),
+)
 async def get_entry(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
@@ -153,9 +186,20 @@ async def get_entry(
     )
 
 
-@router.get("/{entry_id}/versions", response_model=list[EntryVersionResponse])
+@router.get(
+    "/{entry_id}/versions",
+    response_model=list[EntryVersionResponse],
+    summary="List entry versions",
+    description=(
+        "Recorded versions of an entry, newest first. Each captures the content hash, size, mode, "
+        "ownership, ACL and extended attributes as of the scan that detected it.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources.\n"
+        "Errors: 404 if the entry does not exist, is outside the token's sources, or is hidden "
+        "from the caller."
+    ),
+)
 async def get_entry_versions(
-    entry_id: uuid.UUID,
+    entry_id: Annotated[uuid.UUID, Path(description="Entry id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):

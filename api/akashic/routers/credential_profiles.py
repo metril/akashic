@@ -8,11 +8,12 @@ Admin-only writes; reads are open to authenticated users so the
 host/source create forms can populate the profile picker.
 """
 from __future__ import annotations
+from typing import Annotated
 
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -87,6 +88,15 @@ def _validate_type(t: str) -> None:
     "",
     response_model=CredentialProfileResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a credential profile",
+    description=(
+        "Creates a reusable credential set that hosts and sources can reference. Credentials are "
+        "stored encrypted and masked as `***` in every response. SMB profiles must have a non- "
+        "empty password. Records a `credential_profile_created` audit event.\n"
+        "Requires scope `credentials:write`.\n"
+        "Errors: 400 for an unsupported `type`; 409 if the name is already used; 422 for an SMB "
+        "profile without a password."
+    ),
 )
 async def create_profile(
     data: CredentialProfileCreate,
@@ -130,9 +140,18 @@ async def create_profile(
     return CredentialProfileResponse.from_model(profile)
 
 
-@router.get("", response_model=list[CredentialProfileSummary])
+@router.get(
+    "",
+    response_model=list[CredentialProfileSummary],
+    summary="List credential profiles",
+    description=(
+        "Name, type and description of every profile, sorted by name. Credentials are never "
+        "included. Requires scope `credentials:list`.\n"
+        "Errors: 400 for an unsupported `type` filter."
+    ),
+)
 async def list_profiles(
-    type: str | None = Query(default=None),
+    type: str | None = Query(default=None, description="Only profiles of this type: `smb`, `nfs` or `s3`.", examples=['smb']),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:list"),
 ):
@@ -144,9 +163,18 @@ async def list_profiles(
     return [CredentialProfileSummary.model_validate(r) for r in rows]
 
 
-@router.get("/{profile_id}", response_model=CredentialProfileResponse)
+@router.get(
+    "/{profile_id}",
+    response_model=CredentialProfileResponse,
+    summary="Get a credential profile",
+    description=(
+        "Returns the profile with its credentials masked as `***`. Requires scope "
+        "`credentials:read`.\n"
+        "Errors: 404 if the profile does not exist."
+    ),
+)
 async def get_profile(
-    profile_id: uuid.UUID,
+    profile_id: Annotated[uuid.UUID, Path(description="Credential profile id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:read"),
 ):
@@ -158,9 +186,22 @@ async def get_profile(
     return CredentialProfileResponse.from_model(p)
 
 
-@router.patch("/{profile_id}", response_model=CredentialProfileResponse)
+@router.patch(
+    "/{profile_id}",
+    response_model=CredentialProfileResponse,
+    summary="Update a credential profile",
+    description=(
+        "Partial update; the type cannot change. In `credentials`, a value of `***` leaves the "
+        "stored value untouched, so a masked response can be edited and sent back. When "
+        "credentials actually change, a fresh reachability probe is queued in the background for "
+        "every source using the profile. Records a `credential_profile_updated` audit event.\n"
+        "Requires scope `credentials:write`.\n"
+        "Errors: 404 if the profile does not exist; 409 if the new name is already used; 422 if "
+        "an SMB profile would end up without a password."
+    ),
+)
 async def update_profile(
-    profile_id: uuid.UUID,
+    profile_id: Annotated[uuid.UUID, Path(description="Credential profile id.")],
     data: CredentialProfileUpdate,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -228,9 +269,19 @@ async def update_profile(
     return CredentialProfileResponse.from_model(p)
 
 
-@router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{profile_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a credential profile",
+    description=(
+        "Deletes the profile. Records a `credential_profile_deleted` audit event.\n"
+        "Requires scope `credentials:write`.\n"
+        "Errors: 404 if the profile does not exist; 409 if hosts or sources still reference it "
+        "(reassign or unlink them first)."
+    ),
+)
 async def delete_profile(
-    profile_id: uuid.UUID,
+    profile_id: Annotated[uuid.UUID, Path(description="Credential profile id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("credentials:write"),

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Path, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,16 +39,20 @@ def _parse_dt(raw: str | None) -> datetime | None:
     "",
     response_model=Page[AuditEventOut],
     summary="List audit events",
-    description="Newest first. `total` is the number of events matching the filters.",
+    description=(
+        "Newest first, optionally filtered. `total` is the number of events matching the filters.\n"
+        "Requires scope `audit:read`.\n"
+        "Errors: 422 for a malformed `cursor` or an unparseable `from`/`to` datetime."
+    ),
 )
 async def list_audit_events(
-    user_id: uuid.UUID | None = None,
-    event_type: str | None = None,
-    source_id: uuid.UUID | None = None,
-    from_: Annotated[str | None, Query(alias="from")] = None,
-    to: str | None = None,
+    user_id: Annotated[uuid.UUID | None, Query(description="Only events performed by this user.")] = None,
+    event_type: Annotated[str | None, Query(description="Only events of this type, e.g. `access_lookup`, `api_token_created`, `host_created`.", examples=['access_lookup'])] = None,
+    source_id: Annotated[uuid.UUID | None, Query(description="Only events tied to this source.")] = None,
+    from_: Annotated[str | None, Query(alias="from", description="Only events at or after this time (ISO 8601; naive values are taken as UTC).", examples=['2026-04-27T22:00:00+00:00'])] = None,
+    to: Annotated[str | None, Query(description="Only events at or before this time (ISO 8601; naive values are taken as UTC).", examples=['2026-04-28T22:00:00+00:00'])] = None,
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("audit:read"),
 ) -> dict:
@@ -85,9 +89,14 @@ async def list_audit_events(
     return {**offset_page([AuditEventOut.model_validate(r) for r in rows], offset, limit), "total": total}
 
 
-@router.get("/{event_id}", response_model=AuditEventOut)
+@router.get(
+    "/{event_id}",
+    response_model=AuditEventOut,
+    summary="Get an audit event",
+    description="Requires scope `audit:read`. Errors: 404 if no event has this id.",
+)
 async def get_audit_event(
-    event_id: uuid.UUID,
+    event_id: Annotated[uuid.UUID, Path(description="Audit event id.")],
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("audit:read"),
 ) -> AuditEventOut:

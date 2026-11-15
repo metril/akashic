@@ -1,9 +1,10 @@
 """POST /api/v1/identities/{person_id}/bindings/{binding_id}/resolve-groups."""
+from typing import Annotated
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Path, Request
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +30,21 @@ router = ApiRouter(prefix="/identities", tags=["identities"])
 @router.post(
     "/{person_id}/bindings/{binding_id}/resolve-groups",
     response_model=FsBindingOut,
+    summary="Resolve a binding's groups",
+    description=(
+        "Looks up the group memberships of the binding's identity on its source (using the "
+        "source's own backend), stores them on the binding with `groups_source` set to `auto`, "
+        "and returns the binding. A cached result younger than the configured group cache "
+        "lifetime is reused without contacting the backend. Records a `groups_auto_resolved` "
+        "audit event.\n"
+        "Requires scope `identities:write`. Only your own identities can be used.\n"
+        "Errors: 404 if the identity, binding or its source does not exist; 422 if resolution is "
+        "unsupported for this source or fails (the detail carries a `reason` and `message`)."
+    ),
 )
 async def post_resolve_groups(
-    person_id: uuid.UUID,
-    binding_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
+    binding_id: Annotated[uuid.UUID, Path(description="Binding id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:write"),

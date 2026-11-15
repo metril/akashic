@@ -2,7 +2,7 @@ from datetime import datetime
 import logging
 import os
 import uuid
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
@@ -91,29 +91,45 @@ async def _should_enforce_perms(principal: Principal, show_all: bool, db: AsyncS
     return await user_has_any_bindings(principal.user, db)
 
 
-@router.get("", response_model=BrowsePage, summary="Browse a directory")
+@router.get(
+    "",
+    response_model=BrowsePage,
+    summary="Browse a directory",
+    description=(
+        "Lists the children of one directory of a source, directories first, in keyset-paginated "
+        "pages. Entries the caller may not read are omitted when per-user ACL filtering applies "
+        "(a user with filesystem identity bindings, unless a caller who can bypass ACLs passes "
+        "`show_all`); a `browse_filtered` audit event is recorded when that hides something.\n"
+        "`total` is only computed on the first page (no `cursor`) and only when `include_total` "
+        "is true.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources.\n"
+        "Errors: 400 for an invalid `filters` value or a `source` predicate in it (use search for "
+        "cross-source filters); 404 if the source does not exist or is outside the token's "
+        "sources; 422 for a malformed `cursor`, or one issued under a different `sort`/`order`."
+    ),
+)
 async def browse(
-    source_id: uuid.UUID,
-    path: str = Query(default="/"),
-    sort: Literal["name", "size", "modified"] = "name",
-    order: Literal["asc", "desc"] = "asc",
-    show_all: bool = Query(default=False),
-    filters: str | None = Query(default=None, description="base64url(json) predicate list"),
+    source_id: Annotated[uuid.UUID, Query(description="Source to browse.")],
+    path: str = Query(default="/", description="Directory path within the source; `/` is the root. Trailing slashes are ignored.", examples=['/Reports/2026']),
+    sort: Annotated[Literal["name", "size", "modified"], Query(description="Sort key within directories and within files.")] = "name",
+    order: Annotated[Literal["asc", "desc"], Query(description="Sort direction.")] = "asc",
+    show_all: bool = Query(default=False, description="For callers allowed to bypass ACL filtering: show entries regardless of filesystem permissions. Ignored for everyone else."),
+    filters: str | None = Query(default=None, description="Filter predicates, as base64url-encoded JSON, using the same grammar as search (without a `source` predicate)."),
     # v0.4.11 — cursor pagination + server-side substring filter.
     # Drops the previous "load entire folder" behaviour; large folders
     # now stream in pages and the typing-lag in the client filter input
     # disappears (server does the substring match against the indexed
     # name column).
-    cursor: str | None = Query(default=None),
-    limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
-    q: str | None = Query(default=None, description="case-insensitive substring filter on entry name"),
+    cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`. Restart pagination if you change `sort` or `order`."),
+    limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE, description="Page size."),
+    q: str | None = Query(default=None, description="Case-insensitive substring filter on the entry name.", examples=['report']),
     # The first-page footer COUNT(*) can be expensive in 10M+-row
     # folders, especially with `q` engaged (no covering index). The
     # SPA needs the count for its "X entries" badge so the default
     # is True (preserves the existing UX). Programmatic callers that
     # don't care about the badge can opt out with ?include_total=false
     # to skip the COUNT scan.
-    include_total: bool = Query(default=True),
+    include_total: bool = Query(default=True, description="Compute `total` on the first page. Disable to skip the count on very large folders."),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
@@ -397,11 +413,21 @@ async def _maybe_audit_filter(
     )
 
 
-@router.get("/effective-counts")
+@router.get(
+    "/effective-counts",
+    summary="Count visible and hidden entries",
+    description=(
+        "For one directory, how many direct children the caller can see and how many per-user ACL "
+        "filtering hides. Returns `{visible, hidden, enforced}`; `enforced` is false (and "
+        "`hidden` 0) when no ACL filter applies. Feeds the Browse \"N items hidden\" footer.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 404 if the source is outside the token's sources."
+    ),
+)
 async def effective_counts(
-    source_id: uuid.UUID,
-    path: str = Query(default="/"),
-    show_all: bool = Query(default=False),
+    source_id: Annotated[uuid.UUID, Query(description="Source to count in.")],
+    path: str = Query(default="/", description="Directory path within the source; `/` is the root.", examples=['/Reports/2026']),
+    show_all: bool = Query(default=False, description="For callers allowed to bypass ACL filtering: skip the filter and count everything as visible."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ) -> dict:

@@ -97,24 +97,28 @@ router = ApiRouter(prefix="/auth", tags=["auth"])
 
 
 class LDAPLoginRequest(BaseModel):
-    username: str
-    password: str = Field(min_length=1)
+    username: str = Field(description="LDAP username.")
+    password: str = Field(min_length=1, description="LDAP password.")
+
+    model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    access_token: str = Field(description="Short-lived JWT access token; send it as a bearer token.")
+    token_type: str = Field(default="bearer", description="Always `bearer`.")
+
+    model_config = {"json_schema_extra": {'examples': [{'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', 'token_type': 'bearer'}]}}
 
 
 class ProvidersResponse(BaseModel):
-    local: bool = True
-    oidc: bool
-    ldap: bool
+    local: bool = Field(default=True, description="Local username and password login; always available.")
+    oidc: bool = Field(description="Whether OIDC single sign-on is enabled.")
+    ldap: bool = Field(description="Whether LDAP login is enabled.")
     # True when the users table is empty — bootstrap registration via
     # POST /api/v1/users/register is open. Flips to False the moment the
     # first user is created and stays False forever (the register
     # endpoint enforces the same one-way door).
-    setup_required: bool
+    setup_required: bool = Field(description="True while no user exists and first-run registration is open; it never becomes true again once the first user is created.")
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +147,16 @@ def _require_ldap() -> None:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/providers", response_model=ProvidersResponse)
+@router.get(
+    "/providers",
+    response_model=ProvidersResponse,
+    summary="List login providers",
+    description=(
+        "Public. Reports which authentication providers are enabled and whether first-run setup "
+        "is still open (`setup_required`, true only while no user exists). The login page uses it "
+        "to decide what to offer."
+    ),
+)
 async def get_providers(db: AsyncSession = Depends(get_db)) -> ProvidersResponse:
     """Return which authentication providers are currently enabled, plus
     whether bootstrap registration is still open (no users yet)."""
@@ -163,6 +176,11 @@ async def get_providers(db: AsyncSession = Depends(get_db)) -> ProvidersResponse
     status_code=status.HTTP_302_FOUND,
     summary="Start OIDC login",
     responses={302: {"description": "Redirect to the OIDC provider; sets short-lived state cookies."}},
+    description=(
+        "Public. Redirects the browser (302) to the configured OIDC provider and sets short-lived "
+        "state, PKCE and nonce cookies.\n"
+        "Errors: 404 if OIDC is not enabled; 502 if the provider cannot be reached."
+    ),
 )
 async def oidc_login() -> Response:
     """Redirect the user to the configured OIDC provider for authentication."""
@@ -198,14 +216,22 @@ async def oidc_login() -> Response:
     status_code=status.HTTP_302_FOUND,
     summary="Finish OIDC login",
     responses={302: {"description": "Redirect to the SPA; sets the refresh cookie, or `/login?error=<code>` on failure."}},
+    description=(
+        "Public. Exchanges the authorization code for tokens, provisions the user if needed, sets "
+        "the HttpOnly refresh cookie and redirects (302) to the SPA's `/auth/callback`, which "
+        "then calls `POST /api/v1/auth/refresh` for an access token. Records an "
+        "`oidc_login_success` audit event. Failures redirect to `/login?error=<code>` with one of "
+        "`sso_denied`, `sso_state`, `sso_failed` or `sso_provision`.\n"
+        "Errors: 404 if OIDC is not enabled."
+    ),
 )
 async def oidc_callback(
-    code: str | None = Query(None, description="Authorization code returned by the OIDC provider"),
-    state: str | None = Query(None),
-    error: str | None = Query(None),
-    oidc_state: str | None = Cookie(None),
-    oidc_pkce: str | None = Cookie(None),
-    oidc_nonce: str | None = Cookie(None),
+    code: str | None = Query(None, description="Authorization code returned by the OIDC provider."),
+    state: str | None = Query(None, description="State value echoed by the provider; must match the `oidc_state` cookie."),
+    error: str | None = Query(None, description="Error code returned by the provider when the user denied or the login failed."),
+    oidc_state: str | None = Cookie(None, description="State cookie set by `/oidc/login`."),
+    oidc_pkce: str | None = Cookie(None, description="PKCE verifier cookie set by `/oidc/login`."),
+    oidc_nonce: str | None = Cookie(None, description="Nonce cookie set by `/oidc/login`."),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Handle the OIDC callback: exchange the code for tokens, mint a
@@ -259,7 +285,18 @@ _ldap_login_limiter = make_limiter(
 )
 
 
-@router.post("/ldap/login", response_model=TokenResponse)
+@router.post(
+    "/ldap/login",
+    response_model=TokenResponse,
+    summary="Log in with LDAP",
+    description=(
+        "Public. Authenticates by LDAP bind, provisions the user on first login, returns an "
+        "access token and sets the HttpOnly refresh cookie. Records an `ldap_login_success` audit "
+        "event. Rate limited to 10 attempts per minute per client and username.\n"
+        "Errors: 401 for invalid credentials; 404 if LDAP is not enabled; 429 when rate limited; "
+        "500 if the directory fails or the user cannot be provisioned."
+    ),
+)
 async def ldap_login(
     request: Request,
     data: LDAPLoginRequest,
@@ -318,10 +355,19 @@ async def ldap_login(
     return TokenResponse(access_token=token)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh the access token",
+    description=(
+        "Public, authenticated by the refresh cookie. Mints a new access token and rotates the "
+        "refresh token on every call. A missing, expired, revoked or replayed refresh token "
+        "returns 401, which clients should treat as a logout."
+    ),
+)
 async def refresh_token(
     response: Response,
-    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE, description="HttpOnly refresh cookie set at login."),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Mint a new access token from a valid refresh cookie. Rotates the
@@ -351,10 +397,18 @@ async def refresh_token(
     return TokenResponse(access_token=access)
 
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+    summary="Log out",
+    description=(
+        "Public. Revokes the presented refresh token and clears the cookie. The short-lived "
+        "access token keeps working until it expires. Idempotent: calling without a cookie "
+        "succeeds."
+    ),
+)
 async def logout(
     response: Response,
-    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE, description="HttpOnly refresh cookie set at login."),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Revoke the presented refresh token and clear the cookie. The

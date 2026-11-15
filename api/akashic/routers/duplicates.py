@@ -1,8 +1,9 @@
+from typing import Annotated
 import logging
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Query, Request, status
+from fastapi import Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,11 +53,22 @@ class DuplicateFile(BaseModel):
     is_deleted: bool = Field(description="Whether the entry is soft-deleted.")
 
 
-@router.get("", response_model=Page[DuplicateGroup], summary="List duplicate groups")
+@router.get(
+    "",
+    response_model=Page[DuplicateGroup],
+    summary="List duplicate groups",
+    description=(
+        "Groups of non-deleted files that share a content hash (two or more copies), largest "
+        "combined size first. `wasted_bytes` is what keeping a single copy would reclaim. Files "
+        "hidden by per-user ACL filtering are not counted.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 422 for a malformed `cursor`."
+    ),
+)
 async def list_duplicates(
-    min_size: int | None = None,
+    min_size: Annotated[int | None, Query(description="Only groups whose single-copy size is at least this many bytes.", examples=[1048576])] = None,
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=50, le=200),
+    limit: int = Query(default=50, le=200, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
@@ -102,11 +114,21 @@ async def list_duplicates(
     return offset_page(groups, offset, limit)
 
 
-@router.get("/{content_hash}/files", response_model=Page[DuplicateFile], summary="Files sharing a content hash")
+@router.get(
+    "/{content_hash}/files",
+    response_model=Page[DuplicateFile],
+    summary="Files sharing a content hash",
+    description=(
+        "The individual copies in one duplicate group, ordered by entry id. Files hidden by per- "
+        "user ACL filtering are omitted.\n"
+        "Requires scope `files:read`. Source-limited API tokens only see their permitted sources. "
+        "Errors: 422 for a malformed `cursor`."
+    ),
+)
 async def get_duplicate_files(
-    content_hash: str,
+    content_hash: Annotated[str, Path(description="Content hash shared by the copies, as returned by the group list.")],
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor`."),
-    limit: int = Query(default=500, ge=1, le=5000),
+    limit: int = Query(default=500, ge=1, le=5000, description="Page size."),
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("files:read", source_scoped=True),
 ):
@@ -147,29 +169,44 @@ async def get_duplicate_files(
 
 
 class DeleteCopiesRequest(BaseModel):
-    keep_entry_id: uuid.UUID
-    delete_entry_ids: list[uuid.UUID]
+    keep_entry_id: uuid.UUID = Field(description="Entry to keep. It must belong to the duplicate group.")
+    delete_entry_ids: list[uuid.UUID] = Field(description="Entries to delete. Must be non-empty, must not include `keep_entry_id`, and every entry must be a file with the group's content hash.")
+
+    model_config = {"json_schema_extra": {'examples': [{'keep_entry_id': '6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11', 'delete_entry_ids': ['a1b2c3d4-0000-4000-8000-000000000001', 'a1b2c3d4-0000-4000-8000-000000000002']}]}}
 
 
 class DeleteCopyOutcome(BaseModel):
-    entry_id: str
-    path: str
-    ok: bool
-    step: str = ""
-    message: str = ""
+    entry_id: str = Field(description="Entry the outcome is for.")
+    path: str = Field(description="Path of the entry.")
+    ok: bool = Field(description="Whether the copy was deleted.")
+    step: str = Field(default="", description="Step that failed, for a failed copy; empty on success.")
+    message: str = Field(default="", description="Failure message, for a failed copy; empty on success.")
 
 
 class DeleteCopiesResponse(BaseModel):
-    deleted: list[DeleteCopyOutcome]
-    failed: list[DeleteCopyOutcome]
+    deleted: list[DeleteCopyOutcome] = Field(description="Copies deleted from storage and the index.")
+    failed: list[DeleteCopyOutcome] = Field(description="Copies that could not be deleted; they remain indexed.")
 
 
 @router.post(
     "/{content_hash}/delete-copies",
     response_model=DeleteCopiesResponse,
+    summary="Delete duplicate copies",
+    description=(
+        "Deletes the listed copies of a duplicate group from the storage system itself and from "
+        "the index, keeping `keep_entry_id`. Copies are processed one at a time; the response "
+        "lists which were deleted and which failed (for example a read-only share), so partial "
+        "success is normal and still returns 200. A failed copy stays indexed. Each outcome is "
+        "recorded as a `duplicate_copy_deleted` or `duplicate_copy_delete_failed` audit event.\n"
+        "Requires scope `sources:write`. Source-limited API tokens only see their permitted "
+        "sources.\n"
+        "Errors: 400 if `delete_entry_ids` is empty, contains `keep_entry_id`, or any entry is "
+        "not a file with this content hash; 404 if any entry does not exist or is outside the "
+        "token's sources."
+    ),
 )
 async def delete_duplicate_copies(
-    content_hash: str,
+    content_hash: Annotated[str, Path(description="Content hash of the group the entries must belong to.")],
     body: DeleteCopiesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),

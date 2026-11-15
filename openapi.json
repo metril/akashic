@@ -4,10 +4,12 @@
       "ACEReference": {
         "properties": {
           "ace_index": {
+            "description": "Position of the ACL entry that decided the result; -1 for a synthetic reason such as the base mode bits.",
             "title": "Ace Index",
             "type": "integer"
           },
           "summary": {
+            "description": "One-line, human-readable description of that entry.",
             "title": "Summary",
             "type": "string"
           }
@@ -242,10 +244,12 @@
         "description": "One row in an /add-shares batch.",
         "properties": {
           "name": {
+            "description": "Name for the new source; must be unique across all sources.",
             "title": "Name",
             "type": "string"
           },
           "share": {
+            "description": "Share name (SMB), export path (NFS) or bucket (S3).",
             "title": "Share",
             "type": "string"
           }
@@ -258,6 +262,22 @@
         "type": "object"
       },
       "AddSharesRequest": {
+        "examples": [
+          {
+            "preferred_pool": "site-amsterdam",
+            "scan_schedule": "0 2 * * *",
+            "shares": [
+              {
+                "name": "fileserver01/finance",
+                "share": "finance"
+              },
+              {
+                "name": "fileserver01/hr",
+                "share": "hr"
+              }
+            ]
+          }
+        ],
         "properties": {
           "exclude_patterns": {
             "anyOf": [
@@ -271,6 +291,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path patterns to exclude from scans of every created source.",
             "title": "Exclude Patterns"
           },
           "is_removable": {
@@ -282,6 +303,7 @@
                 "type": "null"
               }
             ],
+            "description": "Whether the created sources are removable or external storage; null infers it from the host type.",
             "title": "Is Removable"
           },
           "max_parallel_scanners": {
@@ -293,6 +315,7 @@
                 "type": "null"
               }
             ],
+            "description": "Scanner cap (1 to 16) for every created source; null inherits from the host.",
             "title": "Max Parallel Scanners"
           },
           "preferred_pool": {
@@ -304,6 +327,7 @@
                 "type": "null"
               }
             ],
+            "description": "Restrict every created source to this scanner pool; null lets any scanner claim it.",
             "title": "Preferred Pool"
           },
           "scan_schedule": {
@@ -315,9 +339,11 @@
                 "type": "null"
               }
             ],
+            "description": "Cron expression applied to every created source; null for no schedule.",
             "title": "Scan Schedule"
           },
           "shares": {
+            "description": "Shares to create as sources.",
             "items": {
               "$ref": "#/components/schemas/AddSharesItem"
             },
@@ -334,14 +360,17 @@
       "AddSharesResponse": {
         "properties": {
           "created": {
+            "description": "Number of sources created.",
             "title": "Created",
             "type": "integer"
           },
           "skipped": {
+            "description": "Number of entries skipped because a source with that name already exists.",
             "title": "Skipped",
             "type": "integer"
           },
           "sources": {
+            "description": "Ids of the sources that were created.",
             "items": {
               "format": "uuid",
               "type": "string"
@@ -867,27 +896,47 @@
         "type": "object"
       },
       "AuditEventOut": {
+        "examples": [
+          {
+            "event_type": "access_lookup",
+            "id": "3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10",
+            "occurred_at": "2026-04-27T22:00:00Z",
+            "payload": {
+              "principal": "posix:uid:1000",
+              "right": "read"
+            },
+            "request_ip": "203.0.113.7",
+            "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f",
+            "user_agent": "curl/8.5.0",
+            "user_id": "5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33"
+          }
+        ],
         "properties": {
           "event_type": {
+            "description": "Event type, e.g. `access_lookup`, `api_token_created`, `host_created`.",
             "title": "Event Type",
             "type": "string"
           },
           "id": {
+            "description": "Event id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "occurred_at": {
+            "description": "When the event happened.",
             "format": "date-time",
             "title": "Occurred At",
             "type": "string"
           },
           "payload": {
             "additionalProperties": true,
+            "description": "Event-specific details; the shape depends on `event_type`.",
             "title": "Payload",
             "type": "object"
           },
           "request_ip": {
+            "description": "Client address of the request; empty for system events.",
             "title": "Request Ip",
             "type": "string"
           },
@@ -901,9 +950,11 @@
                 "type": "null"
               }
             ],
+            "description": "Source the event relates to, if any.",
             "title": "Source Id"
           },
           "user_agent": {
+            "description": "Client user agent; empty when not available.",
             "title": "User Agent",
             "type": "string"
           },
@@ -917,6 +968,7 @@
                 "type": "null"
               }
             ],
+            "description": "User who performed the action; null when the event is not attributable to a user.",
             "title": "User Id"
           }
         },
@@ -944,6 +996,7 @@
                 "type": "null"
               }
             ],
+            "description": "For directories, the number of non-deleted direct children; null for files.",
             "title": "Child Count"
           },
           "content_hash": {
@@ -955,6 +1008,7 @@
                 "type": "null"
               }
             ],
+            "description": "Content hash. Files with identical content share it; null until computed.",
             "title": "Content Hash"
           },
           "extension": {
@@ -966,6 +1020,7 @@
                 "type": "null"
               }
             ],
+            "description": "File extension without the dot; null for directories and files without one.",
             "title": "Extension"
           },
           "fs_modified_at": {
@@ -978,6 +1033,7 @@
                 "type": "null"
               }
             ],
+            "description": "Modification time on the storage system.",
             "title": "Fs Modified At"
           },
           "group_name": {
@@ -989,14 +1045,17 @@
                 "type": "null"
               }
             ],
+            "description": "Group name or SID as reported by the storage system.",
             "title": "Group Name"
           },
           "id": {
+            "description": "Entry id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "kind": {
+            "description": "`file` or `directory`.",
             "title": "Kind",
             "type": "string"
           },
@@ -1009,6 +1068,7 @@
                 "type": "null"
               }
             ],
+            "description": "Detected MIME type; null when not detected.",
             "title": "Mime Type"
           },
           "mode": {
@@ -1020,9 +1080,11 @@
                 "type": "null"
               }
             ],
+            "description": "POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.",
             "title": "Mode"
           },
           "name": {
+            "description": "Base name.",
             "title": "Name",
             "type": "string"
           },
@@ -1035,9 +1097,11 @@
                 "type": "null"
               }
             ],
+            "description": "Owner name or SID as reported by the storage system.",
             "title": "Owner Name"
           },
           "path": {
+            "description": "Full path within the source, starting with `/`.",
             "title": "Path",
             "type": "string"
           },
@@ -1050,6 +1114,7 @@
                 "type": "null"
               }
             ],
+            "description": "Size in bytes; null when unknown.",
             "title": "Size Bytes"
           }
         },
@@ -1517,9 +1582,11 @@
                 "type": "null"
               }
             ],
+            "description": "Domain that sharing is restricted to, when the provider enforces such a boundary; null otherwise.",
             "title": "Domain Restricted To"
           },
           "grants": {
+            "description": "Per-principal grants on the entry.",
             "items": {
               "$ref": "#/components/schemas/CloudDriveGrant"
             },
@@ -1528,6 +1595,7 @@
           },
           "type": {
             "const": "cloud_drive",
+            "description": "Discriminator, always `cloud_drive`.",
             "title": "Type",
             "type": "string"
           }
@@ -1543,6 +1611,7 @@
         "properties": {
           "inherited": {
             "default": false,
+            "description": "True when the grant comes from an ancestor folder.",
             "title": "Inherited",
             "type": "boolean"
           },
@@ -1555,6 +1624,7 @@
                 "type": "null"
               }
             ],
+            "description": "Provider id of the ancestor the grant is inherited from.",
             "title": "Inherited From Id"
           },
           "inherited_from_path": {
@@ -1566,6 +1636,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path of the ancestor the grant is inherited from.",
             "title": "Inherited From Path"
           },
           "link": {
@@ -1576,12 +1647,15 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "The shared link the grant rides on, for link-based grants; null otherwise."
           },
           "principal": {
-            "$ref": "#/components/schemas/CloudDrivePrincipal"
+            "$ref": "#/components/schemas/CloudDrivePrincipal",
+            "description": "Who the grant is for."
           },
           "role": {
+            "description": "`owner`, `writer`, `commenter`, `reader` or `file_organizer`.",
             "enum": [
               "owner",
               "writer",
@@ -1604,10 +1678,12 @@
         "description": "The shareable link an \"anyone-with-link\" grant rides on. Populated\nonly when the provider exposes link metadata (Drive does; Dropbox\nsurfaces it as a separate sharing/list_shared_links result we fold in\nhere). ``scope`` mirrors Drive semantics: anyone unrestricted,\ndomain-only, or restricted (named principals only).",
         "properties": {
           "id": {
+            "description": "Provider's identifier for the shared link.",
             "title": "Id",
             "type": "string"
           },
           "scope": {
+            "description": "Who can use the link: `anyone`, `domain` or `restricted` (named principals only).",
             "enum": [
               "anyone",
               "domain",
@@ -1636,9 +1712,11 @@
                 "type": "null"
               }
             ],
+            "description": "Email address, when the provider returns one.",
             "title": "Email"
           },
           "id": {
+            "description": "Provider's identifier for the principal (Drive permission id, Microsoft Graph id or Dropbox account id).",
             "title": "Id",
             "type": "string"
           },
@@ -1651,9 +1729,11 @@
                 "type": "null"
               }
             ],
+            "description": "Display name, when the provider returns one.",
             "title": "Name"
           },
           "type": {
+            "description": "`user`, `group`, `anyone` (public link) or `domain`.",
             "enum": [
               "user",
               "group",
@@ -1785,9 +1865,21 @@
         "type": "object"
       },
       "CredentialProfileCreate": {
+        "examples": [
+          {
+            "credentials": {
+              "password": "s3cret",
+              "username": "svc-akashic"
+            },
+            "description": "Read-only service account for the finance file servers",
+            "name": "Finance SMB",
+            "type": "smb"
+          }
+        ],
         "properties": {
           "credentials": {
             "additionalProperties": true,
+            "description": "Credential values for the type, e.g. `username` and `password` for SMB. Stored encrypted.",
             "title": "Credentials",
             "type": "object"
           },
@@ -1800,15 +1892,18 @@
                 "type": "null"
               }
             ],
+            "description": "Free-text note.",
             "title": "Description"
           },
           "name": {
+            "description": "Unique profile name.",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "type": {
+            "description": "Credential type: `smb`, `nfs` or `s3`.",
             "title": "Type",
             "type": "string"
           }
@@ -1823,12 +1918,14 @@
       "CredentialProfileResponse": {
         "properties": {
           "created_at": {
+            "description": "When the profile was created.",
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
           "credentials": {
             "additionalProperties": true,
+            "description": "Credential values with secrets masked as `***`.",
             "title": "Credentials",
             "type": "object"
           },
@@ -1841,22 +1938,27 @@
                 "type": "null"
               }
             ],
+            "description": "Free-text note.",
             "title": "Description"
           },
           "id": {
+            "description": "Profile id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "name": {
+            "description": "Profile name.",
             "title": "Name",
             "type": "string"
           },
           "type": {
+            "description": "Credential type: `smb`, `nfs` or `s3`.",
             "title": "Type",
             "type": "string"
           },
           "updated_at": {
+            "description": "When the profile was last changed.",
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
@@ -1884,18 +1986,22 @@
                 "type": "null"
               }
             ],
+            "description": "Free-text note.",
             "title": "Description"
           },
           "id": {
+            "description": "Profile id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "name": {
+            "description": "Profile name.",
             "title": "Name",
             "type": "string"
           },
           "type": {
+            "description": "Credential type: `smb`, `nfs` or `s3`.",
             "title": "Type",
             "type": "string"
           }
@@ -1909,6 +2015,14 @@
         "type": "object"
       },
       "CredentialProfileUpdate": {
+        "examples": [
+          {
+            "credentials": {
+              "password": "n3w-s3cret",
+              "username": "***"
+            }
+          }
+        ],
         "properties": {
           "credentials": {
             "anyOf": [
@@ -1920,6 +2034,7 @@
                 "type": "null"
               }
             ],
+            "description": "Credential values to change. A value of `***` keeps the stored value; keys not present are left as they are.",
             "title": "Credentials"
           },
           "description": {
@@ -1931,6 +2046,7 @@
                 "type": "null"
               }
             ],
+            "description": "New note.",
             "title": "Description"
           },
           "name": {
@@ -1942,6 +2058,7 @@
                 "type": "null"
               }
             ],
+            "description": "New unique name.",
             "title": "Name"
           }
         },
@@ -2089,8 +2206,18 @@
         "type": "object"
       },
       "DeleteCopiesRequest": {
+        "examples": [
+          {
+            "delete_entry_ids": [
+              "a1b2c3d4-0000-4000-8000-000000000001",
+              "a1b2c3d4-0000-4000-8000-000000000002"
+            ],
+            "keep_entry_id": "6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11"
+          }
+        ],
         "properties": {
           "delete_entry_ids": {
+            "description": "Entries to delete. Must be non-empty, must not include `keep_entry_id`, and every entry must be a file with the group's content hash.",
             "items": {
               "format": "uuid",
               "type": "string"
@@ -2099,6 +2226,7 @@
             "type": "array"
           },
           "keep_entry_id": {
+            "description": "Entry to keep. It must belong to the duplicate group.",
             "format": "uuid",
             "title": "Keep Entry Id",
             "type": "string"
@@ -2114,6 +2242,7 @@
       "DeleteCopiesResponse": {
         "properties": {
           "deleted": {
+            "description": "Copies deleted from storage and the index.",
             "items": {
               "$ref": "#/components/schemas/DeleteCopyOutcome"
             },
@@ -2121,6 +2250,7 @@
             "type": "array"
           },
           "failed": {
+            "description": "Copies that could not be deleted; they remain indexed.",
             "items": {
               "$ref": "#/components/schemas/DeleteCopyOutcome"
             },
@@ -2138,24 +2268,29 @@
       "DeleteCopyOutcome": {
         "properties": {
           "entry_id": {
+            "description": "Entry the outcome is for.",
             "title": "Entry Id",
             "type": "string"
           },
           "message": {
             "default": "",
+            "description": "Failure message, for a failed copy; empty on success.",
             "title": "Message",
             "type": "string"
           },
           "ok": {
+            "description": "Whether the copy was deleted.",
             "title": "Ok",
             "type": "boolean"
           },
           "path": {
+            "description": "Path of the entry.",
             "title": "Path",
             "type": "string"
           },
           "step": {
             "default": "",
+            "description": "Step that failed, for a failed copy; empty on success.",
             "title": "Step",
             "type": "string"
           }
@@ -2650,12 +2785,14 @@
       "EffectivePerms": {
         "properties": {
           "evaluated_with": {
-            "$ref": "#/components/schemas/EffectivePermsEvaluatedWith"
+            "$ref": "#/components/schemas/EffectivePermsEvaluatedWith",
+            "description": "What the evaluation used."
           },
           "rights": {
             "additionalProperties": {
               "$ref": "#/components/schemas/RightResult"
             },
+            "description": "Result per right: `read`, `write`, `execute`, `delete`, `change_perms`.",
             "propertyNames": {
               "enum": [
                 "read",
@@ -2679,6 +2816,7 @@
       "EffectivePermsEvaluatedWith": {
         "properties": {
           "caveats": {
+            "description": "Limits of the evaluation that may make the result differ from what the storage system enforces.",
             "items": {
               "type": "string"
             },
@@ -2686,6 +2824,7 @@
             "type": "array"
           },
           "groups": {
+            "description": "The groups taken into account.",
             "items": {
               "$ref": "#/components/schemas/GroupRef"
             },
@@ -2693,6 +2832,7 @@
             "type": "array"
           },
           "model": {
+            "description": "Permission model used: `posix`, `nfsv4`, `nt`, `s3`, `cloud_drive`, or `none` when the entry has no usable permissions.",
             "enum": [
               "posix",
               "nfsv4",
@@ -2705,7 +2845,8 @@
             "type": "string"
           },
           "principal": {
-            "$ref": "#/components/schemas/PrincipalRef"
+            "$ref": "#/components/schemas/PrincipalRef",
+            "description": "The principal that was evaluated."
           }
         },
         "required": [
@@ -2716,8 +2857,25 @@
         "type": "object"
       },
       "EffectivePermsRequest": {
+        "examples": [
+          {
+            "groups": [
+              {
+                "identifier": "100",
+                "name": "staff",
+                "type": "posix_uid"
+              }
+            ],
+            "principal": {
+              "identifier": "1000",
+              "name": "alice",
+              "type": "posix_uid"
+            }
+          }
+        ],
         "properties": {
           "groups": {
+            "description": "Groups the principal belongs to; they are not looked up for you.",
             "items": {
               "$ref": "#/components/schemas/GroupRef"
             },
@@ -2725,10 +2883,12 @@
             "type": "array"
           },
           "principal": {
-            "$ref": "#/components/schemas/PrincipalRef"
+            "$ref": "#/components/schemas/PrincipalRef",
+            "description": "The principal to evaluate."
           },
           "principal_name_hint": {
             "default": "",
+            "description": "Optional display name for the principal, used only to improve messages.",
             "title": "Principal Name Hint",
             "type": "string"
           }
@@ -2741,6 +2901,29 @@
       },
       "EntryDetailResponse": {
         "description": "Full entry detail; includes ACL, xattrs, version history.",
+        "examples": [
+          {
+            "content_hash": "9b74c9897bac770ffc029102a200c5de",
+            "extension": "pdf",
+            "first_seen_at": "2026-04-03T01:00:12Z",
+            "fs_modified_at": "2026-04-02T09:15:00Z",
+            "gid": 1000,
+            "group_name": "staff",
+            "id": "6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11",
+            "is_deleted": false,
+            "kind": "file",
+            "last_seen_at": "2026-04-27T01:00:09Z",
+            "mime_type": "application/pdf",
+            "mode": 33188,
+            "name": "q1.pdf",
+            "owner_name": "alice",
+            "parent_path": "/Reports/2026",
+            "path": "/Reports/2026/q1.pdf",
+            "size_bytes": 482133,
+            "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f",
+            "uid": 1000
+          }
+        ],
         "properties": {
           "acl": {
             "anyOf": [
@@ -2777,6 +2960,7 @@
                 "type": "null"
               }
             ],
+            "description": "Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none.",
             "title": "Acl"
           },
           "content_hash": {
@@ -2788,6 +2972,7 @@
                 "type": "null"
               }
             ],
+            "description": "Content hash. Files with identical content share it; null until computed.",
             "title": "Content Hash"
           },
           "domain_metadata": {
@@ -2800,6 +2985,7 @@
                 "type": "null"
               }
             ],
+            "description": "Provider-specific metadata for self-hosted libraries (Paperless-ngx, Immich); null for filesystem sources.",
             "title": "Domain Metadata"
           },
           "extension": {
@@ -2811,9 +2997,11 @@
                 "type": "null"
               }
             ],
+            "description": "File extension without the dot; null for directories and files without one.",
             "title": "Extension"
           },
           "first_seen_at": {
+            "description": "When a scan first saw the entry.",
             "format": "date-time",
             "title": "First Seen At",
             "type": "string"
@@ -2828,6 +3016,7 @@
                 "type": "null"
               }
             ],
+            "description": "Last access time on the storage system.",
             "title": "Fs Accessed At"
           },
           "fs_created_at": {
@@ -2840,6 +3029,7 @@
                 "type": "null"
               }
             ],
+            "description": "Creation time on the storage system.",
             "title": "Fs Created At"
           },
           "fs_modified_at": {
@@ -2852,6 +3042,7 @@
                 "type": "null"
               }
             ],
+            "description": "Modification time on the storage system.",
             "title": "Fs Modified At"
           },
           "gid": {
@@ -2863,6 +3054,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric group id on POSIX storage; null elsewhere.",
             "title": "Gid"
           },
           "group_name": {
@@ -2874,22 +3066,27 @@
                 "type": "null"
               }
             ],
+            "description": "Group name or SID as reported by the storage system.",
             "title": "Group Name"
           },
           "id": {
+            "description": "Entry id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "is_deleted": {
+            "description": "True once a scan no longer finds the entry (soft delete).",
             "title": "Is Deleted",
             "type": "boolean"
           },
           "kind": {
+            "description": "`file` or `directory`.",
             "title": "Kind",
             "type": "string"
           },
           "last_seen_at": {
+            "description": "When a scan most recently saw the entry.",
             "format": "date-time",
             "title": "Last Seen At",
             "type": "string"
@@ -2903,6 +3100,7 @@
                 "type": "null"
               }
             ],
+            "description": "Detected MIME type; null when not detected.",
             "title": "Mime Type"
           },
           "mode": {
@@ -2914,9 +3112,11 @@
                 "type": "null"
               }
             ],
+            "description": "POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.",
             "title": "Mode"
           },
           "name": {
+            "description": "Base name.",
             "title": "Name",
             "type": "string"
           },
@@ -2929,6 +3129,7 @@
                 "type": "null"
               }
             ],
+            "description": "Provider identifier for cloud-drive entries (Drive, OneDrive, Dropbox); null otherwise.",
             "title": "Native Id"
           },
           "owner_name": {
@@ -2940,13 +3141,16 @@
                 "type": "null"
               }
             ],
+            "description": "Owner name or SID as reported by the storage system.",
             "title": "Owner Name"
           },
           "parent_path": {
+            "description": "Path of the containing directory; `/` for top-level entries.",
             "title": "Parent Path",
             "type": "string"
           },
           "path": {
+            "description": "Full path within the source, starting with `/`.",
             "title": "Path",
             "type": "string"
           },
@@ -2959,6 +3163,7 @@
                 "type": "null"
               }
             ],
+            "description": "Size in bytes; null when unknown.",
             "title": "Size Bytes"
           },
           "source": {
@@ -2969,7 +3174,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "The owning source; null for an orphaned entry."
           },
           "source_id": {
             "anyOf": [
@@ -2981,9 +3187,11 @@
                 "type": "null"
               }
             ],
+            "description": "Owning source id; null for an orphaned entry whose source was deleted with its entries preserved.",
             "title": "Source Id"
           },
           "tags": {
+            "description": "Tags on the entry, direct and inherited.",
             "items": {
               "$ref": "#/components/schemas/EntryTagAssignment"
             },
@@ -2999,9 +3207,11 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric owner id on POSIX storage; null elsewhere.",
             "title": "Uid"
           },
           "versions": {
+            "description": "Recorded versions of the entry, newest first.",
             "items": {
               "$ref": "#/components/schemas/EntryVersionResponse"
             },
@@ -3020,6 +3230,7 @@
                 "type": "null"
               }
             ],
+            "description": "Extended attributes as name/value pairs; null when none.",
             "title": "Xattrs"
           }
         },
@@ -3096,6 +3307,7 @@
                 "type": "null"
               }
             ],
+            "description": "Content hash. Files with identical content share it; null until computed.",
             "title": "Content Hash"
           },
           "domain_metadata": {
@@ -3119,6 +3331,7 @@
                 "type": "null"
               }
             ],
+            "description": "File extension without the dot; null for directories and files without one.",
             "title": "Extension"
           },
           "fs_accessed_at": {
@@ -3155,6 +3368,7 @@
                 "type": "null"
               }
             ],
+            "description": "Modification time on the storage system.",
             "title": "Fs Modified At"
           },
           "gid": {
@@ -3166,6 +3380,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric group id on POSIX storage; null elsewhere.",
             "title": "Gid"
           },
           "group_name": {
@@ -3177,10 +3392,12 @@
                 "type": "null"
               }
             ],
+            "description": "Group name or SID as reported by the storage system.",
             "title": "Group Name"
           },
           "kind": {
             "default": "file",
+            "description": "`file` or `directory`.",
             "enum": [
               "file",
               "directory"
@@ -3197,6 +3414,7 @@
                 "type": "null"
               }
             ],
+            "description": "Detected MIME type; null when not detected.",
             "title": "Mime Type"
           },
           "mode": {
@@ -3208,9 +3426,11 @@
                 "type": "null"
               }
             ],
+            "description": "POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.",
             "title": "Mode"
           },
           "name": {
+            "description": "Base name.",
             "title": "Name",
             "type": "string"
           },
@@ -3234,9 +3454,11 @@
                 "type": "null"
               }
             ],
+            "description": "Owner name or SID as reported by the storage system.",
             "title": "Owner Name"
           },
           "path": {
+            "description": "Full path within the source, starting with `/`.",
             "title": "Path",
             "type": "string"
           },
@@ -3249,6 +3471,7 @@
                 "type": "null"
               }
             ],
+            "description": "Size in bytes; null when unknown.",
             "title": "Size Bytes"
           },
           "subtree_dir_count": {
@@ -3293,6 +3516,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric owner id on POSIX storage; null elsewhere.",
             "title": "Uid"
           },
           "xattrs": {
@@ -3318,6 +3542,29 @@
         "type": "object"
       },
       "EntryResponse": {
+        "examples": [
+          {
+            "content_hash": "9b74c9897bac770ffc029102a200c5de",
+            "extension": "pdf",
+            "first_seen_at": "2026-04-03T01:00:12Z",
+            "fs_modified_at": "2026-04-02T09:15:00Z",
+            "gid": 1000,
+            "group_name": "staff",
+            "id": "6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11",
+            "is_deleted": false,
+            "kind": "file",
+            "last_seen_at": "2026-04-27T01:00:09Z",
+            "mime_type": "application/pdf",
+            "mode": 33188,
+            "name": "q1.pdf",
+            "owner_name": "alice",
+            "parent_path": "/Reports/2026",
+            "path": "/Reports/2026/q1.pdf",
+            "size_bytes": 482133,
+            "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f",
+            "uid": 1000
+          }
+        ],
         "properties": {
           "content_hash": {
             "anyOf": [
@@ -3328,6 +3575,7 @@
                 "type": "null"
               }
             ],
+            "description": "Content hash. Files with identical content share it; null until computed.",
             "title": "Content Hash"
           },
           "extension": {
@@ -3339,9 +3587,11 @@
                 "type": "null"
               }
             ],
+            "description": "File extension without the dot; null for directories and files without one.",
             "title": "Extension"
           },
           "first_seen_at": {
+            "description": "When a scan first saw the entry.",
             "format": "date-time",
             "title": "First Seen At",
             "type": "string"
@@ -3356,6 +3606,7 @@
                 "type": "null"
               }
             ],
+            "description": "Modification time on the storage system.",
             "title": "Fs Modified At"
           },
           "gid": {
@@ -3367,6 +3618,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric group id on POSIX storage; null elsewhere.",
             "title": "Gid"
           },
           "group_name": {
@@ -3378,22 +3630,27 @@
                 "type": "null"
               }
             ],
+            "description": "Group name or SID as reported by the storage system.",
             "title": "Group Name"
           },
           "id": {
+            "description": "Entry id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "is_deleted": {
+            "description": "True once a scan no longer finds the entry (soft delete).",
             "title": "Is Deleted",
             "type": "boolean"
           },
           "kind": {
+            "description": "`file` or `directory`.",
             "title": "Kind",
             "type": "string"
           },
           "last_seen_at": {
+            "description": "When a scan most recently saw the entry.",
             "format": "date-time",
             "title": "Last Seen At",
             "type": "string"
@@ -3407,6 +3664,7 @@
                 "type": "null"
               }
             ],
+            "description": "Detected MIME type; null when not detected.",
             "title": "Mime Type"
           },
           "mode": {
@@ -3418,9 +3676,11 @@
                 "type": "null"
               }
             ],
+            "description": "POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.",
             "title": "Mode"
           },
           "name": {
+            "description": "Base name.",
             "title": "Name",
             "type": "string"
           },
@@ -3433,13 +3693,16 @@
                 "type": "null"
               }
             ],
+            "description": "Owner name or SID as reported by the storage system.",
             "title": "Owner Name"
           },
           "parent_path": {
+            "description": "Path of the containing directory; `/` for top-level entries.",
             "title": "Parent Path",
             "type": "string"
           },
           "path": {
+            "description": "Full path within the source, starting with `/`.",
             "title": "Path",
             "type": "string"
           },
@@ -3452,6 +3715,7 @@
                 "type": "null"
               }
             ],
+            "description": "Size in bytes; null when unknown.",
             "title": "Size Bytes"
           },
           "source_id": {
@@ -3464,6 +3728,7 @@
                 "type": "null"
               }
             ],
+            "description": "Owning source id; null for an orphaned entry whose source was deleted with its entries preserved.",
             "title": "Source Id"
           },
           "uid": {
@@ -3475,6 +3740,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric owner id on POSIX storage; null elsewhere.",
             "title": "Uid"
           }
         },
@@ -3507,6 +3773,7 @@
         "properties": {
           "inherited": {
             "default": false,
+            "description": "True when the tag comes from an ancestor directory rather than being applied to this entry.",
             "title": "Inherited",
             "type": "boolean"
           },
@@ -3519,9 +3786,11 @@
                 "type": "null"
               }
             ],
+            "description": "Path of the ancestor directory the tag is inherited from; null for a direct tag.",
             "title": "Inherited From Path"
           },
           "tag": {
+            "description": "Tag name.",
             "title": "Tag",
             "type": "string"
           }
@@ -3569,6 +3838,7 @@
                 "type": "null"
               }
             ],
+            "description": "ACL at the time of this version; null when none was recorded.",
             "title": "Acl"
           },
           "content_hash": {
@@ -3580,14 +3850,17 @@
                 "type": "null"
               }
             ],
+            "description": "Content hash. Files with identical content share it; null until computed.",
             "title": "Content Hash"
           },
           "detected_at": {
+            "description": "When a scan detected this version.",
             "format": "date-time",
             "title": "Detected At",
             "type": "string"
           },
           "entry_id": {
+            "description": "Entry this version belongs to.",
             "format": "uuid",
             "title": "Entry Id",
             "type": "string"
@@ -3601,6 +3874,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric group id on POSIX storage; null elsewhere.",
             "title": "Gid"
           },
           "group_name": {
@@ -3612,9 +3886,11 @@
                 "type": "null"
               }
             ],
+            "description": "Group name or SID as reported by the storage system.",
             "title": "Group Name"
           },
           "id": {
+            "description": "Version id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
@@ -3628,6 +3904,7 @@
                 "type": "null"
               }
             ],
+            "description": "POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.",
             "title": "Mode"
           },
           "owner_name": {
@@ -3639,6 +3916,7 @@
                 "type": "null"
               }
             ],
+            "description": "Owner name or SID as reported by the storage system.",
             "title": "Owner Name"
           },
           "scan_id": {
@@ -3651,6 +3929,7 @@
                 "type": "null"
               }
             ],
+            "description": "Scan that detected this version; null if that scan has since been removed.",
             "title": "Scan Id"
           },
           "size_bytes": {
@@ -3662,6 +3941,7 @@
                 "type": "null"
               }
             ],
+            "description": "Size in bytes; null when unknown.",
             "title": "Size Bytes"
           },
           "uid": {
@@ -3673,6 +3953,7 @@
                 "type": "null"
               }
             ],
+            "description": "Numeric owner id on POSIX storage; null elsewhere.",
             "title": "Uid"
           },
           "xattrs": {
@@ -3687,6 +3968,7 @@
                 "type": "null"
               }
             ],
+            "description": "Extended attributes at the time of this version.",
             "title": "Xattrs"
           }
         },
@@ -4058,8 +4340,19 @@
         "type": "object"
       },
       "FsBindingIn": {
+        "examples": [
+          {
+            "groups": [
+              "S-1-5-21-1111111111-2222222222-3333333333-513"
+            ],
+            "identifier": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+            "identity_type": "sid",
+            "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f"
+          }
+        ],
         "properties": {
           "groups": {
+            "description": "Identifiers of the groups the principal belongs to. Blank entries are dropped.",
             "items": {
               "type": "string"
             },
@@ -4067,10 +4360,12 @@
             "type": "array"
           },
           "identifier": {
+            "description": "The identifier itself (a uid, a SID, ...). Surrounding whitespace is trimmed; it must not be empty.",
             "title": "Identifier",
             "type": "string"
           },
           "identity_type": {
+            "description": "Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.",
             "enum": [
               "posix_uid",
               "sid",
@@ -4081,6 +4376,7 @@
             "type": "string"
           },
           "source_id": {
+            "description": "Source the identity is bound on.",
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
@@ -4097,16 +4393,19 @@
       "FsBindingOut": {
         "properties": {
           "created_at": {
+            "description": "When the binding was created.",
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
           "fs_person_id": {
+            "description": "Identity (person) the binding belongs to.",
             "format": "uuid",
             "title": "Fs Person Id",
             "type": "string"
           },
           "groups": {
+            "description": "Identifiers of the groups the principal belongs to.",
             "items": {
               "type": "string"
             },
@@ -4123,9 +4422,11 @@
                 "type": "null"
               }
             ],
+            "description": "When the groups were last resolved automatically; null if never.",
             "title": "Groups Resolved At"
           },
           "groups_source": {
+            "description": "Where the groups came from: `manual` (entered by hand) or `auto` (resolved from the backend).",
             "enum": [
               "manual",
               "auto"
@@ -4134,15 +4435,18 @@
             "type": "string"
           },
           "id": {
+            "description": "Binding id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "identifier": {
+            "description": "The identifier (a uid, a SID, ...).",
             "title": "Identifier",
             "type": "string"
           },
           "identity_type": {
+            "description": "Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.",
             "enum": [
               "posix_uid",
               "sid",
@@ -4153,6 +4457,7 @@
             "type": "string"
           },
           "source_id": {
+            "description": "Source the binding applies to.",
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
@@ -4173,6 +4478,13 @@
         "type": "object"
       },
       "FsBindingPatch": {
+        "examples": [
+          {
+            "groups": [
+              "S-1-5-21-1111111111-2222222222-3333333333-513"
+            ]
+          }
+        ],
         "properties": {
           "groups": {
             "anyOf": [
@@ -4186,6 +4498,7 @@
                 "type": "null"
               }
             ],
+            "description": "New group identifiers, replacing the current ones.",
             "title": "Groups"
           },
           "groups_source": {
@@ -4201,6 +4514,7 @@
                 "type": "null"
               }
             ],
+            "description": "Where the groups came from: `manual` or `auto`. Only callers holding `users:write` may set it.",
             "title": "Groups Source"
           },
           "identifier": {
@@ -4212,6 +4526,7 @@
                 "type": "null"
               }
             ],
+            "description": "New identifier; must not be blank.",
             "title": "Identifier"
           },
           "identity_type": {
@@ -4229,6 +4544,7 @@
                 "type": "null"
               }
             ],
+            "description": "New identifier kind.",
             "title": "Identity Type"
           }
         },
@@ -4236,13 +4552,21 @@
         "type": "object"
       },
       "FsPersonIn": {
+        "examples": [
+          {
+            "is_primary": true,
+            "label": "Work account"
+          }
+        ],
         "properties": {
           "is_primary": {
             "default": false,
+            "description": "Whether this is the user's primary identity.",
             "title": "Is Primary",
             "type": "boolean"
           },
           "label": {
+            "description": "Display label for the identity.",
             "title": "Label",
             "type": "string"
           }
@@ -4256,6 +4580,7 @@
       "FsPersonOut": {
         "properties": {
           "bindings": {
+            "description": "The identity's per-source bindings.",
             "items": {
               "$ref": "#/components/schemas/FsBindingOut"
             },
@@ -4263,24 +4588,29 @@
             "type": "array"
           },
           "created_at": {
+            "description": "When the identity was created.",
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
           "id": {
+            "description": "Identity id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "is_primary": {
+            "description": "Whether this is the user's primary identity.",
             "title": "Is Primary",
             "type": "boolean"
           },
           "label": {
+            "description": "Display label.",
             "title": "Label",
             "type": "string"
           },
           "user_id": {
+            "description": "User who owns the identity.",
             "format": "uuid",
             "title": "User Id",
             "type": "string"
@@ -4307,6 +4637,7 @@
                 "type": "null"
               }
             ],
+            "description": "New primary flag.",
             "title": "Is Primary"
           },
           "label": {
@@ -4318,6 +4649,7 @@
                 "type": "null"
               }
             ],
+            "description": "New display label.",
             "title": "Label"
           }
         },
@@ -4327,15 +4659,18 @@
       "GroupRef": {
         "properties": {
           "identifier": {
+            "description": "Identifier of that type, e.g. a gid or a group SID.",
             "title": "Identifier",
             "type": "string"
           },
           "name": {
             "default": "",
+            "description": "Display name; informational only.",
             "title": "Name",
             "type": "string"
           },
           "type": {
+            "description": "Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.",
             "enum": [
               "posix_uid",
               "sid",
@@ -4531,8 +4866,16 @@
         "type": "object"
       },
       "HostAllowedScannersRequest": {
+        "examples": [
+          {
+            "scanner_ids": [
+              "2f1d9e1a-6c1b-4f43-8d6a-3e9f7b1c2a40"
+            ]
+          }
+        ],
         "properties": {
           "scanner_ids": {
+            "description": "Scanners that should be allowed on every source of the host; all others are removed. May be empty.",
             "items": {
               "format": "uuid",
               "type": "string"
@@ -4550,10 +4893,12 @@
       "HostAllowedScannersResponse": {
         "properties": {
           "scanners_updated": {
+            "description": "Number of scanners whose allow-list actually changed.",
             "title": "Scanners Updated",
             "type": "integer"
           },
           "sources_touched": {
+            "description": "Number of sources attached to the host.",
             "title": "Sources Touched",
             "type": "integer"
           }
@@ -4566,9 +4911,22 @@
         "type": "object"
       },
       "HostCreate": {
+        "examples": [
+          {
+            "connection_config": {
+              "host": "fileserver01.example.com"
+            },
+            "credential_profile_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            "max_parallel_scanners": 4,
+            "name": "fileserver01",
+            "scan_chunk_size": 2000,
+            "type": "smb"
+          }
+        ],
         "properties": {
           "connection_config": {
             "additionalProperties": true,
+            "description": "Type-specific connection settings shared by the attached sources, including any inline credentials. Secrets are masked in responses.",
             "title": "Connection Config",
             "type": "object"
           },
@@ -4582,6 +4940,7 @@
                 "type": "null"
               }
             ],
+            "description": "Credential profile to take credentials from; its type must match the host type.",
             "title": "Credential Profile Id"
           },
           "max_parallel_scanners": {
@@ -4593,9 +4952,11 @@
                 "type": "null"
               }
             ],
+            "description": "Most distinct scanners that may work on one scan at once (1 to 16), inherited by attached sources that leave theirs unset. Null uses the built-in default.",
             "title": "Max Parallel Scanners"
           },
           "name": {
+            "description": "Unique host name.",
             "title": "Name",
             "type": "string"
           },
@@ -4608,9 +4969,11 @@
                 "type": "null"
               }
             ],
+            "description": "Entries per scan work unit (100 to 1,000,000), inherited by attached sources that leave theirs unset. Null uses the built-in default (2000).",
             "title": "Scan Chunk Size"
           },
           "type": {
+            "description": "Host type: `smb`, `nfs` or `s3`. Local storage has no host.",
             "title": "Type",
             "type": "string"
           }
@@ -4627,10 +4990,12 @@
         "properties": {
           "connection_config": {
             "additionalProperties": true,
+            "description": "Connection settings with secrets masked as `***`.",
             "title": "Connection Config",
             "type": "object"
           },
           "created_at": {
+            "description": "When the host was created.",
             "format": "date-time",
             "title": "Created At",
             "type": "string"
@@ -4645,9 +5010,11 @@
                 "type": "null"
               }
             ],
+            "description": "Credential profile in use; null when none.",
             "title": "Credential Profile Id"
           },
           "id": {
+            "description": "Host id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
@@ -4661,9 +5028,11 @@
                 "type": "null"
               }
             ],
+            "description": "Scanner cap for the host's sources; null means the built-in default.",
             "title": "Max Parallel Scanners"
           },
           "name": {
+            "description": "Host name.",
             "title": "Name",
             "type": "string"
           },
@@ -4676,18 +5045,22 @@
                 "type": "null"
               }
             ],
+            "description": "Work-unit size for the host's sources; null means the built-in default.",
             "title": "Scan Chunk Size"
           },
           "source_count": {
             "default": 0,
+            "description": "Number of sources attached to the host.",
             "title": "Source Count",
             "type": "integer"
           },
           "type": {
+            "description": "Host type: `smb`, `nfs` or `s3`.",
             "title": "Type",
             "type": "string"
           },
           "updated_at": {
+            "description": "When the host was last changed.",
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
@@ -4707,18 +5080,22 @@
       "HostScannerSummaryRow": {
         "properties": {
           "currently_allowed_count": {
+            "description": "Number of the host's sources the scanner is allowed to claim.",
             "title": "Currently Allowed Count",
             "type": "integer"
           },
           "name": {
+            "description": "Scanner name.",
             "title": "Name",
             "type": "string"
           },
           "not_yet_probed_count": {
+            "description": "Number of the host's sources this scanner has not been probed against.",
             "title": "Not Yet Probed Count",
             "type": "integer"
           },
           "online": {
+            "description": "Whether the scanner has been seen recently (within about two minutes).",
             "title": "Online",
             "type": "boolean"
           },
@@ -4731,22 +5108,27 @@
                 "type": "null"
               }
             ],
+            "description": "Scanner pool; null when unassigned.",
             "title": "Pool"
           },
           "reaches_count": {
+            "description": "Number of the host's sources whose latest probe from this scanner succeeded.",
             "title": "Reaches Count",
             "type": "integer"
           },
           "scanner_id": {
+            "description": "Scanner id.",
             "format": "uuid",
             "title": "Scanner Id",
             "type": "string"
           },
           "total_sources": {
+            "description": "Number of sources attached to the host.",
             "title": "Total Sources",
             "type": "integer"
           },
           "unreachable_count": {
+            "description": "Number of the host's sources whose latest probe from this scanner failed.",
             "title": "Unreachable Count",
             "type": "integer"
           }
@@ -4766,6 +5148,11 @@
         "type": "object"
       },
       "HostUpdate": {
+        "examples": [
+          {
+            "name": "fileserver01-new"
+          }
+        ],
         "properties": {
           "connection_config": {
             "anyOf": [
@@ -4777,6 +5164,7 @@
                 "type": "null"
               }
             ],
+            "description": "Connection settings to change. A masked value (`***`) keeps the stored secret.",
             "title": "Connection Config"
           },
           "credential_profile_id": {
@@ -4789,6 +5177,7 @@
                 "type": "null"
               }
             ],
+            "description": "Credential profile to use; null detaches the current one.",
             "title": "Credential Profile Id"
           },
           "max_parallel_scanners": {
@@ -4800,6 +5189,7 @@
                 "type": "null"
               }
             ],
+            "description": "New cap (1 to 16); null clears it so the built-in default applies.",
             "title": "Max Parallel Scanners"
           },
           "name": {
@@ -4811,6 +5201,7 @@
                 "type": "null"
               }
             ],
+            "description": "New unique host name.",
             "title": "Name"
           },
           "scan_chunk_size": {
@@ -4822,6 +5213,7 @@
                 "type": "null"
               }
             ],
+            "description": "New work-unit size (100 to 1,000,000); null clears it so the built-in default applies.",
             "title": "Scan Chunk Size"
           }
         },
@@ -4924,13 +5316,21 @@
         "type": "object"
       },
       "LDAPLoginRequest": {
+        "examples": [
+          {
+            "password": "correct horse battery staple",
+            "username": "alice"
+          }
+        ],
         "properties": {
           "password": {
+            "description": "LDAP password.",
             "minLength": 1,
             "title": "Password",
             "type": "string"
           },
           "username": {
+            "description": "LDAP username.",
             "title": "Username",
             "type": "string"
           }
@@ -5128,10 +5528,12 @@
                 "type": "null"
               }
             ],
+            "description": "Failure message; null on success.",
             "title": "Error"
           },
           "shares": {
             "default": [],
+            "description": "Names of the shares, exports or buckets found; empty on failure.",
             "items": {
               "type": "string"
             },
@@ -5147,6 +5549,7 @@
                 "type": "null"
               }
             ],
+            "description": "Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success.",
             "title": "Step"
           }
         },
@@ -5308,6 +5711,7 @@
       "NfsV4ACE": {
         "properties": {
           "ace_type": {
+            "description": "`allow`, `deny`, `audit` or `alarm`.",
             "enum": [
               "allow",
               "deny",
@@ -5318,6 +5722,7 @@
             "type": "string"
           },
           "flags": {
+            "description": "Flags on the entry, e.g. `identifier_group` for a group principal.",
             "items": {
               "type": "string"
             },
@@ -5325,6 +5730,7 @@
             "type": "array"
           },
           "mask": {
+            "description": "Permission names granted or denied, e.g. `READ_DATA`, `WRITE_DATA`.",
             "items": {
               "type": "string"
             },
@@ -5332,6 +5738,7 @@
             "type": "array"
           },
           "principal": {
+            "description": "Principal, e.g. `alice@example.com`, `GROUP:staff@example.com` or `EVERYONE@`.",
             "title": "Principal",
             "type": "string"
           }
@@ -5346,6 +5753,7 @@
       "NfsV4ACL": {
         "properties": {
           "entries": {
+            "description": "ACL entries in evaluation order.",
             "items": {
               "$ref": "#/components/schemas/NfsV4ACE"
             },
@@ -5354,6 +5762,7 @@
           },
           "type": {
             "const": "nfsv4",
+            "description": "Discriminator, always `nfsv4`.",
             "title": "Type",
             "type": "string"
           }
@@ -5368,6 +5777,7 @@
       "NtACE": {
         "properties": {
           "ace_type": {
+            "description": "`allow`, `deny` or `audit`.",
             "enum": [
               "allow",
               "deny",
@@ -5377,6 +5787,7 @@
             "type": "string"
           },
           "flags": {
+            "description": "Inheritance and audit flags on the entry, as reported by the scanner.",
             "items": {
               "type": "string"
             },
@@ -5384,6 +5795,7 @@
             "type": "array"
           },
           "mask": {
+            "description": "Access right names granted or denied, e.g. `READ_DATA`.",
             "items": {
               "type": "string"
             },
@@ -5392,10 +5804,12 @@
           },
           "name": {
             "default": "",
+            "description": "Resolved account name, when known; empty otherwise.",
             "title": "Name",
             "type": "string"
           },
           "sid": {
+            "description": "Security identifier the entry applies to.",
             "title": "Sid",
             "type": "string"
           }
@@ -5410,6 +5824,7 @@
       "NtACL": {
         "properties": {
           "control": {
+            "description": "Security descriptor control flags, e.g. `owner_defaulted`.",
             "items": {
               "type": "string"
             },
@@ -5417,6 +5832,7 @@
             "type": "array"
           },
           "entries": {
+            "description": "ACL entries in evaluation order.",
             "items": {
               "$ref": "#/components/schemas/NtACE"
             },
@@ -5431,7 +5847,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Primary group of the object; null when not reported."
           },
           "owner": {
             "anyOf": [
@@ -5441,10 +5858,12 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Owner of the object; null when not reported."
           },
           "type": {
             "const": "nt",
+            "description": "Discriminator, always `nt`.",
             "title": "Type",
             "type": "string"
           }
@@ -5460,10 +5879,12 @@
         "properties": {
           "name": {
             "default": "",
+            "description": "Resolved account name, when known; empty otherwise.",
             "title": "Name",
             "type": "string"
           },
           "sid": {
+            "description": "Security identifier, e.g. `S-1-5-21-...`.",
             "title": "Sid",
             "type": "string"
           }
@@ -5768,12 +6189,14 @@
         "description": "Result of POST /api/v1/hosts/{id}/online-check.\n\nPure TCP probe from the API process — opens a socket to the\nserver's port (SMB→445, NFS→2049) or HEADs the S3 endpoint. No\ncredentials, no share listing. Answers \"is the server up on the\nnetwork from where the API sits?\" — fast triage when reachability\nfails (so the user can tell DNS/firewall apart from credentials).\n\nReachability proper is what the scanners report — see\n`POST /api/v1/sources/{id}/test-scanners`.",
         "properties": {
           "checked_at": {
+            "description": "When the probe ran.",
             "format": "date-time",
             "title": "Checked At",
             "type": "string"
           },
           "result": {
-            "$ref": "#/components/schemas/TestResult"
+            "$ref": "#/components/schemas/TestResult",
+            "description": "Outcome of the network probe."
           }
         },
         "required": [
@@ -6246,15 +6669,18 @@
       "PosixACE": {
         "properties": {
           "perms": {
+            "description": "Three characters from `rwx-`, e.g. `r-x`.",
             "title": "Perms",
             "type": "string"
           },
           "qualifier": {
             "default": "",
+            "description": "Uid or gid the entry applies to; empty for the owner, owning group, mask and other.",
             "title": "Qualifier",
             "type": "string"
           },
           "tag": {
+            "description": "POSIX ACL tag, e.g. `user_obj`, `user`, `group_obj`, `group`, `mask` or `other`.",
             "title": "Tag",
             "type": "string"
           }
@@ -6280,9 +6706,11 @@
                 "type": "null"
               }
             ],
+            "description": "Default ACL entries inherited by new children of a directory; null when none.",
             "title": "Default Entries"
           },
           "entries": {
+            "description": "Access ACL entries.",
             "items": {
               "$ref": "#/components/schemas/PosixACE"
             },
@@ -6291,6 +6719,7 @@
           },
           "type": {
             "const": "posix",
+            "description": "Discriminator, always `posix`.",
             "title": "Type",
             "type": "string"
           }
@@ -6306,11 +6735,13 @@
         "properties": {
           "binary": {
             "default": false,
+            "description": "True when the file looks binary (a NUL byte in its first 4 KiB), in which case no text is returned.",
             "title": "Binary",
             "type": "boolean"
           },
           "byte_size_total": {
             "default": 0,
+            "description": "Size of the whole file in bytes.",
             "title": "Byte Size Total",
             "type": "integer"
           },
@@ -6323,6 +6754,7 @@
                 "type": "null"
               }
             ],
+            "description": "Text encoding used, `utf-8` or `latin-1`; null for binary files.",
             "title": "Encoding"
           },
           "text": {
@@ -6334,10 +6766,12 @@
                 "type": "null"
               }
             ],
+            "description": "Decoded text of the first 64 KiB; null for binary files.",
             "title": "Text"
           },
           "truncated": {
             "default": false,
+            "description": "True when the file is larger than the preview.",
             "title": "Truncated",
             "type": "boolean"
           }
@@ -6410,15 +6844,18 @@
       "PrincipalRef": {
         "properties": {
           "identifier": {
+            "description": "Identifier of that type, e.g. a uid, a SID or an NFSv4 principal.",
             "title": "Identifier",
             "type": "string"
           },
           "name": {
             "default": "",
+            "description": "Display name; informational only.",
             "title": "Name",
             "type": "string"
           },
           "type": {
+            "description": "Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.",
             "enum": [
               "posix_uid",
               "sid",
@@ -6518,19 +6955,23 @@
       "ProvidersResponse": {
         "properties": {
           "ldap": {
+            "description": "Whether LDAP login is enabled.",
             "title": "Ldap",
             "type": "boolean"
           },
           "local": {
             "default": true,
+            "description": "Local username and password login; always available.",
             "title": "Local",
             "type": "boolean"
           },
           "oidc": {
+            "description": "Whether OIDC single sign-on is enabled.",
             "title": "Oidc",
             "type": "boolean"
           },
           "setup_required": {
+            "description": "True while no user exists and first-run registration is open; it never becomes true again once the first user is created.",
             "title": "Setup Required",
             "type": "boolean"
           }
@@ -7050,6 +7491,7 @@
       "RightResult": {
         "properties": {
           "by": {
+            "description": "The ACL entries responsible for the decision.",
             "items": {
               "$ref": "#/components/schemas/ACEReference"
             },
@@ -7057,6 +7499,7 @@
             "type": "array"
           },
           "granted": {
+            "description": "Whether the right is granted.",
             "title": "Granted",
             "type": "boolean"
           }
@@ -7070,6 +7513,7 @@
       "S3ACL": {
         "properties": {
           "grants": {
+            "description": "Grants on the object.",
             "items": {
               "$ref": "#/components/schemas/S3Grant"
             },
@@ -7084,10 +7528,12 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Object owner; null when not reported."
           },
           "type": {
             "const": "s3",
+            "description": "Discriminator, always `s3`.",
             "title": "Type",
             "type": "string"
           }
@@ -7102,15 +7548,18 @@
         "properties": {
           "grantee_id": {
             "default": "",
+            "description": "Canonical user id or group URI; empty when not applicable.",
             "title": "Grantee Id",
             "type": "string"
           },
           "grantee_name": {
             "default": "",
+            "description": "Display name or email address; empty when not reported.",
             "title": "Grantee Name",
             "type": "string"
           },
           "grantee_type": {
+            "description": "`canonical_user`, `group` or `amazon_customer_by_email`.",
             "enum": [
               "canonical_user",
               "group",
@@ -7120,6 +7569,7 @@
             "type": "string"
           },
           "permission": {
+            "description": "`FULL_CONTROL`, `READ`, `WRITE`, `READ_ACP` or `WRITE_ACP`.",
             "enum": [
               "FULL_CONTROL",
               "READ",
@@ -7142,10 +7592,12 @@
         "properties": {
           "display_name": {
             "default": "",
+            "description": "Owner display name; empty when not reported.",
             "title": "Display Name",
             "type": "string"
           },
           "id": {
+            "description": "Canonical user id of the owner.",
             "title": "Id",
             "type": "string"
           }
@@ -9767,9 +10219,11 @@
                 "type": "null"
               }
             ],
+            "description": "Failure message; null on success.",
             "title": "Error"
           },
           "ok": {
+            "description": "Whether the connection succeeded.",
             "title": "Ok",
             "type": "boolean"
           },
@@ -9789,6 +10243,7 @@
                 "type": "null"
               }
             ],
+            "description": "Step that failed: `connect`, `auth`, `mount`, `list` or `config`; null on success.",
             "title": "Step"
           },
           "tier": {
@@ -9800,6 +10255,7 @@
                 "type": "null"
               }
             ],
+            "description": "NFS only: protocol path that validated the export (strong, e.g. `mount3` or `nfsv4`, or weaker, e.g. a TCP-only fallback); null for other types.",
             "title": "Tier"
           },
           "warn": {
@@ -9811,6 +10267,7 @@
                 "type": "null"
               }
             ],
+            "description": "Non-fatal warning about a successful result, if any.",
             "title": "Warn"
           }
         },
@@ -9934,6 +10391,13 @@
       },
       "TestSharesRequest": {
         "description": "Optional per-source filter; default = every attached share.",
+        "examples": [
+          {
+            "source_ids": [
+              "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f"
+            ]
+          }
+        ],
         "properties": {
           "source_ids": {
             "anyOf": [
@@ -9948,6 +10412,7 @@
                 "type": "null"
               }
             ],
+            "description": "Only test these sources attached to the host; omit to test every attached share.",
             "title": "Source Ids"
           }
         },
@@ -9957,6 +10422,7 @@
       "TestSharesResponse": {
         "properties": {
           "results": {
+            "description": "One row per (source, eligible scanner).",
             "items": {
               "$ref": "#/components/schemas/TestSharesResultRow"
             },
@@ -9983,6 +10449,7 @@
                 "type": "null"
               }
             ],
+            "description": "When the probe finished; null while pending.",
             "title": "Completed At"
           },
           "error": {
@@ -9994,6 +10461,7 @@
                 "type": "null"
               }
             ],
+            "description": "Failure message; null on success or while pending.",
             "title": "Error"
           },
           "ok": {
@@ -10005,24 +10473,29 @@
                 "type": "null"
               }
             ],
+            "description": "Whether the scanner reached the source; null while the probe is pending.",
             "title": "Ok"
           },
           "pending": {
             "default": false,
+            "description": "True when the scanner has not answered yet; the result arrives later on the source-reachability WebSocket channel.",
             "title": "Pending",
             "type": "boolean"
           },
           "scanner_id": {
+            "description": "Scanner that ran the probe.",
             "format": "uuid",
             "title": "Scanner Id",
             "type": "string"
           },
           "source_id": {
+            "description": "Source that was probed.",
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
           },
           "source_name": {
+            "description": "Name of that source.",
             "title": "Source Name",
             "type": "string"
           },
@@ -10035,6 +10508,7 @@
                 "type": "null"
               }
             ],
+            "description": "Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success or while pending.",
             "title": "Step"
           }
         },
@@ -10195,24 +10669,6 @@
           "error"
         ],
         "title": "TestSourcesResultRow",
-        "type": "object"
-      },
-      "TokenResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "TokenResponse",
         "type": "object"
       },
       "TreeNode": {
@@ -11083,11 +11539,13 @@
       "_EntrySourceRef": {
         "properties": {
           "id": {
+            "description": "Source id.",
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
           "name": {
+            "description": "Source name.",
             "title": "Name",
             "type": "string"
           },
@@ -11101,9 +11559,11 @@
                 "type": "null"
               }
             ],
+            "description": "Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none.",
             "title": "Security Metadata"
           },
           "type": {
+            "description": "Source type, e.g. `local`, `smb`, `nfs`, `s3`.",
             "title": "Type",
             "type": "string"
           }
@@ -11168,6 +11628,50 @@
           "tags"
         ],
         "title": "_TagApplyBody",
+        "type": "object"
+      },
+      "akashic__routers__auth__TokenResponse": {
+        "examples": [
+          {
+            "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            "token_type": "bearer"
+          }
+        ],
+        "properties": {
+          "access_token": {
+            "description": "Short-lived JWT access token; send it as a bearer token.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "description": "Always `bearer`.",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "akashic__schemas__user__TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
         "type": "object"
       }
     },
@@ -11240,10 +11744,11 @@
   "paths": {
     "/api/v1/access": {
       "get": {
-        "description": "Single endpoint, two modes.\n\n- `?principal=<token>` (and optional source_id/right): returns\n  summary + per-source rollup + paginated sample of files this\n  principal can {read|write|delete}. Powered by a Meilisearch\n  filter on `viewable_by_<right>`.\n- `?file=<uuid>` (and optional right): returns the list of\n  principals that have the requested right against the file,\n  computed from the entry's stored ACL.\n\nExactly one of `principal` / `file` is required. Both at once or\nneither produces a 400.",
+        "description": "Answers one of two questions, selected by which parameter is given.\n`principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.\n`file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.\nRequires scope `access:read`. Source-limited API tokens only see their permitted sources. Every lookup is recorded as an `access_lookup` audit event.\nErrors: 400 if both or neither of `principal` and `file` are given; 404 if the entry (or `source_id`) does not exist or is outside the token's sources; 422 for a malformed `cursor` or invalid parameter.",
         "operationId": "access_query",
         "parameters": [
           {
+            "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.",
             "in": "query",
             "name": "principal",
             "required": false,
@@ -11256,10 +11761,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.",
+              "examples": [
+                "sid:S-1-5-21-1-2-3-1001"
+              ],
               "title": "Principal"
             }
           },
           {
+            "description": "Entry id to list principals for. Mutually exclusive with `principal`.",
             "in": "query",
             "name": "file",
             "required": false,
@@ -11273,21 +11783,25 @@
                   "type": "null"
                 }
               ],
+              "description": "Entry id to list principals for. Mutually exclusive with `principal`.",
               "title": "File"
             }
           },
           {
+            "description": "Right to evaluate: `read`, `write` or `delete`.",
             "in": "query",
             "name": "right",
             "required": false,
             "schema": {
               "default": "read",
+              "description": "Right to evaluate: `read`, `write` or `delete`.",
               "pattern": "^(read|write|delete)$",
               "title": "Right",
               "type": "string"
             }
           },
           {
+            "description": "Restrict a `principal` lookup to this source.",
             "in": "query",
             "name": "source_id",
             "required": false,
@@ -11301,11 +11815,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Restrict a `principal` lookup to this source.",
               "title": "Source Id"
             }
           },
           {
-            "description": "Opaque cursor from a previous `next_cursor`.",
+            "description": "Opaque cursor from a previous `next_cursor` (principal mode only).",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -11318,16 +11833,18 @@
                   "type": "null"
                 }
               ],
-              "description": "Opaque cursor from a previous `next_cursor`.",
+              "description": "Opaque cursor from a previous `next_cursor` (principal mode only).",
               "title": "Cursor"
             }
           },
           {
+            "description": "Page size for the sample of files (principal mode only).",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 20,
+              "description": "Page size for the sample of files (principal mode only).",
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -11412,7 +11929,7 @@
             ]
           }
         ],
-        "summary": "Blast-radius lookup",
+        "summary": "Look up access (blast radius)",
         "tags": [
           "access"
         ]
@@ -11420,10 +11937,11 @@
     },
     "/api/v1/admin/audit": {
       "get": {
-        "description": "Newest first. `total` is the number of events matching the filters.",
+        "description": "Newest first, optionally filtered. `total` is the number of events matching the filters.\nRequires scope `audit:read`.\nErrors: 422 for a malformed `cursor` or an unparseable `from`/`to` datetime.",
         "operationId": "list_audit_events",
         "parameters": [
           {
+            "description": "Only events performed by this user.",
             "in": "query",
             "name": "user_id",
             "required": false,
@@ -11437,10 +11955,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Only events performed by this user.",
               "title": "User Id"
             }
           },
           {
+            "description": "Only events of this type, e.g. `access_lookup`, `api_token_created`, `host_created`.",
             "in": "query",
             "name": "event_type",
             "required": false,
@@ -11453,10 +11973,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Only events of this type, e.g. `access_lookup`, `api_token_created`, `host_created`.",
+              "examples": [
+                "access_lookup"
+              ],
               "title": "Event Type"
             }
           },
           {
+            "description": "Only events tied to this source.",
             "in": "query",
             "name": "source_id",
             "required": false,
@@ -11470,10 +11995,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Only events tied to this source.",
               "title": "Source Id"
             }
           },
           {
+            "description": "Only events at or after this time (ISO 8601; naive values are taken as UTC).",
             "in": "query",
             "name": "from",
             "required": false,
@@ -11486,10 +12013,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Only events at or after this time (ISO 8601; naive values are taken as UTC).",
+              "examples": [
+                "2026-04-27T22:00:00+00:00"
+              ],
               "title": "From"
             }
           },
           {
+            "description": "Only events at or before this time (ISO 8601; naive values are taken as UTC).",
             "in": "query",
             "name": "to",
             "required": false,
@@ -11501,6 +12033,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Only events at or before this time (ISO 8601; naive values are taken as UTC).",
+              "examples": [
+                "2026-04-28T22:00:00+00:00"
               ],
               "title": "To"
             }
@@ -11524,11 +12060,13 @@
             }
           },
           {
+            "description": "Page size.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 50,
+              "description": "Page size.",
               "maximum": 200,
               "minimum": 1,
               "title": "Limit",
@@ -11593,13 +12131,16 @@
     },
     "/api/v1/admin/audit/{event_id}": {
       "get": {
+        "description": "Requires scope `audit:read`. Errors: 404 if no event has this id.",
         "operationId": "get_audit_event",
         "parameters": [
           {
+            "description": "Audit event id.",
             "in": "path",
             "name": "event_id",
             "required": true,
             "schema": {
+              "description": "Audit event id.",
               "format": "uuid",
               "title": "Event Id",
               "type": "string"
@@ -11665,7 +12206,7 @@
             ]
           }
         ],
-        "summary": "Get Audit Event",
+        "summary": "Get an audit event",
         "tags": [
           "admin-audit"
         ]
@@ -12124,9 +12665,11 @@
     },
     "/api/v1/admin/tokens": {
       "get": {
+        "description": "Every user's tokens with owner username, newest first. Requires scope `tokens:admin`.",
         "operationId": "list_all_tokens",
         "parameters": [
           {
+            "description": "Only tokens owned by this user.",
             "in": "query",
             "name": "user_id",
             "required": false,
@@ -12140,6 +12683,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Only tokens owned by this user.",
               "title": "User Id"
             }
           }
@@ -12205,13 +12749,16 @@
     },
     "/api/v1/admin/tokens/{token_id}": {
       "delete": {
+        "description": "Revokes any user's token. Idempotent. Records an `api_token_revoked` audit event with `by_admin: true`.\nRequires scope `tokens:admin`. Errors: 404 if the token does not exist.",
         "operationId": "revoke_any_token",
         "parameters": [
           {
+            "description": "Token id.",
             "in": "path",
             "name": "token_id",
             "required": true,
             "schema": {
+              "description": "Token id.",
               "format": "uuid",
               "title": "Token Id",
               "type": "string"
@@ -12278,36 +12825,43 @@
     },
     "/api/v1/analytics/extension-trend": {
       "get": {
-        "description": "Per-extension series extracted from each snapshot's by_extension JSONB.\n\nReturns `{extension: [{taken_at, n, bytes}]}`. Missing extensions in\na given snapshot return zeros so the chart's lines remain monotonic\nin time.",
+        "description": "Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.\nRequires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.",
         "operationId": "get_extension_trend",
         "parameters": [
           {
+            "description": "Source to chart.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to chart.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
             }
           },
           {
-            "description": "comma-separated, e.g. pdf,mp4,docx",
+            "description": "Comma-separated extensions, without dots.",
             "in": "query",
             "name": "extensions",
             "required": true,
             "schema": {
-              "description": "comma-separated, e.g. pdf,mp4,docx",
+              "description": "Comma-separated extensions, without dots.",
+              "examples": [
+                "pdf,mp4,docx"
+              ],
               "title": "Extensions",
               "type": "string"
             }
           },
           {
+            "description": "Window length in days, ending now.",
             "in": "query",
             "name": "days",
             "required": false,
             "schema": {
               "default": 90,
+              "description": "Window length in days, ending now.",
               "maximum": 730,
               "minimum": 1,
               "title": "Days",
@@ -12389,25 +12943,29 @@
     },
     "/api/v1/analytics/forecast": {
       "get": {
-        "description": "Linear extrapolation of total_size_bytes over `lookback_days`.\n\nNo statsmodels/scipy dependency — slope from least-squares against\nthe last N snapshots, residual stddev for a 95% interval band. If\nfewer than 3 snapshots exist, returns `null` for the projection so\nthe UI can render a \"not enough history yet\" empty state.",
+        "description": "Linear projection of a source's total size from its recent snapshots (least-squares slope with a 95% interval band). With fewer than 3 snapshots in the lookback window `forecast` is null and `reason` is `insufficient_history`.\nRequires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.",
         "operationId": "get_forecast",
         "parameters": [
           {
+            "description": "Source to forecast.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to forecast.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
             }
           },
           {
+            "description": "How many days ahead to project.",
             "in": "query",
             "name": "horizon_days",
             "required": false,
             "schema": {
               "default": 30,
+              "description": "How many days ahead to project.",
               "maximum": 365,
               "minimum": 1,
               "title": "Horizon Days",
@@ -12415,11 +12973,13 @@
             }
           },
           {
+            "description": "How many days of history to fit.",
             "in": "query",
             "name": "lookback_days",
             "required": false,
             "schema": {
               "default": 90,
+              "description": "How many days of history to fit.",
               "maximum": 730,
               "minimum": 7,
               "title": "Lookback Days",
@@ -12494,14 +13054,20 @@
     },
     "/api/v1/analytics/largest-files": {
       "get": {
+        "description": "The largest non-deleted files across visible sources, biggest first. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_largest_files",
         "parameters": [
           {
+            "description": "Number of files to return (maximum 100).",
             "in": "query",
             "name": "n",
             "required": false,
             "schema": {
               "default": 10,
+              "description": "Number of files to return (maximum 100).",
+              "examples": [
+                10
+              ],
               "maximum": 100,
               "title": "N",
               "type": "integer"
@@ -12569,14 +13135,16 @@
     },
     "/api/v1/analytics/owner-distribution": {
       "get": {
-        "description": "Latest snapshot's by_owner — one row per owner_name, ordered by bytes.\n\nNames are hydrated via principals_cache when the owner_name looks\nlike a SID; raw POSIX names pass through. Used by the Dashboard's\n'Top owners by size' tile.",
+        "description": "File count and bytes per owner from the source's latest snapshot, largest first; empty when the source has no snapshot. Owner SIDs are resolved to names from the principals cache where known.\nRequires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.",
         "operationId": "get_owner_distribution",
         "parameters": [
           {
+            "description": "Source to summarise.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to summarise.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
@@ -12650,6 +13218,7 @@
     },
     "/api/v1/analytics/storage-by-source": {
       "get": {
+        "description": "File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_storage_by_source",
         "responses": {
           "200": {
@@ -12702,6 +13271,7 @@
     },
     "/api/v1/analytics/storage-by-type": {
       "get": {
+        "description": "File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_storage_by_type",
         "responses": {
           "200": {
@@ -12754,36 +13324,42 @@
     },
     "/api/v1/analytics/timeseries": {
       "get": {
-        "description": "Return [{taken_at, value}] points for the given source's metric.\n\n`size` reads `total_size_bytes`; `count` reads `file_count`. Caller\ncan plot directly in recharts. The response is ordered oldest-to-newest\nso the X axis is monotonic without a client-side sort.",
+        "description": "History of one source's total size or file count, oldest first, one point per scan snapshot in the window.\nRequires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.",
         "operationId": "get_timeseries",
         "parameters": [
           {
+            "description": "Source to chart.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to chart.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
             }
           },
           {
+            "description": "`size` plots total bytes, `count` plots file count.",
             "in": "query",
             "name": "metric",
             "required": false,
             "schema": {
               "default": "size",
+              "description": "`size` plots total bytes, `count` plots file count.",
               "pattern": "^(size|count)$",
               "title": "Metric",
               "type": "string"
             }
           },
           {
+            "description": "Window length in days, ending now.",
             "in": "query",
             "name": "days",
             "required": false,
             "schema": {
               "default": 90,
+              "description": "Window length in days, ending now.",
               "maximum": 730,
               "minimum": 1,
               "title": "Days",
@@ -12862,7 +13438,7 @@
     },
     "/api/v1/auth/ldap/login": {
       "post": {
-        "description": "Authenticate via LDAP bind and return a JWT on success.",
+        "description": "Public. Authenticates by LDAP bind, provisions the user on first login, returns an access token and sets the HttpOnly refresh cookie. Records an `ldap_login_success` audit event. Rate limited to 10 attempts per minute per client and username.\nErrors: 401 for invalid credentials; 404 if LDAP is not enabled; 429 when rate limited; 500 if the directory fails or the user cannot be provisioned.",
         "operationId": "ldap_login",
         "requestBody": {
           "content": {
@@ -12879,7 +13455,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
+                  "$ref": "#/components/schemas/akashic__routers__auth__TokenResponse"
                 }
               }
             },
@@ -12936,7 +13512,7 @@
             "description": "Internal Server Error"
           }
         },
-        "summary": "Ldap Login",
+        "summary": "Log in with LDAP",
         "tags": [
           "auth"
         ]
@@ -12944,10 +13520,11 @@
     },
     "/api/v1/auth/logout": {
       "post": {
-        "description": "Revoke the presented refresh token and clear the cookie. The\nshort-lived access JWT keeps working until its TTL expires; logout\nonly kills the long-lived chain. Idempotent — calling without a\ncookie is a no-op success.",
+        "description": "Public. Revokes the presented refresh token and clears the cookie. The short-lived access token keeps working until it expires. Idempotent: calling without a cookie succeeds.",
         "operationId": "logout",
         "parameters": [
           {
+            "description": "HttpOnly refresh cookie set at login.",
             "in": "cookie",
             "name": "akashic_refresh",
             "required": false,
@@ -12960,6 +13537,7 @@
                   "type": "null"
                 }
               ],
+              "description": "HttpOnly refresh cookie set at login.",
               "title": "Akashic Refresh"
             }
           }
@@ -12988,7 +13566,7 @@
             "description": "Request failed validation."
           }
         },
-        "summary": "Logout",
+        "summary": "Log out",
         "tags": [
           "auth"
         ]
@@ -12996,11 +13574,11 @@
     },
     "/api/v1/auth/oidc/callback": {
       "get": {
-        "description": "Handle the OIDC callback: exchange the code for tokens, mint a\nrefresh token, set the HttpOnly refresh cookie, and 302 the browser\nto the SPA's /auth/callback (which trades the cookie for an access\ntoken via /api/v1/auth/refresh). Failures 302 to /login?error=<code>\nwith one of sso_denied, sso_state, sso_failed, sso_provision.",
+        "description": "Public. Exchanges the authorization code for tokens, provisions the user if needed, sets the HttpOnly refresh cookie and redirects (302) to the SPA's `/auth/callback`, which then calls `POST /api/v1/auth/refresh` for an access token. Records an `oidc_login_success` audit event. Failures redirect to `/login?error=<code>` with one of `sso_denied`, `sso_state`, `sso_failed` or `sso_provision`.\nErrors: 404 if OIDC is not enabled.",
         "operationId": "oidc_callback",
         "parameters": [
           {
-            "description": "Authorization code returned by the OIDC provider",
+            "description": "Authorization code returned by the OIDC provider.",
             "in": "query",
             "name": "code",
             "required": false,
@@ -13013,11 +13591,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Authorization code returned by the OIDC provider",
+              "description": "Authorization code returned by the OIDC provider.",
               "title": "Code"
             }
           },
           {
+            "description": "State value echoed by the provider; must match the `oidc_state` cookie.",
             "in": "query",
             "name": "state",
             "required": false,
@@ -13030,10 +13609,12 @@
                   "type": "null"
                 }
               ],
+              "description": "State value echoed by the provider; must match the `oidc_state` cookie.",
               "title": "State"
             }
           },
           {
+            "description": "Error code returned by the provider when the user denied or the login failed.",
             "in": "query",
             "name": "error",
             "required": false,
@@ -13046,10 +13627,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Error code returned by the provider when the user denied or the login failed.",
               "title": "Error"
             }
           },
           {
+            "description": "State cookie set by `/oidc/login`.",
             "in": "cookie",
             "name": "oidc_state",
             "required": false,
@@ -13062,10 +13645,12 @@
                   "type": "null"
                 }
               ],
+              "description": "State cookie set by `/oidc/login`.",
               "title": "Oidc State"
             }
           },
           {
+            "description": "PKCE verifier cookie set by `/oidc/login`.",
             "in": "cookie",
             "name": "oidc_pkce",
             "required": false,
@@ -13078,10 +13663,12 @@
                   "type": "null"
                 }
               ],
+              "description": "PKCE verifier cookie set by `/oidc/login`.",
               "title": "Oidc Pkce"
             }
           },
           {
+            "description": "Nonce cookie set by `/oidc/login`.",
             "in": "cookie",
             "name": "oidc_nonce",
             "required": false,
@@ -13094,6 +13681,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Nonce cookie set by `/oidc/login`.",
               "title": "Oidc Nonce"
             }
           }
@@ -13131,7 +13719,7 @@
     },
     "/api/v1/auth/oidc/login": {
       "get": {
-        "description": "Redirect the user to the configured OIDC provider for authentication.",
+        "description": "Public. Redirects the browser (302) to the configured OIDC provider and sets short-lived state, PKCE and nonce cookies.\nErrors: 404 if OIDC is not enabled; 502 if the provider cannot be reached.",
         "operationId": "oidc_login",
         "responses": {
           "302": {
@@ -13166,7 +13754,7 @@
     },
     "/api/v1/auth/providers": {
       "get": {
-        "description": "Return which authentication providers are currently enabled, plus\nwhether bootstrap registration is still open (no users yet).",
+        "description": "Public. Reports which authentication providers are enabled and whether first-run setup is still open (`setup_required`, true only while no user exists). The login page uses it to decide what to offer.",
         "operationId": "get_providers",
         "responses": {
           "200": {
@@ -13180,7 +13768,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Get Providers",
+        "summary": "List login providers",
         "tags": [
           "auth"
         ]
@@ -13188,10 +13776,11 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "description": "Mint a new access token from a valid refresh cookie. Rotates the\nrefresh row on every call. Returns 401 on missing/expired/replayed\ntokens — the web client treats that as a hard logout.",
+        "description": "Public, authenticated by the refresh cookie. Mints a new access token and rotates the refresh token on every call. A missing, expired, revoked or replayed refresh token returns 401, which clients should treat as a logout.",
         "operationId": "refresh_token",
         "parameters": [
           {
+            "description": "HttpOnly refresh cookie set at login.",
             "in": "cookie",
             "name": "akashic_refresh",
             "required": false,
@@ -13204,6 +13793,7 @@
                   "type": "null"
                 }
               ],
+              "description": "HttpOnly refresh cookie set at login.",
               "title": "Akashic Refresh"
             }
           }
@@ -13213,7 +13803,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
+                  "$ref": "#/components/schemas/akashic__routers__auth__TokenResponse"
                 }
               }
             },
@@ -13240,7 +13830,7 @@
             "description": "Request failed validation."
           }
         },
-        "summary": "Refresh Token",
+        "summary": "Refresh the access token",
         "tags": [
           "auth"
         ]
@@ -13248,34 +13838,44 @@
     },
     "/api/v1/browse": {
       "get": {
+        "description": "Lists the children of one directory of a source, directories first, in keyset-paginated pages. Entries the caller may not read are omitted when per-user ACL filtering applies (a user with filesystem identity bindings, unless a caller who can bypass ACLs passes `show_all`); a `browse_filtered` audit event is recorded when that hides something.\n`total` is only computed on the first page (no `cursor`) and only when `include_total` is true.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources.\nErrors: 400 for an invalid `filters` value or a `source` predicate in it (use search for cross-source filters); 404 if the source does not exist or is outside the token's sources; 422 for a malformed `cursor`, or one issued under a different `sort`/`order`.",
         "operationId": "browse",
         "parameters": [
           {
+            "description": "Source to browse.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to browse.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
             }
           },
           {
+            "description": "Directory path within the source; `/` is the root. Trailing slashes are ignored.",
             "in": "query",
             "name": "path",
             "required": false,
             "schema": {
               "default": "/",
+              "description": "Directory path within the source; `/` is the root. Trailing slashes are ignored.",
+              "examples": [
+                "/Reports/2026"
+              ],
               "title": "Path",
               "type": "string"
             }
           },
           {
+            "description": "Sort key within directories and within files.",
             "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
               "default": "name",
+              "description": "Sort key within directories and within files.",
               "enum": [
                 "name",
                 "size",
@@ -13286,11 +13886,13 @@
             }
           },
           {
+            "description": "Sort direction.",
             "in": "query",
             "name": "order",
             "required": false,
             "schema": {
               "default": "asc",
+              "description": "Sort direction.",
               "enum": [
                 "asc",
                 "desc"
@@ -13300,17 +13902,19 @@
             }
           },
           {
+            "description": "For callers allowed to bypass ACL filtering: show entries regardless of filesystem permissions. Ignored for everyone else.",
             "in": "query",
             "name": "show_all",
             "required": false,
             "schema": {
               "default": false,
+              "description": "For callers allowed to bypass ACL filtering: show entries regardless of filesystem permissions. Ignored for everyone else.",
               "title": "Show All",
               "type": "boolean"
             }
           },
           {
-            "description": "base64url(json) predicate list",
+            "description": "Filter predicates, as base64url-encoded JSON, using the same grammar as search (without a `source` predicate).",
             "in": "query",
             "name": "filters",
             "required": false,
@@ -13323,11 +13927,12 @@
                   "type": "null"
                 }
               ],
-              "description": "base64url(json) predicate list",
+              "description": "Filter predicates, as base64url-encoded JSON, using the same grammar as search (without a `source` predicate).",
               "title": "Filters"
             }
           },
           {
+            "description": "Opaque cursor from a previous `next_cursor`. Restart pagination if you change `sort` or `order`.",
             "in": "query",
             "name": "cursor",
             "required": false,
@@ -13340,15 +13945,18 @@
                   "type": "null"
                 }
               ],
+              "description": "Opaque cursor from a previous `next_cursor`. Restart pagination if you change `sort` or `order`.",
               "title": "Cursor"
             }
           },
           {
+            "description": "Page size.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 500,
+              "description": "Page size.",
               "maximum": 5000,
               "minimum": 1,
               "title": "Limit",
@@ -13356,7 +13964,7 @@
             }
           },
           {
-            "description": "case-insensitive substring filter on entry name",
+            "description": "Case-insensitive substring filter on the entry name.",
             "in": "query",
             "name": "q",
             "required": false,
@@ -13369,16 +13977,21 @@
                   "type": "null"
                 }
               ],
-              "description": "case-insensitive substring filter on entry name",
+              "description": "Case-insensitive substring filter on the entry name.",
+              "examples": [
+                "report"
+              ],
               "title": "Q"
             }
           },
           {
+            "description": "Compute `total` on the first page. Disable to skip the count on very large folders.",
             "in": "query",
             "name": "include_total",
             "required": false,
             "schema": {
               "default": true,
+              "description": "Compute `total` on the first page. Disable to skip the count on very large folders.",
               "title": "Include Total",
               "type": "boolean"
             }
@@ -13461,35 +14074,44 @@
     },
     "/api/v1/browse/effective-counts": {
       "get": {
-        "description": "How many entries under `path` the user can/can't see — feeds the\nBrowse \"X items hidden\" footer. Cheap (two COUNT(*) queries with the\nsame indexes Browse uses).",
+        "description": "For one directory, how many direct children the caller can see and how many per-user ACL filtering hides. Returns `{visible, hidden, enforced}`; `enforced` is false (and `hidden` 0) when no ACL filter applies. Feeds the Browse \"N items hidden\" footer.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources. Errors: 404 if the source is outside the token's sources.",
         "operationId": "effective_counts",
         "parameters": [
           {
+            "description": "Source to count in.",
             "in": "query",
             "name": "source_id",
             "required": true,
             "schema": {
+              "description": "Source to count in.",
               "format": "uuid",
               "title": "Source Id",
               "type": "string"
             }
           },
           {
+            "description": "Directory path within the source; `/` is the root.",
             "in": "query",
             "name": "path",
             "required": false,
             "schema": {
               "default": "/",
+              "description": "Directory path within the source; `/` is the root.",
+              "examples": [
+                "/Reports/2026"
+              ],
               "title": "Path",
               "type": "string"
             }
           },
           {
+            "description": "For callers allowed to bypass ACL filtering: skip the filter and count everything as visible.",
             "in": "query",
             "name": "show_all",
             "required": false,
             "schema": {
               "default": false,
+              "description": "For callers allowed to bypass ACL filtering: skip the filter and count everything as visible.",
               "title": "Show All",
               "type": "boolean"
             }
@@ -13556,7 +14178,7 @@
             ]
           }
         ],
-        "summary": "Effective Counts",
+        "summary": "Count visible and hidden entries",
         "tags": [
           "browse"
         ]
@@ -13564,9 +14186,11 @@
     },
     "/api/v1/credential-profiles": {
       "get": {
+        "description": "Name, type and description of every profile, sorted by name. Credentials are never included. Requires scope `credentials:list`.\nErrors: 400 for an unsupported `type` filter.",
         "operationId": "list_profiles",
         "parameters": [
           {
+            "description": "Only profiles of this type: `smb`, `nfs` or `s3`.",
             "in": "query",
             "name": "type",
             "required": false,
@@ -13578,6 +14202,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Only profiles of this type: `smb`, `nfs` or `s3`.",
+              "examples": [
+                "smb"
               ],
               "title": "Type"
             }
@@ -13646,12 +14274,13 @@
             ]
           }
         ],
-        "summary": "List Profiles",
+        "summary": "List credential profiles",
         "tags": [
           "credential-profiles"
         ]
       },
       "post": {
+        "description": "Creates a reusable credential set that hosts and sources can reference. Credentials are stored encrypted and masked as `***` in every response. SMB profiles must have a non- empty password. Records a `credential_profile_created` audit event.\nRequires scope `credentials:write`.\nErrors: 400 for an unsupported `type`; 409 if the name is already used; 422 for an SMB profile without a password.",
         "operationId": "create_profile",
         "requestBody": {
           "content": {
@@ -13732,7 +14361,7 @@
             ]
           }
         ],
-        "summary": "Create Profile",
+        "summary": "Create a credential profile",
         "tags": [
           "credential-profiles"
         ]
@@ -13740,13 +14369,16 @@
     },
     "/api/v1/credential-profiles/{profile_id}": {
       "delete": {
+        "description": "Deletes the profile. Records a `credential_profile_deleted` audit event.\nRequires scope `credentials:write`.\nErrors: 404 if the profile does not exist; 409 if hosts or sources still reference it (reassign or unlink them first).",
         "operationId": "delete_profile",
         "parameters": [
           {
+            "description": "Credential profile id.",
             "in": "path",
             "name": "profile_id",
             "required": true,
             "schema": {
+              "description": "Credential profile id.",
               "format": "uuid",
               "title": "Profile Id",
               "type": "string"
@@ -13815,19 +14447,22 @@
             ]
           }
         ],
-        "summary": "Delete Profile",
+        "summary": "Delete a credential profile",
         "tags": [
           "credential-profiles"
         ]
       },
       "get": {
+        "description": "Returns the profile with its credentials masked as `***`. Requires scope `credentials:read`.\nErrors: 404 if the profile does not exist.",
         "operationId": "get_profile",
         "parameters": [
           {
+            "description": "Credential profile id.",
             "in": "path",
             "name": "profile_id",
             "required": true,
             "schema": {
+              "description": "Credential profile id.",
               "format": "uuid",
               "title": "Profile Id",
               "type": "string"
@@ -13893,19 +14528,22 @@
             ]
           }
         ],
-        "summary": "Get Profile",
+        "summary": "Get a credential profile",
         "tags": [
           "credential-profiles"
         ]
       },
       "patch": {
+        "description": "Partial update; the type cannot change. In `credentials`, a value of `***` leaves the stored value untouched, so a masked response can be edited and sent back. When credentials actually change, a fresh reachability probe is queued in the background for every source using the profile. Records a `credential_profile_updated` audit event.\nRequires scope `credentials:write`.\nErrors: 404 if the profile does not exist; 409 if the new name is already used; 422 if an SMB profile would end up without a password.",
         "operationId": "update_profile",
         "parameters": [
           {
+            "description": "Credential profile id.",
             "in": "path",
             "name": "profile_id",
             "required": true,
             "schema": {
+              "description": "Credential profile id.",
               "format": "uuid",
               "title": "Profile Id",
               "type": "string"
@@ -13991,7 +14629,7 @@
             ]
           }
         ],
-        "summary": "Update Profile",
+        "summary": "Update a credential profile",
         "tags": [
           "credential-profiles"
         ]
@@ -13999,7 +14637,7 @@
     },
     "/api/v1/dashboard/access-risks": {
       "get": {
-        "description": "World-readable file count. Admin-only — non-admins get 200 +\n`null` so the tile can render a \"not visible to your role\"\nplaceholder without a 403 round-trip per dashboard mount.",
+        "description": "Count of files readable by everyone, cached for a short time (`cache_age_seconds`). Only callers holding `audit:read` and not limited to sources get the figure; any other caller receives 200 with `access_risks: null` so the dashboard tile can render a placeholder without an error.\nRequires scope `analytics:read`.",
         "operationId": "get_access_risks",
         "responses": {
           "200": {
@@ -14048,6 +14686,7 @@
     },
     "/api/v1/dashboard/summary": {
       "get": {
+        "description": "Everything the landing page shows in one call: storage totals with a 30-day delta, scan counters, growth hints for the three largest sources, top owners, fastest-growing extensions, recent scans and identity-mapping counters. User-related counts are only included for callers who can read users and are not source-limited.\nRequires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_summary",
         "responses": {
           "200": {
@@ -14096,9 +14735,11 @@
     },
     "/api/v1/duplicates": {
       "get": {
+        "description": "Groups of non-deleted files that share a content hash (two or more copies), largest combined size first. `wasted_bytes` is what keeping a single copy would reclaim. Files hidden by per-user ACL filtering are not counted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources. Errors: 422 for a malformed `cursor`.",
         "operationId": "list_duplicates",
         "parameters": [
           {
+            "description": "Only groups whose single-copy size is at least this many bytes.",
             "in": "query",
             "name": "min_size",
             "required": false,
@@ -14110,6 +14751,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Only groups whose single-copy size is at least this many bytes.",
+              "examples": [
+                1048576
               ],
               "title": "Min Size"
             }
@@ -14133,11 +14778,13 @@
             }
           },
           {
+            "description": "Page size.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 50,
+              "description": "Page size.",
               "maximum": 200,
               "title": "Limit",
               "type": "integer"
@@ -14201,14 +14848,16 @@
     },
     "/api/v1/duplicates/{content_hash}/delete-copies": {
       "post": {
-        "description": "Bulk-delete copies of a duplicate group from disk + index.\n\nValidation:\n  - keep_entry_id and every delete_entry_id must belong to the same\n    content_hash group.\n  - delete_entry_ids must be non-empty.\n  - keep_entry_id must NOT also appear in delete_entry_ids.\n\nPer-entry execution: spawn `akashic-scanner delete`. On success we\ndrop the Entry row from postgres + the doc from Meilisearch and\nwrite an audit_event. On failure we leave the row in place and\nsurface the connector error to the caller. Partial-success is the\ncommon case (one path is read-only; the others delete fine).",
+        "description": "Deletes the listed copies of a duplicate group from the storage system itself and from the index, keeping `keep_entry_id`. Copies are processed one at a time; the response lists which were deleted and which failed (for example a read-only share), so partial success is normal and still returns 200. A failed copy stays indexed. Each outcome is recorded as a `duplicate_copy_deleted` or `duplicate_copy_delete_failed` audit event.\nRequires scope `sources:write`. Source-limited API tokens only see their permitted sources.\nErrors: 400 if `delete_entry_ids` is empty, contains `keep_entry_id`, or any entry is not a file with this content hash; 404 if any entry does not exist or is outside the token's sources.",
         "operationId": "delete_duplicate_copies",
         "parameters": [
           {
+            "description": "Content hash of the group the entries must belong to.",
             "in": "path",
             "name": "content_hash",
             "required": true,
             "schema": {
+              "description": "Content hash of the group the entries must belong to.",
               "title": "Content Hash",
               "type": "string"
             }
@@ -14293,7 +14942,7 @@
             ]
           }
         ],
-        "summary": "Delete Duplicate Copies",
+        "summary": "Delete duplicate copies",
         "tags": [
           "duplicates"
         ]
@@ -14301,13 +14950,16 @@
     },
     "/api/v1/duplicates/{content_hash}/files": {
       "get": {
+        "description": "The individual copies in one duplicate group, ordered by entry id. Files hidden by per- user ACL filtering are omitted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources. Errors: 422 for a malformed `cursor`.",
         "operationId": "get_duplicate_files",
         "parameters": [
           {
+            "description": "Content hash shared by the copies, as returned by the group list.",
             "in": "path",
             "name": "content_hash",
             "required": true,
             "schema": {
+              "description": "Content hash shared by the copies, as returned by the group list.",
               "title": "Content Hash",
               "type": "string"
             }
@@ -14331,11 +14983,13 @@
             }
           },
           {
+            "description": "Page size.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 500,
+              "description": "Page size.",
               "maximum": 5000,
               "minimum": 1,
               "title": "Limit",
@@ -14400,9 +15054,11 @@
     },
     "/api/v1/entries": {
       "get": {
+        "description": "Non-deleted entries ordered by path, optionally filtered. Entries hidden by per-user ACL filtering are omitted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources.\nErrors: 404 if `source_id` is outside the token's sources; 422 for a malformed `cursor`.",
         "operationId": "list_entries",
         "parameters": [
           {
+            "description": "Only entries of this source.",
             "in": "query",
             "name": "source_id",
             "required": false,
@@ -14416,10 +15072,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Only entries of this source.",
               "title": "Source Id"
             }
           },
           {
+            "description": "Only this kind: `file` or `directory`.",
             "in": "query",
             "name": "kind",
             "required": false,
@@ -14432,10 +15090,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Only this kind: `file` or `directory`.",
+              "examples": [
+                "file"
+              ],
               "title": "Kind"
             }
           },
           {
+            "description": "Only files with this extension, without the dot.",
             "in": "query",
             "name": "extension",
             "required": false,
@@ -14448,10 +15111,15 @@
                   "type": "null"
                 }
               ],
+              "description": "Only files with this extension, without the dot.",
+              "examples": [
+                "pdf"
+              ],
               "title": "Extension"
             }
           },
           {
+            "description": "Only entries whose full path starts with this prefix.",
             "in": "query",
             "name": "path_prefix",
             "required": false,
@@ -14463,6 +15131,10 @@
                 {
                   "type": "null"
                 }
+              ],
+              "description": "Only entries whose full path starts with this prefix.",
+              "examples": [
+                "/Reports/"
               ],
               "title": "Path Prefix"
             }
@@ -14486,11 +15158,13 @@
             }
           },
           {
+            "description": "Page size.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 50,
+              "description": "Page size.",
               "maximum": 200,
               "minimum": 1,
               "title": "Limit",
@@ -14565,14 +15239,16 @@
     },
     "/api/v1/entries/by-hash/{content_hash}": {
       "get": {
-        "description": "All file entries sharing a given content_hash, scoped to permitted sources.",
+        "description": "Every non-deleted file with this content hash across the visible sources; the unpaginated counterpart of the duplicate group files. Entries hidden by per-user ACL filtering are omitted.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_entries_by_hash",
         "parameters": [
           {
+            "description": "Content hash to match.",
             "in": "path",
             "name": "content_hash",
             "required": true,
             "schema": {
+              "description": "Content hash to match.",
               "title": "Content Hash",
               "type": "string"
             }
@@ -14631,7 +15307,7 @@
             ]
           }
         ],
-        "summary": "Get Entries By Hash",
+        "summary": "List entries by content hash",
         "tags": [
           "entries"
         ]
@@ -14639,13 +15315,16 @@
     },
     "/api/v1/entries/{entry_id}": {
       "get": {
+        "description": "Full detail of one entry: metadata, ACL, extended attributes, version history, owning source and tags (direct and inherited).\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources.\nErrors: 404 if the entry does not exist, is outside the token's sources, or is hidden from the caller by per-user ACL filtering (the same status in every case, so existence is not revealed).",
         "operationId": "get_entry",
         "parameters": [
           {
+            "description": "Entry id.",
             "in": "path",
             "name": "entry_id",
             "required": true,
             "schema": {
+              "description": "Entry id.",
               "format": "uuid",
               "title": "Entry Id",
               "type": "string"
@@ -14711,7 +15390,7 @@
             ]
           }
         ],
-        "summary": "Get Entry",
+        "summary": "Get an entry",
         "tags": [
           "entries"
         ]
@@ -14719,24 +15398,29 @@
     },
     "/api/v1/entries/{entry_id}/content": {
       "get": {
+        "description": "Streams the file's bytes with the entry's MIME type. Local sources are served directly (range requests supported); other sources are fetched through a scanner process and streamed without a `Content-Length`, because the indexed size may be stale. Use `attachment=true` to force a download.\nRequires scope `files:content`. Source-limited API tokens only see their permitted sources.\nErrors: 400 for an unsafe path; 403 if the file is not readable by the API; 404 if the entry is not a file, was deleted, its source is gone, it is outside the token's sources or hidden by per-user ACL filtering, or the file is missing on disk.",
         "operationId": "get_content",
         "parameters": [
           {
+            "description": "Entry id of a file.",
             "in": "path",
             "name": "entry_id",
             "required": true,
             "schema": {
+              "description": "Entry id of a file.",
               "format": "uuid",
               "title": "Entry Id",
               "type": "string"
             }
           },
           {
+            "description": "Send `Content-Disposition: attachment` instead of `inline`.",
             "in": "query",
             "name": "attachment",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Send `Content-Disposition: attachment` instead of `inline`.",
               "title": "Attachment",
               "type": "boolean"
             }
@@ -14820,13 +15504,16 @@
     },
     "/api/v1/entries/{entry_id}/effective-permissions": {
       "post": {
+        "description": "Computes, for a given principal and its groups, which rights (read, write, execute, delete, change_perms) the entry's stored ACL, mode and ownership grant, with the ACL entries responsible and any caveats of the model used (posix, nfsv4, nt, s3, cloud_drive). It evaluates the stored metadata only; it does not contact the storage system. Despite being a POST it changes nothing.\nRequires scope `identities:read`. Source-limited API tokens only see their permitted sources.\nErrors: 404 if the entry does not exist or is outside the token's sources.",
         "operationId": "post_effective_permissions",
         "parameters": [
           {
+            "description": "Entry to evaluate.",
             "in": "path",
             "name": "entry_id",
             "required": true,
             "schema": {
+              "description": "Entry to evaluate.",
               "format": "uuid",
               "title": "Entry Id",
               "type": "string"
@@ -14902,7 +15589,7 @@
             ]
           }
         ],
-        "summary": "Post Effective Permissions",
+        "summary": "Evaluate effective permissions",
         "tags": [
           "effective-permissions"
         ]
@@ -14910,13 +15597,16 @@
     },
     "/api/v1/entries/{entry_id}/preview": {
       "get": {
+        "description": "A text preview of the first 64 KiB of the file. Files with a NUL byte in their first 4 KiB are reported as binary with no text; text is decoded as UTF-8, falling back to Latin-1.\nRequires scope `files:content`. Source-limited API tokens only see their permitted sources.\nErrors: 400 for an unsafe path; 403 if the file is not readable by the API; 404 as for the content endpoint; 502 if the scanner cannot fetch a non-local file.",
         "operationId": "get_preview",
         "parameters": [
           {
+            "description": "Entry id of a file.",
             "in": "path",
             "name": "entry_id",
             "required": true,
             "schema": {
+              "description": "Entry id of a file.",
               "format": "uuid",
               "title": "Entry Id",
               "type": "string"
@@ -15002,7 +15692,7 @@
             ]
           }
         ],
-        "summary": "Get Preview",
+        "summary": "Preview file content",
         "tags": [
           "entries"
         ]
@@ -15261,13 +15951,16 @@
     },
     "/api/v1/entries/{entry_id}/versions": {
       "get": {
+        "description": "Recorded versions of an entry, newest first. Each captures the content hash, size, mode, ownership, ACL and extended attributes as of the scan that detected it.\nRequires scope `files:read`. Source-limited API tokens only see their permitted sources.\nErrors: 404 if the entry does not exist, is outside the token's sources, or is hidden from the caller.",
         "operationId": "get_entry_versions",
         "parameters": [
           {
+            "description": "Entry id.",
             "in": "path",
             "name": "entry_id",
             "required": true,
             "schema": {
+              "description": "Entry id.",
               "format": "uuid",
               "title": "Entry Id",
               "type": "string"
@@ -15337,7 +16030,7 @@
             ]
           }
         ],
-        "summary": "Get Entry Versions",
+        "summary": "List entry versions",
         "tags": [
           "entries"
         ]
@@ -15345,7 +16038,7 @@
     },
     "/api/v1/health/services": {
       "get": {
-        "description": "Per-service liveness, 5-s cached. Admin-only.\n\nEach probe has its own 2 s timeout so the response itself is\nbounded at ~2 s even when several backends are down. Per-service\n`{ok, latency_ms, error}` so the frontend chip can colour-code\nby whichever service flipped first.",
+        "description": "Liveness of Postgres, Redis, Meilisearch and Tika, each probed with a 2 second timeout, with `ok`, `latency_ms` and `error` per service and a `checked_at` timestamp. The result is cached for 5 seconds.\nRequires scope `health:read`.",
         "operationId": "services_health",
         "responses": {
           "200": {
@@ -15388,7 +16081,7 @@
             ]
           }
         ],
-        "summary": "Services Health",
+        "summary": "Check service health",
         "tags": [
           "health"
         ]
@@ -15396,7 +16089,7 @@
     },
     "/api/v1/health/services/activity": {
       "get": {
-        "description": "Tika extraction throughput + Meilisearch activity. 5-second\ncached, admin-only.\n\nDriving the \"Admin → System Status\" page so operators can answer\n\"is anything actually happening\" without grepping logs.",
+        "description": "Tika extraction throughput (queue depth, per-minute counters, last extraction) and Meilisearch activity (document count, pending tasks, last task status). An unreachable backend reports `ok: false` rather than failing the request. Cached for 5 seconds.\nRequires scope `health:read`.",
         "operationId": "services_activity",
         "responses": {
           "200": {
@@ -15439,7 +16132,7 @@
             ]
           }
         ],
-        "summary": "Services Activity",
+        "summary": "Show service activity",
         "tags": [
           "health"
         ]
@@ -15447,7 +16140,7 @@
     },
     "/api/v1/hosts": {
       "get": {
-        "description": "List all hosts. Includes a `source_count` per row so the UI can\nshow \"3 shares\" without a follow-up call.\n\nVisible to any authenticated user — same access tier as the source\nlist (which any user can browse, filtered by per-source ACL on\ndetail endpoints). Editing is admin-only.",
+        "description": "Every host, with `source_count` so a list view can show how many shares are attached. Secrets are masked. Requires scope `hosts:read`.",
         "operationId": "list_hosts",
         "responses": {
           "200": {
@@ -15492,12 +16185,13 @@
             ]
           }
         ],
-        "summary": "List Hosts",
+        "summary": "List hosts",
         "tags": [
           "hosts"
         ]
       },
       "post": {
+        "description": "Creates a network host (SMB, NFS or S3) that sources attach to. Its connection config and credential profile are inherited by those sources, and the optional scan- distribution limits apply to every attached source that does not set its own. Secrets in the response are masked. Records a `host_created` audit event.\nRequires scope `hosts:write`.\nErrors: 400 for an unsupported `type`, a masked-secret placeholder in `connection_config`, out-of-range scan controls, or a credential profile of a different type; 404 if the credential profile does not exist; 409 if the name is already used.",
         "operationId": "create_host",
         "requestBody": {
           "content": {
@@ -15588,7 +16282,7 @@
             ]
           }
         ],
-        "summary": "Create Host",
+        "summary": "Create a host",
         "tags": [
           "hosts"
         ]
@@ -15596,13 +16290,16 @@
     },
     "/api/v1/hosts/{host_id}": {
       "delete": {
+        "description": "Deletes a host that has no sources attached. Records a `host_deleted` audit event.\nRequires scope `hosts:write`.\nErrors: 404 if the host does not exist; 409 if sources are still attached (delete or detach them first).",
         "operationId": "delete_host",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -15671,19 +16368,22 @@
             ]
           }
         ],
-        "summary": "Delete Host",
+        "summary": "Delete a host",
         "tags": [
           "hosts"
         ]
       },
       "get": {
+        "description": "Requires scope `hosts:read`. Errors: 404 if the host does not exist.",
         "operationId": "get_host",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -15749,19 +16449,22 @@
             ]
           }
         ],
-        "summary": "Get Host",
+        "summary": "Get a host",
         "tags": [
           "hosts"
         ]
       },
       "patch": {
+        "description": "Partial update. In `connection_config`, masked secret values (`***`) keep the stored secret. Only the scan controls present in the body are validated, and an explicit null clears one so it falls back to the default. The type cannot change. Records a `host_updated` audit event with the changed fields when something changed.\nRequires scope `hosts:write`.\nErrors: 400 for out-of-range scan controls or a credential profile of a different type; 404 if the host or credential profile does not exist; 409 if the new name is already used.",
         "operationId": "update_host",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -15857,7 +16560,7 @@
             ]
           }
         ],
-        "summary": "Update Host",
+        "summary": "Update a host",
         "tags": [
           "hosts"
         ]
@@ -15865,14 +16568,16 @@
     },
     "/api/v1/hosts/{host_id}/add-shares": {
       "post": {
-        "description": "Batch-create Source rows attached to this host. Each entry's\n`share` value populates the per-type share-shaped key\n(`share` / `export_path` / `bucket`); credentials live on the Host\nand aren't duplicated. Names that collide with existing sources\nare skipped — the response reports created/skipped counts so the\ncaller can show \"Added 3 of 5\" in the UI.",
+        "description": "Creates one source per entry in `shares`, attached to the host. Each `share` becomes the share key of the source's connection config (`share` for SMB, `export_path` for NFS, `bucket` for S3); credentials stay on the host. The optional settings apply to every created source. Entries whose name is already used are skipped and counted in `skipped`. Records a `host_shares_batch_added` audit event when at least one source is created.\nRequires scope `hosts:write`.\nErrors: 400 for host types without shares or `max_parallel_scanners` outside 1-16; 404 if the host does not exist.",
         "operationId": "add_host_shares",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -15958,7 +16663,7 @@
             ]
           }
         ],
-        "summary": "Add Host Shares",
+        "summary": "Add shares as sources",
         "tags": [
           "hosts"
         ]
@@ -15966,14 +16671,16 @@
     },
     "/api/v1/hosts/{host_id}/allowed-scanners": {
       "patch": {
-        "description": "Bulk-apply an allowed-scanner set across every source attached\nto this host. Idempotent. Audit: `host_allowed_scanners_applied`.",
+        "description": "Applies one allowed-scanner set to every source attached to the host: scanners in `scanner_ids` are added to each source's allow-list and all other scanners are removed from it. Idempotent. Records a `host_allowed_scanners_applied` audit event.\nRequires scope `hosts:write`.\nErrors: 400 if any scanner id is unknown; 404 if the host does not exist.",
         "operationId": "patch_host_allowed_scanners",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -16059,7 +16766,7 @@
             ]
           }
         ],
-        "summary": "Patch Host Allowed Scanners",
+        "summary": "Set allowed scanners for a host",
         "tags": [
           "hosts"
         ]
@@ -16067,14 +16774,16 @@
     },
     "/api/v1/hosts/{host_id}/list-shares": {
       "post": {
-        "description": "Enumerate shares/exports/buckets visible to this host's\ncredentials. Local hosts have no \"shares\" concept and return\n400 — use the regular Add Source form for them.",
+        "description": "Enumerates the shares, exports or buckets visible to the host's credentials. On failure the response is still 200 with an empty list and the failing `step` and `error`. Records a `host_shares_listed` audit event.\nRequires scope `hosts:write`.\nErrors: 400 for host types without shares; 404 if the host does not exist.",
         "operationId": "list_host_shares",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -16150,7 +16859,7 @@
             ]
           }
         ],
-        "summary": "List Host Shares",
+        "summary": "List shares on a host",
         "tags": [
           "hosts"
         ]
@@ -16158,14 +16867,16 @@
     },
     "/api/v1/hosts/{host_id}/online-check": {
       "post": {
-        "description": "TCP \"is it online?\" probe. v0.28.1 renamed from /test-connection\nto make the API's role explicit: the API can only check whether the\nserver responds on the network. Credentialed reachability is a\nscanner-side fact and lives on /api/v1/sources/{id}/test-scanners.",
+        "description": "A network-level probe from the API process: a TCP connect to the SMB (445) or NFS (2049) port, or a request to the S3 endpoint. No credentials are used and no shares are listed, so it separates DNS and firewall problems from credential problems. Credentialed reachability is reported by scanners (see `POST /sources/{source_id}/test-scanners`). Records a `host_online_check` audit event.\nRequires scope `hosts:write`. Errors: 404 if the host does not exist.",
         "operationId": "host_online_check",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -16231,7 +16942,7 @@
             ]
           }
         ],
-        "summary": "Host Online Check",
+        "summary": "Check whether a host is online",
         "tags": [
           "hosts"
         ]
@@ -16239,14 +16950,16 @@
     },
     "/api/v1/hosts/{host_id}/scanner-reachability-summary": {
       "get": {
-        "description": "Per-scanner aggregation across this host's attached sources.\nFeeds the host-level eligibility checklist.",
+        "description": "Per scanner, how many of the host's attached sources it is currently allowed to claim, can reach, cannot reach, or has not been probed against, based on each pair's latest probe result. Feeds the host-level scanner eligibility checklist.\nRequires scope `hosts:read`. Errors: 404 if the host does not exist.",
         "operationId": "host_scanner_reachability_summary",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -16316,7 +17029,7 @@
             ]
           }
         ],
-        "summary": "Host Scanner Reachability Summary",
+        "summary": "Summarise scanner reachability for a host",
         "tags": [
           "hosts"
         ]
@@ -16324,14 +17037,16 @@
     },
     "/api/v1/hosts/{host_id}/test-shares": {
       "post": {
-        "description": "Bulk reachability fan-out: for every attached share, dispatch\na credentialed probe to every scanner that's online and permitted\nto claim it. Returns flat per-(source, scanner) result rows.\n\nReachability is what the scanners report — the API just orchestrates\nthe fan-out. Slow scanners come back as `pending=true` and their\nresults land later via the source-reachability WS channel.",
+        "description": "For every share (source) attached to the host, dispatches a credentialed probe to each online scanner permitted to claim it and returns one row per (source, scanner). The call waits up to 5 seconds per source; rows for scanners that have not answered yet have `pending: true` and their results arrive later on the source-reachability WebSocket channel. Sources with no eligible scanner produce no rows.\nRequires scope `hosts:write`. Errors: 404 if the host does not exist.",
         "operationId": "test_host_shares",
         "parameters": [
           {
+            "description": "Host id.",
             "in": "path",
             "name": "host_id",
             "required": true,
             "schema": {
+              "description": "Host id.",
               "format": "uuid",
               "title": "Host Id",
               "type": "string"
@@ -16414,7 +17129,7 @@
             ]
           }
         ],
-        "summary": "Test Host Shares",
+        "summary": "Test reachability of all shares",
         "tags": [
           "hosts"
         ]
@@ -16422,6 +17137,7 @@
     },
     "/api/v1/identities": {
       "get": {
+        "description": "The caller's own filesystem identities (personas), oldest first, each with its per- source bindings. Identities belong to a user; there is no way to list another user's. Requires scope `identities:read`.",
         "operationId": "list_identities",
         "responses": {
           "200": {
@@ -16466,12 +17182,13 @@
             ]
           }
         ],
-        "summary": "List Identities",
+        "summary": "List your identities",
         "tags": [
           "identities"
         ]
       },
       "post": {
+        "description": "Creates a persona for the caller. Records an `identity_added` audit event. Requires scope `identities:write`.",
         "operationId": "create_identity",
         "requestBody": {
           "content": {
@@ -16532,7 +17249,7 @@
             ]
           }
         ],
-        "summary": "Create Identity",
+        "summary": "Create an identity",
         "tags": [
           "identities"
         ]
@@ -16540,10 +17257,11 @@
     },
     "/api/v1/identities/unbound": {
       "get": {
-        "description": "OIDC identities Akashic couldn't bind to a source at login.\n\nDefault scope is the requesting user's own unbound identities — so\na regular OIDC user landing on Settings → Identities sees \"your AD\naccount has SID claim X but no Akashic source uses that domain\"\nwithout needing admin rights.\n\nAdmins additionally pass `?user_id=<uuid>` to see anyone's, or\nleave it unset to see the entire backlog (`spot the user with the\nweirdest unbound claims`). Non-admins passing `user_id` get a 403\nrather than a silent filter to their own — surfacing rights bugs\nis more important than hiding them. Ordered by last-seen\ndescending.",
+        "description": "OIDC identity claims that could not be bound to any source at login, most recently seen first. By default the caller's own are returned. Callers holding `users:read` may pass `user_id` for another user's, or omit it to see the whole backlog.\nRequires scope `identities:read`.\nErrors: 403 if a caller without `users:read` passes `user_id` for someone else.",
         "operationId": "list_unbound",
         "parameters": [
           {
+            "description": "Only claims of this user (administrators only for users other than yourself).",
             "in": "query",
             "name": "user_id",
             "required": false,
@@ -16557,6 +17275,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Only claims of this user (administrators only for users other than yourself).",
               "title": "User Id"
             }
           }
@@ -16615,7 +17334,7 @@
             ]
           }
         ],
-        "summary": "List Unbound",
+        "summary": "List unbound identity claims",
         "tags": [
           "identities"
         ]
@@ -16623,13 +17342,16 @@
     },
     "/api/v1/identities/{person_id}": {
       "delete": {
+        "description": "Deletes the identity and its bindings. Records an `identity_removed` audit event. Requires scope `identities:write`.\nErrors: 404 if the identity does not exist or belongs to another user.",
         "operationId": "delete_identity",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
@@ -16688,19 +17410,22 @@
             ]
           }
         ],
-        "summary": "Delete Identity",
+        "summary": "Delete an identity",
         "tags": [
           "identities"
         ]
       },
       "patch": {
+        "description": "Renames the identity or changes its primary flag. Requires scope `identities:write`.\nErrors: 404 if the identity does not exist or belongs to another user.",
         "operationId": "update_identity",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
@@ -16776,7 +17501,7 @@
             ]
           }
         ],
-        "summary": "Update Identity",
+        "summary": "Update an identity",
         "tags": [
           "identities"
         ]
@@ -16784,13 +17509,16 @@
     },
     "/api/v1/identities/{person_id}/bindings": {
       "post": {
+        "description": "Declares who the identity is on one source (a POSIX uid, SID, NFSv4 principal or S3 canonical id) and which groups it belongs to. File listings are filtered by the bound principal and group tokens. Records a `binding_added` audit event.\nRequires scope `identities:write`.\nErrors: 404 if the identity does not exist or belongs to another user; 409 if a binding for this source already exists.",
         "operationId": "create_binding",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
@@ -16876,7 +17604,7 @@
             ]
           }
         ],
-        "summary": "Create Binding",
+        "summary": "Bind an identity to a source",
         "tags": [
           "identities"
         ]
@@ -16884,23 +17612,28 @@
     },
     "/api/v1/identities/{person_id}/bindings/{binding_id}": {
       "delete": {
+        "description": "Removes the binding. Records a `binding_removed` audit event. Requires scope `identities:write`.\nErrors: 404 if the identity or binding does not exist.",
         "operationId": "delete_binding",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
             }
           },
           {
+            "description": "Binding id.",
             "in": "path",
             "name": "binding_id",
             "required": true,
             "schema": {
+              "description": "Binding id.",
               "format": "uuid",
               "title": "Binding Id",
               "type": "string"
@@ -16959,29 +17692,34 @@
             ]
           }
         ],
-        "summary": "Delete Binding",
+        "summary": "Delete a binding",
         "tags": [
           "identities"
         ]
       },
       "patch": {
+        "description": "Changes the binding's identifier, identity type or groups. `groups_source` records where the groups came from and can only be changed by a caller holding `users:write`.\nRequires scope `identities:write`.\nErrors: 403 if a caller without `users:write` sets `groups_source`; 404 if the identity or binding does not exist.",
         "operationId": "update_binding",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
             }
           },
           {
+            "description": "Binding id.",
             "in": "path",
             "name": "binding_id",
             "required": true,
             "schema": {
+              "description": "Binding id.",
               "format": "uuid",
               "title": "Binding Id",
               "type": "string"
@@ -17057,7 +17795,7 @@
             ]
           }
         ],
-        "summary": "Update Binding",
+        "summary": "Update a binding",
         "tags": [
           "identities"
         ]
@@ -17065,23 +17803,28 @@
     },
     "/api/v1/identities/{person_id}/bindings/{binding_id}/resolve-groups": {
       "post": {
+        "description": "Looks up the group memberships of the binding's identity on its source (using the source's own backend), stores them on the binding with `groups_source` set to `auto`, and returns the binding. A cached result younger than the configured group cache lifetime is reused without contacting the backend. Records a `groups_auto_resolved` audit event.\nRequires scope `identities:write`. Only your own identities can be used.\nErrors: 404 if the identity, binding or its source does not exist; 422 if resolution is unsupported for this source or fails (the detail carries a `reason` and `message`).",
         "operationId": "post_resolve_groups",
         "parameters": [
           {
+            "description": "Identity (person) id.",
             "in": "path",
             "name": "person_id",
             "required": true,
             "schema": {
+              "description": "Identity (person) id.",
               "format": "uuid",
               "title": "Person Id",
               "type": "string"
             }
           },
           {
+            "description": "Binding id.",
             "in": "path",
             "name": "binding_id",
             "required": true,
             "schema": {
+              "description": "Binding id.",
               "format": "uuid",
               "title": "Binding Id",
               "type": "string"
@@ -17147,7 +17890,7 @@
             ]
           }
         ],
-        "summary": "Post Resolve Groups",
+        "summary": "Resolve a binding's groups",
         "tags": [
           "identities"
         ]
@@ -17338,6 +18081,7 @@
     },
     "/api/v1/me/tokens": {
       "get": {
+        "description": "Your own tokens, newest first, including revoked and expired ones. The token secret is never returned. Requires scope `tokens:read`.",
         "operationId": "list_my_tokens",
         "responses": {
           "200": {
@@ -17388,7 +18132,7 @@
         ]
       },
       "post": {
-        "description": "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. A token limited to sources (`source_ids`) cannot hold write scopes on other resources. Requires an interactive login session: an API token cannot create tokens (403 `interactive_session_required`).",
+        "description": "Returns the token once; it cannot be retrieved later. Its scopes must lie within yours. A token limited to sources (`source_ids`) cannot hold write scopes on other resources. Records an `api_token_created` audit event.\nRequires scope `tokens:write` and an interactive login session: an API token cannot create tokens (403 `interactive_session_required`).\nErrors: 422 for unknown scopes, scopes beyond your own, write scopes on a source-limited token, unknown sources or an `expires_at` in the past.",
         "operationId": "create_my_token",
         "requestBody": {
           "content": {
@@ -17457,13 +18201,16 @@
     },
     "/api/v1/me/tokens/{token_id}": {
       "delete": {
+        "description": "Revokes one of your own tokens. Idempotent: revoking an already revoked token succeeds. Records an `api_token_revoked` audit event.\nRequires scope `tokens:write`. Errors: 404 if the token does not exist or is not yours.",
         "operationId": "revoke_my_token",
         "parameters": [
           {
+            "description": "Token id.",
             "in": "path",
             "name": "token_id",
             "required": true,
             "schema": {
+              "description": "Token id.",
               "format": "uuid",
               "title": "Token Id",
               "type": "string"
@@ -17528,14 +18275,16 @@
         ]
       },
       "patch": {
-        "description": "Scopes can only be narrowed, never widened. To widen, create a new token. Requires an interactive login session (403 `interactive_session_required` for an API token).",
+        "description": "Scopes can only be narrowed, never widened; to widen, create a new token. Records an `api_token_updated` audit event.\nRequires scope `tokens:write` and an interactive login session (403 `interactive_session_required` for an API token).\nErrors: 404 if the token does not exist or is not yours; 409 if it is revoked; 422 for unknown scopes or scopes beyond the token's current set.",
         "operationId": "update_my_token",
         "parameters": [
           {
+            "description": "Token id.",
             "in": "path",
             "name": "token_id",
             "required": true,
             "schema": {
+              "description": "Token id.",
               "format": "uuid",
               "title": "Token Id",
               "type": "string"
@@ -24396,7 +25145,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
+                  "$ref": "#/components/schemas/akashic__schemas__user__TokenResponse"
                 }
               }
             },
@@ -24731,7 +25480,7 @@
   },
   "tags": [
     {
-      "description": "Login, token refresh, logout, OIDC single sign-on, and the scope catalog.",
+      "description": "Login (local, LDAP and OIDC single sign-on), token refresh, logout, and the scope catalog.",
       "name": "auth"
     },
     {
@@ -24747,7 +25496,7 @@
       "name": "sources"
     },
     {
-      "description": "Hosts that group sources, and share discovery on them.",
+      "description": "Network hosts (SMB, NFS, S3) that group sources: connection settings, share discovery, reachability checks and scanner allow-lists.",
       "name": "hosts"
     },
     {
@@ -24775,11 +25524,11 @@
       "name": "entries"
     },
     {
-      "description": "Effective access of an identity on an entry.",
+      "description": "Evaluate which rights a principal holds on an entry, from its stored ACL, mode and ownership.",
       "name": "effective-permissions"
     },
     {
-      "description": "Directory-style browsing of indexed sources.",
+      "description": "Directory-style browsing of indexed sources, with keyset pagination and per-user ACL filtering.",
       "name": "browse"
     },
     {
@@ -24803,7 +25552,7 @@
       "name": "dashboard"
     },
     {
-      "description": "Resolved users and groups, and group membership resolution.",
+      "description": "Your filesystem identities and their per-source bindings (which drive per-user file visibility), unbound identity claims, and group membership resolution.",
       "name": "identities"
     },
     {
@@ -24811,7 +25560,7 @@
       "name": "principals"
     },
     {
-      "description": "Who can access what: blast-radius and access reports.",
+      "description": "Admin blast-radius lookups: what a principal can reach, and who can reach a file.",
       "name": "access"
     },
     {

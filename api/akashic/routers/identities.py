@@ -1,8 +1,9 @@
 """CRUD for FsPerson + FsBinding (per-user identity claims)."""
+from typing import Annotated
 import uuid
 
 from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Path, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +44,16 @@ async def _list_bindings(person_id: uuid.UUID, db: AsyncSession) -> list[FsBindi
     return list(result.scalars())
 
 
-@router.get("", response_model=list[FsPersonOut])
+@router.get(
+    "",
+    response_model=list[FsPersonOut],
+    summary="List your identities",
+    description=(
+        "The caller's own filesystem identities (personas), oldest first, each with its per- "
+        "source bindings. Identities belong to a user; there is no way to list another user's. "
+        "Requires scope `identities:read`."
+    ),
+)
 async def list_identities(
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:read"),
@@ -73,7 +83,16 @@ async def list_identities(
     ]
 
 
-@router.post("", response_model=FsPersonOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=FsPersonOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an identity",
+    description=(
+        "Creates a persona for the caller. Records an `identity_added` audit event. Requires "
+        "scope `identities:write`."
+    ),
+)
 async def create_identity(
     body: FsPersonIn,
     request: Request,
@@ -94,9 +113,17 @@ async def create_identity(
     return _person_with_bindings(person, [])
 
 
-@router.patch("/{person_id}", response_model=FsPersonOut)
+@router.patch(
+    "/{person_id}",
+    response_model=FsPersonOut,
+    summary="Update an identity",
+    description=(
+        "Renames the identity or changes its primary flag. Requires scope `identities:write`.\n"
+        "Errors: 404 if the identity does not exist or belongs to another user."
+    ),
+)
 async def update_identity(
-    person_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
     body: FsPersonPatch,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:write"),
@@ -117,9 +144,18 @@ async def update_identity(
     return _person_with_bindings(person, bindings)
 
 
-@router.delete("/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{person_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an identity",
+    description=(
+        "Deletes the identity and its bindings. Records an `identity_removed` audit event. "
+        "Requires scope `identities:write`.\n"
+        "Errors: 404 if the identity does not exist or belongs to another user."
+    ),
+)
 async def delete_identity(
-    person_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:write"),
@@ -141,9 +177,22 @@ async def delete_identity(
     )
 
 
-@router.post("/{person_id}/bindings", response_model=FsBindingOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{person_id}/bindings",
+    response_model=FsBindingOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Bind an identity to a source",
+    description=(
+        "Declares who the identity is on one source (a POSIX uid, SID, NFSv4 principal or S3 "
+        "canonical id) and which groups it belongs to. File listings are filtered by the bound "
+        "principal and group tokens. Records a `binding_added` audit event.\n"
+        "Requires scope `identities:write`.\n"
+        "Errors: 404 if the identity does not exist or belongs to another user; 409 if a binding "
+        "for this source already exists."
+    ),
+)
 async def create_binding(
-    person_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
     body: FsBindingIn,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -188,11 +237,20 @@ async def create_binding(
 
 
 @router.patch(
-    "/{person_id}/bindings/{binding_id}", response_model=FsBindingOut,
+    "/{person_id}/bindings/{binding_id}",
+    response_model=FsBindingOut,
+    summary="Update a binding",
+    description=(
+        "Changes the binding's identifier, identity type or groups. `groups_source` records where "
+        "the groups came from and can only be changed by a caller holding `users:write`.\n"
+        "Requires scope `identities:write`.\n"
+        "Errors: 403 if a caller without `users:write` sets `groups_source`; 404 if the identity "
+        "or binding does not exist."
+    ),
 )
 async def update_binding(
-    person_id: uuid.UUID,
-    binding_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
+    binding_id: Annotated[uuid.UUID, Path(description="Binding id.")],
     body: FsBindingPatch,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:write"),
@@ -235,11 +293,18 @@ async def update_binding(
 
 
 @router.delete(
-    "/{person_id}/bindings/{binding_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{person_id}/bindings/{binding_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a binding",
+    description=(
+        "Removes the binding. Records a `binding_removed` audit event. Requires scope "
+        "`identities:write`.\n"
+        "Errors: 404 if the identity or binding does not exist."
+    ),
 )
 async def delete_binding(
-    person_id: uuid.UUID,
-    binding_id: uuid.UUID,
+    person_id: Annotated[uuid.UUID, Path(description="Identity (person) id.")],
+    binding_id: Annotated[uuid.UUID, Path(description="Binding id.")],
     request: Request,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:write"),
@@ -278,9 +343,19 @@ async def delete_binding(
 # ── Unbound identities (Phase 2a/2b) ──────────────────────────────────────
 
 
-@router.get("/unbound")
+@router.get(
+    "/unbound",
+    summary="List unbound identity claims",
+    description=(
+        "OIDC identity claims that could not be bound to any source at login, most recently seen "
+        "first. By default the caller's own are returned. Callers holding `users:read` may pass "
+        "`user_id` for another user's, or omit it to see the whole backlog.\n"
+        "Requires scope `identities:read`.\n"
+        "Errors: 403 if a caller without `users:read` passes `user_id` for someone else."
+    ),
+)
 async def list_unbound(
-    user_id: uuid.UUID | None = None,
+    user_id: Annotated[uuid.UUID | None, Query(description="Only claims of this user (administrators only for users other than yourself).")] = None,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("identities:read"),
 ) -> list[dict]:
