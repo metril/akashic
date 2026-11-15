@@ -8407,17 +8407,20 @@
         "x-scopes": {
           "analytics:read": "Read analytics, the dashboard and the storage explorer.",
           "audit:read": "Read the admin audit log.",
-          "credentials:read": "List credential profiles and OAuth credentials and providers.",
+          "credentials:list": "List credential profile names and ids (no secrets), e.g. to fill a source form.",
+          "credentials:read": "Read credential profiles, and OAuth credentials and providers.",
           "credentials:write": "Create, change and delete credential profiles and OAuth credentials and providers.",
           "data:purge": "Permanently purge indexed data. Destructive, so it must be granted explicitly.",
           "files:content": "Download or preview file contents (kept separate from reading metadata).",
           "files:read": "Search, browse and read file and directory metadata, including duplicates.",
           "health:read": "Read dependency health and service activity.",
+          "hosts:read": "Read hosts and their scanner reachability.",
+          "hosts:write": "Create, change and remove hosts, and test or add their shares.",
           "identities:read": "Read identities, bindings, principals, effective permissions and access reports.",
           "identities:write": "Manage identities and bindings, and resolve their groups.",
           "maintenance:write": "Run maintenance jobs.",
-          "scanners:read": "Read scanners, hosts and their reachability.",
-          "scanners:write": "Register, change and remove scanners, hosts and claim tokens; approve discoveries.",
+          "scanners:read": "Read scanners, claim tokens, discovery requests and scanner reachability.",
+          "scanners:write": "Register, change and remove scanners and claim tokens; approve discoveries.",
           "scans:read": "Read scans, scan progress and logs, and subscribe to scan streams.",
           "scans:write": "Trigger and cancel scans.",
           "settings:read": "Read server settings.",
@@ -11129,7 +11132,7 @@
         "security": [
           {
             "userJWT": [
-              "credentials:read"
+              "credentials:list"
             ]
           }
         ],
@@ -13224,7 +13227,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:read"
+              "hosts:read"
             ]
           }
         ],
@@ -13310,7 +13313,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13393,7 +13396,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13481,7 +13484,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:read"
+              "hosts:read"
             ]
           }
         ],
@@ -13579,7 +13582,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13680,7 +13683,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13781,7 +13784,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13872,7 +13875,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -13963,7 +13966,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -14058,7 +14061,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:read"
+              "hosts:read"
             ]
           }
         ],
@@ -14166,7 +14169,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "hosts:write"
             ]
           }
         ],
@@ -16313,7 +16316,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "scanners:read"
             ]
           }
         ],
@@ -16565,7 +16568,7 @@
         "security": [
           {
             "userJWT": [
-              "scanners:write"
+              "scanners:read"
             ]
           }
         ],

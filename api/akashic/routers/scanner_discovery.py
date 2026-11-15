@@ -314,7 +314,7 @@ async def discover_status(
 )
 async def list_discovery_requests(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("scanners:read"),
 ):
     """Pending + recently-decided (last 24h) requests for the admin
     pane. The pane shows pending first; decided rows give context

@@ -108,7 +108,7 @@ async def create_host(
     data: HostCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     user = principal.user
     if data.type not in _HOST_TYPES:
@@ -153,7 +153,7 @@ async def create_host(
 @router.get("", response_model=list[HostResponse])
 async def list_hosts(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:read"),
+    principal: Principal = require_scope("hosts:read"),
 ):
     """List all hosts. Includes a `source_count` per row so the UI can
     show "3 shares" without a follow-up call.
@@ -179,7 +179,7 @@ async def list_hosts(
 async def get_host(
     host_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:read"),
+    principal: Principal = require_scope("hosts:read"),
 ):
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
@@ -193,7 +193,7 @@ async def update_host(
     data: HostUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     user = principal.user
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
@@ -262,7 +262,7 @@ async def delete_host(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     user = principal.user
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
@@ -363,7 +363,7 @@ async def host_online_check(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     """TCP "is it online?" probe. v0.28.1 renamed from /test-connection
     to make the API's role explicit: the API can only check whether the
@@ -428,7 +428,7 @@ async def test_host_shares(
     host_id: uuid.UUID,
     body: TestSharesRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     """Bulk reachability fan-out: for every attached share, dispatch
     a credentialed probe to every scanner that's online and permitted
@@ -513,7 +513,7 @@ class HostScannerSummaryRow(BaseModel):
 async def host_scanner_reachability_summary(
     host_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:read"),
+    principal: Principal = require_scope("hosts:read"),
 ):
     """Per-scanner aggregation across this host's attached sources.
     Feeds the host-level eligibility checklist."""
@@ -597,7 +597,7 @@ async def patch_host_allowed_scanners(
     body: HostAllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     """Bulk-apply an allowed-scanner set across every source attached
     to this host. Idempotent. Audit: `host_allowed_scanners_applied`.
@@ -691,7 +691,7 @@ async def list_host_shares(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     """Enumerate shares/exports/buckets visible to this host's
     credentials. Local hosts have no "shares" concept and return
@@ -738,7 +738,7 @@ async def add_host_shares(
     body: AddSharesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("hosts:write"),
 ):
     """Batch-create Source rows attached to this host. Each entry's
     `share` value populates the per-type share-shaped key

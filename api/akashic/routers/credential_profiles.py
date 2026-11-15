@@ -133,7 +133,7 @@ async def create_profile(
 async def list_profiles(
     type: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("credentials:read"),
+    principal: Principal = require_scope("credentials:list"),
 ):
     stmt = select(CredentialProfile).order_by(CredentialProfile.name)
     if type is not None:

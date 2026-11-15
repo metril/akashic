@@ -14,12 +14,15 @@ SCOPES: dict[str, str] = {
     "analytics:read": "Read analytics, the dashboard and the storage explorer.",
     "sources:read": "List sources and read their details, audit trail and reachability.",
     "sources:write": "Create, test, update, delete and re-attach sources.",
-    "credentials:read": "List credential profiles and OAuth credentials and providers.",
+    "credentials:list": "List credential profile names and ids (no secrets), e.g. to fill a source form.",
+    "credentials:read": "Read credential profiles, and OAuth credentials and providers.",
     "credentials:write": "Create, change and delete credential profiles and OAuth credentials and providers.",
     "scans:read": "Read scans, scan progress and logs, and subscribe to scan streams.",
     "scans:write": "Trigger and cancel scans.",
-    "scanners:read": "Read scanners, hosts and their reachability.",
-    "scanners:write": "Register, change and remove scanners, hosts and claim tokens; approve discoveries.",
+    "scanners:read": "Read scanners, claim tokens, discovery requests and scanner reachability.",
+    "scanners:write": "Register, change and remove scanners and claim tokens; approve discoveries.",
+    "hosts:read": "Read hosts and their scanner reachability.",
+    "hosts:write": "Create, change and remove hosts, and test or add their shares.",
     "identities:read": "Read identities, bindings, principals, effective permissions and access reports.",
     "identities:write": "Manage identities and bindings, and resolve their groups.",
     "webhooks:read": "List webhooks.",
@@ -41,17 +44,16 @@ SCOPES: dict[str, str] = {
 # a scope held by the principal, so a narrower token cannot gain them.
 ACL_BYPASS_SCOPE = "users:write"  # sees all files regardless of per-user ACL filtering
 
-_VIEWER_READ_EXCLUDED = {"credentials:read", "users:read", "settings:read", "audit:read"}
-
+# Exactly what a viewer could do before scopes existed (not "every read scope"):
+# read the index and own data, manage own identities and webhooks, own tokens.
 ROLE_SCOPES: dict[str, frozenset[str]] = {
-    "viewer": frozenset(
-        {s for s in SCOPES if s.endswith(":read") and s not in _VIEWER_READ_EXCLUDED}
-        | {
-            "files:content", "tags:write", "tokens:write",
-            # Viewers manage their own identities and webhooks.
-            "identities:write", "webhooks:write",
-        }
-    ),
+    "viewer": frozenset({
+        "files:read", "files:content", "tags:read", "analytics:read", "sources:read",
+        "credentials:list", "scans:read", "hosts:read",
+        "identities:read", "identities:write",  # own identities only; every route is owner-checked
+        "webhooks:read", "webhooks:write",      # own webhooks only
+        "tokens:read", "tokens:write",
+    }),
     "admin": frozenset(SCOPES),
 }
 

@@ -14,6 +14,7 @@ from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.user import User
 from tests.principals import as_principal
+from tests.pre_3a_matrix import PRE_3A_VIEWER_ALLOWED
 from tests.test_openapi_contract import _required_scopes, _routes
 
 _APP = create_app()
@@ -85,14 +86,37 @@ async def test_unknown_role_is_denied_everywhere(make_client, key, scope):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key,scope", _SCOPED)
-async def test_viewer_bundle_gates_exactly_its_scopes(make_client, key, scope):
+async def test_viewer_access_matches_pre_scope_behaviour(make_client, key, scope):
+    """A viewer-bundle principal reaches exactly the routes a viewer reached at e7bdc73."""
     client = await make_client(as_principal(_user("viewer")))
     method, path = key.split(" ", 1)
     resp = await client.request(method, _fill(path))
     denied = resp.status_code == 403 and resp.json().get("code") == "insufficient_scope"
-    # /access carries an extra ACL-bypass gate on top of its scope; viewers lack it.
-    expect_denied = scope not in ROLE_SCOPES["viewer"] or key == "GET /api/v1/access"
-    assert denied == expect_denied, (key, resp.status_code, resp.text[:200])
+    assert denied == (key not in PRE_3A_VIEWER_ALLOWED), (key, resp.status_code, resp.text[:200])
+
+
+def test_pre_3a_matrix_routes_exist():
+    assert (PRE_3A_VIEWER_ALLOWED - {"GET /api/v1/users/me"}) <= {k for k, _ in _SCOPED}
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_touch_another_users_identities_or_webhooks(make_client, jwt_users, setup_db):
+    from akashic.models.fs_person import FsPerson
+    from akashic.models.webhook import Webhook
+
+    owner = uuid.uuid4()
+    async with setup_db() as s:
+        s.add(User(id=owner, username="own", email=None, password_hash="x", role="viewer"))
+        await s.flush()
+        person = FsPerson(user_id=owner, label="x", is_primary=False)
+        s.add(person)
+        await s.commit()
+        pid = person.id
+    client = await make_client()
+    h = jwt_users["viewer"]
+    assert (await client.patch(f"/api/v1/identities/{pid}", json={"label": "y"}, headers=h)).status_code == 404
+    assert (await client.delete(f"/api/v1/identities/{pid}", headers=h)).status_code == 404
+    assert (await client.delete(f"/api/v1/webhooks/{uuid.uuid4()}", headers=h)).status_code == 404
 
 
 def test_viewer_bundle_matches_previous_admin_boundary():
@@ -100,10 +124,11 @@ def test_viewer_bundle_matches_previous_admin_boundary():
     for admin_only in (
         "settings:read", "settings:write", "users:read", "users:write", "audit:read",
         "credentials:read", "credentials:write", "sources:write", "scans:write",
-        "scanners:write", "maintenance:write", "data:purge", "tokens:admin",
+        "scanners:read", "scanners:write", "hosts:write", "health:read", "tags:write",
+        "maintenance:write", "data:purge", "tokens:admin",
     ):
         assert admin_only not in viewer
-    assert {"files:read", "files:content", "tags:write", "tokens:write"} <= viewer
+    assert {"files:read", "files:content", "tags:read", "tokens:write"} <= viewer
 
 
 @pytest_asyncio.fixture

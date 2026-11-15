@@ -474,7 +474,7 @@ async def scanners_stream(
     )
 
     async with async_session() as db:
-        principal, deny = await _resolve_principal(token, db, "scanners:write")
+        principal, deny = await _resolve_principal(token, db, "scanners:read")
         if principal is None:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=deny)
             return

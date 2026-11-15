@@ -494,7 +494,7 @@ async def create_claim_token(
 )
 async def list_claim_tokens(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scanners:write"),
+    principal: Principal = require_scope("scanners:read"),
 ):
     from akashic.models.scanner_claim_token import ScannerClaimToken
     from akashic.services.scanner_claim import derive_status
