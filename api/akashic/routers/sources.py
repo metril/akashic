@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user, require_admin
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
 from akashic.models.entry import Entry
@@ -139,8 +139,9 @@ async def create_source(
     data: SourceCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
+    user = principal.user
     err = reject_sentinel_in_create(data.connection_config)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -278,7 +279,7 @@ async def create_source(
 @router.get("", response_model=list[SourceListResponse])
 async def list_sources(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
     """Lean list view — drops connection_config/security_metadata/
     exclude_patterns and ships a server-rendered `summary` for the
@@ -292,9 +293,10 @@ async def list_sources(
 async def get_source(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
-    await check_source_access(source_id, user, db)
+    user = principal.user
+    await check_source_access(source_id, principal, db)
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -308,7 +310,7 @@ async def get_source_audit(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
     """Per-source audit timeline. Visible to any user with read access
     to the source — the same gate that lets them browse its files.
@@ -323,7 +325,8 @@ async def get_source_audit(
     page request's cost. The UI uses page-by-page navigation; if it
     needs an exact total later we can add an opt-in flag.
     """
-    await check_source_access(source_id, user, db, required_level="read")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="read")
 
     from sqlalchemy import or_
     stmt = (
@@ -359,8 +362,9 @@ async def update_source(
     data: SourceUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
+    user = principal.user
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -535,8 +539,9 @@ async def delete_source(
         ),
     ),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
+    user = principal.user
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -615,12 +620,13 @@ class SourceEntryCount(BaseModel):
 async def get_source_entry_count(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
     """Cheap COUNT used by the delete-source modal to show blast
     radius. Excludes soft-deleted entries (`is_deleted = true`)
     since those wouldn't be visibly affected by the delete."""
-    await check_source_access(source_id, user, db, required_level="read")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="read")
     cnt = (await db.execute(
         select(func.count())
         .select_from(Entry)
@@ -643,7 +649,7 @@ class OrphanMatchCount(BaseModel):
 async def get_orphan_match_count(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
     """How many orphaned entries (source_id IS NULL) share a path
     with an entry of THIS source. Used by the source-detail
@@ -676,13 +682,14 @@ async def reattach_orphans(
     body: ReattachRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
     """Re-attach orphaned entries (source_id IS NULL) into this
     source where (path, name, kind) — and optionally content_hash
     — match a freshly-scanned entry. The orphan keeps its history
     (tags, version history, audit trail); the duplicate fresh
     entry is deleted."""
+    user = principal.user
     from akashic.services.orphan_matcher import (
         Strategy, commit_matches, find_matches,
     )
@@ -837,7 +844,7 @@ async def test_source_scanners(
     source_id: uuid.UUID,
     body: TestScannersRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:write"),
 ):
     """User-triggered reachability probe — for one source, against one
     or more scanners.
@@ -851,7 +858,8 @@ async def test_source_scanners(
     slow scanners are returned as `pending=true` and their results land
     later via the source-reachability WS channel.
     """
-    await check_source_access(source_id, user, db, required_level="write")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="write")
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -921,7 +929,7 @@ class ReachabilitySummary(BaseModel):
 async def get_source_reachability_summary(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
     """Single-source reachability snapshot for the badge component.
 
@@ -930,7 +938,8 @@ async def get_source_reachability_summary(
     most recent failed probe." Successful scans are an implicit
     reachability proof — the scanner just walked the source.
     """
-    await check_source_access(source_id, user, db, required_level="read")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="read")
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -1010,9 +1019,10 @@ async def get_source_reachability_history(
     source_id: uuid.UUID,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
-    await check_source_access(source_id, user, db, required_level="read")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="read")
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -1070,7 +1080,7 @@ class ScannerReachabilityRow(BaseModel):
 async def list_source_scanner_reachability(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("sources:read"),
 ):
     """For a given source, return every registered scanner's current
     allow-state and the latest probe outcome by that scanner. Feeds
@@ -1079,7 +1089,8 @@ async def list_source_scanner_reachability(
     v0.28.0: reads from `reachability_results` (no staleness gate)
     and includes a small history slice for the per-row disclosure.
     """
-    await check_source_access(source_id, user, db, required_level="read")
+    user = principal.user
+    await check_source_access(source_id, principal, db, required_level="read")
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()
@@ -1134,7 +1145,7 @@ async def patch_source_allowed_scanners(
     body: AllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
     """Set the per-scanner allow-list for ONE source.
 
@@ -1150,6 +1161,7 @@ async def patch_source_allowed_scanners(
     Idempotent: re-applying the same set is a no-op. Audit:
     `source_allowed_scanners_updated` per affected scanner.
     """
+    user = principal.user
     src = (await db.execute(
         select(Source).where(Source.id == source_id)
     )).scalar_one_or_none()

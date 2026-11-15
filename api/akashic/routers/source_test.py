@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.audit import record_event
@@ -75,8 +75,9 @@ async def post_test(
     body: TestSourceRequest,
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
+    user = principal.user
     cfg = dict(body.connection_config or {})
 
     # v0.14.0 — OAuth-shaped sources (gdrive, …) at create time. The

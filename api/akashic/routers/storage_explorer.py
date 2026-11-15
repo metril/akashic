@@ -44,10 +44,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
-from akashic.auth.dependencies import (
-    check_source_access,
-    get_current_user,
-)
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -83,13 +80,13 @@ def _normalize_path(path: str) -> str:
 
 
 async def _should_apply_perm_filter(
-    user: User, show_all: bool, db: AsyncSession,
+    principal: Principal, show_all: bool, db: AsyncSession,
 ) -> bool:
     if not rt().browse_enforce_perms:
         return False
-    if user.role == "admin" and show_all:
+    if principal.bypasses_acl and show_all:
         return False
-    return await user_has_any_bindings(user, db)
+    return await user_has_any_bindings(principal.user, db)
 
 
 def _age_bucket(mtime: datetime | None, now: datetime) -> str:
@@ -103,7 +100,7 @@ def _age_bucket(mtime: datetime | None, now: datetime) -> str:
     return "cold"
 
 
-def _color_key(entry: Any, mode: ColorMode, now: datetime, is_admin: bool) -> str:
+def _color_key(entry: Any, mode: ColorMode, now: datetime, sees_all: bool) -> str:
     """One source of truth for the colour palette key. Used by both
     /children and /tree so the same row never gets a different colour
     depending on which endpoint surfaced it.
@@ -119,7 +116,7 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, is_admin: bool) -> st
     if mode == "owner":
         return entry.owner_name or "(unknown)"
     if mode == "risk":
-        if not is_admin:
+        if not sees_all:
             # Risk colouring is admin-only — non-admins fall back to
             # type colouring so the page doesn't render every leaf grey.
             return entry.extension or ("(none)" if kind == "file" else "directory")
@@ -138,7 +135,7 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, is_admin: bool) -> st
 @router.get("/sources")
 async def list_storage_sources(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Cross-source treemap. One row per source the caller can see,
     sized by total bytes from the latest scan_snapshot."""
@@ -185,13 +182,14 @@ async def list_children(
     show_all: bool = Query(default=False),
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Returns the top `limit` children of `path` in `source_id`,
     each with the size + color-dimension aggregate. A synthetic
     `<other>` rectangle accounts for the long tail when more than
     `limit` children exist."""
-    await check_source_access(source_id, user, db)
+    user = principal.user
+    await check_source_access(source_id, principal, db)
     norm_path = _normalize_path(path)
 
     base_filter = [
@@ -200,7 +198,7 @@ async def list_children(
         Entry.is_deleted == False,  # noqa: E712
     ]
 
-    enforce = await _should_apply_perm_filter(user, show_all, db)
+    enforce = await _should_apply_perm_filter(principal, show_all, db)
     perm_filter = None
     if enforce:
         tokens = await user_principal_tokens(user, db)
@@ -231,7 +229,7 @@ async def list_children(
     has_overflow = len(rows) > limit
     rows = rows[:limit]
     now = datetime.now(timezone.utc)
-    is_admin = user.role == "admin"
+    sees_all = principal.bypasses_acl
 
     children: list[dict] = []
     for r in rows:
@@ -250,7 +248,7 @@ async def list_children(
                 int(r.subtree_file_count) if r.kind == "directory" and r.subtree_file_count is not None
                 else (1 if r.kind == "file" else 0)
             ),
-            "color_key": _color_key(r, color_by, now, is_admin),
+            "color_key": _color_key(r, color_by, now, sees_all),
         })
 
     other = None
@@ -277,7 +275,7 @@ async def list_children(
         }
 
     hidden_bucket = None
-    if enforce and is_admin and perm_filter is not None:
+    if enforce and sees_all and perm_filter is not None:
         unfiltered = [c for c in base_filter if c is not perm_filter]
         unfiltered_total = (await db.execute(
             select(
@@ -332,7 +330,7 @@ def _build_nested_tree(
     root_path: str,
     color_by: ColorMode,
     now: datetime,
-    is_admin: bool,
+    sees_all: bool,
     parent_subtree_total: dict[str, int] | None = None,
 ) -> dict:
     """Take the flat row list returned by the recursive CTE and fold it
@@ -357,7 +355,7 @@ def _build_nested_tree(
             "name": r.name or "/",
             "path": r.path,
             "size_bytes": _entry_size(r),
-            "color_key": _color_key(r, color_by, now, is_admin),
+            "color_key": _color_key(r, color_by, now, sees_all),
         }
         by_path[r.path] = node
         if r.path != root_path:
@@ -681,7 +679,7 @@ async def get_tree(
     color_by: ColorMode = Query(default="type"),
     show_all: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Recursive subtree expansion bounded by node budget. The frontend
     feeds the returned `root` directly into d3-hierarchy and renders one
@@ -689,10 +687,11 @@ async def get_tree(
 
     `truncated` is true when the budget was hit; per-parent <other>
     rectangles in the response account for the missing size."""
-    await check_source_access(source_id, user, db)
+    user = principal.user
+    await check_source_access(source_id, principal, db)
     norm_path = _normalize_path(path)
 
-    enforce = await _should_apply_perm_filter(user, show_all, db)
+    enforce = await _should_apply_perm_filter(principal, show_all, db)
     perm_tokens: list[str] | None = None
     if enforce:
         perm_tokens = await user_principal_tokens(user, db)
@@ -740,8 +739,8 @@ async def get_tree(
         }
 
     now = datetime.now(timezone.utc)
-    is_admin = user.role == "admin"
-    root = _build_nested_tree(rows, norm_path, color_by, now, is_admin)
+    sees_all = principal.bypasses_acl
+    root = _build_nested_tree(rows, norm_path, color_by, now, sees_all)
 
     return {
         "source_id": str(source_id),

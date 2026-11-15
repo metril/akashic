@@ -9,12 +9,13 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.openapi.utils import get_openapi
 
+from akashic.auth.scopes import SCOPES
 from akashic.schemas.ws_events import WS_EVENT_MODELS
 
 SCANNER_TAG = "Scanner protocol (internal)"
 
 TAGS: list[dict[str, str]] = [
-    {"name": "auth", "description": "Login, token refresh, logout and OIDC single sign-on."},
+    {"name": "auth", "description": "Login, token refresh, logout, OIDC single sign-on, and the scope catalog."},
     {"name": "users", "description": "User accounts and registration."},
     {"name": "sources", "description": "Indexed storage sources: connections, scans, reachability and scanner allow-lists."},
     {"name": "hosts", "description": "Hosts that group sources, and share discovery on them."},
@@ -46,7 +47,11 @@ TAGS: list[dict[str, str]] = [
 SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
     "userJWT": {
         "type": "http", "scheme": "bearer", "bearerFormat": "JWT",
-        "description": "Short-lived access token from `POST /api/v1/auth/login` or `/api/v1/auth/refresh`.",
+        "description": (
+            "Short-lived access token from `POST /api/v1/users/login` or `/api/v1/auth/refresh`. "
+            "Each operation lists the scope it requires; see `GET /api/v1/scopes`."
+        ),
+        "x-scopes": SCOPES,
     },
     "apiToken": {
         "type": "http", "scheme": "bearer",

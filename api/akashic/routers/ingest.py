@@ -9,7 +9,7 @@ from sqlalchemy import update as sql_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_ingest_user
+from akashic.auth.dependencies import Principal, check_source_access, get_ingest_user
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
 from akashic.models.entry import Entry, EntryEvent, EntryVersion
@@ -351,7 +351,9 @@ async def ingest_batch(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"batch exceeds {_MAX_BATCH_ENTRIES} entries; split and retry",
         )
-    await check_source_access(batch.source_id, user, db, required_level="write")
+    await check_source_access(
+        batch.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
+    )
 
     # Dedupe by path (last wins): a duplicate path would insert twice /
     # trip ON CONFLICT and double-count. dict preserves first-seen order.
@@ -913,7 +915,9 @@ async def ingest_content(
     touches only `content_text` and never the metadata fields the
     batch-ingest flush owns.
     """
-    await check_source_access(batch.source_id, user, db, required_level="write")
+    await check_source_access(
+        batch.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
+    )
     if not batch.items:
         return ContentBatchResponse(items_indexed=0, scan_id=batch.scan_id)
 

@@ -117,12 +117,12 @@ def viewable_clause(tokens: list[str], right: Right) -> ColumnElement[bool]:
     return column.op("&&")(tokens)
 
 
-async def user_can_view(entry, user: User, db: AsyncSession) -> bool:
+async def user_can_view(entry, principal, db: AsyncSession) -> bool:
     """Phase-5 per-user ACL check used by entry-detail / content / preview
     endpoints. Returns True (allow) when:
 
     - the deployment-wide feature flag is off,
-    - the caller is an admin (admins always see everything; the show_all
+    - the caller bypasses ACL filtering (admins always see everything; the show_all
       query param on Browse is a separate UX concern),
     - the caller has no FsBindings (legacy users keep see-all behaviour
       until an admin attaches one).
@@ -135,8 +135,9 @@ async def user_can_view(entry, user: User, db: AsyncSession) -> bool:
 
     if not rt().browse_enforce_perms:
         return True
-    if user.role == "admin":
+    if principal.bypasses_acl:
         return True
+    user = principal.user
     if not await user_has_any_bindings(user, db):
         return True
     tokens = await user_principal_tokens(user, db)

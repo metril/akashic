@@ -23,7 +23,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from tests.principals import as_principal
+from akashic.auth.dependencies import get_principal
 from akashic.auth.jwt import create_access_token
 from akashic.database import get_db
 from akashic.main import create_app
@@ -54,8 +55,7 @@ async def admin_client(setup_db) -> AsyncClient:
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_admin
-    app.dependency_overrides[require_admin] = _override_admin
+    app.dependency_overrides[get_principal] = as_principal(_override_admin)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:

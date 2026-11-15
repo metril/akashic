@@ -17,7 +17,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from akashic.auth.dependencies import get_current_user, get_ingest_user
+from tests.principals import as_principal
+from akashic.auth.dependencies import get_ingest_user, get_principal
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.entry import Entry
@@ -74,7 +75,7 @@ async def client(setup_db, admin_user: User, monkeypatch, request) -> AsyncClien
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_user
+    app.dependency_overrides[get_principal] = as_principal(_override_user)
     app.dependency_overrides[get_ingest_user] = _override_user
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

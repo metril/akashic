@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -49,7 +49,7 @@ class PreviewResponse(BaseModel):
 
 
 async def _load_entry_and_source(
-    entry_id: uuid.UUID, db: AsyncSession, user: User
+    entry_id: uuid.UUID, db: AsyncSession, principal: Principal
 ) -> tuple[Entry, Source]:
     entry = await db.get(Entry, entry_id)
     if entry is None or entry.kind != "file" or entry.is_deleted:
@@ -64,12 +64,12 @@ async def _load_entry_and_source(
             status_code=404,
             detail="entry's source has been deleted; content is no longer fetchable",
         )
-    await check_source_access(entry.source_id, user, db, "read")
+    await check_source_access(entry.source_id, principal, db, "read")
     # Phase-5 per-user ACL trim — content/preview must respect the same
     # filter as Browse and the entry detail. 404 (not 403) so an
     # unviewable entry's existence isn't leaked through the status code.
     from akashic.services.access_query import user_can_view
-    if not await user_can_view(entry, user, db):
+    if not await user_can_view(entry, principal, db):
         raise HTTPException(status_code=404, detail="entry not found or not a file")
     source = await db.get(Source, entry.source_id)
     if source is None:
@@ -113,9 +113,9 @@ async def get_content(
     entry_id: uuid.UUID,
     as_attachment: bool = Query(default=False, alias="attachment"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:content"),
 ):
-    entry, source = await _load_entry_and_source(entry_id, db, user)
+    entry, source = await _load_entry_and_source(entry_id, db, principal)
     media_type = entry.mime_type or "application/octet-stream"
     headers = {"Content-Disposition": _content_disposition(entry.name, as_attachment)}
 
@@ -170,9 +170,9 @@ async def get_content(
 async def get_preview(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:content"),
 ):
-    entry, source = await _load_entry_and_source(entry_id, db, user)
+    entry, source = await _load_entry_and_source(entry_id, db, principal)
 
     # Read up to PREVIEW_MAX_BYTES + 1 so we know if truncation happened.
     cap = PREVIEW_MAX_BYTES

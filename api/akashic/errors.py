@@ -34,6 +34,14 @@ _CODES = {
 }
 
 
+class ApiHTTPException(StarletteHTTPException):
+    """HTTPException that also carries a stable machine-readable ``code``."""
+
+    def __init__(self, status_code: int, detail: str, code: str, headers: dict[str, str] | None = None):
+        super().__init__(status_code=status_code, detail=detail, headers=headers)
+        self.code = code
+
+
 def error_code(status_code: int) -> str:
     return _CODES.get(status_code, f"http_{status_code}")
 
@@ -105,6 +113,7 @@ def install_error_handlers(app: FastAPI) -> None:
         return error_response(
             exc.status_code, message, request_id_of(request), detail,
             headers=dict(exc.headers) if exc.headers else None,
+            code=getattr(exc, "code", None),
         )
 
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:

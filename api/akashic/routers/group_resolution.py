@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.fs_person import FsBinding, FsPerson
@@ -34,8 +34,9 @@ async def post_resolve_groups(
     binding_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> FsBindingOut:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()

@@ -17,10 +17,11 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import (
+    Principal,
     check_source_access,
-    get_current_user,
     get_ingest_scanner_id,
     get_ingest_user,
+    require_scope,
 )
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
@@ -52,7 +53,9 @@ async def _load_scan_with_write(
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
-    await check_source_access(scan.source_id, user, db, required_level="write")
+    await check_source_access(
+        scan.source_id, Principal.for_user(user, via="ingest"), db, required_level="write",
+    )
     return scan
 
 
@@ -348,7 +351,7 @@ async def get_log(
     kind: str = Query("all", pattern="^(structured|stderr|all)$"),
     limit: int = Query(2000, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scans:read"),
 ) -> list[LogEntryOut]:
     """Backfill / catch-up endpoint. The WS path streams new events live;
     GET handles the gap on reconnect and the full-history load the log
@@ -363,10 +366,11 @@ async def get_log(
     v0.30.2 — scanner_name is read straight off the row (snapshotted at
     write time by _persist_lines), so the backfill renders the per-row
     scanner pill without a read-time JOIN that could drop the name."""
+    user = principal.user
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
-    await check_source_access(scan.source_id, user, db, required_level="read")
+    await check_source_access(scan.source_id, principal, db, required_level="read")
 
     stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:

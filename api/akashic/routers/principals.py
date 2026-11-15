@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.services.principal_resolver import (
@@ -74,14 +74,15 @@ _MAX_SIDS_PER_REQUEST = 256
 async def resolve(
     body: ResolveRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:read"),
 ) -> ResolveResponse:
     """Resolve SIDs against a source's LSARPC, with cache."""
+    user = principal.user
     # Read access is the right level: anyone who can browse the
     # source's entries can already SEE the SIDs in their ACLs, so
     # there's no information-disclosure asymmetry from letting them
     # name those SIDs.
-    await check_source_access(body.source_id, user, db, required_level="read")
+    await check_source_access(body.source_id, principal, db, required_level="read")
 
     if len(body.sids) > _MAX_SIDS_PER_REQUEST:
         raise HTTPException(

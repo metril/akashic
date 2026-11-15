@@ -56,7 +56,8 @@ async def admin_client(setup_db) -> AsyncClient:
     """Admin-authed client for fixture setup endpoints
     (POST /api/v1/scanners). The scanner endpoints under test still
     require the scanner JWT."""
-    from akashic.auth.dependencies import get_current_user, require_admin
+    from tests.principals import as_principal
+    from akashic.auth.dependencies import get_principal
     from akashic.models.user import User
 
     user_id = uuid.uuid4()
@@ -82,8 +83,7 @@ async def admin_client(setup_db) -> AsyncClient:
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_admin
-    app.dependency_overrides[require_admin] = _override_admin
+    app.dependency_overrides[get_principal] = as_principal(_override_admin)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:

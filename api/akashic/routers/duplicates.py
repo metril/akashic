@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -28,14 +28,15 @@ async def list_duplicates(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     base_filter = [
         Entry.kind == "file",
         Entry.is_deleted == False,  # noqa: E712
         Entry.content_hash.isnot(None),
     ]
-    if await _should_enforce_perms(user, False, db):
+    if await _should_enforce_perms(principal, False, db):
         base_filter.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
@@ -74,14 +75,15 @@ async def get_duplicate_files(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     stmt = select(Entry).where(
         Entry.kind == "file",
         Entry.content_hash == content_hash,
         Entry.is_deleted == False,  # noqa: E712
     ).order_by(Entry.id).offset(offset).limit(limit)
-    if await _should_enforce_perms(user, False, db):
+    if await _should_enforce_perms(principal, False, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     result = await db.execute(stmt)
@@ -135,7 +137,7 @@ async def delete_duplicate_copies(
     body: DeleteCopiesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("sources:write"),
 ):
     """Bulk-delete copies of a duplicate group from disk + index.
 
@@ -151,6 +153,7 @@ async def delete_duplicate_copies(
     surface the connector error to the caller. Partial-success is the
     common case (one path is read-only; the others delete fine).
     """
+    admin = principal.user
     if not body.delete_entry_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
-from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_protocol, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
+from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, scopes, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_protocol, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
 from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, request_id_of
 from akashic.openapi import TAGS, app_version, install_openapi, operation_id
 from akashic.schemas.common import ERROR_RESPONSES
@@ -363,6 +363,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(auth.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+    app.include_router(scopes.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     app.include_router(users.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     app.include_router(ingest.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     app.include_router(hosts.router, prefix=API_PREFIX, responses=ERROR_RESPONSES)

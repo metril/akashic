@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -37,8 +37,9 @@ async def purge_source(
     source_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("data:purge"),
 ):
+    admin = principal.user
     source_result = await db.execute(select(Source).where(Source.id == source_id))
     if not source_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Source not found")
@@ -85,8 +86,9 @@ async def purge_source(
 async def purge_deleted(
     older_than_days: int = Query(default=30, ge=1),
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("data:purge"),
 ):
+    admin = principal.user
     threshold = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
     # Delete in id-keyed chunks so one huge purge never holds a single

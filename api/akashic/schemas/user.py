@@ -42,6 +42,20 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MeResponse(UserResponse):
+    scopes: list[str] = Field(description="Effective scopes of the calling credential, sorted.")
+
+
+class ScopeInfo(BaseModel):
+    name: str = Field(description="Scope name, e.g. `files:read`.")
+    description: str = Field(description="What the scope permits.")
+
+
+class ScopeCatalog(BaseModel):
+    scopes: list[ScopeInfo] = Field(description="Every scope the API defines.")
+    roles: dict[str, list[str]] = Field(description="Scopes granted by each role, keyed by role name.")
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

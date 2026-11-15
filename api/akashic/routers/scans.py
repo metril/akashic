@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.source import Source
@@ -40,7 +40,7 @@ async def trigger_scan(
     data: ScanTriggerRequest,
     background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scans:write"),
 ):
     """Enqueue a scan into the lease queue.
 
@@ -56,6 +56,7 @@ async def trigger_scan(
     a future post-enqueue webhook) but currently unused — no work
     runs on the api host as a result of this call.
     """
+    user = principal.user
     if not data.source_name and not data.source_id:
         raise HTTPException(status_code=400, detail="source_name or source_id required")
 
@@ -68,7 +69,7 @@ async def trigger_scan(
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    await check_source_access(source.id, user, db, required_level="write")
+    await check_source_access(source.id, principal, db, required_level="write")
 
     # v0.4.4: idempotent re-trigger. If a scan for this source is
     # already pending or running, return its id instead of stacking
@@ -162,10 +163,11 @@ async def list_scans(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scans:read"),
 ):
+    user = principal.user
     if source_id:
-        await check_source_access(source_id, user, db)
+        await check_source_access(source_id, principal, db)
 
     stmt = select(Scan)
     if source_id:
@@ -187,13 +189,14 @@ async def list_scans(
 async def get_scan(
     scan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scans:read"),
 ):
+    user = principal.user
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    await check_source_access(scan.source_id, user, db)
+    await check_source_access(scan.source_id, principal, db)
     return scan
 
 
@@ -272,16 +275,17 @@ async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
 async def cancel_scan(
     scan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scans:write"),
 ):
     """Mark a running scan as cancelled. The next heartbeat from the
     scanner will receive HTTP 409 and exit cleanly. Idempotent: calling
     cancel on an already-terminal scan returns the current status
     without raising."""
+    user = principal.user
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    await check_source_access(scan.source_id, user, db, required_level="write")
+    await check_source_access(scan.source_id, principal, db, required_level="write")
     status = await cancel_scan_core(db, scan, reason="user")
     return CancelResponse(scan_id=scan.id, status=status)

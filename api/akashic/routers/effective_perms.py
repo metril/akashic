@@ -6,7 +6,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -27,12 +27,13 @@ async def post_effective_permissions(
     entry_id: uuid.UUID,
     request: EffectivePermsRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:read"),
 ) -> EffectivePerms:
+    user = principal.user
     entry = (await db.execute(select(Entry).where(Entry.id == entry_id))).scalar_one_or_none()
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
-    await check_source_access(entry.source_id, user, db)
+    await check_source_access(entry.source_id, principal, db)
 
     # entry.acl is JSONB; validate into the discriminated union (or None).
     acl_obj = _acl_adapter.validate_python(entry.acl) if entry.acl else None

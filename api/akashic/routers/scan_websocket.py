@@ -23,7 +23,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.jwt import decode_access_token
+from akashic.auth.dependencies import Principal, principal_from_jwt
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
@@ -39,18 +39,16 @@ router = APIRouter(tags=["scan-websocket"])
 _SERVER_HEARTBEAT_SECONDS = 30
 
 
-async def _resolve_user(token: str, db: AsyncSession) -> User | None:
-    payload = decode_access_token(token)
-    if payload is None:
-        return None
-    sub = payload.get("sub")
-    if sub is None:
-        return None
-    try:
-        user_id = uuid.UUID(sub)
-    except (ValueError, TypeError):
-        return None
-    return (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+async def _resolve_principal(token: str, db: AsyncSession, scope: str) -> tuple[Principal | None, str | None]:
+    """Authenticate the query-param JWT and require ``scope``.
+
+    Returns ``(principal, None)`` on success or ``(None, close_reason)``."""
+    principal = await principal_from_jwt(token, db)
+    if principal is None:
+        return None, "invalid token"
+    if not principal.has(scope):
+        return None, f"missing scope: {scope}"
+    return principal, None
 
 
 async def _user_can_read_source(user: User, source_id: uuid.UUID, db: AsyncSession) -> bool:
@@ -113,10 +111,11 @@ async def scan_stream(
     # until after `accept`, and we want auth-failure to close before
     # accepting (cleaner client-side error).
     async with async_session() as db:
-        user = await _resolve_user(token, db)
-        if user is None:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid token")
+        principal, deny = await _resolve_principal(token, db, "scans:read")
+        if principal is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=deny)
             return
+        user = principal.user
 
         scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
         if scan is None:
@@ -324,12 +323,11 @@ async def scans_stream(
     from akashic.models.source import Source as SourceModel
 
     async with async_session() as db:
-        user = await _resolve_user(token, db)
-        if user is None:
-            await websocket.close(
-                code=status.WS_1008_POLICY_VIOLATION, reason="invalid token",
-            )
+        principal, deny = await _resolve_principal(token, db, "scans:read")
+        if principal is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=deny)
             return
+        user = principal.user
         # Snapshot: the current pending/running/recently-failed scans
         # the user can see. Same shape useActiveScans was building
         # client-side from /scans?status=…&limit=200 — but here we
@@ -476,18 +474,9 @@ async def scanners_stream(
     )
 
     async with async_session() as db:
-        user = await _resolve_user(token, db)
-        if user is None:
-            await websocket.close(
-                code=status.WS_1008_POLICY_VIOLATION,
-                reason="invalid token",
-            )
-            return
-        if user.role != "admin":
-            await websocket.close(
-                code=status.WS_1008_POLICY_VIOLATION,
-                reason="admin required",
-            )
+        principal, deny = await _resolve_principal(token, db, "scanners:write")
+        if principal is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=deny)
             return
 
         rows = (await db.execute(

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
 from akashic.models.user import User
@@ -43,7 +43,7 @@ async def list_audit_events(
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    principal: Principal = require_scope("audit:read"),
 ) -> AuditEventList:
     page = max(1, page)
     page_size = max(1, min(page_size, 200))
@@ -88,7 +88,7 @@ async def list_audit_events(
 async def get_audit_event(
     event_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    principal: Principal = require_scope("audit:read"),
 ) -> AuditEventOut:
     row = (await db.execute(
         select(AuditEvent).where(AuditEvent.id == event_id)

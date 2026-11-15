@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.routers.browse import _should_enforce_perms
@@ -23,7 +23,7 @@ _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
 @router.get("/storage-by-type")
 async def get_storage_by_type(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     filters = list(_FILE_FILTERS)
 
@@ -47,7 +47,7 @@ async def get_storage_by_type(
 @router.get("/storage-by-source")
 async def get_storage_by_source(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     filters = list(_FILE_FILTERS)
 
@@ -79,10 +79,11 @@ async def get_storage_by_source(
 async def get_largest_files(
     n: int = Query(default=10, le=100),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
+    user = principal.user
     filters = [*_FILE_FILTERS, Entry.size_bytes.isnot(None)]
-    if await _should_enforce_perms(user, True, db):
+    if await _should_enforce_perms(principal, True, db):
         filters.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
@@ -115,7 +116,7 @@ async def get_timeseries(
     metric: str = Query(default="size", pattern="^(size|count)$"),
     days: int = Query(default=90, ge=1, le=730),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Return [{taken_at, value}] points for the given source's metric.
 
@@ -145,7 +146,7 @@ async def get_forecast(
     horizon_days: int = Query(default=30, ge=1, le=365),
     lookback_days: int = Query(default=90, ge=7, le=730),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Linear extrapolation of total_size_bytes over `lookback_days`.
 
@@ -225,7 +226,7 @@ async def get_extension_trend(
     extensions: str = Query(..., description="comma-separated, e.g. pdf,mp4,docx"),
     days: int = Query(default=90, ge=1, le=730),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Per-extension series extracted from each snapshot's by_extension JSONB.
 
@@ -265,7 +266,7 @@ async def get_extension_trend(
 async def get_owner_distribution(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """Latest snapshot's by_owner — one row per owner_name, ordered by bytes.
 

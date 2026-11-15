@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, get_principal, require_scope
 from akashic.auth.jwt import create_access_token
 from akashic.auth.passwords import hash_password, verify_password
 from akashic.auth import refresh as refresh_service
@@ -12,7 +12,7 @@ from akashic.database import get_db
 from akashic.models.user import User
 from akashic.routers.auth import _set_refresh_cookie
 from akashic.services.rate_limit import make_limiter
-from akashic.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse
+from akashic.schemas.user import MeResponse, UserCreate, UserLogin, UserResponse, TokenResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -54,7 +54,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 async def create_user(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("users:write"),
 ):
     """Admin-only: create a new user account."""
     existing = await db.execute(select(User).where(User.username == data.username))
@@ -99,6 +99,29 @@ async def login(
     return TokenResponse(access_token=token)
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(get_current_user)):
-    return user
+@router.get(
+    "",
+    response_model=list[UserResponse],
+    summary="List users",
+    description="Every user account, ordered by username.",
+)
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = require_scope("users:read"),
+) -> list[User]:
+    return list((await db.execute(select(User).order_by(User.username))).scalars().all())
+
+
+@router.get(
+    "/me",
+    response_model=MeResponse,
+    summary="Get the calling user",
+    description=(
+        "The authenticated user and the effective scopes of the credential used. "
+        "Requires authentication but no particular scope."
+    ),
+)
+async def get_me(principal: Principal = Depends(get_principal)) -> MeResponse:
+    return MeResponse.model_validate(
+        {**UserResponse.model_validate(principal.user).model_dump(), "scopes": sorted(principal.scopes)}
+    )

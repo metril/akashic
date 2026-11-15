@@ -16,7 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from akashic.main import create_app
-from akashic.openapi import TAGS
+from akashic.auth.scopes import ROLE_SCOPES, SCOPES
+from akashic.openapi import SCANNER_TAG, TAGS
 from akashic.schemas.common import ERROR_RESPONSES, ErrorResponse
 from tests.openapi_allowlist import ALLOWLIST
 
@@ -25,9 +26,19 @@ SPEC_PATH = REPO_ROOT / "openapi.json"
 
 # Dependencies that authenticate the caller (directly or transitively).
 AUTH_DEPENDENCIES = frozenset({
-    "get_current_user", "require_admin", "get_ingest_user",
-    "verify_scanner_jwt",
+    "get_principal", "get_ingest_user", "verify_scanner_jwt",
 })
+
+# Authenticated, but deliberately not gated by a scope: they describe the caller
+# itself, which every valid credential may do.
+AUTHENTICATED_ONLY = frozenset({
+    "GET /api/v1/users/me",
+    "GET /api/v1/scopes",
+})
+
+# Catalog scopes with no route yet. Ratchet: fails once a route uses one, so
+# the entry has to be removed. (3b adds the token-management routes.)
+UNROUTED_SCOPES = frozenset({"tokens:read", "tokens:write", "tokens:admin"})
 
 # Routes that are intentionally unauthenticated: they mint credentials,
 # bootstrap a scanner, or are browser redirects.
@@ -49,7 +60,9 @@ PUBLIC_ROUTES = frozenset({
 # Built-in FastAPI schemas we don't author.
 _SKIP_SCHEMAS = frozenset({"HTTPValidationError", "ValidationError"})
 
-CATEGORIES = ("summary", "response_model", "error_responses", "tag", "operation_id", "auth", "description")
+CATEGORIES = (
+    "summary", "response_model", "error_responses", "tag", "operation_id", "auth", "scope", "description",
+)
 
 
 def _dependency_names(route: APIRoute) -> set[str]:
@@ -62,6 +75,26 @@ def _dependency_names(route: APIRoute) -> set[str]:
 
     walk(route.dependant)
     return names
+
+
+def _required_scopes(route: APIRoute) -> list[str]:
+    """Scopes demanded by the route's ``require_scope`` dependencies."""
+    found: list[str] = []
+
+    def walk(dependant) -> None:
+        for sub in dependant.dependencies:
+            scope = getattr(sub.call, "required_scope", None)
+            if scope is not None:
+                found.append(scope)
+            walk(sub)
+
+    walk(route.dependant)
+    return found
+
+
+def _is_user_route(key: str, route: APIRoute) -> bool:
+    """True for routes a user credential calls (not public, scanner or ingest)."""
+    return key not in PUBLIC_ROUTES and SCANNER_TAG not in (route.tags or [])
 
 
 def _flatten(routes) -> list:
@@ -114,6 +147,8 @@ def collect_violations(app, spec: dict) -> dict[str, set[str]]:
         seen_ids[op_id] = key
         if key not in PUBLIC_ROUTES and not (_dependency_names(route) & AUTH_DEPENDENCIES):
             out["auth"].add(key)
+        if _is_user_route(key, route) and key not in AUTHENTICATED_ONLY and len(_required_scopes(route)) != 1:
+            out["scope"].add(key)
     for name, schema in spec.get("components", {}).get("schemas", {}).items():
         if name in _SKIP_SCHEMAS:
             continue
@@ -204,3 +239,44 @@ def test_committed_spec_is_current(spec):
     committed = SPEC_PATH.read_text(encoding="utf-8")
     expected = json.dumps(spec, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
     assert committed == expected, "openapi.json is stale; run `make openapi` and commit it"
+
+
+def test_authenticated_only_routes_are_real_and_unscoped(app):
+    by_key = dict(_routes(app))
+    assert AUTHENTICATED_ONLY <= by_key.keys()
+    for key in AUTHENTICATED_ONLY:
+        assert _dependency_names(by_key[key]) & {"get_principal"}, key
+        assert not _required_scopes(by_key[key]), key
+
+
+def test_scanner_routes_take_no_user_scope(app):
+    for key, route in _routes(app):
+        if SCANNER_TAG in (route.tags or []):
+            assert not _required_scopes(route), key
+
+
+def test_every_catalog_scope_is_used(app):
+    used = {s for _, route in _routes(app) for s in _required_scopes(route)}
+    assert used <= set(SCOPES), f"routes use scopes missing from the catalog: {sorted(used - set(SCOPES))}"
+    unused = set(SCOPES) - used
+    assert unused == UNROUTED_SCOPES, (
+        f"unused scopes {sorted(unused)} != UNROUTED_SCOPES {sorted(UNROUTED_SCOPES)}; "
+        "remove entries from UNROUTED_SCOPES once a route uses them"
+    )
+
+
+def test_role_bundles_only_contain_catalog_scopes():
+    for role, scopes in ROLE_SCOPES.items():
+        assert scopes <= set(SCOPES), role
+    assert ROLE_SCOPES["admin"] == set(SCOPES)
+    assert "data:purge" not in ROLE_SCOPES["viewer"]
+
+
+def test_operations_publish_their_required_scope(app, spec):
+    for key, route in _routes(app):
+        scopes = _required_scopes(route)
+        if not scopes:
+            continue
+        method, path = key.split(" ", 1)
+        security = spec["paths"][path][method.lower()]["security"]
+        assert {"userJWT": scopes} in security, key

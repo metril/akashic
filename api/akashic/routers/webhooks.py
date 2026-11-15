@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.user import User
 from akashic.models.webhook import Webhook
@@ -18,8 +18,9 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 async def create_webhook(
     data: WebhookCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("webhooks:write"),
 ):
+    user = principal.user
     try:
         await assert_safe_to_dispatch_async(data.url)
     except UnsafeURL as exc:
@@ -39,8 +40,9 @@ async def create_webhook(
 @router.get("", response_model=list[WebhookResponse])
 async def list_webhooks(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("webhooks:read"),
 ):
+    user = principal.user
     result = await db.execute(
         select(Webhook).where(Webhook.user_id == user.id).order_by(Webhook.created_at.desc())
     )
@@ -51,8 +53,9 @@ async def list_webhooks(
 async def delete_webhook(
     webhook_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("webhooks:write"),
 ):
+    user = principal.user
     result = await db.execute(
         select(Webhook).where(Webhook.id == webhook_id, Webhook.user_id == user.id)
     )

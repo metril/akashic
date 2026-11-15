@@ -4,10 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import (
-    check_source_access,
-    get_current_user,
-)
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryVersion
 from akashic.models.source import Source
@@ -39,10 +36,11 @@ async def list_entries(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     if source_id:
-        await check_source_access(source_id, user, db)
+        await check_source_access(source_id, principal, db)
 
     stmt = select(Entry).where(Entry.is_deleted == False)  # noqa: E712
     if source_id:
@@ -53,7 +51,7 @@ async def list_entries(
         stmt = stmt.where(Entry.extension == extension)
     if path_prefix:
         stmt = stmt.where(Entry.path.startswith(path_prefix))
-    if await _should_enforce_perms(user, True, db):
+    if await _should_enforce_perms(principal, True, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
     stmt = stmt.order_by(Entry.path).offset(offset).limit(limit)
     result = await db.execute(stmt)
@@ -64,15 +62,16 @@ async def list_entries(
 async def get_entries_by_hash(
     content_hash: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
     """All file entries sharing a given content_hash, scoped to permitted sources."""
+    user = principal.user
     stmt = select(Entry).where(
         Entry.content_hash == content_hash,
         Entry.kind == "file",
         Entry.is_deleted == False,  # noqa: E712
     )
-    if await _should_enforce_perms(user, True, db):
+    if await _should_enforce_perms(principal, True, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
     result = await db.execute(stmt)
     return result.scalars().all()
@@ -82,8 +81,9 @@ async def get_entries_by_hash(
 async def get_entry(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     result = await db.execute(select(Entry).where(Entry.id == entry_id))
     entry = result.scalar_one_or_none()
     if not entry:
@@ -94,12 +94,12 @@ async def get_entry(
     # `user_can_view` below, so non-admins who legitimately had
     # access at scan time keep it.
     if entry.source_id is not None:
-        await check_source_access(entry.source_id, user, db)
+        await check_source_access(entry.source_id, principal, db)
     # Same filter Browse applies — and 404 (not 403) when the user
     # can't see the entry. Defends against the existence-inference
     # attack ("if I get 403 here, the entry exists; if I get 404, it
     # doesn't").
-    if not await user_can_view(entry, user, db):
+    if not await user_can_view(entry, principal, db):
         raise HTTPException(status_code=404, detail="Entry not found")
 
     versions_result = await db.execute(
@@ -152,15 +152,16 @@ async def get_entry(
 async def get_entry_versions(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     entry_result = await db.execute(select(Entry).where(Entry.id == entry_id))
     entry = entry_result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
     if entry.source_id is not None:
-        await check_source_access(entry.source_id, user, db)
-    if not await user_can_view(entry, user, db):
+        await check_source_access(entry.source_id, principal, db)
+    if not await user_can_view(entry, principal, db):
         raise HTTPException(status_code=404, detail="Entry not found")
 
     result = await db.execute(

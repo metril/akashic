@@ -177,7 +177,7 @@ async def test_access_risks_endpoint_admin_only(
 
     src = Source(id=uuid.uuid4(), name="S", type="local", connection_config={})
     admin = User(id=uuid.uuid4(), username="adm2", email="a2@e", password_hash="x", role="admin")
-    viewer = User(id=uuid.uuid4(), username="viewer", email="v@e", password_hash="x", role="user")
+    viewer = User(id=uuid.uuid4(), username="viewer", email="v@e", password_hash="x", role="viewer")
     db_session.add_all([src, admin, viewer])
     await db_session.commit()
 

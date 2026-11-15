@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -89,9 +89,10 @@ def _aggregate_jsonb(snapshots: list[ScanSnapshot], field: str) -> dict[str, dic
 @router.get("/summary")
 async def get_summary(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
-    is_admin = user.role == "admin"
+    user = principal.user
+    all_users = principal.has("users:read")
 
     # ── Source counts ───────────────────────────────────────────────────
     src_stmt = select(Source.id, Source.status, Source.name)
@@ -191,7 +192,7 @@ async def get_summary(
     access_risks: dict | None = None
 
     # ── Identity health (admin or self-relevant counts) ────────────────
-    if is_admin:
+    if all_users:
         unbound_count_stmt = select(func.count(FsUnboundIdentity.id))
         unresolved_sid_stmt = select(func.count()).select_from(PrincipalsCache).where(
             PrincipalsCache.name.is_(None),
@@ -252,12 +253,12 @@ _risk_lock = asyncio.Lock()
 @router.get("/access-risks")
 async def get_access_risks(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("analytics:read"),
 ):
     """World-readable file count. Admin-only — non-admins get 200 +
     `null` so the tile can render a "not visible to your role"
     placeholder without a 403 round-trip per dashboard mount."""
-    if user.role != "admin":
+    if not principal.has("audit:read"):
         return {"access_risks": None}
 
     # Serve from cache when fresh.

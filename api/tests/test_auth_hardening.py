@@ -130,7 +130,7 @@ async def test_oidc_provision_recovers_from_race(db_session, monkeypatch):
 
 async def _seed_login(client, db):
     u = User(id=uuid.uuid4(), username=f"u{uuid.uuid4().hex[:6]}",
-             password_hash=hash_password("hunter2hunter2"), role="user")
+             password_hash=hash_password("hunter2hunter2"), role="viewer")
     db.add(u)
     await db.commit()
     r = await client.post("/api/v1/users/login", json={"username": u.username, "password": "hunter2hunter2"})

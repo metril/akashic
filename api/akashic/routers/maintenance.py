@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.maintenance_job import MaintenanceJob
@@ -112,7 +112,7 @@ class StartJobRequest(BaseModel):
 @router.get("/overview", response_model=OverviewOut)
 async def overview(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> OverviewOut:
     """Data-state counts for the Maintenance page. Liveness of external
     services lives on the separate /admin/system-status page."""
@@ -174,7 +174,7 @@ async def overview(
 @router.get("/scans/stuck", response_model=list[StuckScanOut])
 async def stuck_scans(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> list[StuckScanOut]:
     """Every non-terminal scan, admin-wide (no source ACL). Oldest first."""
     rows = (await db.execute(
@@ -209,10 +209,11 @@ async def cancel_stuck_scan(
     scan_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> CancelOut:
     """Admin force-cancel — no source ACL check. Idempotent: cancelling
     an already-terminal scan returns its current status."""
+    admin = principal.user
     scan = (await db.execute(
         select(Scan).where(Scan.id == scan_id)
     )).scalar_one_or_none()
@@ -231,11 +232,12 @@ async def cancel_stuck_scan(
 async def run_watchdog(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> WatchdogOut:
     """Run the stale-scan watchdog now: re-queue expired leases, then
     fail scans past the stale threshold — instead of waiting up to 60 s
     for the scheduler's next pass."""
+    admin = principal.user
     async def _count_active() -> int:
         return (await db.execute(
             select(func.count(Scan.id)).where(Scan.status.in_(_ACTIVE_STATUSES))
@@ -260,11 +262,12 @@ async def purge_logs(
     body: PurgeLogsRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> PurgeLogsOut:
     """Delete scan log entries. Provide exactly one of `older_than_days`
     (sweep terminal scans completed past N days) or `scan_id` (clear one
     scan's logs regardless of status)."""
+    admin = principal.user
     if (body.older_than_days is None) == (body.scan_id is None):
         raise HTTPException(
             status_code=400,
@@ -286,7 +289,7 @@ async def purge_logs(
 @router.get("/jobs", response_model=list[JobOut])
 async def list_jobs(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> list[JobOut]:
     """The 20 most recent maintenance jobs, newest first."""
     rows = (await db.execute(
@@ -302,10 +305,11 @@ async def start_job(
     body: StartJobRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    principal: Principal = require_scope("maintenance:write"),
 ) -> JobOut:
     """Kick off a long-running maintenance job (reindex or a backfill).
     Returns immediately with a `running` job row; poll GET /jobs."""
+    admin = principal.user
     if body.kind not in mj.JOB_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown job kind: {body.kind}")
     try:

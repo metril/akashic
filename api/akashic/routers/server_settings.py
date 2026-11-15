@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.server_setting import ServerSetting
 from akashic.models.user import User
@@ -108,7 +108,7 @@ async def _rows(db: AsyncSession) -> dict[str, Any]:
 @router.get("")
 async def list_settings(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("settings:read"),
 ):
     rows = await _rows(db)
     groups = []
@@ -127,7 +127,7 @@ async def list_settings(
 async def get_setting_endpoint(
     key: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("settings:read"),
 ):
     spec = _spec(key)
     rows = await _rows(db)
@@ -176,8 +176,9 @@ async def patch_setting(
     body: SettingPatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("settings:write"),
 ):
+    user = principal.user
     _spec(key)
     return (await _apply(db, request, user, {key: body.value}))[key]
 
@@ -187,6 +188,7 @@ async def patch_settings_bulk(
     body: BulkPatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("settings:write"),
 ):
+    user = principal.user
     return await _apply(db, request, user, body.values)

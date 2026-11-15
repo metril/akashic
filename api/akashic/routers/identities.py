@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -45,8 +45,9 @@ async def _list_bindings(person_id: uuid.UUID, db: AsyncSession) -> list[FsBindi
 @router.get("", response_model=list[FsPersonOut])
 async def list_identities(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:read"),
 ) -> list[FsPersonOut]:
+    user = principal.user
     persons = (await db.execute(
         select(FsPerson).where(FsPerson.user_id == user.id).order_by(FsPerson.created_at)
     )).scalars().all()
@@ -76,8 +77,9 @@ async def create_identity(
     body: FsPersonIn,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> FsPersonOut:
+    user = principal.user
     person = FsPerson(user_id=user.id, label=body.label, is_primary=body.is_primary)
     db.add(person)
     await db.commit()
@@ -96,8 +98,9 @@ async def update_identity(
     person_id: uuid.UUID,
     body: FsPersonPatch,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> FsPersonOut:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()
@@ -118,8 +121,9 @@ async def delete_identity(
     person_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> None:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()
@@ -142,8 +146,9 @@ async def create_binding(
     body: FsBindingIn,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> FsBindingOut:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()
@@ -189,8 +194,9 @@ async def update_binding(
     binding_id: uuid.UUID,
     body: FsBindingPatch,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> FsBindingOut:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()
@@ -216,7 +222,7 @@ async def update_binding(
     # binding to "claim" and any UI that gates on confidence (e.g.
     # SettingsIdentities' IdP-issued badge) is misled.
     if body.groups_source is not None:
-        if user.role != "admin":
+        if not principal.has("users:write"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="groups_source can only be modified by an admin",
@@ -235,8 +241,9 @@ async def delete_binding(
     binding_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:write"),
 ) -> None:
+    user = principal.user
     person = (await db.execute(
         select(FsPerson).where(FsPerson.id == person_id)
     )).scalar_one_or_none()
@@ -274,7 +281,7 @@ async def delete_binding(
 async def list_unbound(
     user_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("identities:read"),
 ) -> list[dict]:
     """OIDC identities Akashic couldn't bind to a source at login.
 
@@ -289,7 +296,8 @@ async def list_unbound(
     rather than a silent filter to their own — surfacing rights bugs
     is more important than hiding them. Ordered by last-seen
     descending."""
-    is_admin = user.role == "admin"
+    user = principal.user
+    is_admin = principal.has("users:read")
 
     if user_id is not None and not is_admin and user_id != user.id:
         raise HTTPException(

@@ -99,7 +99,7 @@ async def test_ingest_oversize_batch_413(client, db_session):
 @pytest.mark.asyncio
 async def test_login_rate_limited(client, db_session):
     db_session.add(User(id=uuid.uuid4(), username="rl", email="rl@e",
-                        password_hash=hash_password("hunter2hunter2"), role="user"))
+                        password_hash=hash_password("hunter2hunter2"), role="viewer"))
     await db_session.commit()
     codes = []
     for _ in range(12):

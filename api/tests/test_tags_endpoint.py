@@ -15,7 +15,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from akashic.auth.dependencies import get_current_user
+from tests.principals import as_principal
+from akashic.auth.dependencies import get_principal
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.entry import Entry
@@ -60,7 +61,7 @@ def _build_client(setup_db, user: User) -> AsyncClient:
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_get_current_user
+    app.dependency_overrides[get_principal] = as_principal(_override_get_current_user)
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
@@ -126,9 +127,9 @@ async def test_create_tag_duplicate_returns_409(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_tag_forbidden_for_viewer(viewer_client: AsyncClient):
+async def test_create_tag_allowed_for_viewer(viewer_client: AsyncClient):
     r = await viewer_client.post("/api/v1/tags", json={"name": "no"})
-    assert r.status_code == 403
+    assert r.status_code == 201
 
 
 @pytest.mark.asyncio
@@ -170,7 +171,7 @@ async def test_delete_tag_404_when_missing(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_tag_forbidden_for_viewer(
+async def test_delete_tag_allowed_for_viewer(
     viewer_client: AsyncClient, setup_db,
 ):
     async with setup_db() as session:
@@ -179,10 +180,10 @@ async def test_delete_tag_forbidden_for_viewer(
         await session.commit()
         tag_id = tag.id
     r = await viewer_client.delete(f"/api/v1/tags/{tag_id}")
-    assert r.status_code == 403
+    assert r.status_code == 204
 
 
-# ── Apply / remove (admin-only) ──────────────────────────────────────────
+# ── Apply / remove (tags:write; viewers hold it) ──────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -222,14 +223,14 @@ async def test_apply_auto_creates_catalogue_entries(
 
 
 @pytest.mark.asyncio
-async def test_apply_tags_forbidden_for_viewer(
+async def test_apply_tags_allowed_for_viewer(
     viewer_client: AsyncClient, setup_db,
 ):
     _, entry_id = await _make_file(setup_db)
     r = await viewer_client.post(
         f"/api/v1/entries/{entry_id}/tags", json={"tags": ["nope"]},
     )
-    assert r.status_code == 403
+    assert r.status_code == 204
 
 
 @pytest.mark.asyncio
@@ -248,13 +249,13 @@ async def test_remove_tag_round_trip(
 
 
 @pytest.mark.asyncio
-async def test_remove_tag_forbidden_for_viewer(
+async def test_remove_tag_allowed_for_viewer(
     client: AsyncClient, viewer_client: AsyncClient, setup_db,
 ):
     _, entry_id = await _make_file(setup_db)
     await client.post(f"/api/v1/entries/{entry_id}/tags", json={"tags": ["t1"]})
     r = await viewer_client.delete(f"/api/v1/entries/{entry_id}/tags/t1")
-    assert r.status_code == 403
+    assert r.status_code == 204
 
 
 @pytest.mark.asyncio
@@ -321,7 +322,7 @@ async def test_bulk_apply_404_when_entry_missing(
 
 
 @pytest.mark.asyncio
-async def test_bulk_apply_forbidden_for_viewer(
+async def test_bulk_apply_allowed_for_viewer(
     viewer_client: AsyncClient, setup_db,
 ):
     _, entry_id = await _make_file(setup_db)
@@ -329,7 +330,7 @@ async def test_bulk_apply_forbidden_for_viewer(
         "/api/v1/tags/bulk-apply",
         json={"entry_ids": [str(entry_id)], "tags": ["x"]},
     )
-    assert r.status_code == 403
+    assert r.status_code == 204
 
 
 # ── Catalogue usage stats ────────────────────────────────────────────────

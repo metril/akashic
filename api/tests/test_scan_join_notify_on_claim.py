@@ -19,7 +19,6 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from akashic.auth.dependencies import get_current_user
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.scan import Scan

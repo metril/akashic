@@ -7,7 +7,7 @@ from akashic.services.audit import record_event
 @pytest.mark.asyncio
 async def test_record_event_persists_minimal(db_session):
     from akashic.models.user import User
-    user = User(username="alice", email="a@a", password_hash="x", role="user")
+    user = User(username="alice", email="a@a", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.flush()
 
@@ -33,7 +33,7 @@ async def test_record_event_persists_minimal(db_session):
 @pytest.mark.asyncio
 async def test_record_event_captures_request_metadata(db_session):
     from akashic.models.user import User
-    user = User(username="bob", email="b@b", password_hash="x", role="user")
+    user = User(username="bob", email="b@b", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.flush()
 

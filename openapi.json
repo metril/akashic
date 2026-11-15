@@ -3806,6 +3806,57 @@
         "title": "LogLineIn",
         "type": "object"
       },
+      "MeResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "Effective scopes of the calling credential, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "email",
+          "role",
+          "created_at",
+          "scopes"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
       "NfsV4ACE": {
         "properties": {
           "ace_type": {
@@ -5896,6 +5947,55 @@
           "online"
         ],
         "title": "ScannerSummary",
+        "type": "object"
+      },
+      "ScopeCatalog": {
+        "properties": {
+          "roles": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Scopes granted by each role, keyed by role name.",
+            "title": "Roles",
+            "type": "object"
+          },
+          "scopes": {
+            "description": "Every scope the API defines.",
+            "items": {
+              "$ref": "#/components/schemas/ScopeInfo"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "roles"
+        ],
+        "title": "ScopeCatalog",
+        "type": "object"
+      },
+      "ScopeInfo": {
+        "properties": {
+          "description": {
+            "description": "What the scope permits.",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "description": "Scope name, e.g. `files:read`.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "ScopeInfo",
         "type": "object"
       },
       "SearchHit": {
@@ -8301,9 +8401,39 @@
       },
       "userJWT": {
         "bearerFormat": "JWT",
-        "description": "Short-lived access token from `POST /api/v1/auth/login` or `/api/v1/auth/refresh`.",
+        "description": "Short-lived access token from `POST /api/v1/users/login` or `/api/v1/auth/refresh`. Each operation lists the scope it requires; see `GET /api/v1/scopes`.",
         "scheme": "bearer",
-        "type": "http"
+        "type": "http",
+        "x-scopes": {
+          "analytics:read": "Read analytics, the dashboard and the storage explorer.",
+          "audit:read": "Read the admin audit log.",
+          "credentials:read": "List credential profiles and OAuth credentials and providers.",
+          "credentials:write": "Create, change and delete credential profiles and OAuth credentials and providers.",
+          "data:purge": "Permanently purge indexed data. Destructive, so it must be granted explicitly.",
+          "files:content": "Download or preview file contents (kept separate from reading metadata).",
+          "files:read": "Search, browse and read file and directory metadata, including duplicates.",
+          "health:read": "Read dependency health and service activity.",
+          "identities:read": "Read identities, bindings, principals, effective permissions and access reports.",
+          "identities:write": "Manage identities and bindings, and resolve their groups.",
+          "maintenance:write": "Run maintenance jobs.",
+          "scanners:read": "Read scanners, hosts and their reachability.",
+          "scanners:write": "Register, change and remove scanners, hosts and claim tokens; approve discoveries.",
+          "scans:read": "Read scans, scan progress and logs, and subscribe to scan streams.",
+          "scans:write": "Trigger and cancel scans.",
+          "settings:read": "Read server settings.",
+          "settings:write": "Change server settings.",
+          "sources:read": "List sources and read their details, audit trail and reachability.",
+          "sources:write": "Create, test, update, delete and re-attach sources.",
+          "tags:read": "List tags and the tags applied to files.",
+          "tags:write": "Create and delete tags, and apply or remove them on files.",
+          "tokens:admin": "List and revoke every user's API tokens.",
+          "tokens:read": "List your own API tokens.",
+          "tokens:write": "Create, change and revoke your own API tokens.",
+          "users:read": "Read other users' accounts and unbound identities.",
+          "users:write": "Create users, and see files regardless of per-user ACL filtering.",
+          "webhooks:read": "List webhooks.",
+          "webhooks:write": "Create and delete webhooks."
+        }
       }
     }
   },
@@ -8466,7 +8596,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:read"
+            ]
           }
         ],
         "summary": "Access Query",
@@ -8646,7 +8778,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "audit:read"
+            ]
           }
         ],
         "summary": "List Audit Events",
@@ -8734,7 +8868,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "audit:read"
+            ]
           }
         ],
         "summary": "Get Audit Event",
@@ -8815,7 +8951,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "List Jobs",
@@ -8900,7 +9038,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Start Job",
@@ -8987,7 +9127,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Purge Logs",
@@ -9064,7 +9206,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Overview",
@@ -9145,7 +9289,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Stuck Scans",
@@ -9234,7 +9380,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Cancel Stuck Scan",
@@ -9311,7 +9459,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "maintenance:write"
+            ]
           }
         ],
         "summary": "Run Watchdog",
@@ -9421,7 +9571,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Extension Trend",
@@ -9532,7 +9684,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Forecast",
@@ -9619,7 +9773,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Largest Files",
@@ -9706,7 +9862,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Owner Distribution",
@@ -9780,7 +9938,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Storage By Source",
@@ -9854,7 +10014,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Storage By Type",
@@ -9964,7 +10126,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Timeseries",
@@ -10751,7 +10915,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Browse",
@@ -10862,7 +11028,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Effective Counts",
@@ -10960,7 +11128,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:read"
+            ]
           }
         ],
         "summary": "List Profiles",
@@ -11044,7 +11214,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Create Profile",
@@ -11125,7 +11297,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Delete Profile",
@@ -11211,7 +11385,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:read"
+            ]
           }
         ],
         "summary": "Get Profile",
@@ -11307,7 +11483,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Update Profile",
@@ -11382,7 +11560,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Access Risks",
@@ -11456,7 +11636,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Summary",
@@ -11569,7 +11751,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "List Duplicates",
@@ -11667,7 +11851,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Delete Duplicate Copies",
@@ -11775,7 +11961,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Get Duplicate Files",
@@ -11943,7 +12131,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "List Entries",
@@ -12035,7 +12225,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Get Entries By Hash",
@@ -12123,7 +12315,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Get Entry",
@@ -12219,7 +12413,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:content"
+            ]
           }
         ],
         "summary": "Get Content",
@@ -12317,7 +12513,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:read"
+            ]
           }
         ],
         "summary": "Post Effective Permissions",
@@ -12405,7 +12603,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:content"
+            ]
           }
         ],
         "summary": "Get Preview",
@@ -12499,7 +12699,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:read"
+            ]
           }
         ],
         "summary": "Get Entry Tags",
@@ -12589,7 +12791,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:write"
+            ]
           }
         ],
         "summary": "Apply Tags To Entry",
@@ -12680,7 +12884,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:write"
+            ]
           }
         ],
         "summary": "Remove Tag From Entry",
@@ -12772,7 +12978,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Get Entry Versions",
@@ -12851,7 +13059,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "health:read"
+            ]
           }
         ],
         "summary": "Services Health",
@@ -12930,7 +13140,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "health:read"
+            ]
           }
         ],
         "summary": "Services Activity",
@@ -13011,7 +13223,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "List Hosts",
@@ -13095,7 +13309,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Create Host",
@@ -13176,7 +13392,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Delete Host",
@@ -13262,7 +13480,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "Get Host",
@@ -13358,7 +13578,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Update Host",
@@ -13457,7 +13679,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Add Host Shares",
@@ -13556,7 +13780,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Patch Host Allowed Scanners",
@@ -13645,7 +13871,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "List Host Shares",
@@ -13734,7 +13962,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Host Online Check",
@@ -13827,7 +14057,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "Host Scanner Reachability Summary",
@@ -13933,7 +14165,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Test Host Shares",
@@ -14013,7 +14247,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:read"
+            ]
           }
         ],
         "summary": "List Identities",
@@ -14097,7 +14333,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Create Identity",
@@ -14198,7 +14436,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:read"
+            ]
           }
         ],
         "summary": "List Unbound",
@@ -14279,7 +14519,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Delete Identity",
@@ -14375,7 +14617,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Update Identity",
@@ -14473,7 +14717,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Create Binding",
@@ -14564,7 +14810,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Delete Binding",
@@ -14670,7 +14918,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Update Binding",
@@ -14768,7 +15018,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:write"
+            ]
           }
         ],
         "summary": "Post Resolve Groups",
@@ -15172,7 +15424,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:read"
+            ]
           }
         ],
         "summary": "List Credentials",
@@ -15253,7 +15507,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Delete Credential",
@@ -15341,7 +15597,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Force Refresh",
@@ -15421,7 +15679,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:read"
+            ]
           }
         ],
         "summary": "List Providers",
@@ -15501,7 +15761,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Delete Provider",
@@ -15596,7 +15858,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Upsert Provider",
@@ -15700,7 +15964,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "credentials:write"
+            ]
           }
         ],
         "summary": "Start Authorize",
@@ -15787,7 +16053,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "identities:read"
+            ]
           }
         ],
         "summary": "Resolve",
@@ -15874,7 +16142,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "data:purge"
+            ]
           }
         ],
         "summary": "Purge Deleted",
@@ -15960,7 +16230,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "data:purge"
+            ]
           }
         ],
         "summary": "Purge Source",
@@ -16040,7 +16312,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "List Claim Tokens",
@@ -16124,7 +16398,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Create Claim Token",
@@ -16205,7 +16481,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Revoke Claim Token",
@@ -16286,7 +16564,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "List Discovery Requests",
@@ -16382,7 +16662,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Approve Discovery",
@@ -16473,7 +16755,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Deny Discovery",
@@ -16553,7 +16837,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "List Scanners",
@@ -16638,7 +16924,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Create Scanner",
@@ -17135,7 +17423,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "Scanners Summary",
@@ -17217,7 +17507,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Delete Scanner",
@@ -17313,7 +17605,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Patch Scanner",
@@ -17680,7 +17974,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Rotate Scanner",
@@ -17854,7 +18150,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:read"
+            ]
           }
         ],
         "summary": "List Scanner Source Reachability",
@@ -17960,7 +18258,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scanners:write"
+            ]
           }
         ],
         "summary": "Test Scanner Sources",
@@ -18096,7 +18396,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scans:read"
+            ]
           }
         ],
         "summary": "List Scans",
@@ -18275,7 +18577,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scans:write"
+            ]
           }
         ],
         "summary": "Trigger Scan",
@@ -18363,7 +18667,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scans:read"
+            ]
           }
         ],
         "summary": "Get Scan",
@@ -18452,7 +18758,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scans:write"
+            ]
           }
         ],
         "summary": "Cancel Scan",
@@ -18789,7 +19097,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "scans:read"
+            ]
           }
         ],
         "summary": "Get Log",
@@ -19465,6 +19775,83 @@
         ]
       }
     },
+    "/api/v1/scopes": {
+      "get": {
+        "description": "Every scope the API defines, and the scopes each role grants. Requires authentication but no particular scope.",
+        "operationId": "list_scopes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflicts with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "userJWT": []
+          }
+        ],
+        "summary": "List scopes and role bundles",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/search": {
       "get": {
         "operationId": "search",
@@ -19732,7 +20119,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "files:read"
+            ]
           }
         ],
         "summary": "Search",
@@ -19806,7 +20195,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "settings:read"
+            ]
           }
         ],
         "summary": "List Settings",
@@ -19894,7 +20285,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "settings:write"
+            ]
           }
         ],
         "summary": "Patch Settings Bulk",
@@ -19981,7 +20374,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "settings:read"
+            ]
           }
         ],
         "summary": "Get Setting Endpoint",
@@ -20076,7 +20471,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "settings:write"
+            ]
           }
         ],
         "summary": "Patch Setting",
@@ -20157,7 +20554,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "List Sources",
@@ -20241,7 +20640,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Create Source",
@@ -20327,7 +20728,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Post Test",
@@ -20420,7 +20823,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Delete Source",
@@ -20506,7 +20911,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "Get Source",
@@ -20602,7 +21009,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Update Source",
@@ -20701,7 +21110,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Patch Source Allowed Scanners",
@@ -20813,7 +21224,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "Get Source Audit",
@@ -20902,7 +21315,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "Get Source Entry Count",
@@ -20991,7 +21406,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Get Orphan Match Count",
@@ -21089,7 +21506,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "Get Source Reachability History",
@@ -21178,7 +21597,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "Get Source Reachability Summary",
@@ -21277,7 +21698,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Reattach Orphans",
@@ -21370,7 +21793,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:read"
+            ]
           }
         ],
         "summary": "List Source Scanner Reachability",
@@ -21476,7 +21901,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "sources:write"
+            ]
           }
         ],
         "summary": "Test Source Scanners",
@@ -21611,7 +22038,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "List Children",
@@ -21686,7 +22115,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "List Storage Sources",
@@ -21832,7 +22263,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "analytics:read"
+            ]
           }
         ],
         "summary": "Get Tree",
@@ -21912,7 +22345,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:read"
+            ]
           }
         ],
         "summary": "List Tags",
@@ -21997,7 +22432,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:write"
+            ]
           }
         ],
         "summary": "Create Tag",
@@ -22077,7 +22514,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:write"
+            ]
           }
         ],
         "summary": "Bulk Apply",
@@ -22158,7 +22597,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:read"
+            ]
           }
         ],
         "summary": "List Tag Usage",
@@ -22240,12 +22681,97 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "tags:write"
+            ]
           }
         ],
         "summary": "Delete Tag Catalogue",
         "tags": [
           "tags"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "description": "Every user account, ordered by username.",
+        "operationId": "list_users",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserResponse"
+                  },
+                  "title": "Response List Users",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflicts with the current resource state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "users:read"
+            ]
+          }
+        ],
+        "summary": "List users",
+        "tags": [
+          "users"
         ]
       }
     },
@@ -22327,7 +22853,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "users:write"
+            ]
           }
         ],
         "summary": "Create User",
@@ -22419,13 +22947,14 @@
     },
     "/api/v1/users/me": {
       "get": {
+        "description": "The authenticated user and the effective scopes of the credential used. Requires authentication but no particular scope.",
         "operationId": "get_me",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserResponse"
+                  "$ref": "#/components/schemas/MeResponse"
                 }
               }
             },
@@ -22487,7 +23016,7 @@
             "userJWT": []
           }
         ],
-        "summary": "Get Me",
+        "summary": "Get the calling user",
         "tags": [
           "users"
         ]
@@ -22645,7 +23174,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "webhooks:read"
+            ]
           }
         ],
         "summary": "List Webhooks",
@@ -22729,7 +23260,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "webhooks:write"
+            ]
           }
         ],
         "summary": "Create Webhook",
@@ -22810,7 +23343,9 @@
         },
         "security": [
           {
-            "userJWT": []
+            "userJWT": [
+              "webhooks:write"
+            ]
           }
         ],
         "summary": "Delete Webhook",
@@ -22822,7 +23357,7 @@
   },
   "tags": [
     {
-      "description": "Login, token refresh, logout and OIDC single sign-on.",
+      "description": "Login, token refresh, logout, OIDC single sign-on, and the scope catalog.",
       "name": "auth"
     },
     {

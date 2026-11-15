@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.host import Host
 from akashic.models.source import Source
@@ -108,8 +108,9 @@ async def create_host(
     data: HostCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     if data.type not in _HOST_TYPES:
         raise HTTPException(
             status_code=400,
@@ -152,7 +153,7 @@ async def create_host(
 @router.get("", response_model=list[HostResponse])
 async def list_hosts(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scanners:read"),
 ):
     """List all hosts. Includes a `source_count` per row so the UI can
     show "3 shares" without a follow-up call.
@@ -161,6 +162,7 @@ async def list_hosts(
     list (which any user can browse, filtered by per-source ACL on
     detail endpoints). Editing is admin-only.
     """
+    user = principal.user
     rows = (await db.execute(select(Host).order_by(Host.name))).scalars().all()
     if not rows:
         return []
@@ -177,7 +179,7 @@ async def list_hosts(
 async def get_host(
     host_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scanners:read"),
 ):
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
@@ -191,8 +193,9 @@ async def update_host(
     data: HostUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -259,8 +262,9 @@ async def delete_host(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -359,13 +363,14 @@ async def host_online_check(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """TCP "is it online?" probe. v0.28.1 renamed from /test-connection
     to make the API's role explicit: the API can only check whether the
     server responds on the network. Credentialed reachability is a
     scanner-side fact and lives on /api/v1/sources/{id}/test-scanners.
     """
+    user = principal.user
     host = (await db.execute(select(Host).where(Host.id == host_id))).scalar_one_or_none()
     if host is None:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -423,7 +428,7 @@ async def test_host_shares(
     host_id: uuid.UUID,
     body: TestSharesRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Bulk reachability fan-out: for every attached share, dispatch
     a credentialed probe to every scanner that's online and permitted
@@ -433,6 +438,7 @@ async def test_host_shares(
     the fan-out. Slow scanners come back as `pending=true` and their
     results land later via the source-reachability WS channel.
     """
+    user = principal.user
     host = (await db.execute(
         select(Host).where(Host.id == host_id)
     )).scalar_one_or_none()
@@ -507,7 +513,7 @@ class HostScannerSummaryRow(BaseModel):
 async def host_scanner_reachability_summary(
     host_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("scanners:read"),
 ):
     """Per-scanner aggregation across this host's attached sources.
     Feeds the host-level eligibility checklist."""
@@ -591,11 +597,12 @@ async def patch_host_allowed_scanners(
     body: HostAllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Bulk-apply an allowed-scanner set across every source attached
     to this host. Idempotent. Audit: `host_allowed_scanners_applied`.
     """
+    user = principal.user
     host = (await db.execute(
         select(Host).where(Host.id == host_id)
     )).scalar_one_or_none()
@@ -684,12 +691,13 @@ async def list_host_shares(
     host_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Enumerate shares/exports/buckets visible to this host's
     credentials. Local hosts have no "shares" concept and return
     400 — use the regular Add Source form for them.
     """
+    user = principal.user
     host = (await db.execute(
         select(Host).where(Host.id == host_id)
     )).scalar_one_or_none()
@@ -730,7 +738,7 @@ async def add_host_shares(
     body: AddSharesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Batch-create Source rows attached to this host. Each entry's
     `share` value populates the per-type share-shaped key
@@ -739,6 +747,7 @@ async def add_host_shares(
     are skipped — the response reports created/skipped counts so the
     caller can show "Added 3 of 5" in the UI.
     """
+    user = principal.user
     host = (await db.execute(
         select(Host).where(Host.id == host_id)
     )).scalar_one_or_none()

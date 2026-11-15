@@ -121,14 +121,15 @@ async def test_scanner_jwt_replay_returns_401(setup_db, admin_user):
     app.dependency_overrides[get_db] = _override_get_db
 
     # Need an admin client to register a scanner first.
-    from akashic.auth.dependencies import get_current_user
+    from tests.principals import as_principal
+    from akashic.auth.dependencies import get_principal
 
     async def _override_admin():
         return admin_user
 
     admin_app = create_app()
     admin_app.dependency_overrides[get_db] = _override_get_db
-    admin_app.dependency_overrides[get_current_user] = _override_admin
+    admin_app.dependency_overrides[get_principal] = as_principal(_override_admin)
 
     async with AsyncClient(transport=ASGITransport(app=admin_app), base_url="http://t") as ac:
         scn = (await ac.post(

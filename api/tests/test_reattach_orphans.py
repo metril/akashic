@@ -16,7 +16,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from akashic.auth.dependencies import get_current_user
+from tests.principals import as_principal
+from akashic.auth.dependencies import get_principal
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.entry import Entry
@@ -47,7 +48,7 @@ def _admin_client(setup_db, user: User) -> AsyncClient:
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_get_current_user
+    app.dependency_overrides[get_principal] = as_principal(_override_get_current_user)
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 

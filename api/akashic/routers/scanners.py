@@ -1,6 +1,6 @@
 """Admin-side scanner management: CRUD, join tokens, reachability and probes.
 
-All endpoints here authenticate a user JWT with `require_admin`. The
+All endpoints here authenticate a user JWT with a `scanners:*` scope. The
 scanner-agent protocol (claim, handshake, heartbeat, lease, complete,
 long-polls) lives in `routers/scanner_protocol.py`.
 """
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.scanner import Scanner
 from akashic.models.source import Source
@@ -173,7 +173,7 @@ def _to_summary(s: Scanner) -> ScannerSummary:
 async def create_scanner(
     body: ScannerCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Mint a new scanner. The api generates the keypair, stores only
     the public key, and returns the private key once for the admin to
@@ -206,7 +206,7 @@ async def create_scanner(
 @router.get("/scanners", response_model=list[ScannerSummary])
 async def list_scanners(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:read"),
 ):
     rows = (await db.execute(select(Scanner).order_by(Scanner.name))).scalars().all()
     return [_to_summary(s) for s in rows]
@@ -223,7 +223,7 @@ class ScannerCounts(BaseModel):
 @router.get("/scanners/summary", response_model=ScannerCounts)
 async def scanners_summary(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:read"),
 ):
     rows = (await db.execute(select(Scanner))).scalars().all()
     return ScannerCounts(
@@ -237,7 +237,7 @@ async def patch_scanner(
     scanner_id: uuid.UUID,
     body: ScannerPatch,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     scanner = (await db.execute(
         select(Scanner).where(Scanner.id == scanner_id)
@@ -312,7 +312,7 @@ async def _validate_source_ids(
 async def rotate_scanner(
     scanner_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Re-issue the keypair. The previous private key stops
     authenticating immediately because we replace public_key_pem +
@@ -344,7 +344,7 @@ async def rotate_scanner(
 async def delete_scanner(
     scanner_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Delete the scanner. The FK on `scans.assigned_scanner_id` is
     `ON DELETE SET NULL`, so any in-flight lease drops back to
@@ -437,8 +437,9 @@ async def create_claim_token(
     body: ClaimTokenCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     if body.allowed_scan_types is not None:
         _validate_scan_types(body.allowed_scan_types)
     if body.allowed_source_ids is not None:
@@ -493,7 +494,7 @@ async def create_claim_token(
 )
 async def list_claim_tokens(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     from akashic.models.scanner_claim_token import ScannerClaimToken
     from akashic.services.scanner_claim import derive_status
@@ -525,8 +526,9 @@ async def revoke_claim_token(
     token_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     from akashic.models.scanner_claim_token import ScannerClaimToken
     from akashic.services.audit import record_event
 
@@ -572,12 +574,13 @@ class SourceReachabilityRow(BaseModel):
 async def list_scanner_source_reachability(
     scanner_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:read"),
 ):
     """For a given scanner, return its latest probe result for every
     source. Feeds the scanner-side AllowedSourcesModal so the user
     can see "scanner X reaches source Y" before toggling allow/deny.
     """
+    user = principal.user
     scanner = (await db.execute(
         select(Scanner).where(Scanner.id == scanner_id)
     )).scalar_one_or_none()
@@ -649,7 +652,7 @@ async def test_scanner_sources(
     scanner_id: uuid.UUID,
     body: TestSourcesRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Mirror of /api/v1/sources/{id}/test-scanners from the scanner's
     perspective — for the AllowedSourcesModal.
@@ -658,6 +661,7 @@ async def test_scanner_sources(
     the API; local sources go through the long-poll dispatcher with
     a 5 s timeout per scanner. Slow probes return `pending=true`.
     """
+    user = principal.user
     scanner = (await db.execute(
         select(Scanner).where(Scanner.id == scanner_id)
     )).scalar_one_or_none()

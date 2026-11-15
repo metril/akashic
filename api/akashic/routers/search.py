@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.user import User
@@ -153,8 +153,9 @@ async def search(
     limit: int = Query(default=100, ge=1, le=500),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
+    user = principal.user
     if extension and not _SAFE_EXTENSION.match(extension):
         raise HTTPException(status_code=400, detail="Invalid extension format")
 
@@ -182,7 +183,7 @@ async def search(
         raise HTTPException(status_code=400, detail=str(exc))
 
     override = _parse_search_as(search_as)
-    if override is not None and user.role != "admin":
+    if override is not None and not principal.bypasses_acl:
         raise HTTPException(
             status_code=403,
             detail="search_as is admin-only",
@@ -199,7 +200,7 @@ async def search(
     elif (
         permission_filter == "all"
         and override is None
-        and await _should_enforce_perms(user, user.role == "admin", db)
+        and await _should_enforce_perms(principal, principal.bypasses_acl, db)
     ):
         # Viewers cannot opt out of ACL enforcement; admins can.
         permission_filter = "readable"

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import check_source_access, get_current_user
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -67,19 +67,19 @@ def _normalize_path(path: str) -> str:
     return path.rstrip("/") or "/"
 
 
-async def _should_enforce_perms(user: User, show_all: bool, db: AsyncSession) -> bool:
+async def _should_enforce_perms(principal: Principal, show_all: bool, db: AsyncSession) -> bool:
     """Decide whether to apply the per-user ACL filter to this request.
 
-    Three gates: the deployment-wide feature flag, the admin's explicit
+    Three gates: the deployment-wide feature flag, the ACL-bypass holder's explicit
     opt-out (`show_all=1`), and the "user has any bindings at all" check
     (a user with no FsBindings would see nothing — no filter for them
     until an admin attaches one).
     """
     if not rt().browse_enforce_perms:
         return False
-    if user.role == "admin" and show_all:
+    if principal.bypasses_acl and show_all:
         return False
-    return await user_has_any_bindings(user, db)
+    return await user_has_any_bindings(principal.user, db)
 
 
 @router.get("", response_model=BrowseResponse)
@@ -107,9 +107,10 @@ async def browse(
     include_total: bool = Query(default=True),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ):
-    await check_source_access(source_id, user, db)
+    user = principal.user
+    await check_source_access(source_id, principal, db)
 
     # Phase-6 grammar predicates. Browse is single-source-scoped, so a
     # `source` predicate is a category error — those queries belong in
@@ -146,7 +147,7 @@ async def browse(
         Entry.is_deleted == False,  # noqa: E712
     ]
 
-    enforce = await _should_enforce_perms(user, show_all, db)
+    enforce = await _should_enforce_perms(principal, show_all, db)
     perm_filter = None
     if enforce:
         tokens = await user_principal_tokens(user, db)
@@ -399,12 +400,13 @@ async def effective_counts(
     path: str = Query(default="/"),
     show_all: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("files:read"),
 ) -> dict:
     """How many entries under `path` the user can/can't see — feeds the
     Browse "X items hidden" footer. Cheap (two COUNT(*) queries with the
     same indexes Browse uses)."""
-    await check_source_access(source_id, user, db)
+    user = principal.user
+    await check_source_access(source_id, principal, db)
     norm_path = _normalize_path(path)
 
     base_filter = [
@@ -416,7 +418,7 @@ async def effective_counts(
         select(func.count(Entry.id)).where(and_(*base_filter))
     )).scalar() or 0
 
-    enforce = await _should_enforce_perms(user, show_all, db)
+    enforce = await _should_enforce_perms(principal, show_all, db)
     if not enforce:
         return {"visible": total, "hidden": 0, "enforced": False}
 

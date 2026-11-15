@@ -13,7 +13,8 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from akashic.auth.dependencies import get_current_user, get_ingest_user
+from tests.principals import as_principal
+from akashic.auth.dependencies import get_ingest_user, get_principal
 from akashic.database import get_db
 from akashic.main import create_app
 from akashic.models.scan import Scan
@@ -100,7 +101,7 @@ async def client(setup_db, admin_user: User, monkeypatch, request) -> AsyncClien
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_get_current_user
+    app.dependency_overrides[get_principal] = as_principal(_override_get_current_user)
     # v0.27.1 — heartbeat / log / stderr POSTs now require the
     # ingest-audience JWT (the scanner agent's lease-time token).
     # Reuse the admin override so existing tests don't have to mint a
@@ -486,7 +487,6 @@ async def test_log_post_persists_scanner_id_from_ingest_jwt(
     real JWT decode path."""
     import uuid as _uuid
     from akashic.auth.jwt import create_ingest_token
-    from akashic.auth.dependencies import get_current_user
     from akashic.database import get_db
     from akashic.main import create_app
     from akashic.models.scanner import Scanner
@@ -514,7 +514,7 @@ async def test_log_post_persists_scanner_id_from_ingest_jwt(
     app.dependency_overrides[get_db] = _override_get_db
     # GET /log uses get_current_user; keep that override so we can
     # also query afterward if we want.
-    app.dependency_overrides[get_current_user] = _override_get_current_user
+    app.dependency_overrides[get_principal] = as_principal(_override_get_current_user)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:
@@ -555,7 +555,6 @@ async def test_log_scanner_name_snapshotted_and_survives_deletion(
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import select
 
-    from akashic.auth.dependencies import get_current_user
     from akashic.auth.jwt import create_ingest_token
     from akashic.database import get_db
     from akashic.main import create_app
@@ -580,7 +579,7 @@ async def test_log_scanner_name_snapshotted_and_survives_deletion(
 
     app = create_app()
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_get_current_user
+    app.dependency_overrides[get_principal] = as_principal(_override_get_current_user)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
     ) as ac:

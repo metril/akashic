@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
 from akashic.models.scanner import Scanner
@@ -314,7 +314,7 @@ async def discover_status(
 )
 async def list_discovery_requests(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
     """Pending + recently-decided (last 24h) requests for the admin
     pane. The pane shows pending first; decided rows give context
@@ -365,8 +365,9 @@ async def approve_discovery(
     body: ApproveBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     row = _terminal_or_404((await db.execute(
         select(ScannerDiscoveryRequest).where(
             ScannerDiscoveryRequest.id == discovery_id,
@@ -431,8 +432,9 @@ async def deny_discovery(
     body: DenyBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("scanners:write"),
 ):
+    user = principal.user
     row = _terminal_or_404((await db.execute(
         select(ScannerDiscoveryRequest).where(
             ScannerDiscoveryRequest.id == discovery_id,

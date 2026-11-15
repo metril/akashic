@@ -85,7 +85,6 @@ ALLOWLIST: dict[str, frozenset[str]] = {
         'GET /api/v1/storage/tree',
         'GET /api/v1/tags',
         'GET /api/v1/tags/usage',
-        'GET /api/v1/users/me',
         'GET /api/v1/webhooks',
         'PATCH /api/v1/credential-profiles/{profile_id}',
         'PATCH /api/v1/hosts/{host_id}',
@@ -195,6 +194,8 @@ ALLOWLIST: dict[str, frozenset[str]] = {
     "operation_id": frozenset({
     }),
     "auth": frozenset({
+    }),
+    "scope": frozenset({
     }),
     "description": frozenset({
         'ACEReference.ace_index',
@@ -567,6 +568,11 @@ ALLOWLIST: dict[str, frozenset[str]] = {
         'LogLineIn.level',
         'LogLineIn.message',
         'LogLineIn.ts',
+        'MeResponse.created_at',
+        'MeResponse.email',
+        'MeResponse.id',
+        'MeResponse.role',
+        'MeResponse.username',
         'NfsV4ACE.ace_type',
         'NfsV4ACE.flags',
         'NfsV4ACE.mask',

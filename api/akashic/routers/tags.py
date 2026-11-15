@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.config import settings
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -103,10 +103,11 @@ async def _build_doc_with_tags(entry: Entry, db: AsyncSession) -> dict:
 async def create_tag(
     data: TagCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("tags:write"),
 ):
     """Pre-create a catalogue entry (lets admins set a colour up front).
     Apply endpoints also auto-create — this is the explicit path."""
+    user = principal.user
     existing = await db.execute(select(Tag).where(Tag.name == data.name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Tag already exists")
@@ -120,7 +121,7 @@ async def create_tag(
 @router.get("/tags", response_model=list[TagResponse])
 async def list_tags(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("tags:read"),
 ):
     result = await db.execute(select(Tag).order_by(Tag.name))
     return result.scalars().all()
@@ -136,7 +137,7 @@ class TagUsageResponse(BaseModel):
 @router.get("/tags/usage", response_model=list[TagUsageResponse])
 async def list_tag_usage(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("tags:read"),
 ):
     """Per-tag usage split into direct vs inherited applications.
     Backs the Settings → Tags page.
@@ -173,7 +174,7 @@ async def list_tag_usage(
 async def delete_tag_catalogue(
     tag_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("tags:write"),
 ):
     """Delete a catalogue entry and every applied/inherited row that
     referenced it by name. Cascade is global — admin-only."""
@@ -224,7 +225,7 @@ async def apply_tags_to_entry(
     body: _TagApplyBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("tags:write"),
 ):
     """Apply one or more tags (by name) to an entry.
 
@@ -233,6 +234,7 @@ async def apply_tags_to_entry(
     inherited tag application on a million-descendant directory is a
     real but bounded cost the admin opts into.
     """
+    user = principal.user
     entry_res = await db.execute(select(Entry).where(Entry.id == entry_id))
     entry = entry_res.scalar_one_or_none()
     if entry is None:
@@ -262,7 +264,7 @@ async def remove_tag_from_entry(
     tag: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("tags:write"),
 ):
     """Remove a directly-applied tag from an entry. Inherited copies
     sourced from this entry cascade-delete; descendants that were also
@@ -285,10 +287,11 @@ async def remove_tag_from_entry(
 async def get_entry_tags(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("tags:read"),
 ):
     """Tags on this entry, grouped by origin (direct vs inherited).
     Open to any authenticated user — read-only."""
+    user = principal.user
     entry_res = await db.execute(select(Entry).where(Entry.id == entry_id))
     if entry_res.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -308,7 +311,7 @@ async def bulk_apply(
     body: _BulkApplyBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("tags:write"),
 ):
     """Apply each of `tags` to every entry in `entry_ids`. Used by the
     Search UI's "Tag selected (N)" action.
@@ -316,6 +319,7 @@ async def bulk_apply(
     Directory entries in the set inherit-down as usual; the dialog
     warns the admin before submission when any selected entry is a
     directory."""
+    user = principal.user
     res = await db.execute(
         select(Entry).where(Entry.id.in_(body.entry_ids))
     )

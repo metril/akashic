@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from akashic.config import settings
 
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.credential_profile import CredentialProfile
 from akashic.models.host import Host
@@ -91,8 +91,9 @@ async def create_profile(
     data: CredentialProfileCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ):
+    user = principal.user
     _validate_type(data.type)
     if data.type == "smb":
         assert_smb_has_password(data.credentials, where="credential_profile")
@@ -132,7 +133,7 @@ async def create_profile(
 async def list_profiles(
     type: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    principal: Principal = require_scope("credentials:read"),
 ):
     stmt = select(CredentialProfile).order_by(CredentialProfile.name)
     if type is not None:
@@ -146,7 +147,7 @@ async def list_profiles(
 async def get_profile(
     profile_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:read"),
 ):
     p = (await db.execute(
         select(CredentialProfile).where(CredentialProfile.id == profile_id)
@@ -163,8 +164,9 @@ async def update_profile(
     request: Request,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ):
+    user = principal.user
     p = (await db.execute(
         select(CredentialProfile).where(CredentialProfile.id == profile_id)
     )).scalar_one_or_none()
@@ -230,8 +232,9 @@ async def delete_profile(
     profile_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ):
+    user = principal.user
     p = (await db.execute(
         select(CredentialProfile).where(CredentialProfile.id == profile_id)
     )).scalar_one_or_none()

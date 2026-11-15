@@ -175,7 +175,7 @@ async def test_tree_perm_filter_hides_unviewable(
     rt_set(browse_enforce_perms=True)
 
     src = Source(id=uuid.uuid4(), name="s", type="local", connection_config={})
-    user = User(id=uuid.uuid4(), username="alice", email="a@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="alice", email="a@e", password_hash="x", role="viewer")
     db_session.add_all([src, user])
     await db_session.commit()
 

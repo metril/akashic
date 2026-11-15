@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.config import settings
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
@@ -126,7 +126,7 @@ async def _probe_tika() -> dict[str, Any]:
 @router.get("")
 async def services_health(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    principal: Principal = require_scope("health:read"),
 ) -> dict[str, Any]:
     """Per-service liveness, 5-s cached. Admin-only.
 
@@ -285,7 +285,7 @@ async def _meili_activity() -> dict[str, Any]:
 
 @router.get("/activity")
 async def services_activity(
-    _: User = Depends(require_admin),
+    principal: Principal = require_scope("health:read"),
 ) -> dict[str, Any]:
     """Tika extraction throughput + Meilisearch activity. 5-second
     cached, admin-only.

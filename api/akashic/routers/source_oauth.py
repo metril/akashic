@@ -56,7 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth import refresh as refresh_service
-from akashic.auth.dependencies import get_current_user, require_admin
+from akashic.auth.dependencies import Principal, require_scope
 from akashic.database import get_db
 from akashic.models.oauth_app_config import OAuthAppConfig
 from akashic.models.oauth_credential import SourceOAuthCredential
@@ -111,7 +111,7 @@ def _summary_for_app(cfg: OAuthAppConfig) -> OAuthAppConfigSummary:
 @router.get("/providers", response_model=list[OAuthAppConfigSummary])
 async def list_providers(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:read"),
 ) -> list[OAuthAppConfigSummary]:
     result = await db.execute(select(OAuthAppConfig))
     configured = {row.provider: row for row in result.scalars()}
@@ -143,8 +143,9 @@ async def upsert_provider(
     provider: str,
     body: OAuthAppConfigUpsert,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ) -> OAuthAppConfigSummary:
+    user = principal.user
     if provider not in known_providers():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -194,7 +195,7 @@ async def upsert_provider(
 async def delete_provider(
     provider: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ) -> None:
     cfg = (
         await db.execute(
@@ -217,8 +218,9 @@ async def start_authorize(
     body: OAuthStartRequest,
     akashic_refresh: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ) -> OAuthStartResponse:
+    user = principal.user
     if body.provider not in known_providers():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -565,7 +567,7 @@ def _summary_for_credential(cred: SourceOAuthCredential) -> OAuthCredentialSumma
 @router.get("/credentials", response_model=list[OAuthCredentialSummary])
 async def list_credentials(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:read"),
 ) -> list[OAuthCredentialSummary]:
     result = await db.execute(
         select(SourceOAuthCredential).order_by(SourceOAuthCredential.created_at.desc())
@@ -579,7 +581,7 @@ async def list_credentials(
 async def delete_credential(
     credential_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ) -> None:
     cred = await db.get(SourceOAuthCredential, credential_id)
     if cred is None:
@@ -594,7 +596,7 @@ async def delete_credential(
 async def force_refresh(
     credential_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    principal: Principal = require_scope("credentials:write"),
 ) -> OAuthRefreshResponse:
     cred = await db.get(SourceOAuthCredential, credential_id)
     if cred is None:

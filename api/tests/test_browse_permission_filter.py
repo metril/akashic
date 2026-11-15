@@ -80,7 +80,7 @@ async def _bind_user_to_uid(
 async def test_browse_unfiltered_when_flag_off(client: AsyncClient, db_session: AsyncSession):
     """Default deployment behaviour — flag off, every entry visible."""
     source, entries = await _seed_three_entries(db_session)
-    user = User(id=uuid.uuid4(), username="viewer1", email="v@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="viewer1", email="v@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     await _bind_user_to_uid(db_session, user, source.id, "9999")  # uid that doesn't match any entry
@@ -101,7 +101,7 @@ async def test_browse_filters_when_flag_on_and_user_has_bindings(
 ):
     """Flag on + binding for uid 1000 → see /a (uid:1000) and /c (`*`)."""
     source, _ = await _seed_three_entries(db_session)
-    user = User(id=uuid.uuid4(), username="alice", email="a@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="alice", email="a@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     await _bind_user_to_uid(db_session, user, source.id, "1000")
@@ -124,7 +124,7 @@ async def test_browse_unbound_user_sees_all_even_when_flag_on(
     deployment switch, not a per-user lockout — admins must attach
     bindings before the trim takes effect."""
     source, _ = await _seed_three_entries(db_session)
-    user = User(id=uuid.uuid4(), username="newcomer", email="n@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="newcomer", email="n@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     token = create_access_token({"sub": str(user.id)})
@@ -174,7 +174,7 @@ async def test_get_entry_returns_404_for_unviewable(
     leak existence ('the row exists, you just can't see it')."""
     source, entries = await _seed_three_entries(db_session)
     hidden = next(e for e in entries if e.path == "/b")
-    user = User(id=uuid.uuid4(), username="u1", email="u1@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="u1", email="u1@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     await _bind_user_to_uid(db_session, user, source.id, "1000")
@@ -192,7 +192,7 @@ async def test_effective_counts_reports_visible_and_hidden(
     enforce_perms, client: AsyncClient, db_session: AsyncSession,
 ):
     source, _ = await _seed_three_entries(db_session)
-    user = User(id=uuid.uuid4(), username="u2", email="u2@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="u2", email="u2@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     await _bind_user_to_uid(db_session, user, source.id, "1000")
@@ -213,7 +213,7 @@ async def test_effective_counts_when_flag_off(
 ):
     """Flag off → enforced=False, hidden=0 always."""
     source, _ = await _seed_three_entries(db_session)
-    user = User(id=uuid.uuid4(), username="u3", email="u3@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username="u3", email="u3@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     token = create_access_token({"sub": str(user.id)})
@@ -230,7 +230,7 @@ async def test_effective_counts_when_flag_off(
 
 
 async def _viewer(db_session, source, uid="1000"):
-    user = User(id=uuid.uuid4(), username=f"v{uuid.uuid4().hex[:6]}", email="v@e", password_hash="x", role="user")
+    user = User(id=uuid.uuid4(), username=f"v{uuid.uuid4().hex[:6]}", email="v@e", password_hash="x", role="viewer")
     db_session.add(user)
     await db_session.commit()
     await _bind_user_to_uid(db_session, user, source.id, uid)
