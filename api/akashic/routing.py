@@ -153,7 +153,24 @@ def _chain(expr: ast.expr) -> list[str] | None:
     return parts[::-1]
 
 
-_EXTERNAL = object()  # marks a local whose class is known and is not ours (SQLAlchemy session, httpx client, ...)
+class _External:
+    """A local whose class is known and is not ours (SQLAlchemy session, httpx client, ...).
+    Calls on it are ignored only when the class itself defines the called attribute; otherwise
+    the method-name fallback still applies (``Any``, ``object`` and the like never qualify)."""
+
+    def __init__(self, *classes: type) -> None:
+        self.classes = classes
+
+    def defines(self, name: str) -> bool:
+        return any(hasattr(c, name) for c in self.classes)
+
+
+def _external(cls: Any) -> Any:
+    import typing
+
+    if cls is typing.Any or cls is object or cls is type(None):
+        return None
+    return _External(cls)
 
 
 def _akashic(obj: Any) -> bool:
@@ -165,7 +182,7 @@ def _akashic(obj: Any) -> bool:
 
 def _as_class(ann: Any, globs: dict[str, Any], external: bool = False) -> Any:
     """The akashic class named by an annotation (``X``, ``X | None``, ``Annotated[X, ...]``, or a string).
-    With ``external=True`` a resolvable non-akashic class yields ``_EXTERNAL`` instead of None."""
+    With ``external=True`` a resolvable non-akashic class yields an ``_External`` instead of None."""
     import typing
 
     if isinstance(ann, str):
@@ -174,12 +191,12 @@ def _as_class(ann: Any, globs: dict[str, Any], external: bool = False) -> Any:
         except Exception:
             return None
     if inspect.isclass(ann):
-        return ann if _akashic(ann) else (_EXTERNAL if external and ann is not type(None) else None)
+        return ann if _akashic(ann) else (_external(ann) if external else None)
     ext = None
     for arg in typing.get_args(ann):
         found = _as_class(arg, globs, external)
-        if found is _EXTERNAL:
-            ext = found
+        if isinstance(found, _External):
+            ext = _External(*(ext.classes if ext else ()), *found.classes)
         elif found is not None:
             return found
     return ext
@@ -213,7 +230,7 @@ def _local_types(fn: Any, tree: ast.AST) -> dict[str, Any]:
         if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name):
             cls = fn.__globals__.get(n.value.func.id)
             if inspect.isclass(cls):
-                out.update({t.id: (cls if _akashic(cls) else _EXTERNAL) for t in n.targets if isinstance(t, ast.Name)})
+                out.update({t.id: (cls if _akashic(cls) else _external(cls)) for t in n.targets if isinstance(t, ast.Name)})
     return out
 
 
@@ -231,19 +248,33 @@ def _local_imports(tree: ast.AST) -> dict[str, Any]:
     """Names bound by ``import`` statements inside the function (handlers import lazily a lot)."""
     import importlib
 
+    def load(name: str) -> Any:
+        try:
+            return importlib.import_module(name)
+        except ImportError:
+            if name.startswith(SCANNED_MODULE_PREFIXES):
+                raise  # an akashic import that cannot be resolved must not silently hide its callables
+            return None
+
     out: dict[str, Any] = {}
     for n in ast.walk(tree):
-        try:
-            if isinstance(n, ast.Import):
-                for a in n.names:
-                    mod = importlib.import_module(a.name)
-                    out[a.asname or a.name.split(".")[0]] = mod if a.asname else importlib.import_module(a.name.split(".")[0])
-            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
-                mod = importlib.import_module(n.module)
-                for a in n.names:
-                    out[a.asname or a.name] = getattr(mod, a.name, None) or importlib.import_module(f"{n.module}.{a.name}")
-        except ImportError:
-            continue
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                mod = load(a.name if a.asname else a.name.split(".")[0])
+                if mod is not None:
+                    out[a.asname or a.name.split(".")[0]] = mod
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            mod = load(n.module)
+            if mod is None:
+                continue
+            for a in n.names:
+                obj = getattr(mod, a.name, None)
+                if obj is None:
+                    obj = load(f"{n.module}.{a.name}")
+                if obj is None and n.module.startswith(SCANNED_MODULE_PREFIXES):
+                    raise ImportError(f"cannot resolve {a.name!r} from {n.module}")
+                if obj is not None:
+                    out[a.asname or a.name] = obj
     return out
 
 
@@ -271,8 +302,10 @@ def _callee(
     root = chain[0]
     if root in local_types:
         obj: Any = local_types[root]
-        if obj is _EXTERNAL:
-            return [], None  # receiver's class is known and is not ours: nothing to follow
+        if isinstance(obj, _External):
+            if len(chain) == 2 and obj.defines(chain[1]):
+                return [], None  # a method of a known non-akashic class: nothing of ours to follow
+            return [], (chain[-1] if len(chain) > 1 else None)
     elif root in globs:
         obj = globs[root]
     else:
@@ -431,25 +464,19 @@ class ApiRouter(APIRouter):
 _ALL_LOADED = False
 
 
-def import_all_modules(*, strict: bool = False) -> None:
-    """Import every ``akashic`` submodule so the method-name fallback sees all classes."""
+def import_all_modules() -> None:
+    """Import every ``akashic`` submodule so the method-name fallback sees all classes.
+    Any import failure raises: an unimportable module would hide routes' callees."""
     global _ALL_LOADED
     import importlib
-    import logging
     import pkgutil
     import akashic
 
     def _on_error(name: str) -> None:
-        if strict:
-            raise ImportError(name)
+        raise ImportError(f"cannot import {name}")
 
     for mod in pkgutil.walk_packages(akashic.__path__, "akashic.", onerror=_on_error):
-        try:
-            importlib.import_module(mod.name)
-        except Exception as exc:  # noqa: BLE001
-            if strict:
-                raise
-            logging.getLogger(__name__).warning("route scan: could not import %s: %s", mod.name, exc)
+        importlib.import_module(mod.name)
     _ALL_LOADED = True
 
 

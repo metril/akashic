@@ -538,6 +538,9 @@ class _Guard:
     def _deny(self):
         raise _HTTPException(status_code=423)
 
+    def close(self):
+        raise _HTTPException(status_code=418)
+
     @staticmethod
     def static_deny():
         raise _HTTPException(status_code=451)
@@ -798,7 +801,7 @@ def _via_local_import():
 
 
 def _external_receiver(db: _AsyncSession):
-    db.run()  # a SQLAlchemy session: must not match akashic methods named `run`
+    db.close()  # a method of SQLAlchemy's own session: must not match akashic methods named `close`
 
 
 def _unknown_receiver(thing):
@@ -819,10 +822,46 @@ def test_annotated_external_receiver_skips_name_fallback(scan_this_module):
 def test_every_module_imports_and_refresh_is_stable(app):
     """The whole package imports (strict), and re-deriving all routes against the complete
     call graph changes nothing, so build-time derivation did not miss anything."""
-    _routing.import_all_modules(strict=True)
+    _routing.import_all_modules()
     before = json.dumps(app.openapi(), sort_keys=True)
     _routing.refresh_all(force=True)
     app.openapi_schema = None
     assert json.dumps(app.openapi(), sort_keys=True) == before
     # a helper defined after its route in the module (patch_scanner -> _validate_source_ids) is found
     assert "400" in app.openapi()["paths"]["/api/v1/scanners/{scanner_id}"]["patch"]["responses"]
+
+
+from typing import Any as _Any  # noqa: E402
+from pydantic import BaseModel as _BaseModel  # noqa: E402
+
+
+def _any_receiver(x: _Any):
+    x.run()
+
+
+def _object_receiver(x: object):
+    x.run()
+
+
+def _basemodel_receiver(x: _BaseModel):
+    x.run()  # BaseModel has no `run`: the name fallback must still apply
+
+
+def _basemodel_known_method(x: _BaseModel):
+    x.model_dump()  # defined by BaseModel itself: ignored, not matched by name
+
+
+def test_any_object_and_foreign_receivers_still_use_name_fallback(scan_this_module):
+    for fn in (_any_receiver, _object_receiver, _basemodel_receiver):
+        assert {423, 429} <= _routing.scan_raises(fn)[0], fn.__name__
+    assert _routing.scan_raises(_basemodel_known_method) == (set(), [])
+
+
+def test_unresolvable_akashic_local_import_raises(scan_this_module):
+    import ast as _ast
+
+    with pytest.raises(ImportError):
+        _routing._local_imports(_ast.parse("def f():\n    from akashic.does_not_exist import g\n    g()\n"))
+    with pytest.raises(ImportError):
+        _routing._local_imports(_ast.parse("def f():\n    from akashic.auth.dependencies import nope\n"))
+    assert _routing._local_imports(_ast.parse("def f():\n    import not_installed_pkg_xyz\n")) == {}
