@@ -10,56 +10,34 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-export interface CredentialProfileSummary {
-  id: string;
-  name: string;
-  type: "smb" | "nfs" | "s3";
-  description: string | null;
-}
+type S = components["schemas"];
 
-export interface CredentialProfile {
-  id: string;
-  name: string;
-  type: "smb" | "nfs" | "s3";
-  /** Secret values arrive as "***" — see schemas/source.py _scrub_config. */
-  credentials: Record<string, unknown>;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type CredentialProfileSummary = S["CredentialProfileSummary"];
 
-export interface CredentialProfileCreate {
-  name: string;
-  type: "smb" | "nfs" | "s3";
-  credentials: Record<string, unknown>;
-  description?: string | null;
-}
+export type CredentialProfile = S["CredentialProfileResponse"];
 
-export interface CredentialProfileUpdate {
-  name?: string;
-  description?: string | null;
-  /** Partial. Values "***" / "********" mean "preserve stored value". */
-  credentials?: Record<string, unknown>;
-}
+export type CredentialProfileCreate = S["CredentialProfileCreate"];
+
+export type CredentialProfileUpdate = S["CredentialProfileUpdate"];
 
 const KEY = ["credential-profiles"] as const;
 
 export function useCredentialProfiles(type?: CredentialProfileSummary["type"]) {
   return useQuery<CredentialProfileSummary[]>({
     queryKey: type ? ["credential-profiles", type] : [...KEY],
-    queryFn: () => {
-      const q = type ? `?type=${encodeURIComponent(type)}` : "";
-      return api.get<CredentialProfileSummary[]>(`/credential-profiles${q}`);
-    },
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/credential-profiles", { params: { query: { type } } })),
   });
 }
 
 export function useCredentialProfile(id: string | null) {
   return useQuery<CredentialProfile>({
     queryKey: ["credential-profile", id],
-    queryFn: () => api.get<CredentialProfile>(`/credential-profiles/${id}`),
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/credential-profiles/{profile_id}", { params: { path: { profile_id: id! } } })),
     enabled: id != null,
   });
 }
@@ -67,8 +45,7 @@ export function useCredentialProfile(id: string | null) {
 export function useCreateCredentialProfile() {
   const qc = useQueryClient();
   return useMutation<CredentialProfile, Error, CredentialProfileCreate>({
-    mutationFn: (body) =>
-      api.post<CredentialProfile>("/credential-profiles", body),
+    mutationFn: async (body) => ok(await client.POST("/api/v1/credential-profiles", { body })),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
@@ -80,8 +57,8 @@ export function useUpdateCredentialProfile() {
     Error,
     { id: string; body: CredentialProfileUpdate }
   >({
-    mutationFn: ({ id, body }) =>
-      api.patch<CredentialProfile>(`/credential-profiles/${id}`, body),
+    mutationFn: async ({ id, body }) =>
+      ok(await client.PATCH("/api/v1/credential-profiles/{profile_id}", { params: { path: { profile_id: id } }, body })),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ["credential-profile", id] });
@@ -96,7 +73,9 @@ export function useUpdateCredentialProfile() {
 export function useDeleteCredentialProfile() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`/credential-profiles/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/credential-profiles/{profile_id}", { params: { path: { profile_id: id } } });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

@@ -14,10 +14,10 @@
 import { describe, expect, it } from "vitest";
 
 import { appendLines, mergeLines } from "./useScanStream";
-import type { ScanLogLine } from "../types";
+import type { ScanLogLine } from "../api/types";
 
 function line(id: string, ts: string): ScanLogLine {
-  return { id, ts, level: "info", message: id };
+  return { id, ts, level: "info", message: id, scanner_id: null, scanner_name: null };
 }
 
 describe("mergeLines", () => {

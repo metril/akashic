@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { API_BASE, ApiError, WS_BASE, api, parseApiError } from "./client";
+import { API_BASE, ApiError, WS_BASE, client, clearToken, getToken, ok, setToken, parseApiError } from "./client";
 
 describe("parseApiError", () => {
   it("reads the ErrorResponse envelope", () => {
@@ -37,12 +37,54 @@ describe("versioned base paths", () => {
     expect(WS_BASE).toBe("/ws/v1");
   });
 
-  it("api() calls fetch under /api/v1", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
-    );
+  it("client calls fetch under /api/v1", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json([]));
     vi.stubGlobal("fetch", fetchMock);
-    await api.get("/sources");
+    await client.GET("/api/v1/sources");
     expect(new URL((fetchMock.mock.calls[0][0] as Request).url).pathname).toBe("/api/v1/sources");
+  });
+});
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+describe("auth middleware", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearToken();
+  });
+
+  it("sends the bearer token", async () => {
+    setToken("tok");
+    const fetchMock = vi.fn().mockResolvedValue(json([]));
+    vi.stubGlobal("fetch", fetchMock);
+    await client.GET("/api/v1/sources");
+    expect((fetchMock.mock.calls[0][0] as Request).headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("throws ApiError carrying the envelope on a non-2xx response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(json({ code: "not_found", message: "nope", request_id: "r1" }, 404)),
+    );
+    await expect(
+      client.GET("/api/v1/sources/{source_id}", { params: { path: { source_id: "x" } } }),
+    ).rejects.toMatchObject({ status: 404, code: "not_found", requestId: "r1" });
+  });
+
+  it("refreshes once on 401 and replays the request with the new token", async () => {
+    setToken("stale");
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      // The refresh call is a plain fetch(url); everything else is a Request.
+      if (typeof input === "string") return json({ access_token: "fresh", token_type: "bearer" });
+      return input.headers.get("Authorization") === "Bearer fresh" ? json([{ id: "s" }]) : json({}, 401);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const data = ok(await client.GET("/api/v1/sources"));
+    expect(data).toEqual([{ id: "s" }]);
+    expect(getToken()).toBe("fresh");
+    const refreshCalls = fetchMock.mock.calls.filter((c) => c[0] === "/api/v1/auth/refresh");
+    expect(refreshCalls).toHaveLength(1);
   });
 });

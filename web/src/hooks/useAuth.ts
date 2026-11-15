@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, setToken, clearToken, isAuthenticated } from "../api/client";
-import type { CurrentUser } from "../types";
+import type { CurrentUser } from "../api/types";
 
 /**
  * `useAuth` exposes the signed-in user (role for display, effective
@@ -21,7 +21,7 @@ export function useAuth() {
 
   const meQuery = useQuery<CurrentUser>({
     queryKey: ["users", "me"],
-    queryFn: () => api.get<CurrentUser>("/users/me"),
+    queryFn: () => api.me(),
     enabled: authed,
     staleTime: 5 * 60 * 1000,
   });

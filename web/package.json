@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "openapi-typescript ../openapi.json -o src/api/schema.d.ts",
+    "generate:api": "openapi-typescript ../openapi.json --default-non-nullable false -o src/api/schema.d.ts",
     "lint": "eslint 'src/**/*.{ts,tsx}'"
   },
   "dependencies": {

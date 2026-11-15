@@ -8,8 +8,9 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { api } from "../api/client";
-import type { StorageByType, StorageBySource, LargestFile, Source } from "../types";
+import { client, ok } from "../api/client";
+import { useSources } from "../hooks/useSources";
+import type { StorageByType, StorageBySource, LargestFile } from "../api/types";
 import {
   Card,
   CardHeader,
@@ -49,24 +50,20 @@ function ChartSkeleton() {
 export default function Analytics() {
   const typeQuery = useQuery<StorageByType[]>({
     queryKey: ["analytics", "storage-by-type"],
-    queryFn: () => api.get<StorageByType[]>("/analytics/storage-by-type"),
+    queryFn: async () => ok(await client.GET("/api/v1/analytics/storage-by-type")),
   });
 
   const sourceQuery = useQuery<StorageBySource[]>({
     queryKey: ["analytics", "storage-by-source"],
-    queryFn: () =>
-      api.get<StorageBySource[]>("/analytics/storage-by-source"),
+    queryFn: async () => ok(await client.GET("/api/v1/analytics/storage-by-source")),
   });
 
   const largestQuery = useQuery<LargestFile[]>({
     queryKey: ["analytics", "largest-files"],
-    queryFn: () => api.get<LargestFile[]>("/analytics/largest-files"),
+    queryFn: async () => ok(await client.GET("/api/v1/analytics/largest-files", { params: { query: {} } })),
   });
 
-  const sourcesQuery = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
-  });
+  const sourcesQuery = useSources();
 
   const sourceMap = useMemo(() => {
     const m = new Map<string, string>();

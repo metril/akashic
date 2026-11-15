@@ -1,41 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-export interface TimeseriesPoint {
-  taken_at: string;
-  value: number;
-}
+type S = components["schemas"];
 
-export interface ForecastPoint {
-  taken_at: string;
-  value: number;
-  low: number;
-  high: number;
-}
+export type TimeseriesPoint = S["SeriesPoint"];
 
-export interface ForecastResponse {
-  history: TimeseriesPoint[];
-  forecast:
-    | {
-        points: ForecastPoint[];
-        slope_bytes_per_day: number;
-        horizon_days: number;
-      }
-    | null;
-  reason: string;
-}
+export type ForecastPoint = S["ForecastPoint"];
 
-export interface ExtensionTrendPoint {
-  taken_at: string;
-  n: number;
-  bytes: number;
-}
+export type ForecastResponse = S["ForecastResponse"];
 
-export interface OwnerDistribution {
-  taken_at: string | null;
-  owners: { owner: string; n: number; bytes: number }[];
-}
+export type ExtensionTrendPoint = S["ExtensionTrendPoint"];
+
+export type OwnerDistribution = S["OwnerDistribution"];
 
 export function useStorageTimeseries(
   sourceId: string | null | undefined,
@@ -44,9 +22,11 @@ export function useStorageTimeseries(
 ) {
   return useQuery<TimeseriesPoint[]>({
     queryKey: ["analytics", "timeseries", sourceId, metric, days],
-    queryFn: () =>
-      api.get<TimeseriesPoint[]>(
-        `/analytics/timeseries?source_id=${sourceId}&metric=${metric}&days=${days}`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/analytics/timeseries", {
+          params: { query: { source_id: sourceId!, metric, days } },
+        }),
       ),
     enabled: Boolean(sourceId),
   });
@@ -59,9 +39,11 @@ export function useStorageForecast(
 ) {
   return useQuery<ForecastResponse>({
     queryKey: ["analytics", "forecast", sourceId, horizonDays, lookbackDays],
-    queryFn: () =>
-      api.get<ForecastResponse>(
-        `/analytics/forecast?source_id=${sourceId}&horizon_days=${horizonDays}&lookback_days=${lookbackDays}`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/analytics/forecast", {
+          params: { query: { source_id: sourceId!, horizon_days: horizonDays, lookback_days: lookbackDays } },
+        }),
       ),
     enabled: Boolean(sourceId),
   });
@@ -75,10 +57,12 @@ export function useExtensionTrend(
   const extParam = extensions.join(",");
   return useQuery<Record<string, ExtensionTrendPoint[]>>({
     queryKey: ["analytics", "extension-trend", sourceId, extParam, days],
-    queryFn: () =>
-      api.get<Record<string, ExtensionTrendPoint[]>>(
-        `/analytics/extension-trend?source_id=${sourceId}&extensions=${encodeURIComponent(extParam)}&days=${days}`,
-      ),
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/analytics/extension-trend", {
+          params: { query: { source_id: sourceId!, extensions: extParam, days } },
+        }),
+      ) as Record<string, ExtensionTrendPoint[]>,
     enabled: Boolean(sourceId) && extensions.length > 0,
   });
 }
@@ -86,9 +70,11 @@ export function useExtensionTrend(
 export function useOwnerDistribution(sourceId: string | null | undefined) {
   return useQuery<OwnerDistribution>({
     queryKey: ["analytics", "owner-distribution", sourceId],
-    queryFn: () =>
-      api.get<OwnerDistribution>(
-        `/analytics/owner-distribution?source_id=${sourceId}`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/analytics/owner-distribution", {
+          params: { query: { source_id: sourceId! } },
+        }),
       ),
     enabled: Boolean(sourceId),
   });

@@ -10,7 +10,7 @@
  * aren't filterable until they're added to DOMAIN_METADATA_FIELDS in
  * filterGrammar.ts and DOMAIN_METADATA_FACET_KEYS in services/search.py.
  */
-import type { DomainMetadata } from "../../types";
+import type { DomainMetadata } from "../../api/types";
 import {
   DOMAIN_METADATA_FIELDS,
   type DomainMetadataField,

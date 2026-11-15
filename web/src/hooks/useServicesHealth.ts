@@ -7,55 +7,28 @@
  */
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
 import { useScopes } from "./useScopes";
 
-export interface ServiceLiveness {
-  ok: boolean;
-  latency_ms: number | null;
-  error?: string | null;
-}
+export type ServiceLiveness = S["ServiceProbe"];
 
-export interface ServicesHealth {
-  postgres: ServiceLiveness;
-  redis: ServiceLiveness;
-  meilisearch: ServiceLiveness;
-  tika: ServiceLiveness;
-  checked_at: string;
-}
+export type ServicesHealth = S["ServicesHealth"];
 
-export interface TikaActivity {
-  // v0.30.0 — extraction moved into the scanner; there is no RQ queue
-  // or failed-job registry any more. Throughput counters are bumped
-  // by the /api/v1/ingest/content endpoint.
-  extracted_total: number | null;
-  extracted_last_5min: number | null;
-  last_extracted_at: string | null;
-  ok: boolean;
-  error?: string | null;
-}
+export type TikaActivity = S["TikaActivity"];
 
-export interface MeiliActivity {
-  documents_in_index: number | null;
-  pending_tasks: number | null;
-  last_task_at: string | null;
-  last_task_status: string | null;
-  ok: boolean;
-  error?: string | null;
-}
+export type MeiliActivity = S["MeiliActivity"];
 
-export interface ServicesActivity {
-  tika: TikaActivity;
-  meilisearch: MeiliActivity;
-  checked_at: string;
-}
+export type ServicesActivity = S["ServicesActivity"];
 
 export function useServicesHealth(options: { enabled?: boolean } = {}) {
   const { has } = useScopes();
   const canReadHealth = has("health:read");
   return useQuery<ServicesHealth>({
     queryKey: ["health", "services"],
-    queryFn: () => api.get<ServicesHealth>("/health/services"),
+    queryFn: async () => ok(await client.GET("/api/v1/health/services")),
     enabled: canReadHealth && (options.enabled ?? true),
     refetchInterval: 30_000,
     // Stale-while-revalidate so the chip doesn't flicker on each poll.
@@ -68,7 +41,7 @@ export function useServicesActivity(options: { enabled?: boolean } = {}) {
   const canReadHealth = has("health:read");
   return useQuery<ServicesActivity>({
     queryKey: ["health", "services", "activity"],
-    queryFn: () => api.get<ServicesActivity>("/health/services/activity"),
+    queryFn: async () => ok(await client.GET("/api/v1/health/services/activity")),
     enabled: canReadHealth && (options.enabled ?? true),
     refetchInterval: 10_000,
     staleTime: 8_000,

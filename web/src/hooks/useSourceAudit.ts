@@ -1,17 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { Paginated } from "../types";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-export interface AuditEvent {
-  id: string;
-  user_id: string | null;
-  event_type: string;
-  occurred_at: string;
-  source_id: string | null;
-  request_ip: string;
-  user_agent: string;
-  payload: Record<string, unknown>;
-}
 
 /**
  * Per-source audit timeline. Filtered server-side via the
@@ -27,12 +17,13 @@ export function useSourceAudit(
   limit: number = 50,
   enabled: boolean = true,
 ) {
-  return useQuery<Paginated<AuditEvent>>({
+  return useQuery<components["schemas"]["Page_AuditEventOut_"]>({
     queryKey: ["sources", sourceId, "audit", cursor, limit],
-    queryFn: () =>
-      api.get<Paginated<AuditEvent>>(
-        `/sources/${sourceId}/audit?limit=${limit}` +
-          (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""),
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/sources/{source_id}/audit", {
+          params: { path: { source_id: sourceId! }, query: { limit, cursor } },
+        }),
       ),
     enabled: enabled && !!sourceId,
   });

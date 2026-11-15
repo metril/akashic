@@ -9,16 +9,16 @@
  */
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-interface SourceEntryCount {
-  count: number;
-}
+type S = components["schemas"];
 
 export function useSourceEntryCount(sourceId: string | null) {
-  return useQuery<SourceEntryCount>({
+  return useQuery<S["SourceEntryCount"]>({
     queryKey: ["sources", sourceId, "entry-count"],
-    queryFn: () => api.get<SourceEntryCount>(`/sources/${sourceId}/entry-count`),
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/sources/{source_id}/entry-count", { params: { path: { source_id: sourceId! } } })),
     enabled: sourceId != null,
     staleTime: 10_000,
   });

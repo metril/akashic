@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { Source } from "../types";
+import { client, ok } from "../api/client";
+import type { SourceListItem } from "../api/types";
 
 const BASE_TITLE = "Akashic";
 
@@ -11,9 +11,9 @@ const BASE_TITLE = "Akashic";
 // separate /scans poll, because the existing /sources query refreshes
 // itself when scans start/stop.
 export function useDocumentTitle() {
-  const sourcesQuery = useQuery<Source[]>({
+  const sourcesQuery = useQuery<SourceListItem[]>({
     queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
+    queryFn: async () => ok(await client.GET("/api/v1/sources")),
   });
   const count = (sourcesQuery.data ?? []).filter(
     (s) => s.status === "scanning",

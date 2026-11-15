@@ -157,7 +157,7 @@ export function buildArcLayout(
     const isLeafLike = !isDir || !hasChildren;
     const accent = branchAccent(topLevelName(n));
     const baseColor = isLeafLike
-      ? mix(colorFor(data.color_key, mode), accent, 0.15)
+      ? mix(colorFor(data.color_key ?? undefined, mode), accent, 0.15)
       : mix(accent, "#0f172a", Math.min(0.6, 0.20 + 0.10 * (n.depth - 1)));
 
     // Walk the ancestor chain once so both highlight queries and

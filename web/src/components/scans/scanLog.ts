@@ -2,7 +2,7 @@
  * Pure, render-free helpers for the scan Live Log panel — extracted so
  * the node-env vitest suite can cover them without a DOM. v0.32.0.
  */
-import type { ScanLogLine } from "../../types";
+import type { ScanLogLine } from "../../api/types";
 import type { BadgeVariant } from "../ui";
 
 export type LogLevel = ScanLogLine["level"];

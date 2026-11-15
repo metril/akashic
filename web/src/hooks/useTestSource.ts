@@ -1,28 +1,16 @@
 import { useMutation } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { SourceType } from "../components/sources/sourceTypes";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-export interface TestSourceResult {
-  ok: boolean;
-  step: "connect" | "auth" | "mount" | "list" | "config" | null;
-  error: string | null;
-  // Phase 3a — NFS only. `tier` reports which protocol path proved
-  // export validity (mount3 / nfsv4 / tcp). `warn` is non-empty when
-  // the cascade fell back to TCP and couldn't validate the export.
-  tier?: string | null;
-  warn?: string | null;
-}
+type S = components["schemas"];
+
+export type TestSourceResult = S["TestResult"];
 
 export function useTestSource() {
   return useMutation({
-    mutationFn: (data: {
-      type: SourceType;
-      connection_config: Record<string, unknown>;
-      // v0.31.3 — let the probe resolve a credential profile / host the
-      // same way a scan does, so profile-backed SMB sources test with
-      // their real password instead of an empty inline config.
-      credential_profile_id?: string | null;
-      host_id?: string | null;
-    }) => api.post<TestSourceResult>("/sources/test", data),
+    // The probe resolves a credential profile / host the same way a scan
+    // does, so profile-backed sources test with their real credentials.
+    mutationFn: async (data: S["TestSourceRequest"]) =>
+      ok(await client.POST("/api/v1/sources/test", { body: data })),
   });
 }

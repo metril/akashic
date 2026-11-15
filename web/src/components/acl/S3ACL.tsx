@@ -1,4 +1,4 @@
-import type { S3ACL as S3ACLType } from "../../types";
+import type { S3ACL as S3ACLType } from "../../api/types";
 import { Mono } from "./shared";
 
 export function S3ACL({ acl }: { acl: S3ACLType }) {

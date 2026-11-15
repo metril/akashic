@@ -6,7 +6,8 @@ from typing import Annotated, Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from akashic.schemas.base import ApiModel
+from pydantic import ConfigDict, Field, model_validator
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +41,7 @@ _DEFAULT_PAGE_SIZE = 500
 _MAX_PAGE_SIZE = 5000
 
 
-class BrowseCursor(BaseModel):
+class BrowseCursor(ApiModel):
     """Keyset position of the last row of the previous page."""
 
     model_config = ConfigDict(extra="forbid")
@@ -76,7 +77,7 @@ def _normalize_path(path: str) -> str:
     return path.rstrip("/") or "/"
 
 
-class EffectiveCounts(BaseModel):
+class EffectiveCounts(ApiModel):
     visible: int = Field(description="Direct children of the directory the caller can see.")
     hidden: int = Field(description="Direct children hidden by per-user ACL filtering; 0 when no filter applies.")
     enforced: bool = Field(description="Whether ACL filtering applied to this request.")

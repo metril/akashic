@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 from akashic.schemas.analytics import OwnerShare
 
 
-class DashboardStorage(BaseModel):
+class DashboardStorage(ApiModel):
     """Storage totals across visible sources."""
 
     total_bytes: int = Field(description="Total bytes in the latest snapshots.")
@@ -17,14 +18,14 @@ class DashboardStorage(BaseModel):
     delta_30d_files: int | None = Field(description="File-count change over 30 days; null without history.")
 
 
-class DashboardScans(BaseModel):
+class DashboardScans(ApiModel):
     """Source and scan counters."""
 
     active: int = Field(description="Sources currently scanning.")
     total_sources: int = Field(description="Sources visible to the caller.")
 
 
-class ForecastHint(BaseModel):
+class ForecastHint(ApiModel):
     """Recent growth rate for one of the largest sources."""
 
     source_id: uuid.UUID = Field(description="Source id.")
@@ -33,7 +34,7 @@ class ForecastHint(BaseModel):
     slope_bytes_per_day: int = Field(description="Growth in bytes per day over the last 30 days.")
 
 
-class ExtensionGrowth(BaseModel):
+class ExtensionGrowth(ApiModel):
     """An extension's growth over 30 days."""
 
     extension: str = Field(description="Extension without the dot.")
@@ -41,7 +42,7 @@ class ExtensionGrowth(BaseModel):
     current_bytes: int = Field(description="Current bytes.")
 
 
-class RecentScan(BaseModel):
+class RecentScan(ApiModel):
     """A recent scan row for the dashboard."""
 
     id: uuid.UUID = Field(description="Scan id.")
@@ -55,20 +56,20 @@ class RecentScan(BaseModel):
     files_changed: int | None = Field(description="Files changed by the scan.")
 
 
-class AccessRisks(BaseModel):
+class AccessRisks(ApiModel):
     """World-readable exposure counters."""
 
     public_read_count: int = Field(description="Files readable by everyone.")
 
 
-class IdentityHealth(BaseModel):
+class IdentityHealth(ApiModel):
     """Identity-mapping health counters."""
 
     unbound_count: int = Field(description="Filesystem identities not bound to a user.")
     unresolved_sid_count: int = Field(description="SIDs whose name is unresolved (admin only).")
 
 
-class DashboardSummary(BaseModel):
+class DashboardSummary(ApiModel):
     """Everything the dashboard tiles need in one call."""
 
     storage: DashboardStorage = Field(description="Storage totals.")
@@ -81,7 +82,7 @@ class DashboardSummary(BaseModel):
     identity_health: IdentityHealth = Field(description="Identity-mapping counters.")
 
 
-class AccessRisksResponse(BaseModel):
+class AccessRisksResponse(ApiModel):
     """Cached world-readable file count."""
 
     access_risks: AccessRisks | None = Field(description="Null when the caller may not see it.")

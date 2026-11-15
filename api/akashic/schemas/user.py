@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from akashic.schemas.base import ApiModel
+from pydantic import Field, field_validator
 
 
 # bcrypt silently truncates inputs over 72 bytes — historically a real
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 _BCRYPT_MAX_BYTES = 72
 
 
-class UserCreate(BaseModel):
+class UserCreate(ApiModel):
     username: str = Field(..., min_length=3, max_length=64, description="Login name, 3-64 characters.", examples=['alice'])
     password: str = Field(..., min_length=8, max_length=128, description="Password, 8-128 characters and at most 72 UTF-8 bytes (bcrypt's limit).")
     email: str | None = Field(default=None, description="Optional contact address.")
@@ -29,14 +30,14 @@ class UserCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple', 'email': 'alice@example.com'}]}}
 
 
-class UserLogin(BaseModel):
+class UserLogin(ApiModel):
     username: str = Field(description="Login name.")
     password: str = Field(description="Account password.")
 
     model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
 
 
-class UserResponse(BaseModel):
+class UserResponse(ApiModel):
     id: uuid.UUID = Field(description="User id.")
     username: str = Field(description="Login name.")
     email: str | None = Field(description="Contact address, if set.")
@@ -50,7 +51,7 @@ class MeResponse(UserResponse):
     scopes: list[str] = Field(description="Effective scopes of the calling credential, sorted.")
 
 
-class ScopeInfo(BaseModel):
+class ScopeInfo(ApiModel):
     name: str = Field(description="Scope name, e.g. `files:read`.")
     description: str = Field(description="What the scope permits.")
     allowed_with_source_limit: bool = Field(
@@ -61,12 +62,12 @@ class ScopeInfo(BaseModel):
     )
 
 
-class ScopeCatalog(BaseModel):
+class ScopeCatalog(ApiModel):
     scopes: list[ScopeInfo] = Field(description="Every scope the API defines.")
     roles: dict[str, list[str]] = Field(description="Scopes granted by each role, keyed by role name.")
 
 
-class TokenResponse(BaseModel):
+class TokenResponse(ApiModel):
     access_token: str = Field(description="Short-lived JWT access token; send it as a bearer token.")
     token_type: str = Field(default="bearer", description="Always `bearer`.")
 

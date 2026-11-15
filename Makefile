@@ -82,5 +82,8 @@ ps:
 # CI fails if either committed file is stale.
 openapi:
 	python api/scripts/dump_openapi.py
-	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/w -w /w/web node:20-alpine \
-		npx openapi-typescript ../openapi.json -o src/api/schema.d.ts
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/w node:20-alpine sh -c '\
+		mkdir -p /tmp/gen/web/src/api && cp /w/openapi.json /tmp/gen/ && \
+		cp /w/web/package.json /w/web/package-lock.json /tmp/gen/web/ && cd /tmp/gen/web && \
+		npm ci --no-audit --no-fund && npm run generate:api && \
+		cp src/api/schema.d.ts /w/web/src/api/schema.d.ts'

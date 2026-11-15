@@ -44,8 +44,8 @@ import { interpolatePairs, matchInstances, runAnim } from "./treemapAnim";
 import { clamp as clampViewport, IDENTITY as IDENTITY_VIEWPORT, SCALE_MAX, screenToWorld, zoomAt, type Viewport } from "./treemapViewport";
 
 export interface TreeNode {
-  id?: string;
-  kind: "file" | "directory" | "other" | "hidden";
+  id?: string | null;
+  kind: string;
   name: string;
   path: string;
   size_bytes: number;
@@ -55,8 +55,8 @@ export interface TreeNode {
    *  level where sqrt scaling keeps small sources visible without
    *  lying about the real byte count in the tooltip. */
   layout_weight?: number;
-  color_key?: string;
-  children?: TreeNode[];
+  color_key?: string | null;
+  children?: TreeNode[] | null;
 }
 
 interface TreemapProps {
@@ -186,7 +186,7 @@ function buildBaseScene(
     const ds = !isLeafLike ? dirStyle(n.depth, accent) : null;
 
     const fillStr = isLeafLike
-      ? colorFor(data.color_key, mode)
+      ? colorFor(data.color_key ?? undefined, mode)
       : ds!.plateFill;
     const baseStroke = isLeafLike ? "rgba(255,255,255,0.55)" : ds!.borderFill;
     const baseStrokeWidth = isLeafLike ? 0.5 : ds!.strokeWidth;

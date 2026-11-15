@@ -1,16 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "../api/client";
-
-interface TriggerResponse {
-  scan_id: string;
-  source_id: string;
-  source_name: string;
-  scan_type: string;
-  last_scan_at: string | null;
-  /** v0.5.6 — true on a fresh insert, false on dedup (pending/running scan returned). */
-  created: boolean;
-}
+import { client, ok } from "../api/client";
 
 export type BulkScanType = "incremental" | "full";
 
@@ -60,10 +50,9 @@ export function useBulkTriggerScans() {
   return useMutation<BulkScanResult, Error, { ids: string[]; scanType: BulkScanType }>({
     mutationFn: async ({ ids, scanType }) => {
       const settled = await runWithConcurrency(ids, (id) =>
-        api.post<TriggerResponse>("/scans/trigger", {
-          source_id: id,
-          scan_type: scanType,
-        }),
+        client
+          .POST("/api/v1/scans/trigger", { body: { source_id: id, scan_type: scanType } })
+          .then(ok),
       );
       let triggered = 0;
       let alreadyRunning = 0;

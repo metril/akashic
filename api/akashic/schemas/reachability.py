@@ -12,10 +12,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 
-class ProbeRequest(BaseModel):
+class ProbeRequest(ApiModel):
     """One probe delivered to the agent via /probes/long-poll.
 
     The agent dials the source with the merged host+source
@@ -29,7 +30,7 @@ class ProbeRequest(BaseModel):
     connection_config: dict = Field(description="Merged host and source connection config, secrets included. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
 
 
-class ProbeReport(BaseModel):
+class ProbeReport(ApiModel):
     """Result body for POST /probes/{request_id}/report.
 
     `source_id` is a copy of the value the API sent in the originating
@@ -49,7 +50,7 @@ class ProbeReport(BaseModel):
 # Drives the per-scanner "Reachability" tab in SourceDetail.
 
 
-class ReachabilityOutcome(BaseModel):
+class ReachabilityOutcome(ApiModel):
     ok: bool = Field(description="Whether the source was reachable.")
     step: Optional[str] = Field(default=None, description="Step that failed, if any.")
     error: Optional[str] = Field(default=None, description="Error message, if any.")
@@ -57,11 +58,11 @@ class ReachabilityOutcome(BaseModel):
     completed_at: datetime = Field(description="When the probe finished.")
 
 
-class PerScannerHistory(BaseModel):
+class PerScannerHistory(ApiModel):
     scanner_id: Optional[uuid.UUID] = Field(default=None, description="Scanner id; null for results not tied to a scanner.")
     scanner_name: Optional[str] = Field(default=None, description="Scanner name.")
     outcomes: list[ReachabilityOutcome] = Field(description="Recent outcomes, newest first.")
 
 
-class ReachabilityHistory(BaseModel):
+class ReachabilityHistory(ApiModel):
     per_scanner: list[PerScannerHistory] = Field(description="History grouped by scanner.")

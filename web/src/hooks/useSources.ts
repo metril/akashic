@@ -1,11 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { Source } from "../types";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+import type { Source, SourceListItem } from "../api/types";
+
+type S = components["schemas"];
 
 export function useSources() {
-  return useQuery<Source[]>({
+  return useQuery<SourceListItem[]>({
     queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
+    queryFn: async () => ok(await client.GET("/api/v1/sources")),
   });
 }
 
@@ -22,7 +25,8 @@ export function useSources() {
 export function useSourceDetail(sourceId: string | null) {
   return useQuery<Source>({
     queryKey: ["sources", sourceId, "detail"],
-    queryFn: () => api.get<Source>(`/sources/${sourceId}`),
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/sources/{source_id}", { params: { path: { source_id: sourceId! } } })),
     enabled: sourceId != null,
     staleTime: 30_000,
   });
@@ -32,19 +36,7 @@ export function useCreateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: {
-      name: string;
-      type: string;
-      host_id?: string | null;
-      connection_config: Record<string, unknown>;
-      scan_schedule?: string | null;
-      exclude_patterns?: string[] | null;
-      preferred_pool?: string | null;
-      max_parallel_scanners?: number | null;
-      scan_chunk_size?: number | null;
-      is_removable?: boolean | null;
-      credential_profile_id?: string | null;
-    }) => api.post<Source>("/sources", data),
+    mutationFn: async (data: S["SourceCreate"]) => ok(await client.POST("/api/v1/sources", { body: data })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
@@ -55,8 +47,8 @@ export function useUpdateSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<Pick<Source, "name" | "connection_config" | "scan_schedule" | "exclude_patterns" | "is_removable" | "max_parallel_scanners" | "scan_chunk_size" | "credential_profile_id">> }) =>
-      api.patch<Source>(`/sources/${id}`, data),
+    mutationFn: async ({ id, data }: { id: string; data: S["SourceUpdate"] }) =>
+      ok(await client.PATCH("/api/v1/sources/{source_id}", { params: { path: { source_id: id } }, body: data })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
@@ -71,32 +63,25 @@ export function useUpdateSource() {
  * `pending: true` for slow agents whose result lands later via the
  * source-reachability WS channel).
  */
-export interface TestScannersResultRow {
-  scanner_id: string | null;
-  ok: boolean | null;
-  step: string | null;
-  error: string | null;
-  pending: boolean;
-  completed_at: string | null;
-}
+export type TestScannersResultRow = S["TestScannersResultRow"];
 
-export interface TestScannersResponse {
-  results: TestScannersResultRow[];
-}
+export type TestScannersResponse = S["TestScannersResponse"];
 
 export function useTestSourceScanners() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       sourceId,
       scannerIds,
     }: {
       sourceId: string;
       scannerIds?: string[];
     }) =>
-      api.post<TestScannersResponse>(
-        `/sources/${sourceId}/test-scanners`,
-        { scanner_ids: scannerIds ?? null },
+      ok(
+        await client.POST("/api/v1/sources/{source_id}/test-scanners", {
+          params: { path: { source_id: sourceId } },
+          body: { scanner_ids: scannerIds ?? null },
+        }),
       ),
     onSuccess: (_, { sourceId }) => {
       queryClient.invalidateQueries({
@@ -117,21 +102,16 @@ export function useTestSourceScanners() {
  * the latest reachability_results row (across all scanners) and the
  * latest successful scan, whichever is fresher.
  */
-export interface ReachabilitySummary {
-  ok: boolean | null;
-  last_at: string | null;
-  last_step: string | null;
-  last_error: string | null;
-  last_scanner_id: string | null;
-  last_scanner_name: string | null;
-}
+export type ReachabilitySummary = S["ReachabilitySummary"];
 
 export function useReachabilitySummary(sourceId: string | null) {
   return useQuery<ReachabilitySummary>({
     queryKey: ["sources", sourceId, "reachability-summary"],
-    queryFn: () =>
-      api.get<ReachabilitySummary>(
-        `/sources/${sourceId}/reachability-summary`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/sources/{source_id}/reachability-summary", {
+          params: { path: { source_id: sourceId! } },
+        }),
       ),
     enabled: sourceId != null,
     staleTime: 30_000,
@@ -155,24 +135,16 @@ export interface DeleteSourceArgs {
 // last reachability probe said". Saving a new allowed-scanner set
 // translates into per-scanner allowed_source_ids writes server-side.
 
-export interface ScannerReachabilityRow {
-  scanner_id: string;
-  name: string;
-  pool: string | null;
-  online: boolean;
-  currently_allowed: boolean;
-  ok: boolean | null;
-  last_probed_at: string | null;
-  step: string | null;
-  error: string | null;
-}
+export type ScannerReachabilityRow = S["ScannerReachabilityRow"];
 
 export function useSourceScannerReachability(sourceId: string | null) {
   return useQuery<ScannerReachabilityRow[]>({
     queryKey: ["sources", sourceId, "scanner-reachability"],
-    queryFn: () =>
-      api.get<ScannerReachabilityRow[]>(
-        `/sources/${sourceId}/scanner-reachability`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/sources/{source_id}/scanner-reachability", {
+          params: { path: { source_id: sourceId! } },
+        }),
       ),
     enabled: sourceId != null,
     staleTime: 10_000,
@@ -184,23 +156,11 @@ export function useSourceScannerReachability(sourceId: string | null) {
 // useSourceScannerReachability (which keeps a 5-row slice for the
 // eligibility panel) so the tab gets up to 20 rows per scanner
 // without bloating the panel's payload.
-export interface ReachabilityOutcome {
-  ok: boolean;
-  step: string | null;
-  error: string | null;
-  started_at: string;
-  completed_at: string;
-}
+export type ReachabilityOutcome = S["ReachabilityOutcome"];
 
-export interface PerScannerHistory {
-  scanner_id: string | null;
-  scanner_name: string | null;
-  outcomes: ReachabilityOutcome[];
-}
+export type PerScannerHistory = S["PerScannerHistory"];
 
-export interface ReachabilityHistory {
-  per_scanner: PerScannerHistory[];
-}
+export type ReachabilityHistory = S["ReachabilityHistory"];
 
 export function useSourceReachabilityHistory(
   sourceId: string | null,
@@ -208,9 +168,11 @@ export function useSourceReachabilityHistory(
 ) {
   return useQuery<ReachabilityHistory>({
     queryKey: ["sources", sourceId, "reachability-history"],
-    queryFn: () =>
-      api.get<ReachabilityHistory>(
-        `/sources/${sourceId}/reachability-history`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/sources/{source_id}/reachability-history", {
+          params: { path: { source_id: sourceId! } },
+        }),
       ),
     enabled: sourceId != null && enabled,
     staleTime: 10_000,
@@ -220,10 +182,12 @@ export function useSourceReachabilityHistory(
 export function useUpdateSourceAllowedScanners() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ sourceId, scannerIds }: { sourceId: string; scannerIds: string[] }) =>
-      api.patch<{ updated_scanners: number }>(
-        `/sources/${sourceId}/allowed-scanners`,
-        { scanner_ids: scannerIds },
+    mutationFn: async ({ sourceId, scannerIds }: { sourceId: string; scannerIds: string[] }) =>
+      ok(
+        await client.PATCH("/api/v1/sources/{source_id}/allowed-scanners", {
+          params: { path: { source_id: sourceId } },
+          body: { scanner_ids: scannerIds },
+        }),
       ),
     onSuccess: (_, { sourceId }) => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -240,10 +204,11 @@ export function useDeleteSource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, purgeEntries = false }: DeleteSourceArgs) =>
-      api.delete<void>(
-        `/sources/${id}?purge_entries=${purgeEntries ? "true" : "false"}`,
-      ),
+    mutationFn: async ({ id, purgeEntries = false }: DeleteSourceArgs) => {
+      await client.DELETE("/api/v1/sources/{source_id}", {
+        params: { path: { source_id: id }, query: { purge_entries: purgeEntries } },
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       // Search results may include orphaned entries from this source

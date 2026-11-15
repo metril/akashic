@@ -1,10 +1,11 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 
-class ApiTokenCreate(BaseModel):
+class ApiTokenCreate(ApiModel):
     name: str = Field(min_length=1, max_length=100, description="A label to recognise the token by.")
     scopes: list[str] = Field(
         min_length=1,
@@ -20,7 +21,7 @@ class ApiTokenCreate(BaseModel):
     )
 
 
-class ApiTokenUpdate(BaseModel):
+class ApiTokenUpdate(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=100, description="New label.")
     scopes: list[str] | None = Field(
         default=None, min_length=1,
@@ -28,7 +29,7 @@ class ApiTokenUpdate(BaseModel):
     )
 
 
-class ApiTokenResponse(BaseModel):
+class ApiTokenResponse(ApiModel):
     id: uuid.UUID = Field(description="Token id.")
     name: str = Field(description="Label.")
     token_prefix: str = Field(description="First characters of the token, to recognise it by.")

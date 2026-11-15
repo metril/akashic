@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ACL, PosixACL, PosixACE, NfsV4ACL, NfsV4ACE, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../types";
+import type { ACL, PosixACL, PosixACE, NfsV4ACL, NfsV4ACE, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../api/types";
 import { diffACL } from "./aclDiff";
 
 describe("diffACL — dispatcher", () => {

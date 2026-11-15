@@ -1,15 +1,16 @@
 import uuid
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 
-class TagCreate(BaseModel):
+class TagCreate(ApiModel):
     name: str = Field(description="Tag name; unique.", examples=['invoice'])
     color: str | None = Field(default=None, description="Display colour, e.g. `#2563eb`.")
 
     model_config = {"json_schema_extra": {'examples': [{'name': 'invoice', 'color': '#2563eb'}]}}
 
 
-class TagResponse(BaseModel):
+class TagResponse(ApiModel):
     id: uuid.UUID = Field(description="Tag id.")
     name: str = Field(description="Tag name.")
     color: str | None = Field(description="Display colour, if set.")

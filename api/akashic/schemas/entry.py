@@ -2,13 +2,14 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 from akashic.schemas.acl import ACL
 from akashic.schemas.common import Page
 
 
-class _EntrySourceRef(BaseModel):
+class _EntrySourceRef(ApiModel):
     id: uuid.UUID = Field(description="Source id.")
     name: str = Field(description="Source name.")
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`.")
@@ -17,7 +18,7 @@ class _EntrySourceRef(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class EntryIn(BaseModel):
+class EntryIn(ApiModel):
     """Inbound from the scanner; one row per file/directory observed in a scan."""
 
     path: str = Field(description="Full path within the source, starting with `/`.")
@@ -59,7 +60,7 @@ class EntryIn(BaseModel):
     native_id: str | None = Field(default=None, description="Provider's own identifier for cloud-drive entries; null for filesystems.")
 
 
-class EntryResponse(BaseModel):
+class EntryResponse(ApiModel):
     id: uuid.UUID = Field(description="Entry id.")
     # Nullable since v0.4.0: orphaned entries (source deleted via the
     # default preserve flavour) come back with source_id=None.
@@ -85,7 +86,7 @@ class EntryResponse(BaseModel):
     model_config = {"from_attributes": True, 'json_schema_extra': {'examples': [{'id': '6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11', 'source_id': '0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f', 'kind': 'file', 'parent_path': '/Reports/2026', 'path': '/Reports/2026/q1.pdf', 'name': 'q1.pdf', 'extension': 'pdf', 'size_bytes': 482133, 'mime_type': 'application/pdf', 'content_hash': '9b74c9897bac770ffc029102a200c5de', 'mode': 33188, 'uid': 1000, 'gid': 1000, 'owner_name': 'alice', 'group_name': 'staff', 'fs_modified_at': '2026-04-02T09:15:00Z', 'first_seen_at': '2026-04-03T01:00:12Z', 'last_seen_at': '2026-04-27T01:00:09Z', 'is_deleted': False}]}}
 
 
-class EntryVersionResponse(BaseModel):
+class EntryVersionResponse(ApiModel):
     id: uuid.UUID = Field(description="Version id.")
     entry_id: uuid.UUID = Field(description="Entry this version belongs to.")
     scan_id: uuid.UUID | None = Field(description="Scan that detected this version; null if that scan has since been removed.")
@@ -103,7 +104,7 @@ class EntryVersionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class EntryTagAssignment(BaseModel):
+class EntryTagAssignment(ApiModel):
     """One tag on an entry, with origin metadata. Direct tags (the user
     applied this tag here) carry `inherited=False, inherited_from_path=None`;
     inherited tags carry `inherited=True` and the ancestor directory's
@@ -129,8 +130,18 @@ class EntryDetailResponse(EntryResponse):
     source: _EntrySourceRef | None = Field(default=None, description="The owning source; null for an orphaned entry.")
     tags: list[EntryTagAssignment] = Field(default_factory=list, description="Tags on the entry, direct and inherited.")
 
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {"examples": [{
+            **EntryResponse.model_config["json_schema_extra"]["examples"][0],
+            "acl": None, "xattrs": None, "domain_metadata": None, "native_id": None,
+            "fs_created_at": None, "fs_accessed_at": None,
+            "versions": [], "source": None, "tags": [],
+        }]},
+    }
 
-class BrowseEntry(BaseModel):
+
+class BrowseEntry(ApiModel):
     id: uuid.UUID = Field(description="Entry id.")
     kind: str = Field(description="`file` or `directory`.")
     name: str = Field(description="Base name.")

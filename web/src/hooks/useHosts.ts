@@ -1,55 +1,46 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { Host } from "../types";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+import type { Host } from "../api/types";
+
+type S = components["schemas"];
 
 export function useHosts() {
   return useQuery<Host[]>({
     queryKey: ["hosts"],
-    queryFn: () => api.get<Host[]>("/hosts"),
+    queryFn: async () => ok(await client.GET("/api/v1/hosts")),
   });
 }
 
 export function useHostDetail(hostId: string | null) {
   return useQuery<Host>({
     queryKey: ["hosts", hostId, "detail"],
-    queryFn: () => api.get<Host>(`/hosts/${hostId}`),
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/hosts/{host_id}", { params: { path: { host_id: hostId! } } })),
     enabled: hostId != null,
     staleTime: 30_000,
   });
 }
 
-export interface CreateHostInput {
-  name: string;
-  type: string;
-  connection_config: Record<string, unknown>;
-  credential_profile_id?: string | null;
-  max_parallel_scanners?: number | null;
-  scan_chunk_size?: number | null;
-}
+export type CreateHostInput = S["HostCreate"];
 
 export function useCreateHost() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateHostInput) => api.post<Host>("/hosts", data),
+    mutationFn: async (data: CreateHostInput) => ok(await client.POST("/api/v1/hosts", { body: data })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
     },
   });
 }
 
-export interface UpdateHostInput {
-  name?: string;
-  connection_config?: Record<string, unknown>;
-  credential_profile_id?: string | null;
-  max_parallel_scanners?: number | null;
-  scan_chunk_size?: number | null;
-}
+export type UpdateHostInput = S["HostUpdate"];
 
 export function useUpdateHost() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateHostInput }) =>
-      api.patch<Host>(`/hosts/${id}`, data),
+    mutationFn: async ({ id, data }: { id: string; data: UpdateHostInput }) =>
+      ok(await client.PATCH("/api/v1/hosts/{host_id}", { params: { path: { host_id: id } }, body: data })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -60,7 +51,9 @@ export function useUpdateHost() {
 export function useDeleteHost() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete<void>(`/hosts/${id}`),
+    mutationFn: async (id: string) => {
+      await client.DELETE("/api/v1/hosts/{host_id}", { params: { path: { host_id: id } } });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
     },
@@ -69,44 +62,26 @@ export function useDeleteHost() {
 
 // ── Share discovery + batch-add (v0.5.4) ─────────────────────────────────
 
-export interface ListSharesResult {
-  shares: string[];
-  step: string | null;
-  error: string | null;
-}
+export type ListSharesResult = S["ListSharesResponse"];
 
 export function useListShares() {
   return useMutation({
-    mutationFn: (hostId: string) =>
-      api.post<ListSharesResult>(`/hosts/${hostId}/list-shares`, {}),
+    mutationFn: async (hostId: string) =>
+      ok(await client.POST("/api/v1/hosts/{host_id}/list-shares", { params: { path: { host_id: hostId } } })),
   });
 }
 
-export interface AddSharesItem {
-  name: string;
-  share: string;
-}
+export type AddSharesItem = S["AddSharesItem"];
 
-export interface AddSharesRequest {
-  shares: AddSharesItem[];
-  scan_schedule?: string | null;
-  max_parallel_scanners?: number | null;
-  exclude_patterns?: string[] | null;
-  preferred_pool?: string | null;
-  is_removable?: boolean | null;
-}
+export type AddSharesRequest = S["AddSharesRequest"];
 
-export interface AddSharesResponse {
-  created: number;
-  skipped: number;
-  sources: string[];  // ids of newly-created Source rows
-}
+export type AddSharesResponse = S["AddSharesResponse"];
 
 export function useAddShares() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ hostId, body }: { hostId: string; body: AddSharesRequest }) =>
-      api.post<AddSharesResponse>(`/hosts/${hostId}/add-shares`, body),
+    mutationFn: async ({ hostId, body }: { hostId: string; body: AddSharesRequest }) =>
+      ok(await client.POST("/api/v1/hosts/{host_id}/add-shares", { params: { path: { host_id: hostId } }, body })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
@@ -119,21 +94,12 @@ export function useAddShares() {
  * to make the API's role explicit. Real reachability lives on the
  * scanners; see useTestSourceScanners / useTestHostShares.
  */
-export interface HostOnlineCheckResult {
-  result: {
-    ok: boolean;
-    step: string | null;
-    error: string | null;
-    tier?: string | null;
-    warn?: string | null;
-  };
-  checked_at: string;
-}
+export type HostOnlineCheckResult = S["OnlineCheckResponse"];
 
 export function useHostOnlineCheck() {
   return useMutation({
-    mutationFn: (hostId: string) =>
-      api.post<HostOnlineCheckResult>(`/hosts/${hostId}/online-check`, {}),
+    mutationFn: async (hostId: string) =>
+      ok(await client.POST("/api/v1/hosts/{host_id}/online-check", { params: { path: { host_id: hostId } } })),
   });
 }
 
@@ -142,34 +108,25 @@ export function useHostOnlineCheck() {
  * gets its own row in the response. Slow scanners come back as
  * `pending=true` and their results land later via the source-
  * reachability WS channel. */
-export interface TestSharesResultRow {
-  source_id: string;
-  source_name: string;
-  scanner_id: string;
-  ok: boolean | null;
-  step: string | null;
-  error: string | null;
-  pending: boolean;
-  completed_at: string | null;
-}
+export type TestSharesResultRow = S["TestSharesResultRow"];
 
-export interface TestSharesResponse {
-  results: TestSharesResultRow[];
-}
+export type TestSharesResponse = S["TestSharesResponse"];
 
 export function useTestHostShares() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       hostId,
       sourceIds,
     }: {
       hostId: string;
       sourceIds?: string[];
     }) =>
-      api.post<TestSharesResponse>(
-        `/hosts/${hostId}/test-shares`,
-        { source_ids: sourceIds ?? null },
+      ok(
+        await client.POST("/api/v1/hosts/{host_id}/test-shares", {
+          params: { path: { host_id: hostId } },
+          body: { source_ids: sourceIds ?? null },
+        }),
       ),
     onSuccess: (data, { hostId }) => {
       queryClient.invalidateQueries({
@@ -193,24 +150,16 @@ export function useTestHostShares() {
 
 // v0.5.7 — host-side eligibility-management hooks.
 
-export interface HostScannerSummaryRow {
-  scanner_id: string;
-  name: string;
-  pool: string | null;
-  online: boolean;
-  currently_allowed_count: number;
-  reaches_count: number;
-  unreachable_count: number;
-  not_yet_probed_count: number;
-  total_sources: number;
-}
+export type HostScannerSummaryRow = S["HostScannerSummaryRow"];
 
 export function useHostScannerSummary(hostId: string | null) {
   return useQuery<HostScannerSummaryRow[]>({
     queryKey: ["hosts", hostId, "scanner-summary"],
-    queryFn: () =>
-      api.get<HostScannerSummaryRow[]>(
-        `/hosts/${hostId}/scanner-reachability-summary`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/hosts/{host_id}/scanner-reachability-summary", {
+          params: { path: { host_id: hostId! } },
+        }),
       ),
     enabled: hostId != null,
     staleTime: 10_000,
@@ -220,10 +169,12 @@ export function useHostScannerSummary(hostId: string | null) {
 export function useUpdateHostAllowedScanners() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ hostId, scannerIds }: { hostId: string; scannerIds: string[] }) =>
-      api.patch<{ sources_touched: number; scanners_updated: number }>(
-        `/hosts/${hostId}/allowed-scanners`,
-        { scanner_ids: scannerIds },
+    mutationFn: async ({ hostId, scannerIds }: { hostId: string; scannerIds: string[] }) =>
+      ok(
+        await client.PATCH("/api/v1/hosts/{host_id}/allowed-scanners", {
+          params: { path: { host_id: hostId } },
+          body: { scanner_ids: scannerIds },
+        }),
       ),
     onSuccess: (_, { hostId }) => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
@@ -238,24 +189,16 @@ export function useUpdateHostAllowedScanners() {
 
 // v0.5.7 — scanner-side eligibility-management hooks.
 
-export interface SourceReachabilityRow {
-  source_id: string;
-  source_name: string;
-  source_type: string;
-  host_name: string | null;
-  currently_allowed: boolean;
-  ok: boolean | null;
-  last_probed_at: string | null;
-  step: string | null;
-  error: string | null;
-}
+export type SourceReachabilityRow = S["SourceReachabilityRow"];
 
 export function useScannerSourceReachability(scannerId: string | null) {
   return useQuery<SourceReachabilityRow[]>({
     queryKey: ["scanners", scannerId, "source-reachability"],
-    queryFn: () =>
-      api.get<SourceReachabilityRow[]>(
-        `/scanners/${scannerId}/source-reachability`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/scanners/{scanner_id}/source-reachability", {
+          params: { path: { scanner_id: scannerId! } },
+        }),
       ),
     enabled: scannerId != null,
     staleTime: 10_000,
@@ -267,32 +210,25 @@ export function useScannerSourceReachability(scannerId: string | null) {
  * on-demand probes of one (or all) sources from this scanner. Inline
  * for non-local sources; long-poll dispatched for local sources.
  */
-export interface TestSourcesResultRow {
-  source_id: string;
-  ok: boolean | null;
-  step: string | null;
-  error: string | null;
-  pending: boolean;
-  completed_at: string | null;
-}
+export type TestSourcesResultRow = S["TestSourcesResultRow"];
 
-export interface TestSourcesResponse {
-  results: TestSourcesResultRow[];
-}
+export type TestSourcesResponse = S["TestSourcesResponse"];
 
 export function useTestScannerSources() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       scannerId,
       sourceIds,
     }: {
       scannerId: string;
       sourceIds?: string[];
     }) =>
-      api.post<TestSourcesResponse>(
-        `/scanners/${scannerId}/test-sources`,
-        { source_ids: sourceIds ?? null },
+      ok(
+        await client.POST("/api/v1/scanners/{scanner_id}/test-sources", {
+          params: { path: { scanner_id: scannerId } },
+          body: { source_ids: sourceIds ?? null },
+        }),
       ),
     onSuccess: (_, { scannerId }) => {
       queryClient.invalidateQueries({
@@ -306,11 +242,16 @@ export function useTestScannerSources() {
 export function useUpdateScannerAllowedSources() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ scannerId, sourceIds }: { scannerId: string; sourceIds: string[] | null }) =>
-      api.patch<unknown>(`/scanners/${scannerId}`, {
-        allowed_source_ids: sourceIds,
-        clear_allowed_source_ids: sourceIds == null,
-      }),
+    mutationFn: async ({ scannerId, sourceIds }: { scannerId: string; sourceIds: string[] | null }) =>
+      ok(
+        await client.PATCH("/api/v1/scanners/{scanner_id}", {
+          params: { path: { scanner_id: scannerId } },
+          body: {
+            allowed_source_ids: sourceIds,
+            clear_allowed_source_ids: sourceIds == null,
+          },
+        }),
+      ),
     onSuccess: (_, { scannerId }) => {
       queryClient.invalidateQueries({ queryKey: ["scanners"] });
       queryClient.invalidateQueries({ queryKey: ["sources"] });

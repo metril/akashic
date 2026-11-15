@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import { toast } from "sonner";
-import { api } from "../api/client";
-import type { SearchResult, Source } from "../types";
+import { client, ok } from "../api/client";
+import { useSources } from "../hooks/useSources";
 import { useTheme } from "../hooks/useTheme";
 import { usePalette } from "../hooks/usePalette";
 import { Icon, Scrim } from "./ui";
@@ -45,12 +45,6 @@ function pushRecent(item: RecentItem) {
   }
 }
 
-interface SearchResponse {
-  items: SearchResult[];
-  total: number;
-  query: string;
-}
-
 export function CommandPalette() {
   const { open, setOpen } = usePalette();
   const navigate = useNavigate();
@@ -89,11 +83,7 @@ export function CommandPalette() {
 
   // Load sources for the "Sources" group. The same useSources cache is
   // already warmed by the sidebar/dashboard so this is usually instant.
-  const sourcesQuery = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
-    enabled: open,
-  });
+  const sourcesQuery = useSources();
   const sources = sourcesQuery.data ?? [];
 
   // Debounce file search by ~150 ms — cmdk fires on every keystroke
@@ -106,14 +96,10 @@ export function CommandPalette() {
     return () => clearTimeout(id);
   }, [query, open]);
 
-  const fileSearch = useQuery<SearchResponse>({
+  const fileSearch = useQuery({
     queryKey: ["palette-search", debouncedQ],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      p.set("q", debouncedQ);
-      p.set("limit", "8");
-      return api.get<SearchResponse>(`/search?${p.toString()}`);
-    },
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/search", { params: { query: { q: debouncedQ, limit: 8 } } })),
     enabled: open && debouncedQ.length >= 2,
   });
 
@@ -151,9 +137,8 @@ export function CommandPalette() {
     }
     if (item.action?.startsWith("scan:")) {
       const sourceId = item.action.slice("scan:".length);
-      const p = api.post("/scans/trigger", {
-        source_id: sourceId,
-        scan_type: "incremental",
+      const p = client.POST("/api/v1/scans/trigger", {
+        body: { source_id: sourceId, scan_type: "incremental" },
       });
       toast.promise(p, {
         loading: "Triggering scan…",
@@ -301,7 +286,7 @@ export function CommandPalette() {
                   className="flex items-center gap-2 px-3 py-2 text-xs text-accent-600 dark:text-accent-500 font-medium rounded-md cursor-pointer aria-selected:bg-accent-50 aria-selected:text-accent-700"
                 >
                   <Icon name="search" className="h-3.5 w-3.5" />
-                  {fileSearch.data?.total !== undefined && fileSearch.data.total > fileResults.length
+                  {fileSearch.data?.total != null && fileSearch.data.total > fileResults.length
                     ? `Show all ${fileSearch.data.total.toLocaleString()} results in Search →`
                     : "Show all results in Search →"}
                 </Command.Item>

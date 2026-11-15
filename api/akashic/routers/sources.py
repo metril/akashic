@@ -4,7 +4,8 @@ from datetime import datetime
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -697,7 +698,7 @@ async def delete_source(
     )
 
 
-class SourceEntryCount(BaseModel):
+class SourceEntryCount(ApiModel):
     count: int = Field(description="Entries (excluding soft-deleted) in the source.")
 
 
@@ -733,7 +734,7 @@ async def get_source_entry_count(
 # ── Orphan recovery (v0.4.0) ─────────────────────────────────────────────
 
 
-class OrphanMatchCount(BaseModel):
+class OrphanMatchCount(ApiModel):
     count: int = Field(description="Orphaned entries whose path matches an entry of the source.")
 
 
@@ -764,14 +765,14 @@ async def get_orphan_match_count(
     return OrphanMatchCount(count=cnt)
 
 
-class ReattachRequest(BaseModel):
+class ReattachRequest(ApiModel):
     strategy: str = Field(default="path", description="`path` matches path, name and kind; `path_and_hash` also requires an equal content hash.")
     dry_run: bool = Field(default=True, description="When true (default) only count what would be re-attached.")
 
     model_config = {"json_schema_extra": {'examples': [{'strategy': 'path_and_hash', 'dry_run': True}]}}
 
 
-class ReattachResponse(BaseModel):
+class ReattachResponse(ApiModel):
     matched: int = Field(description="Orphans that match exactly one entry and can be re-attached.")
     conflicts: int = Field(description="Matches that cannot be applied because of a conflict.")
     ambiguous: int = Field(description="Orphans matching more than one entry; left alone.")
@@ -886,7 +887,7 @@ async def reattach_orphans(
 #                             scanners (or any successful scan).
 
 
-class TestScannersRequest(BaseModel):
+class TestScannersRequest(ApiModel):
     """Optional scanner_ids subset for POST /test-scanners.
 
     Omit (or send empty) → test against every scanner whose pool /
@@ -899,7 +900,7 @@ class TestScannersRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33']}]}}
 
 
-class TestScannersResultRow(BaseModel):
+class TestScannersResultRow(ApiModel):
     scanner_id: uuid.UUID | None = Field(description="Scanner asked.")
     ok: bool | None = Field(description="Probe outcome; null while pending.")
     step: str | None = Field(description="Probe step that failed, if any.")
@@ -908,7 +909,7 @@ class TestScannersResultRow(BaseModel):
     completed_at: datetime | None = Field(default=None, description="When the probe finished.")
 
 
-class TestScannersResponse(BaseModel):
+class TestScannersResponse(ApiModel):
     results: list[TestScannersResultRow] = Field(description="One row per scanner asked.")
 
 
@@ -1034,7 +1035,7 @@ async def test_source_scanners(
     return TestScannersResponse(results=rows)
 
 
-class ReachabilitySummary(BaseModel):
+class ReachabilitySummary(ApiModel):
     """Compact source-level reachability for badges + cards.
 
     Derived from the latest reachability_results row across all
@@ -1202,7 +1203,7 @@ async def get_source_reachability_history(
 # ── Eligibility-management UI (v0.5.7, rewritten v0.28.0) ──────────────
 
 
-class ScannerReachabilityRow(BaseModel):
+class ScannerReachabilityRow(ApiModel):
     """One row in the source detail's eligibility checklist."""
 
     scanner_id: uuid.UUID = Field(description="Scanner id.")
@@ -1287,13 +1288,13 @@ async def list_source_scanner_reachability(
     return out
 
 
-class AllowedScannersRequest(BaseModel):
+class AllowedScannersRequest(ApiModel):
     scanner_ids: list[uuid.UUID] = Field(description="Scanners that should be allowed to scan the source; all others are excluded.")
 
     model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33']}]}}
 
 
-class AllowedScannersResponse(BaseModel):
+class AllowedScannersResponse(ApiModel):
     updated_scanners: int = Field(description="Scanners whose allow-list changed.")
 
 

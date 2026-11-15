@@ -4,10 +4,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from typing import Literal
+
+from pydantic import Field
 
 
-class OAuthAppConfigUpsert(BaseModel):
+class OAuthAppConfigUpsert(ApiModel):
     client_id: str = Field(..., min_length=1, description="OAuth client id from the provider's console.")
     # Optional on update — empty string / None means "keep the
     # existing encrypted secret." Required on first create; the
@@ -18,11 +21,11 @@ class OAuthAppConfigUpsert(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'client_id': '1234567890-abc.apps.googleusercontent.com', 'client_secret': 'GOCSPX-example', 'redirect_uri': 'https://akashic.example.com/api/v1/oauth/callback'}]}}
 
 
-class OAuthAppConfigSummary(BaseModel):
+class OAuthAppConfigSummary(ApiModel):
     """The client_secret is never returned. ``has_secret`` lets the UI
     show "configured" without exposing the value or the encrypted blob."""
 
-    provider: str = Field(description="Provider key: `google`, `microsoft` or `dropbox`.")
+    provider: Literal["google", "microsoft", "dropbox"] = Field(description="Provider key: `google`, `microsoft` or `dropbox`.")
     client_id: str = Field(description="Configured client id; empty when not configured.")
     has_secret: bool = Field(description="Whether a client secret is stored.")
     redirect_uri: str = Field(description="Configured redirect URI; empty when not configured.")
@@ -30,7 +33,7 @@ class OAuthAppConfigSummary(BaseModel):
     updated_at: datetime = Field(description="When last changed; the epoch when not configured.")
 
 
-class OAuthStartRequest(BaseModel):
+class OAuthStartRequest(ApiModel):
     provider: str = Field(description="Provider key from `GET /oauth/providers`.", examples=['google'])
     source_id: uuid.UUID | None = Field(default=None, description="Source to attach the credential to; omit for an unattached credential.")
     # "associate" — the resulting credential is attached to source_id (or
@@ -44,15 +47,15 @@ class OAuthStartRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'provider': 'google', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'mode': 'associate'}]}}
 
 
-class OAuthStartResponse(BaseModel):
+class OAuthStartResponse(ApiModel):
     authorization_url: str = Field(description="URL to open in a browser window to grant access.")
     state: str = Field(description="The signed state value embedded in the URL.")
 
 
-class OAuthCredentialSummary(BaseModel):
+class OAuthCredentialSummary(ApiModel):
     id: uuid.UUID = Field(description="Credential id.")
     source_id: uuid.UUID | None = Field(description="Source the credential is attached to; null if unattached.")
-    provider: str = Field(description="Provider key.")
+    provider: Literal["google", "microsoft", "dropbox"] = Field(description="Provider key.")
     account_email: str | None = Field(description="Account the credential belongs to.")
     account_label: str | None = Field(description="Account display name.")
     scope: str | None = Field(description="Scopes granted by the provider.")
@@ -67,13 +70,13 @@ class OAuthCredentialSummary(BaseModel):
     source_name: str | None = Field(default=None, description="Name of the attached source.")
 
 
-class OAuthRefreshRequest(BaseModel):
+class OAuthRefreshRequest(ApiModel):
     """Scanner-facing — POST a credential id, get back a fresh access
     token. The credential id comes from the lease payload."""
 
     credential_id: uuid.UUID
 
 
-class OAuthRefreshResponse(BaseModel):
+class OAuthRefreshResponse(ApiModel):
     access_token: str = Field(description="Fresh provider access token.")
     expires_at: datetime | None = Field(description="When the access token expires.")

@@ -8,13 +8,11 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
-import { useScopes } from "./useScopes";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-interface SettingValue<T> {
-  key: string;
-  value: T;
-}
+type S = components["schemas"];
+import { useScopes } from "./useScopes";
 
 export function useServerSetting<T>(key: string, defaultValue: T) {
   const { has } = useScopes();
@@ -25,8 +23,10 @@ export function useServerSetting<T>(key: string, defaultValue: T) {
     queryKey: ["server-setting", key],
     queryFn: async () => {
       try {
-        const r = await api.get<SettingValue<T>>(`/server-settings/${key}`);
-        return r.value;
+        const r = ok(
+          await client.GET("/api/v1/server-settings/{key}", { params: { path: { key } } }),
+        );
+        return r.value as T;
       } catch {
         // 404 is normal for unset keys; surface the default rather
         // than treating a missing setting as an error.
@@ -37,10 +37,14 @@ export function useServerSetting<T>(key: string, defaultValue: T) {
     staleTime: 10_000,
   });
 
-  const set = useMutation<SettingValue<T>, Error, T>({
-    mutationFn: (value) => api.patch<SettingValue<T>>(
-      `/server-settings/${key}`, { value },
-    ),
+  const set = useMutation<S["SettingValue"], Error, T>({
+    mutationFn: async (value) =>
+      ok(
+        await client.PATCH("/api/v1/server-settings/{key}", {
+          params: { path: { key } },
+          body: { value },
+        }),
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["server-setting", key] }),
   });
 
@@ -55,29 +59,11 @@ export type ServerSettingType =
 export type ServerSettingValue =
   | boolean | number | string | string[] | Record<string, number> | null;
 
-export interface ServerSettingDef {
-  key: string;
-  type: ServerSettingType;
-  group: string;
-  description: string;
-  secret: boolean;
-  restart: boolean;
-  default: ServerSettingValue;
-  value: ServerSettingValue;
-  choices: string[] | null;
-  /** Secrets only: whether a value is stored. */
-  set?: boolean;
-}
+export type ServerSettingDef = S["SettingDescription"];
 
-export interface ServerSettingGroup {
-  key: string;
-  label: string;
-  settings: ServerSettingDef[];
-}
+export type ServerSettingGroup = S["SettingGroup"];
 
-export interface ServerSettingsResponse {
-  groups: ServerSettingGroup[];
-}
+export type ServerSettingsResponse = S["SettingsListResponse"];
 
 const ALL_KEY = ["server-settings", "all"] as const;
 
@@ -88,14 +74,15 @@ export function useServerSettings() {
 
   const query = useQuery<ServerSettingsResponse>({
     queryKey: ALL_KEY,
-    queryFn: () => api.get<ServerSettingsResponse>("/server-settings"),
+    queryFn: async () => ok(await client.GET("/api/v1/server-settings")),
     enabled: canReadSettings,
     staleTime: 10_000,
   });
 
   /** Atomic PATCH: the API 422s and applies nothing if any value is invalid. */
-  const save = useMutation<ServerSettingsResponse | unknown, Error, Record<string, ServerSettingValue>>({
-    mutationFn: (values) => api.patch("/server-settings", { values }),
+  const save = useMutation<unknown, Error, Record<string, ServerSettingValue>>({
+    mutationFn: async (values) =>
+      ok(await client.PATCH("/api/v1/server-settings", { body: { values } })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ALL_KEY });
       qc.invalidateQueries({ queryKey: ["server-setting"] });

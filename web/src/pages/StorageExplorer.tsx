@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import {
   Breadcrumb,
   Button,
@@ -37,28 +37,14 @@ import { ContextMenu, type ContextMenuItem } from "../components/storage/Context
 import { HoverSidebar } from "../components/storage/HoverSidebar";
 import { RenderBoundary } from "../components/RenderBoundary";
 import type { ColorMode, LayoutMode } from "./StorageExplorer.types";
+import type { components } from "../api/schema";
 
-interface SourcesResponse {
-  sources: {
-    source_id: string;
-    source_name: string;
-    source_type: string;
-    size_bytes: number;
-    file_count: number;
-    directory_count: number;
-    taken_at: string | null;
-  }[];
-}
+type S = components["schemas"];
 
-interface TreeResponse {
-  source_id: string | null;
-  path: string;
-  color_by: ColorMode;
-  enforced: boolean;
-  node_count: number;
-  truncated: boolean;
-  root: TreeNode | null;
-}
+
+type SourcesResponse = S["StorageSourcesResponse"];
+
+type TreeResponse = S["StorageTreeResponse"];
 
 const DEFAULT_TREE_NODES = 5000;
 
@@ -83,7 +69,7 @@ export default function StorageExplorer() {
   // trigger the auto-enter for single-source deployments.
   const sourcesQ = useQuery<SourcesResponse>({
     queryKey: ["storage", "sources"],
-    queryFn: () => api.get<SourcesResponse>("/storage/sources"),
+    queryFn: async () => ok(await client.GET("/api/v1/storage/sources")),
   });
 
   // Auto-enter single source: when the user has exactly one source and
@@ -106,9 +92,13 @@ export default function StorageExplorer() {
   // hover chain) at the top level instead of a flat list.
   const treeQ = useQuery<TreeResponse>({
     queryKey: ["storage", "tree", sourceId, path, colorMode],
-    queryFn: () =>
-      api.get<TreeResponse>(
-        `/storage/tree?source_id=${sourceId}&path=${encodeURIComponent(path)}&color_by=${colorMode}&max_nodes=${DEFAULT_TREE_NODES}`,
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/storage/tree", {
+          params: {
+            query: { source_id: sourceId, path, color_by: colorMode, max_nodes: DEFAULT_TREE_NODES },
+          },
+        }),
       ),
     enabled: !!sourceId,
   });

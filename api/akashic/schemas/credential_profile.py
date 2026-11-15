@@ -13,7 +13,10 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from typing import Literal
+
+from pydantic import Field
 
 from akashic.schemas.source import _scrub_config
 
@@ -69,7 +72,7 @@ def merge_sentinel_credentials(existing: dict, incoming: dict) -> dict:
     return out
 
 
-class CredentialProfileCreate(BaseModel):
+class CredentialProfileCreate(ApiModel):
     name: str = Field(min_length=1, max_length=200, description="Unique profile name.")
     type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
     credentials: dict = Field(default_factory=dict, description="Credential values for the type, e.g. `username` and `password` for SMB. Stored encrypted. Free-form: keys depend on the profile type.", json_schema_extra={"x-free-form": True})
@@ -78,7 +81,7 @@ class CredentialProfileCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'name': 'Finance SMB', 'type': 'smb', 'credentials': {'username': 'svc-akashic', 'password': 's3cret'}, 'description': 'Read-only service account for the finance file servers'}]}}
 
 
-class CredentialProfileUpdate(BaseModel):
+class CredentialProfileUpdate(ApiModel):
     name: str | None = Field(default=None, description="New unique name.")
     description: str | None = Field(default=None, description="New note.")
     credentials: dict | None = Field(default=None, description="Credential values to change. A value of `***` keeps the stored value; keys not present are left as they are. Free-form: keys depend on the profile type.", json_schema_extra={"x-free-form": True})
@@ -86,10 +89,10 @@ class CredentialProfileUpdate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'credentials': {'password': 'n3w-s3cret', 'username': '***'}}]}}
 
 
-class CredentialProfileResponse(BaseModel):
+class CredentialProfileResponse(ApiModel):
     id: uuid.UUID = Field(description="Profile id.")
     name: str = Field(description="Profile name.")
-    type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
+    type: Literal["smb", "nfs", "s3"] = Field(description="Credential type: `smb`, `nfs` or `s3`.")
     credentials: dict = Field(default_factory=dict, description="Credential values with secrets masked as `***`. Free-form: keys depend on the profile type.", json_schema_extra={"x-free-form": True})
     description: str | None = Field(default=None, description="Free-text note.")
     created_at: datetime = Field(description="When the profile was created.")
@@ -133,7 +136,7 @@ class CredentialProfileResponse(BaseModel):
         )
 
 
-class CredentialProfileSummary(BaseModel):
+class CredentialProfileSummary(ApiModel):
     """Lean shape for the picker dropdown — name + type only.
 
     No credentials surface here so a list endpoint can be served
@@ -142,7 +145,7 @@ class CredentialProfileSummary(BaseModel):
 
     id: uuid.UUID = Field(description="Profile id.")
     name: str = Field(description="Profile name.")
-    type: str = Field(description="Credential type: `smb`, `nfs` or `s3`.")
+    type: Literal["smb", "nfs", "s3"] = Field(description="Credential type: `smb`, `nfs` or `s3`.")
     description: str | None = Field(default=None, description="Free-text note.")
 
     model_config = {"from_attributes": True}

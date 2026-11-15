@@ -4,10 +4,11 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 
-class StorageSource(BaseModel):
+class StorageSource(ApiModel):
     """One source's size from its latest snapshot."""
 
     source_id: uuid.UUID = Field(description="Source id.")
@@ -19,13 +20,13 @@ class StorageSource(BaseModel):
     taken_at: str | None = Field(description="Snapshot time, ISO 8601; null when never scanned.")
 
 
-class StorageSourcesResponse(BaseModel):
+class StorageSourcesResponse(ApiModel):
     """Cross-source treemap data."""
 
     sources: list[StorageSource] = Field(description="Sources ordered by size descending.")
 
 
-class StorageChild(BaseModel):
+class StorageChild(ApiModel):
     """An immediate child of a directory."""
 
     id: uuid.UUID = Field(description="Entry id.")
@@ -37,7 +38,7 @@ class StorageChild(BaseModel):
     color_key: str = Field(description="Bucket key for the requested `color_by` dimension.")
 
 
-class StorageBucket(BaseModel):
+class StorageBucket(ApiModel):
     """Synthetic rectangle for the long tail (`other`) or filtered-out entries (`hidden`)."""
 
     kind: Literal["other", "hidden"] = Field(description="Bucket kind.")
@@ -46,7 +47,7 @@ class StorageBucket(BaseModel):
     child_count: int = Field(description="Entries in the bucket.")
 
 
-class StorageChildrenResponse(BaseModel):
+class StorageChildrenResponse(ApiModel):
     """Largest children of a directory plus tail buckets."""
 
     source_id: uuid.UUID = Field(description="Source id.")
@@ -58,7 +59,7 @@ class StorageChildrenResponse(BaseModel):
     enforced: bool = Field(description="Whether permission filtering was applied.")
 
 
-class TreeNode(BaseModel):
+class TreeNode(ApiModel):
     """A node of the nested treemap."""
 
     id: uuid.UUID | None = Field(default=None, description="Entry id; absent for synthetic nodes.")
@@ -70,7 +71,7 @@ class TreeNode(BaseModel):
     children: list[TreeNode] | None = Field(default=None, description="Child nodes, largest first.")
 
 
-class StorageTreeResponse(BaseModel):
+class StorageTreeResponse(ApiModel):
     """Recursive subtree bounded by a node budget."""
 
     source_id: uuid.UUID = Field(description="Source id.")

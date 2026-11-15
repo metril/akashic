@@ -3,7 +3,8 @@ from typing import Annotated, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,7 @@ from akashic.schemas.scan import ScanResponse
 router = ApiRouter(prefix="/scans", tags=["scans"])
 
 
-class ScanTriggerRequest(BaseModel):
+class ScanTriggerRequest(ApiModel):
     source_name: str | None = Field(default=None, description="Name of the source to scan. Give this or `source_id`.")
     source_id: uuid.UUID | None = Field(default=None, description="Id of the source to scan. Give this or `source_name`.")
     scan_type: Literal["incremental", "full"] = Field(default="incremental", description="`incremental` (default) walks and compares against the previous scan; `full` re-reads everything.")
@@ -27,7 +28,7 @@ class ScanTriggerRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'source_name': 'nas-projects', 'scan_type': 'incremental'}]}}
 
 
-class ScanTriggerResponse(BaseModel):
+class ScanTriggerResponse(ApiModel):
     scan_id: uuid.UUID = Field(description="The queued scan, or the scan already pending or running for the source.")
     source_id: uuid.UUID = Field(description="Source being scanned.")
     source_name: str = Field(description="Source name.")
@@ -242,7 +243,7 @@ async def get_scan(
     return scan
 
 
-class CancelResponse(BaseModel):
+class CancelResponse(ApiModel):
     scan_id: uuid.UUID = Field(description="Scan id.")
     status: str = Field(description="Scan status after the call (`cancelled`, or the status it already had).")
 

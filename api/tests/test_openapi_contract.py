@@ -674,6 +674,10 @@ def test_field_and_parameter_examples_validate(app):
     assert checked > 20, f"only {checked} field/parameter examples found"
 
 
+def _nullable(schema: dict) -> bool:
+    return any(o.get("type") == "null" for o in schema.get("anyOf", [])) or schema.get("type") == "null"
+
+
 def _check_value(schema: dict, value, comps: dict, where: str) -> list[str]:
     """Minimal JSON-schema check (types, required, enum, bounds, pattern, composition) of an example."""
     import re
@@ -727,10 +731,12 @@ def _check_value(schema: dict, value, comps: dict, where: str) -> list[str]:
         for n, item in enumerate(value):
             errs += _check_value(schema.get("items", {}), item, comps, f"{where}[{n}]")
     if typ == "object":
-        for req in schema.get("required", []):
-            if req not in value:
-                errs.append(f"{where}: missing required {req!r}")
         props = schema.get("properties", {})
+        for req in schema.get("required", []):
+            # FastAPI drops nulls from examples, so a required nullable
+            # field is legitimately absent there.
+            if req not in value and not _nullable(props.get(req, {})):
+                errs.append(f"{where}: missing required {req!r}")
         for k, v in value.items():
             if k in props:
                 errs += _check_value(props[k], v, comps, f"{where}.{k}")

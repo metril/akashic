@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import {
   Badge,
   Button,
@@ -24,7 +24,7 @@ import {
 import { AllowedSourcesModal } from "../components/scanners/AllowedSourcesModal";
 import { JoinTokenWizard } from "../components/scanners/JoinTokenWizard";
 import { ScannerConfigPanel } from "../components/scanners/ScannerConfigPanel";
-import type { ScannerEffectiveConfig, ScannerOverrides } from "../components/scanners/ScannerConfigPanel";
+import type { components } from "../api/schema";
 import { PendingClaimRow } from "../components/scanners/PendingClaimRow";
 import { DiscoveryToggle } from "../components/scanners/DiscoveryToggle";
 import { useScannerClaimTokens } from "../hooks/useScannerClaimTokens";
@@ -32,36 +32,9 @@ import { useDiscoveryRequests } from "../hooks/useDiscoveryRequests";
 import { useServerSetting } from "../hooks/useServerSetting";
 import { useSources } from "../hooks/useSources";
 
-interface Scanner {
-  id: string;
-  name: string;
-  pool: string;
-  key_fingerprint: string;
-  hostname: string | null;
-  version: string | null;
-  protocol_version: number | null;
-  registered_at: string;
-  last_seen_at: string | null;
-  enabled: boolean;
-  online: boolean;
-  allowed_source_ids: string[] | null;
-  allowed_scan_types: string[] | null;
-  // v0.36.0 — handshake-reported unit concurrency; null = the scanner
-  // hasn't reported yet (pre-handshake or upgraded from an older agent).
-  max_concurrent_units: number | null;
-  overrides: ScannerOverrides;
-  effective_config: ScannerEffectiveConfig;
-}
+type Scanner = components["schemas"]["ScannerSummary"];
 
-interface ScannerCreated {
-  id: string;
-  name: string;
-  pool: string;
-  public_key_pem: string;
-  private_key_pem: string;
-  key_fingerprint: string;
-  protocol_version: number;
-}
+type ScannerCreated = components["schemas"]["ScannerCreated"];
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "never";
@@ -76,22 +49,26 @@ export default function SettingsScanners() {
   const qc = useQueryClient();
   const scannersQ = useQuery<Scanner[]>({
     queryKey: ["scanners"],
-    queryFn: () => api.get<Scanner[]>("/scanners"),
+    queryFn: async () => ok(await client.GET("/api/v1/scanners")),
     refetchInterval: 15_000,
   });
 
   const rotateMut = useMutation<ScannerCreated, Error, string>({
-    mutationFn: (id) => api.post<ScannerCreated>(`/scanners/${id}/rotate`),
+    mutationFn: async (id) =>
+      ok(await client.POST("/api/v1/scanners/{scanner_id}/rotate", { params: { path: { scanner_id: id } } })),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanners"] }),
   });
 
   const patchMut = useMutation<Scanner, Error, { id: string; enabled: boolean }>({
-    mutationFn: ({ id, enabled }) => api.patch<Scanner>(`/scanners/${id}`, { enabled }),
+    mutationFn: async ({ id, enabled }) =>
+      ok(await client.PATCH("/api/v1/scanners/{scanner_id}", { params: { path: { scanner_id: id } }, body: { enabled } })),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanners"] }),
   });
 
   const deleteMut = useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`/scanners/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/scanners/{scanner_id}", { params: { path: { scanner_id: id } } });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanners"] }),
   });
 
@@ -404,9 +381,9 @@ function ScannerRow({
       </div>
      </div>
      <ScannerConfigPanel
-       key={JSON.stringify(s.overrides)}
+       key={JSON.stringify([s.tika_url, s.extract_workers, s.max_concurrent_units])}
        scannerId={s.id}
-       overrides={s.overrides}
+       overrides={s}
        effective={s.effective_config}
      />
     </li>
@@ -520,7 +497,7 @@ function ManualKeyForm({
   const createMut = useMutation<
     ScannerCreated, Error, { name: string; pool: string }
   >({
-    mutationFn: (body) => api.post<ScannerCreated>("/scanners", body),
+    mutationFn: async (body) => ok(await client.POST("/api/v1/scanners", { body })),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanners"] }),
   });
 

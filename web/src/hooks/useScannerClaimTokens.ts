@@ -8,46 +8,17 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
 import { useScopes } from "./useScopes";
 
-export interface ClaimTokenSummary {
-  id: string;
-  label: string;
-  pool: string;
-  allowed_source_ids: string[] | null;
-  allowed_scan_types: string[] | null;
-  status: "active" | "used" | "expired";
-  created_at: string;
-  expires_at: string;
-  used_at: string | null;
-  used_by_scanner_id: string | null;
-}
+export type ClaimTokenSummary = S["ClaimTokenSummary"];
 
-export interface ClaimTokenCreated {
-  id: string;
-  label: string;
-  pool: string;
-  allowed_source_ids: string[] | null;
-  allowed_scan_types: string[] | null;
-  token: string;
-  expires_at: string;
-  snippets: {
-    shell: string;
-    docker_run: string;
-    compose: string;
-    k8s: string;
-    env: string;
-  };
-}
+export type ClaimTokenCreated = S["ClaimTokenCreated"];
 
-export interface CreateTokenBody {
-  label: string;
-  pool?: string;
-  ttl_minutes?: number;
-  allowed_source_ids?: string[];
-  allowed_scan_types?: string[];
-}
+export type CreateTokenBody = S["ClaimTokenCreate"];
 
 export function useScannerClaimTokens() {
   const { has } = useScopes();
@@ -56,13 +27,13 @@ export function useScannerClaimTokens() {
 
   const list = useQuery<ClaimTokenSummary[]>({
     queryKey: ["scanner-claim-tokens"],
-    queryFn: () => api.get<ClaimTokenSummary[]>("/scanner-claim-tokens"),
+    queryFn: async () => ok(await client.GET("/api/v1/scanner-claim-tokens")),
     enabled: canReadScanners,
     refetchInterval: 30_000,
   });
 
   const create = useMutation<ClaimTokenCreated, Error, CreateTokenBody>({
-    mutationFn: (body) => api.post<ClaimTokenCreated>("/scanner-claim-tokens", body),
+    mutationFn: async (body) => ok(await client.POST("/api/v1/scanner-claim-tokens", { body })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["scanner-claim-tokens"] });
       // The freshly-created token can immediately be claimed by a
@@ -73,7 +44,9 @@ export function useScannerClaimTokens() {
   });
 
   const revoke = useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`/scanner-claim-tokens/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/scanner-claim-tokens/{token_id}", { params: { path: { token_id: id } } });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanner-claim-tokens"] }),
   });
 

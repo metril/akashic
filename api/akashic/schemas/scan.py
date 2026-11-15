@@ -2,12 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 from akashic.schemas.entry import EntryIn
 
 
-class ScanBatchIn(BaseModel):
+class ScanBatchIn(ApiModel):
     source_id: uuid.UUID = Field(description="Source being scanned.")
     scan_id: uuid.UUID = Field(description="Leased scan these entries belong to; must belong to `source_id`.")
     entries: list[EntryIn] = Field(description="Entries observed, at most 10,000. Duplicate paths keep the last.")
@@ -24,7 +25,7 @@ class ScanBatchIn(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'scan_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'entries': [{'path': '/projects/report.pdf', 'name': 'report.pdf', 'kind': 'file', 'extension': 'pdf', 'size_bytes': 482113, 'mime_type': 'application/pdf', 'mode': 33188, 'uid': 1000, 'gid': 100}], 'is_final': False}]}}
 
 
-class ExtractCandidate(BaseModel):
+class ExtractCandidate(ApiModel):
     """A new-or-changed file the scanner should extract text from.
     v0.30.0 — extraction moved into the scanner; the API tells it
     which files actually changed so it doesn't re-extract everything
@@ -35,7 +36,7 @@ class ExtractCandidate(BaseModel):
     size_bytes: int = Field(default=0, description="File size in bytes.")
 
 
-class ScanBatchResponse(BaseModel):
+class ScanBatchResponse(ApiModel):
     files_processed: int = Field(description="Files in the batch that were processed.")
     scan_id: uuid.UUID = Field(description="Scan the batch belonged to.")
     # v0.30.0 — new/changed FILE entries from this batch. The scanner
@@ -53,7 +54,7 @@ ScanPhase = Literal["prewalk", "walk", "finalize"]
 LogLevel = Literal["info", "warn", "error"]
 
 
-class HeartbeatIn(BaseModel):
+class HeartbeatIn(ApiModel):
     """Periodic heartbeat from a running scanner. ~1 s cadence."""
 
     current_path: str | None = Field(default=None, description="Path currently being walked.")
@@ -73,13 +74,13 @@ class HeartbeatIn(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'current_path': '/projects/2026', 'files_scanned': 12840, 'bytes_scanned': 5368709120, 'files_skipped': 2, 'dirs_walked': 310, 'dirs_queued': 12, 'phase': 'walk', 'current_batch_size': 1250}]}}
 
 
-class LogLineIn(BaseModel):
+class LogLineIn(ApiModel):
     ts: datetime = Field(description="When the line was produced.")
     level: LogLevel = Field(description="`info`, `warn` or `error`.")
     message: str = Field(..., max_length=8192, description="Log message, at most 8192 characters.")
 
 
-class LogBatchIn(BaseModel):
+class LogBatchIn(ApiModel):
     """Up to 200 lines per request — the scanner debounces 10 lines or 500 ms."""
 
     lines: list[LogLineIn] = Field(..., max_length=200, description="Up to 200 lines.")
@@ -87,19 +88,19 @@ class LogBatchIn(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'lines': [{'ts': '2026-04-27T22:00:01Z', 'level': 'info', 'message': 'walking /projects'}]}]}}
 
 
-class StderrChunkIn(BaseModel):
+class StderrChunkIn(ApiModel):
     ts: datetime = Field(description="When the chunk was captured.")
     # 4 KB cap per chunk; the scanner debounces stderr the same way.
     chunk: str = Field(..., max_length=4096, description="Raw stderr text, at most 4096 characters.")
 
 
-class StderrBatchIn(BaseModel):
+class StderrBatchIn(ApiModel):
     chunks: list[StderrChunkIn] = Field(..., max_length=200, description="Up to 200 chunks.")
 
     model_config = {"json_schema_extra": {'examples': [{'chunks': [{'ts': '2026-04-27T22:00:01Z', 'chunk': 'warning: permission denied: /projects/private\n'}]}]}}
 
 
-class LogEntryOut(BaseModel):
+class LogEntryOut(ApiModel):
     id: uuid.UUID = Field(description="Log line id.")
     ts: datetime = Field(description="When the line was produced.")
     level: str = Field(description="`info`, `warn`, `error` or `stderr`.")
@@ -112,7 +113,7 @@ class LogEntryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ScanResponse(BaseModel):
+class ScanResponse(ApiModel):
     id: uuid.UUID = Field(description="Scan id.")
     source_id: uuid.UUID = Field(description="Source scanned.")
     scan_type: str = Field(description="`incremental` or `full`.")
@@ -142,4 +143,4 @@ class ScanResponse(BaseModel):
     inaccessible_dirs: int = Field(default=0, description="Directories the scanner could not read (permission denied or vanished mid-scan).")
     inaccessible_files: int = Field(default=0, description="Files the scanner could not read.")
 
-    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'scan_type': 'incremental', 'status': 'completed', 'files_found': 12840, 'files_new': 120, 'files_changed': 14, 'files_deleted': 3, 'started_at': '2026-04-27T22:00:00Z', 'completed_at': '2026-04-27T22:09:00Z', 'current_path': '/projects/2026', 'phase': 'finalize'}]}}
+    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'scan_type': 'incremental', 'status': 'completed', 'files_found': 12840, 'files_new': 120, 'files_changed': 14, 'files_deleted': 3, 'started_at': '2026-04-27T22:00:00Z', 'completed_at': '2026-04-27T22:09:00Z', 'current_path': '/projects/2026', 'phase': 'finalize', 'error_message': None, 'last_heartbeat_at': '2026-04-27T22:09:00Z', 'bytes_scanned_so_far': 5368709120, 'files_skipped': 2, 'dirs_walked': 310, 'dirs_queued': 0, 'total_estimated': 12840, 'previous_scan_files': 12700, 'inaccessible_dirs': 0, 'inaccessible_files': 0}]}}

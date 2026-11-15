@@ -3090,7 +3090,7 @@ export interface components {
              * Cache Age Seconds
              * @description Age of the cached value; absent when not visible.
              */
-            cache_age_seconds?: number | null;
+            cache_age_seconds: number | null;
         };
         /**
          * AccessSampleHit
@@ -3106,7 +3106,7 @@ export interface components {
              * Fs Modified At
              * @description Modified time, epoch seconds.
              */
-            fs_modified_at?: number | null;
+            fs_modified_at: number | null;
             /**
              * Id
              * @description Entry id.
@@ -3116,7 +3116,7 @@ export interface components {
              * Owner Name
              * @description Owner name.
              */
-            owner_name?: string | null;
+            owner_name: string | null;
             /**
              * Path
              * @description Full path.
@@ -3126,7 +3126,7 @@ export interface components {
              * Size Bytes
              * @description Size in bytes.
              */
-            size_bytes?: number | null;
+            size_bytes: number | null;
             /**
              * Source Id
              * @description Source id.
@@ -3519,7 +3519,7 @@ export interface components {
              * @description Pool the scanner joins.
              * @default default
              */
-            pool: string;
+            pool?: string;
         };
         /**
          * AuditEventOut
@@ -3589,27 +3589,27 @@ export interface components {
              * Child Count
              * @description For directories, the number of non-deleted direct children; null for files.
              */
-            child_count?: number | null;
+            child_count: number | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
              */
-            content_hash?: string | null;
+            content_hash: string | null;
             /**
              * Extension
              * @description File extension without the dot; null for directories and files without one.
              */
-            extension?: string | null;
+            extension: string | null;
             /**
              * Fs Modified At
              * @description Modification time on the storage system.
              */
-            fs_modified_at?: string | null;
+            fs_modified_at: string | null;
             /**
              * Group Name
              * @description Group name or SID as reported by the storage system.
              */
-            group_name?: string | null;
+            group_name: string | null;
             /**
              * Id
              * Format: uuid
@@ -3625,12 +3625,12 @@ export interface components {
              * Mime Type
              * @description Detected MIME type; null when not detected.
              */
-            mime_type?: string | null;
+            mime_type: string | null;
             /**
              * Mode
              * @description POSIX mode bits (file type and permissions) as an integer; null where the connector reports none.
              */
-            mode?: number | null;
+            mode: number | null;
             /**
              * Name
              * @description Base name.
@@ -3640,7 +3640,7 @@ export interface components {
              * Owner Name
              * @description Owner name or SID as reported by the storage system.
              */
-            owner_name?: string | null;
+            owner_name: string | null;
             /**
              * Path
              * @description Full path within the source, starting with `/`.
@@ -3650,7 +3650,7 @@ export interface components {
              * Size Bytes
              * @description Size in bytes; null when unknown.
              */
-            size_bytes?: number | null;
+            size_bytes: number | null;
         };
         /**
          * BrowsePage
@@ -3676,7 +3676,7 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Parent Path
              * @description Parent directory path; null at the root.
@@ -3702,7 +3702,7 @@ export interface components {
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /**
          * BulkPatch
@@ -3805,6 +3805,37 @@ export interface components {
             server_protocol_version: number;
         };
         /**
+         * ClaimSnippets
+         * @description Install commands with the claim token filled in.
+         */
+        ClaimSnippets: {
+            /**
+             * Compose
+             * @description Docker Compose service.
+             */
+            compose: string;
+            /**
+             * Docker Run
+             * @description `docker run` command.
+             */
+            docker_run: string;
+            /**
+             * Env
+             * @description Environment file.
+             */
+            env: string;
+            /**
+             * K8S
+             * @description Kubernetes manifest.
+             */
+            k8s: string;
+            /**
+             * Shell
+             * @description Shell one-liner.
+             */
+            shell: string;
+        };
+        /**
          * ClaimTokenCreate
          * @example {
          *       "label": "branch-office",
@@ -3834,13 +3865,13 @@ export interface components {
              * @description Pool scanners enrolled with the token join.
              * @default default
              */
-            pool: string;
+            pool?: string;
             /**
              * Ttl Minutes
              * @description Minutes until the token expires (1 to 43200, 30 days).
              * @default 60
              */
-            ttl_minutes: number;
+            ttl_minutes?: number;
         };
         /**
          * ClaimTokenCreated
@@ -3881,13 +3912,8 @@ export interface components {
              * @description Pool for enrolled scanners.
              */
             pool: string;
-            /**
-             * Snippets
-             * @description Ready-to-paste install commands keyed by format (`shell`, `docker_run`, `compose`, `k8s`, `env`), with the token filled in.
-             */
-            snippets: {
-                [key: string]: string;
-            };
+            /** @description Ready-to-paste install commands, with the token filled in. */
+            snippets: components["schemas"]["ClaimSnippets"];
             /**
              * Token
              * @description The plaintext claim token, shown only in this response.
@@ -3958,7 +3984,7 @@ export interface components {
          *     owner+mode+ACE. Inheritance is per-grant rather than tree-wide, and
          *     "anyone with link" is a first-class principal type.
          */
-        CloudDriveACL: {
+        "CloudDriveACL-Input": {
             /**
              * Domain Restricted To
              * @description Domain that sharing is restricted to, when the provider enforces such a boundary; null otherwise.
@@ -3968,7 +3994,32 @@ export interface components {
              * Grants
              * @description Per-principal grants on the entry.
              */
-            grants?: components["schemas"]["CloudDriveGrant"][];
+            grants?: components["schemas"]["CloudDriveGrant-Input"][];
+            /**
+             * @description Discriminator, always `cloud_drive`. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "cloud_drive";
+        };
+        /**
+         * CloudDriveACL
+         * @description Cloud-drive ACL — fifth discriminator alongside posix/nfsv4/nt/s3.
+         *
+         *     Fundamentally a list of per-principal grants rather than a POSIX-style
+         *     owner+mode+ACE. Inheritance is per-grant rather than tree-wide, and
+         *     "anyone with link" is a first-class principal type.
+         */
+        "CloudDriveACL-Output": {
+            /**
+             * Domain Restricted To
+             * @description Domain that sharing is restricted to, when the provider enforces such a boundary; null otherwise.
+             */
+            domain_restricted_to: string | null;
+            /**
+             * Grants
+             * @description Per-principal grants on the entry.
+             */
+            grants: components["schemas"]["CloudDriveGrant-Output"][];
             /**
              * @description Discriminator, always `cloud_drive`. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -3982,13 +4033,13 @@ export interface components {
          *     ``inherited_from`` lets the UI render "inherited from /Foo/Bar" the
          *     way the existing tag system does.
          */
-        CloudDriveGrant: {
+        "CloudDriveGrant-Input": {
             /**
              * Inherited
              * @description True when the grant comes from an ancestor folder.
              * @default false
              */
-            inherited: boolean;
+            inherited?: boolean;
             /**
              * Inherited From Id
              * @description Provider id of the ancestor the grant is inherited from.
@@ -4002,7 +4053,42 @@ export interface components {
             /** @description The shared link the grant rides on, for link-based grants; null otherwise. */
             link?: components["schemas"]["CloudDriveLink"] | null;
             /** @description Who the grant is for. */
-            principal: components["schemas"]["CloudDrivePrincipal"];
+            principal: components["schemas"]["CloudDrivePrincipal-Input"];
+            /**
+             * Role
+             * @description `owner`, `writer`, `commenter`, `reader` or `file_organizer`.
+             * @enum {string}
+             */
+            role: "owner" | "writer" | "commenter" | "reader" | "file_organizer";
+        };
+        /**
+         * CloudDriveGrant
+         * @description One ``(principal, role)`` grant. ``inherited`` flags whether the
+         *     grant comes from an ancestor folder rather than this entry directly;
+         *     ``inherited_from`` lets the UI render "inherited from /Foo/Bar" the
+         *     way the existing tag system does.
+         */
+        "CloudDriveGrant-Output": {
+            /**
+             * Inherited
+             * @description True when the grant comes from an ancestor folder.
+             * @default false
+             */
+            inherited: boolean;
+            /**
+             * Inherited From Id
+             * @description Provider id of the ancestor the grant is inherited from.
+             */
+            inherited_from_id: string | null;
+            /**
+             * Inherited From Path
+             * @description Path of the ancestor the grant is inherited from.
+             */
+            inherited_from_path: string | null;
+            /** @description The shared link the grant rides on, for link-based grants; null otherwise. */
+            link: components["schemas"]["CloudDriveLink"] | null;
+            /** @description Who the grant is for. */
+            principal: components["schemas"]["CloudDrivePrincipal-Output"];
             /**
              * Role
              * @description `owner`, `writer`, `commenter`, `reader` or `file_organizer`.
@@ -4043,7 +4129,7 @@ export interface components {
          *     "anyone with the link" grants come through as ``type='anyone'`` with
          *     no email/name set.
          */
-        CloudDrivePrincipal: {
+        "CloudDrivePrincipal-Input": {
             /**
              * Email
              * @description Email address, when the provider returns one.
@@ -4059,6 +4145,41 @@ export interface components {
              * @description Display name, when the provider returns one.
              */
             name?: string | null;
+            /**
+             * Type
+             * @description `user`, `group`, `anyone` (public link) or `domain`.
+             * @enum {string}
+             */
+            type: "user" | "group" | "anyone" | "domain";
+        };
+        /**
+         * CloudDrivePrincipal
+         * @description One principal in a cloud-drive grant. ``id`` is whatever the provider
+         *     uses to identify that principal (Drive permissionId, Microsoft Graph
+         *     id, Dropbox account_id) — the connector keeps the raw value so we
+         *     can call back into the provider when needed.
+         *
+         *     ``email`` and ``name`` are present when the provider returns them with
+         *     the grant, so the UI doesn't need a per-grant lookup. Anonymous
+         *     "anyone with the link" grants come through as ``type='anyone'`` with
+         *     no email/name set.
+         */
+        "CloudDrivePrincipal-Output": {
+            /**
+             * Email
+             * @description Email address, when the provider returns one.
+             */
+            email: string | null;
+            /**
+             * Id
+             * @description Provider's identifier for the principal (Drive permission id, Microsoft Graph id or Dropbox account id).
+             */
+            id: string;
+            /**
+             * Name
+             * @description Display name, when the provider returns one.
+             */
+            name: string | null;
             /**
              * Type
              * @description `user`, `group`, `anyone` (public link) or `domain`.
@@ -4102,7 +4223,7 @@ export interface components {
              * @description Return the unit to the queue for another attempt (up to 3 attempts) instead of failing it.
              * @default false
              */
-            requeue: boolean;
+            requeue?: boolean;
         };
         /**
          * ContentBatchIn
@@ -4157,7 +4278,7 @@ export interface components {
              * @description Extracted text.
              * @default
              */
-            content_text: string;
+            content_text?: string;
             /**
              * Path
              * @description Path of the file, as in the metadata batch.
@@ -4212,14 +4333,14 @@ export interface components {
              * Credentials
              * @description Credential values with secrets masked as `***`. Free-form: keys depend on the profile type.
              */
-            credentials?: {
+            credentials: {
                 [key: string]: unknown;
             };
             /**
              * Description
              * @description Free-text note.
              */
-            description?: string | null;
+            description: string | null;
             /**
              * Id
              * Format: uuid
@@ -4234,8 +4355,9 @@ export interface components {
             /**
              * Type
              * @description Credential type: `smb`, `nfs` or `s3`.
+             * @enum {string}
              */
-            type: string;
+            type: "smb" | "nfs" | "s3";
             /**
              * Updated At
              * Format: date-time
@@ -4255,7 +4377,7 @@ export interface components {
              * Description
              * @description Free-text note.
              */
-            description?: string | null;
+            description: string | null;
             /**
              * Id
              * Format: uuid
@@ -4270,8 +4392,9 @@ export interface components {
             /**
              * Type
              * @description Credential type: `smb`, `nfs` or `s3`.
+             * @enum {string}
              */
-            type: string;
+            type: "smb" | "nfs" | "s3";
         };
         /**
          * CredentialProfileUpdate
@@ -4518,32 +4641,32 @@ export interface components {
              * Deny Reason
              * @description When denied: the admin's reason, if given.
              */
-            deny_reason?: string | null;
+            deny_reason: string | null;
             /**
              * Expires At
              * @description While pending: when the request lapses.
              */
-            expires_at?: string | null;
+            expires_at: string | null;
             /**
              * Name
              * @description When approved: scanner name.
              */
-            name?: string | null;
+            name: string | null;
             /**
              * Pool
              * @description When approved: scanner pool.
              */
-            pool?: string | null;
+            pool: string | null;
             /**
              * Scanner Id
              * @description When approved: id of the registered scanner (the `kid` for signing JWTs).
              */
-            scanner_id?: string | null;
+            scanner_id: string | null;
             /**
              * Server Protocol Version
              * @description When approved: the protocol version the server speaks.
              */
-            server_protocol_version?: number | null;
+            server_protocol_version: number | null;
             /**
              * Status
              * @description `pending`, `approved`, `denied` or `expired`.
@@ -4780,12 +4903,12 @@ export interface components {
              * Caveats
              * @description Limits of the evaluation that may make the result differ from what the storage system enforces.
              */
-            caveats?: string[];
+            caveats: string[];
             /**
              * Groups
              * @description The groups taken into account.
              */
-            groups?: components["schemas"]["GroupRef"][];
+            groups: components["schemas"]["GroupRef-Output"][];
             /**
              * Model
              * @description Permission model used: `posix`, `nfsv4`, `nt`, `s3`, `cloud_drive`, or `none` when the entry has no usable permissions.
@@ -4793,7 +4916,7 @@ export interface components {
              */
             model: "posix" | "nfsv4" | "nt" | "s3" | "cloud_drive" | "none";
             /** @description The principal that was evaluated. */
-            principal: components["schemas"]["PrincipalRef"];
+            principal: components["schemas"]["PrincipalRef-Output"];
         };
         /**
          * EffectivePermsRequest
@@ -4817,15 +4940,15 @@ export interface components {
              * Groups
              * @description Groups the principal belongs to; they are not looked up for you.
              */
-            groups?: components["schemas"]["GroupRef"][];
+            groups?: components["schemas"]["GroupRef-Input"][];
             /** @description The principal to evaluate. */
-            principal: components["schemas"]["PrincipalRef"];
+            principal: components["schemas"]["PrincipalRef-Input"];
             /**
              * Principal Name Hint
              * @description Optional display name for the principal, used only to improve messages.
              * @default
              */
-            principal_name_hint: string;
+            principal_name_hint?: string;
         };
         /**
          * EntryDetailResponse
@@ -4849,7 +4972,9 @@ export interface components {
          *       "path": "/Reports/2026/q1.pdf",
          *       "size_bytes": 482133,
          *       "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f",
-         *       "uid": 1000
+         *       "tags": [],
+         *       "uid": 1000,
+         *       "versions": []
          *     }
          */
         EntryDetailResponse: {
@@ -4857,7 +4982,7 @@ export interface components {
              * Acl
              * @description Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none.
              */
-            acl?: (components["schemas"]["PosixACL"] | components["schemas"]["NfsV4ACL"] | components["schemas"]["NtACL"] | components["schemas"]["S3ACL"] | components["schemas"]["CloudDriveACL"]) | null;
+            acl: (components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"]) | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -4867,7 +4992,7 @@ export interface components {
              * Domain Metadata
              * @description Provider-specific metadata for self-hosted libraries (Paperless-ngx, Immich); null for filesystem sources. Free-form: keys depend on the provider.
              */
-            domain_metadata?: {
+            domain_metadata: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -4885,12 +5010,12 @@ export interface components {
              * Fs Accessed At
              * @description Last access time on the storage system.
              */
-            fs_accessed_at?: string | null;
+            fs_accessed_at: string | null;
             /**
              * Fs Created At
              * @description Creation time on the storage system.
              */
-            fs_created_at?: string | null;
+            fs_created_at: string | null;
             /**
              * Fs Modified At
              * @description Modification time on the storage system.
@@ -4947,7 +5072,7 @@ export interface components {
              * Native Id
              * @description Provider identifier for cloud-drive entries (Drive, OneDrive, Dropbox); null otherwise.
              */
-            native_id?: string | null;
+            native_id: string | null;
             /**
              * Owner Name
              * @description Owner name or SID as reported by the storage system.
@@ -4969,7 +5094,7 @@ export interface components {
              */
             size_bytes: number | null;
             /** @description The owning source; null for an orphaned entry. */
-            source?: components["schemas"]["_EntrySourceRef"] | null;
+            source: components["schemas"]["_EntrySourceRef"] | null;
             /**
              * Source Id
              * @description Owning source id; null for an orphaned entry whose source was deleted with its entries preserved.
@@ -4979,7 +5104,7 @@ export interface components {
              * Tags
              * @description Tags on the entry, direct and inherited.
              */
-            tags?: components["schemas"]["EntryTagAssignment"][];
+            tags: components["schemas"]["EntryTagAssignment"][];
             /**
              * Uid
              * @description Numeric owner id on POSIX storage; null elsewhere.
@@ -4989,12 +5114,12 @@ export interface components {
              * Versions
              * @description Recorded versions of the entry, newest first.
              */
-            versions?: components["schemas"]["EntryVersionResponse"][];
+            versions: components["schemas"]["EntryVersionResponse"][];
             /**
              * Xattrs
              * @description Extended attributes as name/value pairs; null when none.
              */
-            xattrs?: {
+            xattrs: {
                 [key: string]: string;
             } | null;
         };
@@ -5007,7 +5132,7 @@ export interface components {
              * Acl
              * @description Access control list as read from the storage system; null when it reports none.
              */
-            acl?: (components["schemas"]["PosixACL"] | components["schemas"]["NfsV4ACL"] | components["schemas"]["NtACL"] | components["schemas"]["S3ACL"] | components["schemas"]["CloudDriveACL"]) | null;
+            acl?: (components["schemas"]["PosixACL-Input"] | components["schemas"]["NfsV4ACL-Input"] | components["schemas"]["NtACL-Input"] | components["schemas"]["S3ACL-Input"] | components["schemas"]["CloudDriveACL-Input"]) | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -5056,7 +5181,7 @@ export interface components {
              * @default file
              * @enum {string}
              */
-            kind: "file" | "directory";
+            kind?: "file" | "directory";
             /**
              * Mime Type
              * @description Detected MIME type; null when not detected.
@@ -5263,7 +5388,7 @@ export interface components {
              * Inherited From Path
              * @description Path of the ancestor directory the tag is inherited from; null for a direct tag.
              */
-            inherited_from_path?: string | null;
+            inherited_from_path: string | null;
             /**
              * Tag
              * @description Tag name.
@@ -5301,7 +5426,7 @@ export interface components {
              * Acl
              * @description ACL at the time of this version; null when none was recorded.
              */
-            acl: (components["schemas"]["PosixACL"] | components["schemas"]["NfsV4ACL"] | components["schemas"]["NtACL"] | components["schemas"]["S3ACL"] | components["schemas"]["CloudDriveACL"]) | null;
+            acl: (components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"]) | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -5382,7 +5507,7 @@ export interface components {
              * Detail
              * @description Optional structured extra. For `validation_error` this is the list of field errors (`loc`, `msg`, `type`); other errors may carry an object.
              */
-            detail?: unknown | null;
+            detail: unknown | null;
             /**
              * Message
              * @description Human-readable summary of what went wrong.
@@ -5503,7 +5628,7 @@ export interface components {
              * Domain
              * @description Resolved domain (SIDs only).
              */
-            domain?: string | null;
+            domain: string | null;
             /**
              * Kind
              * @description `user`, `group`, `wildcard` or `unknown`.
@@ -5513,7 +5638,7 @@ export interface components {
              * Name
              * @description Resolved name (SIDs only).
              */
-            name?: string | null;
+            name: string | null;
             /**
              * Source
              * @description Where the grant comes from (`acl`).
@@ -5749,7 +5874,7 @@ export interface components {
              * @description Whether this is the user's primary identity.
              * @default false
              */
-            is_primary: boolean;
+            is_primary?: boolean;
             /**
              * Label
              * @description Display label for the identity.
@@ -5762,7 +5887,7 @@ export interface components {
              * Bindings
              * @description The identity's per-source bindings.
              */
-            bindings?: components["schemas"]["FsBindingOut"][];
+            bindings: components["schemas"]["FsBindingOut"][];
             /**
              * Created At
              * Format: date-time
@@ -5806,7 +5931,27 @@ export interface components {
             label?: string | null;
         };
         /** GroupRef */
-        GroupRef: {
+        "GroupRef-Input": {
+            /**
+             * Identifier
+             * @description Identifier of that type, e.g. a gid or a group SID.
+             */
+            identifier: string;
+            /**
+             * Name
+             * @description Display name; informational only.
+             * @default
+             */
+            name?: string;
+            /**
+             * Type
+             * @description Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.
+             * @enum {string}
+             */
+            type: "posix_uid" | "sid" | "nfsv4_principal" | "s3_canonical" | "cloud_drive_user";
+        };
+        /** GroupRef */
+        "GroupRef-Output": {
             /**
              * Identifier
              * @description Identifier of that type, e.g. a gid or a group SID.
@@ -5875,12 +6020,12 @@ export interface components {
              */
             accepted_min: number;
             /** @description Effective scanner configuration; present only when accepted. */
-            config?: components["schemas"]["ScannerEffectiveConfig"] | null;
+            config: components["schemas"]["ScannerEffectiveConfig"] | null;
             /**
              * Reason
              * @description Why the handshake was rejected.
              */
-            reason?: string | null;
+            reason: string | null;
             /**
              * Server Protocol Version
              * @description Protocol version this server speaks.
@@ -5907,7 +6052,7 @@ export interface components {
              * @description Bytes read so far.
              * @default 0
              */
-            bytes_scanned: number;
+            bytes_scanned?: number;
             /**
              * Current Batch Size
              * @description Entries per ingest batch the scanner currently uses (adaptive).
@@ -5923,25 +6068,25 @@ export interface components {
              * @description Directories queued to walk.
              * @default 0
              */
-            dirs_queued: number;
+            dirs_queued?: number;
             /**
              * Dirs Walked
              * @description Directories walked so far.
              * @default 0
              */
-            dirs_walked: number;
+            dirs_walked?: number;
             /**
              * Files Scanned
              * @description Files scanned so far.
              * @default 0
              */
-            files_scanned: number;
+            files_scanned?: number;
             /**
              * Files Skipped
              * @description Files skipped so far.
              * @default 0
              */
-            files_skipped: number;
+            files_skipped?: number;
             /**
              * Phase
              * @description `prewalk`, `walk` or `finalize`.
@@ -6047,7 +6192,7 @@ export interface components {
              * Credential Profile Id
              * @description Credential profile in use; null when none.
              */
-            credential_profile_id?: string | null;
+            credential_profile_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -6058,7 +6203,7 @@ export interface components {
              * Max Parallel Scanners
              * @description Scanner cap for the host's sources; null means the built-in default.
              */
-            max_parallel_scanners?: number | null;
+            max_parallel_scanners: number | null;
             /**
              * Name
              * @description Host name.
@@ -6068,7 +6213,7 @@ export interface components {
              * Scan Chunk Size
              * @description Work-unit size for the host's sources; null means the built-in default.
              */
-            scan_chunk_size?: number | null;
+            scan_chunk_size: number | null;
             /**
              * Source Count
              * @description Number of sources attached to the host.
@@ -6345,7 +6490,7 @@ export interface components {
              * Exclude Patterns
              * @description Glob patterns to skip while scanning.
              */
-            exclude_patterns?: string[] | null;
+            exclude_patterns: string[] | null;
             /**
              * Id
              * Format: uuid
@@ -6384,7 +6529,7 @@ export interface components {
              * Error
              * @description Failure message; null on success.
              */
-            error?: string | null;
+            error: string | null;
             /**
              * Shares
              * @description Names of the shares, exports or buckets found; empty on failure.
@@ -6395,7 +6540,7 @@ export interface components {
              * Step
              * @description Step that failed (`connect`, `auth`, `mount`, `list` or `config`); null on success.
              */
-            step?: string | null;
+            step: string | null;
         };
         /**
          * LogBatchIn
@@ -6439,12 +6584,12 @@ export interface components {
              * Scanner Id
              * @description Scanner that produced the line.
              */
-            scanner_id?: string | null;
+            scanner_id: string | null;
             /**
              * Scanner Name
              * @description Name of that scanner when the line was written.
              */
-            scanner_name?: string | null;
+            scanner_name: string | null;
             /**
              * Ts
              * Format: date-time
@@ -6531,7 +6676,7 @@ export interface components {
              * Error
              * @description Why Meilisearch could not be read.
              */
-            error?: string | null;
+            error: string | null;
             /**
              * Last Task At
              * @description Time the latest index task finished or was enqueued, as reported by Meilisearch.
@@ -6554,7 +6699,7 @@ export interface components {
             pending_tasks: number | null;
         };
         /** NfsV4ACE */
-        NfsV4ACE: {
+        "NfsV4ACE-Input": {
             /**
              * Ace Type
              * @description `allow`, `deny`, `audit` or `alarm`.
@@ -6577,13 +6722,50 @@ export interface components {
              */
             principal: string;
         };
+        /** NfsV4ACE */
+        "NfsV4ACE-Output": {
+            /**
+             * Ace Type
+             * @description `allow`, `deny`, `audit` or `alarm`.
+             * @enum {string}
+             */
+            ace_type: "allow" | "deny" | "audit" | "alarm";
+            /**
+             * Flags
+             * @description Flags on the entry, e.g. `identifier_group` for a group principal.
+             */
+            flags: string[];
+            /**
+             * Mask
+             * @description Permission names granted or denied, e.g. `READ_DATA`, `WRITE_DATA`.
+             */
+            mask: string[];
+            /**
+             * Principal
+             * @description Principal, e.g. `alice@example.com`, `GROUP:staff@example.com` or `EVERYONE@`.
+             */
+            principal: string;
+        };
         /** NfsV4ACL */
-        NfsV4ACL: {
+        "NfsV4ACL-Input": {
             /**
              * Entries
              * @description ACL entries in evaluation order.
              */
-            entries: components["schemas"]["NfsV4ACE"][];
+            entries: components["schemas"]["NfsV4ACE-Input"][];
+            /**
+             * @description Discriminator, always `nfsv4`. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "nfsv4";
+        };
+        /** NfsV4ACL */
+        "NfsV4ACL-Output": {
+            /**
+             * Entries
+             * @description ACL entries in evaluation order.
+             */
+            entries: components["schemas"]["NfsV4ACE-Output"][];
             /**
              * @description Discriminator, always `nfsv4`. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -6591,7 +6773,7 @@ export interface components {
             type: "nfsv4";
         };
         /** NtACE */
-        NtACE: {
+        "NtACE-Input": {
             /**
              * Ace Type
              * @description `allow`, `deny` or `audit`.
@@ -6613,6 +6795,36 @@ export interface components {
              * @description Resolved account name, when known; empty otherwise.
              * @default
              */
+            name?: string;
+            /**
+             * Sid
+             * @description Security identifier the entry applies to.
+             */
+            sid: string;
+        };
+        /** NtACE */
+        "NtACE-Output": {
+            /**
+             * Ace Type
+             * @description `allow`, `deny` or `audit`.
+             * @enum {string}
+             */
+            ace_type: "allow" | "deny" | "audit";
+            /**
+             * Flags
+             * @description Inheritance and audit flags on the entry, as reported by the scanner.
+             */
+            flags: string[];
+            /**
+             * Mask
+             * @description Access right names granted or denied, e.g. `READ_DATA`.
+             */
+            mask: string[];
+            /**
+             * Name
+             * @description Resolved account name, when known; empty otherwise.
+             * @default
+             */
             name: string;
             /**
              * Sid
@@ -6621,7 +6833,7 @@ export interface components {
             sid: string;
         };
         /** NtACL */
-        NtACL: {
+        "NtACL-Input": {
             /**
              * Control
              * @description Security descriptor control flags, e.g. `owner_defaulted`.
@@ -6631,11 +6843,33 @@ export interface components {
              * Entries
              * @description ACL entries in evaluation order.
              */
-            entries: components["schemas"]["NtACE"][];
+            entries: components["schemas"]["NtACE-Input"][];
             /** @description Primary group of the object; null when not reported. */
-            group?: components["schemas"]["NtPrincipal"] | null;
+            group?: components["schemas"]["NtPrincipal-Input"] | null;
             /** @description Owner of the object; null when not reported. */
-            owner?: components["schemas"]["NtPrincipal"] | null;
+            owner?: components["schemas"]["NtPrincipal-Input"] | null;
+            /**
+             * @description Discriminator, always `nt`. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "nt";
+        };
+        /** NtACL */
+        "NtACL-Output": {
+            /**
+             * Control
+             * @description Security descriptor control flags, e.g. `owner_defaulted`.
+             */
+            control: string[];
+            /**
+             * Entries
+             * @description ACL entries in evaluation order.
+             */
+            entries: components["schemas"]["NtACE-Output"][];
+            /** @description Primary group of the object; null when not reported. */
+            group: components["schemas"]["NtPrincipal-Output"] | null;
+            /** @description Owner of the object; null when not reported. */
+            owner: components["schemas"]["NtPrincipal-Output"] | null;
             /**
              * @description Discriminator, always `nt`. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -6643,7 +6877,21 @@ export interface components {
             type: "nt";
         };
         /** NtPrincipal */
-        NtPrincipal: {
+        "NtPrincipal-Input": {
+            /**
+             * Name
+             * @description Resolved account name, when known; empty otherwise.
+             * @default
+             */
+            name?: string;
+            /**
+             * Sid
+             * @description Security identifier, e.g. `S-1-5-21-...`.
+             */
+            sid: string;
+        };
+        /** NtPrincipal */
+        "NtPrincipal-Output": {
             /**
              * Name
              * @description Resolved account name, when known; empty otherwise.
@@ -6708,8 +6956,9 @@ export interface components {
             /**
              * Provider
              * @description Provider key: `google`, `microsoft` or `dropbox`.
+             * @enum {string}
              */
-            provider: string;
+            provider: "google" | "microsoft" | "dropbox";
             /**
              * Redirect Uri
              * @description Configured redirect URI; empty when not configured.
@@ -6779,8 +7028,9 @@ export interface components {
             /**
              * Provider
              * @description Provider key.
+             * @enum {string}
              */
-            provider: string;
+            provider: "google" | "microsoft" | "dropbox";
             /**
              * Scope
              * @description Scopes granted by the provider.
@@ -6795,7 +7045,7 @@ export interface components {
              * Source Name
              * @description Name of the attached source.
              */
-            source_name?: string | null;
+            source_name: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -6830,7 +7080,7 @@ export interface components {
              * @description `associate` stores the credential; `test` verifies the account and discards it.
              * @default associate
              */
-            mode: string;
+            mode?: string;
             /**
              * Provider
              * @description Provider key from `GET /oauth/providers`.
@@ -6995,12 +7245,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[DuplicateFile] */
         Page_DuplicateFile_: {
@@ -7018,12 +7268,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[DuplicateGroup] */
         Page_DuplicateGroup_: {
@@ -7041,12 +7291,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[EntryResponse] */
         Page_EntryResponse_: {
@@ -7064,12 +7314,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[LogEntryOut] */
         Page_LogEntryOut_: {
@@ -7087,12 +7337,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[ScanResponse] */
         Page_ScanResponse_: {
@@ -7110,12 +7360,12 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /** PerScannerHistory */
         PerScannerHistory: {
@@ -7128,15 +7378,34 @@ export interface components {
              * Scanner Id
              * @description Scanner id; null for results not tied to a scanner.
              */
-            scanner_id?: string | null;
+            scanner_id: string | null;
             /**
              * Scanner Name
              * @description Scanner name.
              */
-            scanner_name?: string | null;
+            scanner_name: string | null;
         };
         /** PosixACE */
-        PosixACE: {
+        "PosixACE-Input": {
+            /**
+             * Perms
+             * @description Three characters from `rwx-`, e.g. `r-x`.
+             */
+            perms: string;
+            /**
+             * Qualifier
+             * @description Uid or gid the entry applies to; empty for the owner, owning group, mask and other.
+             * @default
+             */
+            qualifier?: string;
+            /**
+             * Tag
+             * @description POSIX ACL tag, e.g. `user_obj`, `user`, `group_obj`, `group`, `mask` or `other`.
+             */
+            tag: string;
+        };
+        /** PosixACE */
+        "PosixACE-Output": {
             /**
              * Perms
              * @description Three characters from `rwx-`, e.g. `r-x`.
@@ -7155,17 +7424,35 @@ export interface components {
             tag: string;
         };
         /** PosixACL */
-        PosixACL: {
+        "PosixACL-Input": {
             /**
              * Default Entries
              * @description Default ACL entries inherited by new children of a directory; null when none.
              */
-            default_entries?: components["schemas"]["PosixACE"][] | null;
+            default_entries?: components["schemas"]["PosixACE-Input"][] | null;
             /**
              * Entries
              * @description Access ACL entries.
              */
-            entries: components["schemas"]["PosixACE"][];
+            entries: components["schemas"]["PosixACE-Input"][];
+            /**
+             * @description Discriminator, always `posix`. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "posix";
+        };
+        /** PosixACL */
+        "PosixACL-Output": {
+            /**
+             * Default Entries
+             * @description Default ACL entries inherited by new children of a directory; null when none.
+             */
+            default_entries: components["schemas"]["PosixACE-Output"][] | null;
+            /**
+             * Entries
+             * @description Access ACL entries.
+             */
+            entries: components["schemas"]["PosixACE-Output"][];
             /**
              * @description Discriminator, always `posix`. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -7190,12 +7477,12 @@ export interface components {
              * Encoding
              * @description Text encoding used, `utf-8` or `latin-1`; null for binary files.
              */
-            encoding?: string | null;
+            encoding: string | null;
             /**
              * Text
              * @description Decoded text of the first 64 KiB; null for binary files.
              */
-            text?: string | null;
+            text: string | null;
             /**
              * Truncated
              * @description True when the file is larger than the preview.
@@ -7239,7 +7526,27 @@ export interface components {
             summary: components["schemas"]["AccessSummary"];
         };
         /** PrincipalRef */
-        PrincipalRef: {
+        "PrincipalRef-Input": {
+            /**
+             * Identifier
+             * @description Identifier of that type, e.g. a uid, a SID or an NFSv4 principal.
+             */
+            identifier: string;
+            /**
+             * Name
+             * @description Display name; informational only.
+             * @default
+             */
+            name?: string;
+            /**
+             * Type
+             * @description Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.
+             * @enum {string}
+             */
+            type: "posix_uid" | "sid" | "nfsv4_principal" | "s3_canonical" | "cloud_drive_user";
+        };
+        /** PrincipalRef */
+        "PrincipalRef-Output": {
             /**
              * Identifier
              * @description Identifier of that type, e.g. a uid, a SID or an NFSv4 principal.
@@ -7350,6 +7657,32 @@ export interface components {
             setup_required: boolean;
         };
         /**
+         * PublicAccessBlock
+         * @description S3 bucket-level Public Access Block settings.
+         */
+        PublicAccessBlock: {
+            /**
+             * Block Public Acls
+             * @description Reject new public ACLs.
+             */
+            block_public_acls: boolean;
+            /**
+             * Block Public Policy
+             * @description Reject public bucket policies.
+             */
+            block_public_policy: boolean;
+            /**
+             * Ignore Public Acls
+             * @description Ignore existing public ACLs.
+             */
+            ignore_public_acls: boolean;
+            /**
+             * Restrict Public Buckets
+             * @description Restrict access to buckets with public policies.
+             */
+            restrict_public_buckets: boolean;
+        };
+        /**
          * PurgeDeletedResponse
          * @description Outcome of purging old soft-deleted entries.
          */
@@ -7443,7 +7776,7 @@ export interface components {
              * Error
              * @description Error message, if any.
              */
-            error?: string | null;
+            error: string | null;
             /**
              * Ok
              * @description Whether the source was reachable.
@@ -7459,7 +7792,7 @@ export interface components {
              * Step
              * @description Step that failed, if any.
              */
-            step?: string | null;
+            step: string | null;
         };
         /**
          * ReachabilitySummary
@@ -7490,7 +7823,7 @@ export interface components {
              * Last Scanner Name
              * @description Name of that scanner.
              */
-            last_scanner_name?: string | null;
+            last_scanner_name: string | null;
             /**
              * Last Step
              * @description Probe step that failed, if any.
@@ -7515,13 +7848,13 @@ export interface components {
              * @description When true (default) only count what would be re-attached.
              * @default true
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Strategy
              * @description `path` matches path, name and kind; `path_and_hash` also requires an equal content hash.
              * @default path
              */
-            strategy: string;
+            strategy?: string;
         };
         /**
          * ReattachResponse
@@ -7669,8 +8002,9 @@ export interface components {
             /**
              * Status
              * @description `resolved`, `unresolved`, `skipped` (source type has no LSARPC) or `error` (lookup failed).
+             * @enum {string}
              */
-            status: string;
+            status: "resolved" | "unresolved" | "skipped" | "error";
         };
         /** RightResult */
         RightResult: {
@@ -7678,7 +8012,7 @@ export interface components {
              * By
              * @description The ACL entries responsible for the decision.
              */
-            by?: components["schemas"]["ACEReference"][];
+            by: components["schemas"]["ACEReference"][];
             /**
              * Granted
              * @description Whether the right is granted.
@@ -7686,14 +8020,29 @@ export interface components {
             granted: boolean;
         };
         /** S3ACL */
-        S3ACL: {
+        "S3ACL-Input": {
             /**
              * Grants
              * @description Grants on the object.
              */
-            grants?: components["schemas"]["S3Grant"][];
+            grants?: components["schemas"]["S3Grant-Input"][];
             /** @description Object owner; null when not reported. */
-            owner?: components["schemas"]["S3Owner"] | null;
+            owner?: components["schemas"]["S3Owner-Input"] | null;
+            /**
+             * @description Discriminator, always `s3`. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "s3";
+        };
+        /** S3ACL */
+        "S3ACL-Output": {
+            /**
+             * Grants
+             * @description Grants on the object.
+             */
+            grants: components["schemas"]["S3Grant-Output"][];
+            /** @description Object owner; null when not reported. */
+            owner: components["schemas"]["S3Owner-Output"] | null;
             /**
              * @description Discriminator, always `s3`. (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -7701,7 +8050,34 @@ export interface components {
             type: "s3";
         };
         /** S3Grant */
-        S3Grant: {
+        "S3Grant-Input": {
+            /**
+             * Grantee Id
+             * @description Canonical user id or group URI; empty when not applicable.
+             * @default
+             */
+            grantee_id?: string;
+            /**
+             * Grantee Name
+             * @description Display name or email address; empty when not reported.
+             * @default
+             */
+            grantee_name?: string;
+            /**
+             * Grantee Type
+             * @description `canonical_user`, `group` or `amazon_customer_by_email`.
+             * @enum {string}
+             */
+            grantee_type: "canonical_user" | "group" | "amazon_customer_by_email";
+            /**
+             * Permission
+             * @description `FULL_CONTROL`, `READ`, `WRITE`, `READ_ACP` or `WRITE_ACP`.
+             * @enum {string}
+             */
+            permission: "FULL_CONTROL" | "READ" | "WRITE" | "READ_ACP" | "WRITE_ACP";
+        };
+        /** S3Grant */
+        "S3Grant-Output": {
             /**
              * Grantee Id
              * @description Canonical user id or group URI; empty when not applicable.
@@ -7728,7 +8104,21 @@ export interface components {
             permission: "FULL_CONTROL" | "READ" | "WRITE" | "READ_ACP" | "WRITE_ACP";
         };
         /** S3Owner */
-        S3Owner: {
+        "S3Owner-Input": {
+            /**
+             * Display Name
+             * @description Owner display name; empty when not reported.
+             * @default
+             */
+            display_name?: string;
+            /**
+             * Id
+             * @description Canonical user id of the owner.
+             */
+            id: string;
+        };
+        /** S3Owner */
+        "S3Owner-Output": {
             /**
              * Display Name
              * @description Owner display name; empty when not reported.
@@ -7773,19 +8163,19 @@ export interface components {
              * @description Directories skipped in this unit or scan because they could not be read; accumulated on the scan.
              * @default 0
              */
-            inaccessible_dirs: number;
+            inaccessible_dirs?: number;
             /**
              * Inaccessible Files
              * @description Files skipped because they could not be read; accumulated on the scan.
              * @default 0
              */
-            inaccessible_files: number;
+            inaccessible_files?: number;
             /**
              * Is Final
              * @description True on the scanner's last batch: finalizes a scan that does not use parallel work units.
              * @default false
              */
-            is_final: boolean;
+            is_final?: boolean;
             /**
              * Scan Id
              * Format: uuid
@@ -7842,18 +8232,27 @@ export interface components {
         /**
          * ScanResponse
          * @example {
+         *       "bytes_scanned_so_far": 5368709120,
          *       "completed_at": "2026-04-27T22:09:00Z",
          *       "current_path": "/projects/2026",
+         *       "dirs_queued": 0,
+         *       "dirs_walked": 310,
          *       "files_changed": 14,
          *       "files_deleted": 3,
          *       "files_found": 12840,
          *       "files_new": 120,
+         *       "files_skipped": 2,
          *       "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+         *       "inaccessible_dirs": 0,
+         *       "inaccessible_files": 0,
+         *       "last_heartbeat_at": "2026-04-27T22:09:00Z",
          *       "phase": "finalize",
+         *       "previous_scan_files": 12700,
          *       "scan_type": "incremental",
          *       "source_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
          *       "started_at": "2026-04-27T22:00:00Z",
-         *       "status": "completed"
+         *       "status": "completed",
+         *       "total_estimated": 12840
          *     }
          */
         ScanResponse: {
@@ -7861,7 +8260,7 @@ export interface components {
              * Bytes Scanned So Far
              * @description Bytes read so far, from the latest heartbeat.
              */
-            bytes_scanned_so_far?: number | null;
+            bytes_scanned_so_far: number | null;
             /**
              * Completed At
              * @description When the scan ended; null while active.
@@ -7871,7 +8270,7 @@ export interface components {
              * Current Path
              * @description Path being walked, from the latest heartbeat.
              */
-            current_path?: string | null;
+            current_path: string | null;
             /**
              * Dirs Queued
              * @description Directories waiting to be walked.
@@ -7888,7 +8287,7 @@ export interface components {
              * Error Message
              * @description Failure or cancellation detail.
              */
-            error_message?: string | null;
+            error_message: string | null;
             /**
              * Files Changed
              * @description Files whose metadata changed.
@@ -7937,17 +8336,17 @@ export interface components {
              * Last Heartbeat At
              * @description Time of the latest heartbeat.
              */
-            last_heartbeat_at?: string | null;
+            last_heartbeat_at: string | null;
             /**
              * Phase
              * @description `prewalk`, `walk` or `finalize`.
              */
-            phase?: string | null;
+            phase: string | null;
             /**
              * Previous Scan Files
              * @description File count of the previous scan, for progress estimates.
              */
-            previous_scan_files?: number | null;
+            previous_scan_files: number | null;
             /**
              * Scan Type
              * @description `incremental` or `full`.
@@ -7973,7 +8372,7 @@ export interface components {
              * Total Estimated
              * @description Estimated total files, when the scanner could pre-count.
              */
-            total_estimated?: number | null;
+            total_estimated: number | null;
         };
         /**
          * ScanTriggerRequest
@@ -7989,7 +8388,7 @@ export interface components {
              * @default incremental
              * @enum {string}
              */
-            scan_type: "incremental" | "full";
+            scan_type?: "incremental" | "full";
             /**
              * Source Id
              * @description Id of the source to scan. Give this or `source_name`.
@@ -8082,7 +8481,7 @@ export interface components {
              * @description Pool the scanner serves; scans are only leased to scanners in their pool.
              * @default default
              */
-            pool: string;
+            pool?: string;
         };
         /**
          * ScannerCreated
@@ -8171,31 +8570,31 @@ export interface components {
              * @description Remove the scan type restriction.
              * @default false
              */
-            clear_allowed_scan_types: boolean;
+            clear_allowed_scan_types?: boolean;
             /**
              * Clear Allowed Source Ids
              * @description Remove the source restriction.
              * @default false
              */
-            clear_allowed_source_ids: boolean;
+            clear_allowed_source_ids?: boolean;
             /**
              * Clear Extract Workers
              * @description Revert to the default worker count.
              * @default false
              */
-            clear_extract_workers: boolean;
+            clear_extract_workers?: boolean;
             /**
              * Clear Max Concurrent Units
              * @description Revert to the default of 1.
              * @default false
              */
-            clear_max_concurrent_units: boolean;
+            clear_max_concurrent_units?: boolean;
             /**
              * Clear Tika Url
              * @description Revert to the server's Tika URL.
              * @default false
              */
-            clear_tika_url: boolean;
+            clear_tika_url?: boolean;
             /**
              * Enabled
              * @description Enable or disable; a disabled scanner cannot authenticate.
@@ -8285,14 +8684,14 @@ export interface components {
              * Allowed Scan Types
              * @description Scan types the scanner is restricted to; null for any.
              */
-            allowed_scan_types?: string[] | null;
+            allowed_scan_types: string[] | null;
             /**
              * Allowed Source Ids
              * @description Sources the scanner is restricted to; null for any.
              */
-            allowed_source_ids?: string[] | null;
+            allowed_source_ids: string[] | null;
             /** @description The configuration the agent actually receives. */
-            effective_config?: components["schemas"]["ScannerEffectiveConfig"] | null;
+            effective_config: components["schemas"]["ScannerEffectiveConfig"] | null;
             /**
              * Enabled
              * @description Whether the scanner may authenticate.
@@ -8302,7 +8701,7 @@ export interface components {
              * Extract Workers
              * @description Admin override of the extraction workers; null inherits the default.
              */
-            extract_workers?: number | null;
+            extract_workers: number | null;
             /**
              * Hostname
              * @description Host the agent reported at handshake.
@@ -8328,7 +8727,7 @@ export interface components {
              * Max Concurrent Units
              * @description Admin override of concurrent units; null inherits the default.
              */
-            max_concurrent_units?: number | null;
+            max_concurrent_units: number | null;
             /**
              * Name
              * @description Scanner name.
@@ -8359,7 +8758,7 @@ export interface components {
              * Tika Url
              * @description Admin override of the Tika URL; null inherits the server setting.
              */
-            tika_url?: string | null;
+            tika_url: string | null;
             /**
              * Version
              * @description Agent build version.
@@ -8438,12 +8837,12 @@ export interface components {
              * Content Hash
              * @description Content hash; null for directories and unhashed files.
              */
-            content_hash?: string | null;
+            content_hash: string | null;
             /**
              * Content Text
              * @description Matched extracted text, when the index returns it.
              */
-            content_text?: string | null;
+            content_text: string | null;
             /**
              * Dup Count
              * @description Number of other files with the same content hash within the caller's visible sources.
@@ -8454,7 +8853,7 @@ export interface components {
              * Extension
              * @description Extension without the dot.
              */
-            extension?: string | null;
+            extension: string | null;
             /**
              * Filename
              * @description Base name.
@@ -8464,7 +8863,7 @@ export interface components {
              * Fs Modified At
              * @description Modification time as Unix seconds.
              */
-            fs_modified_at?: number | null;
+            fs_modified_at: number | null;
             /**
              * Id
              * Format: uuid
@@ -8475,7 +8874,7 @@ export interface components {
              * Mime Type
              * @description Detected MIME type.
              */
-            mime_type?: string | null;
+            mime_type: string | null;
             /**
              * Path
              * @description Full path within the source.
@@ -8485,12 +8884,12 @@ export interface components {
              * Size Bytes
              * @description Size in bytes.
              */
-            size_bytes?: number | null;
+            size_bytes: number | null;
             /**
              * Source Id
              * @description Source id; null for an orphaned entry whose source was deleted.
              */
-            source_id?: string | null;
+            source_id: string | null;
             /**
              * Tags
              * @description Tags on the file.
@@ -8507,7 +8906,7 @@ export interface components {
              * Facet Distribution
              * @description Facet counts keyed by field (e.g. `domain_metadata.correspondent`); null on the SQL fallback path.
              */
-            facet_distribution?: {
+            facet_distribution: {
                 [key: string]: {
                     [key: string]: number;
                 };
@@ -8526,7 +8925,7 @@ export interface components {
              * Next Cursor
              * @description Opaque cursor for the next page; null when this is the last page.
              */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /**
              * Query
              * @description The query that produced these results.
@@ -8536,7 +8935,7 @@ export interface components {
              * Total
              * @description Total matching items, when the endpoint computes it (see the endpoint description); otherwise null.
              */
-            total?: number | null;
+            total: number | null;
         };
         /**
          * SeriesPoint
@@ -8560,7 +8959,7 @@ export interface components {
              * Error
              * @description Why the probe failed; absent when it succeeded.
              */
-            error?: string | null;
+            error: string | null;
             /**
              * Latency Ms
              * @description Round-trip time in milliseconds; null when the probe failed.
@@ -8648,9 +9047,9 @@ export interface components {
         SettingDescription: {
             /**
              * Choices
-             * @description Allowed values, when constrained. Free-form: the type depends on the setting.
+             * @description Allowed values, when constrained.
              */
-            choices: unknown[] | null;
+            choices: string[] | null;
             /**
              * Default
              * @description Default value. Free-form: the type depends on the setting.
@@ -8685,12 +9084,13 @@ export interface components {
              * Set
              * @description Secrets only: whether a value is stored.
              */
-            set?: boolean | null;
+            set: boolean | null;
             /**
              * Type
-             * @description Value type, e.g. `bool`, `int`, `str`.
+             * @description Value type.
+             * @enum {string}
              */
-            type: string;
+            type: "bool" | "int" | "str" | "list[str]" | "dict[str,int]" | "enum";
             /**
              * Value
              * @description Current value; the mask for a set secret. Free-form: the type depends on the setting.
@@ -8742,7 +9142,7 @@ export interface components {
              * Set
              * @description Secrets only: whether a value is stored.
              */
-            set?: boolean | null;
+            set: boolean | null;
             /**
              * Value
              * @description Current value; for a set secret, the mask. Free-form: the type depends on the setting.
@@ -8863,6 +9263,7 @@ export interface components {
          * @example {
          *       "created_at": "2026-01-10T09:00:00Z",
          *       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+         *       "is_removable": false,
          *       "last_scan_at": "2026-04-27T22:00:00Z",
          *       "name": "nas-projects",
          *       "scan_schedule": "0 2 * * *",
@@ -8879,13 +9280,18 @@ export interface components {
              * @description When the source was created.
              */
             created_at: string;
+            /**
+             * Credential Profile Id
+             * @description Credential profile merged under the source's config, if any.
+             */
+            credential_profile_id: string | null;
             /** @description Summary of that host. */
-            host?: components["schemas"]["_HostInline"] | null;
+            host: components["schemas"]["_HostInline"] | null;
             /**
              * Host Id
              * @description Host the source belongs to.
              */
-            host_id?: string | null;
+            host_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -8907,7 +9313,7 @@ export interface components {
              * Max Parallel Scanners
              * @description Scanner cap set on the source; null inherits.
              */
-            max_parallel_scanners?: number | null;
+            max_parallel_scanners: number | null;
             /**
              * Name
              * @description Display name.
@@ -8917,7 +9323,7 @@ export interface components {
              * Preferred Pool
              * @description Pool that must scan the source; null for any.
              */
-            preferred_pool?: string | null;
+            preferred_pool: string | null;
             /**
              * Scan Schedule
              * @description Cron expression for scheduled scans; null if manual only.
@@ -9006,6 +9412,7 @@ export interface components {
          *         "*.tmp"
          *       ],
          *       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+         *       "is_removable": false,
          *       "last_scan_at": "2026-04-27T22:00:00Z",
          *       "name": "nas-projects",
          *       "scan_schedule": "0 2 * * *",
@@ -9032,19 +9439,19 @@ export interface components {
              * Credential Profile Id
              * @description Credential profile merged under the config.
              */
-            credential_profile_id?: string | null;
+            credential_profile_id: string | null;
             /**
              * Exclude Patterns
              * @description Glob patterns skipped while scanning.
              */
             exclude_patterns: string[] | null;
             /** @description Summary of that host. */
-            host?: components["schemas"]["_HostInline"] | null;
+            host: components["schemas"]["_HostInline"] | null;
             /**
              * Host Id
              * @description Host the source belongs to.
              */
-            host_id?: string | null;
+            host_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -9066,7 +9473,7 @@ export interface components {
              * Max Parallel Scanners
              * @description Scanner cap set on the source; null inherits from the host.
              */
-            max_parallel_scanners?: number | null;
+            max_parallel_scanners: number | null;
             /**
              * Name
              * @description Display name.
@@ -9076,24 +9483,19 @@ export interface components {
              * Preferred Pool
              * @description Pool that must scan the source; null for any.
              */
-            preferred_pool?: string | null;
+            preferred_pool: string | null;
             /**
              * Scan Chunk Size
              * @description Work unit size set on the source; null inherits from the host.
              */
-            scan_chunk_size?: number | null;
+            scan_chunk_size: number | null;
             /**
              * Scan Schedule
              * @description Cron expression for scheduled scans; null if manual only.
              */
             scan_schedule: string | null;
-            /**
-             * Security Metadata
-             * @description Source-level security data reported by the scanner (for example an S3 bucket policy). Free-form: depends on the source type.
-             */
-            security_metadata?: {
-                [key: string]: unknown;
-            } | null;
+            /** @description Source-level security data reported by the scanner (S3 sources only). */
+            security_metadata: components["schemas"]["SourceSecurityMetadata"] | null;
             /**
              * Status
              * @description `online`, `scanning`, `failed` or `offline`.
@@ -9110,6 +9512,45 @@ export interface components {
              * @description When the source was last changed.
              */
             updated_at: string;
+        };
+        /**
+         * SourceSecurityMetadata
+         * @description Source-level security posture the scanner captures at scan start (S3).
+         */
+        SourceSecurityMetadata: {
+            /**
+             * Bucket Acl
+             * @description Raw S3 bucket ACL document.
+             */
+            bucket_acl: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bucket Policy
+             * @description Raw S3 bucket policy document.
+             */
+            bucket_policy: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bucket Policy Present
+             * @description Whether the bucket has a policy.
+             * @default false
+             */
+            bucket_policy_present: boolean;
+            /**
+             * Captured At
+             * @description When the scanner captured this, ISO 8601.
+             */
+            captured_at: string;
+            /**
+             * Is Public Inferred
+             * @description Whether the scanner inferred the bucket is publicly reachable.
+             * @default false
+             */
+            is_public_inferred: boolean;
+            /** @description Public Access Block settings, when readable. */
+            public_access_block: components["schemas"]["PublicAccessBlock"] | null;
         };
         /**
          * SourceUpdate
@@ -9697,7 +10138,7 @@ export interface components {
              * Completed At
              * @description When the probe finished.
              */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Error
              * @description Probe error message, if any.
@@ -9758,7 +10199,7 @@ export interface components {
              * Completed At
              * @description When the probe finished; null while pending.
              */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Error
              * @description Failure message; null on success or while pending.
@@ -9866,7 +10307,7 @@ export interface components {
              * Completed At
              * @description When the probe finished.
              */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Error
              * @description Probe error message, if any.
@@ -9901,7 +10342,7 @@ export interface components {
              * Error
              * @description Why the counters could not be read.
              */
-            error?: string | null;
+            error: string | null;
             /**
              * Extracted Last 5Min
              * @description Files extracted in the last 5 minutes; null if unreadable.
@@ -9952,17 +10393,17 @@ export interface components {
              * Children
              * @description Child nodes, largest first.
              */
-            children?: components["schemas"]["TreeNode"][] | null;
+            children: components["schemas"]["TreeNode"][] | null;
             /**
              * Color Key
              * @description Colour bucket key.
              */
-            color_key?: string | null;
+            color_key: string | null;
             /**
              * Id
              * @description Entry id; absent for synthetic nodes.
              */
-            id?: string | null;
+            id: string | null;
             /**
              * Kind
              * @description `file`, `directory` or `other`.
@@ -10200,7 +10641,7 @@ export interface components {
              * Lease Expires At
              * @description When the lease lapses unless renewed with a heartbeat.
              */
-            lease_expires_at?: string | null;
+            lease_expires_at: string | null;
             /**
              * Path
              * @description Directory subtree to walk, relative to the source root; empty for the root.
@@ -10606,7 +11047,7 @@ export interface components {
              * Security Metadata
              * @description Source-level security data used when evaluating permissions (for example S3 bucket policy); null when none. Free-form: depends on the source type.
              */
-            security_metadata?: {
+            security_metadata: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -10634,7 +11075,7 @@ export interface components {
              * Credential Profile Id
              * @description Credential profile the host uses, if any.
              */
-            credential_profile_id?: string | null;
+            credential_profile_id: string | null;
             /**
              * Id
              * Format: uuid

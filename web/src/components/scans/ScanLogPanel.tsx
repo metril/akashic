@@ -5,7 +5,7 @@ import { useScanStream } from "../../hooks/useScanStream";
 import { useScanById } from "../../hooks/useScansStream";
 import { api } from "../../api/client";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ScanLogLine } from "../../types";
+import type { ScanLogLine } from "../../api/types";
 import {
   LOG_LEVELS,
   DEFAULT_LEVELS,

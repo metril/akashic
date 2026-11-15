@@ -1,4 +1,4 @@
-import type { Source } from "../../types";
+import type { Source } from "../../api/types";
 
 interface Props {
   source: Source | undefined;

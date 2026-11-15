@@ -16,7 +16,8 @@ from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter, raises
 from fastapi import Depends, HTTPException, Path, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from akashic.schemas.base import ApiModel
+from pydantic import Field, field_validator
 
 from akashic.services.rate_limit import make_limiter
 from sqlalchemy import select, text
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 router = ApiRouter(tags=[SCANNER_TAG])
 
 
-class HandshakeRequest(BaseModel):
+class HandshakeRequest(ApiModel):
     protocol_version: int = Field(description="Scanner protocol version the agent speaks. This server accepts version 2 only.", examples=[2])
     version: str | None = Field(default=None, description="Agent build version, e.g. `0.48.0`.")
     hostname: str | None = Field(default=None, description="Host the agent runs on.")
@@ -54,7 +55,7 @@ class HandshakeRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'protocol_version': 2, 'version': '0.48.0', 'hostname': 'scanner01.example.com', 'max_concurrent_units': 2}]}}
 
 
-class HandshakeResponse(BaseModel):
+class HandshakeResponse(ApiModel):
     config: ScannerEffectiveConfig | None = Field(default=None, description="Effective scanner configuration; present only when accepted.")
     accepted: bool = Field(description="Whether the agent's protocol version is supported. When false the response status is 426.")
     server_protocol_version: int = Field(description="Protocol version this server speaks.")
@@ -63,7 +64,7 @@ class HandshakeResponse(BaseModel):
     reason: str | None = Field(default=None, description="Why the handshake was rejected.")
 
 
-class LeasedSource(BaseModel):
+class LeasedSource(ApiModel):
     id: uuid.UUID = Field(description="Source id.")
     type: str = Field(description="Connector type.")
     connection_config: dict = Field(description="Merged host and source connection config, secrets included. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
@@ -82,7 +83,7 @@ class LeasedSource(BaseModel):
     scan_chunk_size: int = Field(default=2000, description="Resolved work-unit entry budget.")
 
 
-class LeasedScan(BaseModel):
+class LeasedScan(ApiModel):
     scan_id: uuid.UUID = Field(description="Leased scan id.")
     scan_type: str = Field(description="`full` or `incremental`.")
     source: LeasedSource = Field(description="Source to scan.")
@@ -108,7 +109,7 @@ def _check_claim_rate_limit(request: Request) -> None:
     _claim_limiter.check(request)
 
 
-class ClaimRequest(BaseModel):
+class ClaimRequest(ApiModel):
     token: str = Field(min_length=8, max_length=128, description="One-time claim token from `POST /scanner-claim-tokens`.")
     public_key_pem: str = Field(min_length=1, description="The scanner's freshly generated Ed25519 public key, PEM encoded. The private key stays on the scanner.")
     hostname: str | None = Field(default=None, max_length=255, description="RFC 1123 host name of the scanner host.")
@@ -136,7 +137,7 @@ class ClaimRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'token': 'akcl_3f9a1c7d2e8b4a60', 'public_key_pem': '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----\n', 'hostname': 'scanner01.example.com', 'agent_version': '0.48.0'}]}}
 
 
-class ClaimResponse(BaseModel):
+class ClaimResponse(ApiModel):
     scanner_id: uuid.UUID = Field(description="Id of the new scanner; use it as the JWT `kid` and `sub`.")
     name: str = Field(description="Generated scanner name.")
     pool: str = Field(description="Pool the scanner belongs to.")
@@ -397,7 +398,7 @@ async def _mint_ingest_jwt(
     )
 
 
-class LeaseRequest(BaseModel):
+class LeaseRequest(ApiModel):
     """Optional lease-poll body. v0.30.2 — the agent reports its
     running build version so `scanners.version` reflects the live
     binary even after an in-place image upgrade (the claim-time
@@ -658,7 +659,7 @@ async def lease_scan(
     )
 
 
-class CompleteRequest(BaseModel):
+class CompleteRequest(ApiModel):
     status: str = Field(pattern="^(completed|failed|cancelled)$", description="Terminal status: `completed`, `failed` or `cancelled`.")
     error_message: str | None = Field(default=None, description="Failure detail, recorded on the scan.")
 
@@ -994,13 +995,13 @@ async def report_probe_result(
 # ── Scanner-facing OAuth refresh (v0.14.0) ──────────────────────────────────
 
 
-class OAuthAccessTokenRequest(BaseModel):
+class OAuthAccessTokenRequest(ApiModel):
     source_id: uuid.UUID = Field(description="Leased source to mint a token for.")
 
     model_config = {"json_schema_extra": {'examples': [{'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6'}]}}
 
 
-class OAuthAccessTokenResponse(BaseModel):
+class OAuthAccessTokenResponse(ApiModel):
     access_token: str = Field(description="Fresh provider access token.")
     expires_at: datetime | None = Field(description="When the access token expires, if the provider says.")
 

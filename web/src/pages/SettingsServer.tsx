@@ -21,7 +21,7 @@ function initial(def: ServerSettingDef): ServerSettingValue {
     if (def.type === "bool") return false;
     return "";
   }
-  return def.value;
+  return def.value as ServerSettingValue;
 }
 
 function same(a: ServerSettingValue, b: ServerSettingValue): boolean {

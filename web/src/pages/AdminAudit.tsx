@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import { Spinner, EmptyState, Page, Select, Input, Button } from "../components/ui";
-import type { AuditEvent, Paginated } from "../types";
+import type { AuditEvent } from "../api/types";
 
 const KNOWN_EVENT_TYPES = [
   "search_as_used",
@@ -28,16 +28,21 @@ export default function AdminAudit() {
   const page = cursors.length;
   const cursor = cursors[cursors.length - 1];
 
-  const audit = useQuery<Paginated<AuditEvent>>({
+  const audit = useQuery({
     queryKey: ["admin-audit", eventType, fromDate, toDate, cursor],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (eventType) p.set("event_type", eventType);
-      if (fromDate)  p.set("from", new Date(fromDate).toISOString());
-      if (toDate)    p.set("to", new Date(toDate).toISOString());
-      if (cursor) p.set("cursor", cursor);
-      return api.get<Paginated<AuditEvent>>(`/admin/audit?${p.toString()}`);
-    },
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/admin/audit", {
+          params: {
+            query: {
+              event_type: eventType || undefined,
+              from: fromDate ? new Date(fromDate).toISOString() : undefined,
+              to: toDate ? new Date(toDate).toISOString() : undefined,
+              cursor: cursor ?? undefined,
+            },
+          },
+        }),
+      ),
   });
 
   const items = audit.data?.items ?? [];

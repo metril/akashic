@@ -17,7 +17,7 @@ import ScopeRoute from "../ScopeRoute";
 import { Sidebar } from "../Sidebar";
 import Settings from "../../pages/Settings";
 import { groupScopes } from "../../lib/scopes";
-import type { CurrentUser, ScopeCatalog } from "../../types";
+import type { CurrentUser, ScopeCatalog } from "../../api/types";
 
 const catalog: ScopeCatalog = {
   scopes: [

@@ -1,4 +1,4 @@
-import type { NtACE } from "../types";
+import type { NtACE } from "../api/types";
 
 /**
  * dedupeAces collapses pixel-perfect duplicate NT ACEs into a single

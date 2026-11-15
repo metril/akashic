@@ -27,7 +27,8 @@ from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, Response, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +53,7 @@ _LEASE_SECONDS = 60
 # ── Schemas ──────────────────────────────────────────────────────────────
 
 
-class WorkUnitOut(BaseModel):
+class WorkUnitOut(ApiModel):
     id: uuid.UUID = Field(description="Work unit id.")
     scan_id: uuid.UUID = Field(description="Scan the unit belongs to.")
     path: str = Field(description="Directory subtree to walk, relative to the source root; empty for the root.")
@@ -60,7 +61,7 @@ class WorkUnitOut(BaseModel):
     lease_expires_at: datetime | None = Field(default=None, description="When the lease lapses unless renewed with a heartbeat.")
 
 
-class SplitRequest(BaseModel):
+class SplitRequest(ApiModel):
     """Bulk-add child units. Idempotent on (scan_id, path) — safe to
     retry."""
 
@@ -70,12 +71,12 @@ class SplitRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'parent_unit_id': None, 'child_paths': ['', 'projects', 'archive/2023']}]}}
 
 
-class SplitResponse(BaseModel):
+class SplitResponse(ApiModel):
     created: int = Field(description="Units created.")
     skipped: int = Field(description="Paths that already existed (idempotent retry).")
 
 
-class CompleteUnitRequest(BaseModel):
+class CompleteUnitRequest(ApiModel):
     error_message: str | None = Field(default=None, description="Why the unit failed.")
     # v0.34.0 — when true, /work/{id}/fail requeues the unit (status back
     # to `pending`) for retry instead of marking it permanently `failed`.

@@ -16,7 +16,8 @@ from akashic.routing import ApiRouter
 from fastapi import Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,20 +98,20 @@ router = ApiRouter(prefix="/auth", tags=["auth"])
 # ---------------------------------------------------------------------------
 
 
-class LDAPLoginRequest(BaseModel):
+class LDAPLoginRequest(ApiModel):
     username: str = Field(description="LDAP username.")
     password: str = Field(min_length=1, description="LDAP password.")
 
     model_config = {"json_schema_extra": {'examples': [{'username': 'alice', 'password': 'correct horse battery staple'}]}}
 
 
-class LogoutResponse(BaseModel):
+class LogoutResponse(ApiModel):
     ok: bool = Field(description="Always true; logout is idempotent.")
 
     model_config = {"json_schema_extra": {'examples': [{'ok': True}]}}
 
 
-class ProvidersResponse(BaseModel):
+class ProvidersResponse(ApiModel):
     local: bool = Field(default=True, description="Local username and password login; always available.")
     oidc: bool = Field(description="Whether OIDC single sign-on is enabled.")
     ldap: bool = Field(description="Whether LDAP login is enabled.")

@@ -15,7 +15,8 @@ from urllib.parse import quote
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ from akashic.services.entry_content import (
 router = ApiRouter(prefix="/entries", tags=["entries"])
 
 
-class PreviewResponse(BaseModel):
+class PreviewResponse(ApiModel):
     encoding: Optional[str] = Field(default=None, description="Text encoding used, `utf-8` or `latin-1`; null for binary files.")
     text: Optional[str] = Field(default=None, description="Decoded text of the first 64 KiB; null for binary files.")
     truncated: bool = Field(default=False, description="True when the file is larger than the preview.")

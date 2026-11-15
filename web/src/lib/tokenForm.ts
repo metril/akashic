@@ -6,7 +6,7 @@ import {
   type ExpiryChoice,
   type ScopeRules,
 } from "./scopes";
-import type { ApiTokenCreate } from "../types";
+import type { ApiTokenCreate } from "../api/types";
 
 export interface TokenFormState {
   name: string;

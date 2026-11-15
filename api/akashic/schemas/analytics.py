@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 
-class StorageByType(BaseModel):
+class StorageByType(ApiModel):
     """Aggregate file count and bytes for one file extension."""
 
     extension: str | None = Field(description="Lower-case extension without the dot; null for files with none.")
@@ -14,7 +15,7 @@ class StorageByType(BaseModel):
     total_size: int | None = Field(description="Sum of `size_bytes`, in bytes.")
 
 
-class StorageBySource(BaseModel):
+class StorageBySource(ApiModel):
     """Aggregate file count and bytes for one source."""
 
     source_id: uuid.UUID = Field(description="Source id.")
@@ -23,7 +24,7 @@ class StorageBySource(BaseModel):
     total_size: int | None = Field(description="Sum of `size_bytes`, in bytes.")
 
 
-class LargestFile(BaseModel):
+class LargestFile(ApiModel):
     """One of the largest files the caller can see."""
 
     id: uuid.UUID = Field(description="Entry id.")
@@ -34,14 +35,14 @@ class LargestFile(BaseModel):
     mime_type: str | None = Field(description="Detected MIME type, if known.")
 
 
-class SeriesPoint(BaseModel):
+class SeriesPoint(ApiModel):
     """One snapshot value in a time series."""
 
     taken_at: str = Field(description="Snapshot time, ISO 8601.")
     value: int = Field(description="Metric value at that time (bytes or file count).")
 
 
-class ForecastPoint(BaseModel):
+class ForecastPoint(ApiModel):
     """One projected point with its 95% interval."""
 
     taken_at: str = Field(description="Projected time, ISO 8601.")
@@ -50,7 +51,7 @@ class ForecastPoint(BaseModel):
     high: int = Field(description="Upper bound of the 95% interval.")
 
 
-class ForecastProjection(BaseModel):
+class ForecastProjection(ApiModel):
     """The linear projection computed from history."""
 
     points: list[ForecastPoint] = Field(description="Projected points, oldest to newest.")
@@ -58,7 +59,7 @@ class ForecastProjection(BaseModel):
     horizon_days: int = Field(description="Days projected beyond the last snapshot.")
 
 
-class ForecastResponse(BaseModel):
+class ForecastResponse(ApiModel):
     """Capacity forecast for one source."""
 
     history: list[SeriesPoint] = Field(description="Observed total size per snapshot, oldest to newest.")
@@ -66,7 +67,7 @@ class ForecastResponse(BaseModel):
     reason: str = Field(description="`ok`, or `insufficient_history` when fewer than 3 snapshots exist.")
 
 
-class ExtensionTrendPoint(BaseModel):
+class ExtensionTrendPoint(ApiModel):
     """One snapshot's totals for an extension."""
 
     taken_at: str = Field(description="Snapshot time, ISO 8601.")
@@ -74,7 +75,7 @@ class ExtensionTrendPoint(BaseModel):
     bytes: int = Field(description="Total bytes of files with this extension.")
 
 
-class OwnerShare(BaseModel):
+class OwnerShare(ApiModel):
     """One owner's totals in the latest snapshot."""
 
     owner: str = Field(description="Owner name (or SID/uid token when unresolved).")
@@ -82,7 +83,7 @@ class OwnerShare(BaseModel):
     bytes: int = Field(description="Total bytes owned.")
 
 
-class OwnerDistribution(BaseModel):
+class OwnerDistribution(ApiModel):
     """Owners of the latest snapshot, largest first."""
 
     taken_at: str | None = Field(description="Snapshot time, ISO 8601; null when the source has no snapshot.")

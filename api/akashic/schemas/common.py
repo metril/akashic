@@ -7,12 +7,13 @@ import json
 from typing import Any, Generic, TypeVar
 
 from fastapi import HTTPException
+from akashic.schemas.base import ApiModel
 from pydantic import BaseModel, Field, ValidationError
 
 T = TypeVar("T")
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(ApiModel):
     """Body of every non-2xx response."""
 
     code: str = Field(description="Stable machine-readable error code, e.g. `not_found` or `validation_error`.")
@@ -27,7 +28,7 @@ class ErrorResponse(BaseModel):
     request_id: str = Field(description="Correlation id, also returned in the `X-Request-ID` header.")
 
 
-class Page(BaseModel, Generic[T]):
+class Page(ApiModel, Generic[T]):
     """Cursor-paginated list envelope."""
 
     items: list[T] = Field(description="The page of results.")

@@ -14,16 +14,14 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
 
 export type ReattachStrategy = "path" | "path_and_hash";
 
-export interface ReattachResponse {
-  matched: number;
-  conflicts: number;
-  ambiguous: number;
-  committed: boolean;
-}
+export type ReattachResponse = S["ReattachResponse"];
 
 export function useReattachDryRun(
   sourceId: string | null,
@@ -32,10 +30,12 @@ export function useReattachDryRun(
 ) {
   return useQuery<ReattachResponse>({
     queryKey: ["sources", sourceId, "reattach-dry-run", strategy],
-    queryFn: () =>
-      api.post<ReattachResponse>(
-        `/sources/${sourceId}/reattach-orphans`,
-        { strategy, dry_run: true },
+    queryFn: async () =>
+      ok(
+        await client.POST("/api/v1/sources/{source_id}/reattach-orphans", {
+          params: { path: { source_id: sourceId! } },
+          body: { strategy, dry_run: true },
+        }),
       ),
     enabled: enabled && sourceId != null,
     // Don't cache aggressively — the operator might rescan between
@@ -47,10 +47,12 @@ export function useReattachDryRun(
 export function useReattachCommit(sourceId: string | null) {
   const qc = useQueryClient();
   return useMutation<ReattachResponse, Error, { strategy: ReattachStrategy }>({
-    mutationFn: ({ strategy }) =>
-      api.post<ReattachResponse>(
-        `/sources/${sourceId}/reattach-orphans`,
-        { strategy, dry_run: false },
+    mutationFn: async ({ strategy }) =>
+      ok(
+        await client.POST("/api/v1/sources/{source_id}/reattach-orphans", {
+          params: { path: { source_id: sourceId! } },
+          body: { strategy, dry_run: false },
+        }),
       ),
     onSuccess: () => {
       // Re-attached entries now belong to this source — invalidate

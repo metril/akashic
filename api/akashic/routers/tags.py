@@ -23,7 +23,8 @@ import uuid
 
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -158,7 +159,7 @@ async def list_tags(
     return result.scalars().all()
 
 
-class EntryTagOut(BaseModel):
+class EntryTagOut(ApiModel):
     tag: str = Field(description="Tag name.")
     inherited: bool = Field(description="True when the tag comes from a tagged ancestor directory rather than being applied to this entry.")
     inherited_from_path: str | None = Field(description="Path of the ancestor directory the tag is inherited from; null for a direct tag.")
@@ -166,7 +167,7 @@ class EntryTagOut(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'tag': 'invoice', 'inherited': True, 'inherited_from_path': '/projects'}]}}
 
 
-class TagUsageResponse(BaseModel):
+class TagUsageResponse(ApiModel):
     name: str = Field(description="Tag name.")
     color: str | None = Field(description="Display colour, if set.")
     direct_count: int = Field(description="Entries tagged directly.")
@@ -253,7 +254,7 @@ async def delete_tag_catalogue(
 # ── Apply / remove ────────────────────────────────────────────────────────
 
 
-class _TagApplyBody(BaseModel):
+class _TagApplyBody(ApiModel):
     tags: list[str] = Field(min_length=1, description="Tag names to apply (at least one).")
 
     model_config = {"json_schema_extra": {'examples': [{'tags': ['invoice', '2026']}]}}
@@ -401,7 +402,7 @@ async def get_entry_tags(
 # ── Bulk apply ────────────────────────────────────────────────────────────
 
 
-class _BulkApplyBody(BaseModel):
+class _BulkApplyBody(ApiModel):
     entry_ids: list[uuid.UUID] = Field(min_length=1, description="Entries to tag (at least one).")
     tags: list[str] = Field(min_length=1, description="Tag names to apply to each entry (at least one).")
 

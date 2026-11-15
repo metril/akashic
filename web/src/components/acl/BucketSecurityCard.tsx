@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 
-import type { Source } from "../../types";
+import type { Source } from "../../api/types";
 import { Card } from "../ui";
 
 function PABBadge({ label, blocked }: { label: string; blocked: boolean }) {

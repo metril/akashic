@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button, Input } from "../../ui";
-import { api } from "../../../api/client";
+import { client } from "../../../api/client";
 import {
   useStartOAuth,
   useOAuthCredentials,
@@ -80,7 +80,9 @@ export function DropboxFields({ value, onChange }: FieldsProps<DropboxConfig>) {
   async function handleDisconnect() {
     if (!value.oauth_credential_id) return;
     try {
-      await api.delete(`/oauth/credentials/${value.oauth_credential_id}`);
+      await client.DELETE("/api/v1/oauth/credentials/{credential_id}", {
+        params: { path: { credential_id: value.oauth_credential_id } },
+      });
     } catch {
       // ignore — clearing local state is what matters
     }

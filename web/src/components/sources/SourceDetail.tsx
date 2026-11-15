@@ -2,13 +2,13 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Badge, Button, Drawer, Spinner } from "../ui";
-import { api } from "../../api/client";
+import { client, ok } from "../../api/client";
 import { useScopes } from "../../hooks/useScopes";
 import {
   useDeleteSource,
   useUpdateSource,
 } from "../../hooks/useSources";
-import type { Paginated, Scan } from "../../types";
+import type { Scan } from "../../api/types";
 import { AllowedScannersPanel } from "./AllowedScannersPanel";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import {
@@ -20,8 +20,9 @@ import { ReachabilityBadge } from "./ReachabilityBadge";
 import { RecoverOrphansModal } from "./RecoverOrphansModal";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Source } from "../../types";
+import type { Source, SourceListItem } from "../../api/types";
 import { formatDateTime } from "../../lib/format";
+import { BucketSecurityCard } from "../acl/BucketSecurityCard";
 import { formatSourceSummary } from "../../lib/sources";
 import { SourceFieldSet } from "./SourceFieldSet";
 import { ReachabilityHistoryTab } from "./ReachabilityHistoryTab";
@@ -38,7 +39,7 @@ import { InheritableNumberField } from "./source-fields/InheritableNumberField";
 import { Link } from "react-router-dom";
 
 interface SourceDetailProps {
-  source: Source | null;
+  source: Source | SourceListItem | null;
   open: boolean;
   onClose: () => void;
   /** Latest pending/running scan id; null once the scan terminates.
@@ -135,15 +136,18 @@ export const SourceDetail = memo(function SourceDetail({
           className="flex-1 min-h-0 overflow-y-auto pr-1"
         >
           {tab === "details" && (
-            detailLoaded ? (
+            detailLoaded && "connection_config" in source ? (
               // DetailsTab mounts only once the full source has loaded,
               // so its draft state seeds from connection_config +
               // credential_profile_id rather than the lean list row.
-              <DetailsTab
-                source={source}
-                onClose={onClose}
-                activeScanId={activeScanId ?? null}
-              />
+              <>
+                <DetailsTab
+                  source={source}
+                  onClose={onClose}
+                  activeScanId={activeScanId ?? null}
+                />
+                {source.type === "s3" && <BucketSecurityCard source={source} />}
+              </>
             ) : (
               <div className="flex items-center justify-center py-16 text-fg-subtle">
                 <Spinner />
@@ -412,9 +416,8 @@ const DetailsTab = memo(function DetailsTab({
     // gone and re-deriving freshness on every click would itself
     // require a network probe; if the source is offline at scan time,
     // the scan failure path surfaces it cleanly.
-    const p = api.post("/scans/trigger", {
-      source_id: source.id,
-      scan_type: "incremental",
+    const p = client.POST("/api/v1/scans/trigger", {
+      body: { source_id: source.id, scan_type: "incremental" },
     });
     toast.promise(p, {
       loading: `Triggering scan of "${source.name}"…`,
@@ -636,10 +639,10 @@ const DisplayRows = memo(function DisplayRows({
   const lastScanQuery = useQuery<Scan[]>({
     queryKey: ["scans", "last-completed", source.id],
     queryFn: async () =>
-      (
-        await api.get<Paginated<Scan>>(
-          `/scans?source_id=${source.id}&status=completed&limit=1`,
-        )
+      ok(
+        await client.GET("/api/v1/scans", {
+          params: { query: { source_id: source.id, status: "completed", limit: 1 } },
+        }),
       ).items,
     staleTime: 30_000,
   });

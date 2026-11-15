@@ -1,4 +1,4 @@
-import type { PosixACL as PosixACLType, PosixACE } from "../../types";
+import type { PosixACL as PosixACLType, PosixACE } from "../../api/types";
 import { Mono, Subheader } from "./shared";
 
 function ACETable({ entries }: { entries: PosixACE[] }) {

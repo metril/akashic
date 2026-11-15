@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import { Button, Card, Drawer, EmptyState, Page, Spinner } from "../components/ui";
 import { EntryDetail } from "../components/EntryDetail";
 import { PrincipalLookup } from "../components/access/PrincipalLookup";
@@ -9,42 +9,16 @@ import {
   FileToPrincipalsResults,
   PrincipalToFilesResults,
 } from "../components/access/AccessResults";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
+
 
 type Mode = "principal" | "file";
 
-interface PrincipalResult {
-  principal: { token: string; name: string | null; domain: string | null; kind: string };
-  right: string;
-  summary: { file_count: number; total_size_bytes: number; source_count: number };
-  by_source: { source_id: string; source_name: string; file_count: number }[];
-  sample: SampleHit[];
-  next_cursor: string | null;
-  limit: number;
-}
+type PrincipalResult = S["PrincipalAccessResponse"];
 
-interface SampleHit {
-  id: string;
-  source_id: string;
-  path: string;
-  filename: string;
-  size_bytes: number | null;
-  owner_name?: string | null;
-  fs_modified_at?: number | null;
-}
-
-interface FileResult {
-  entry_id: string;
-  path: string;
-  filename: string;
-  right: string;
-  principals: {
-    token: string;
-    name?: string | null;
-    domain?: string | null;
-    kind: string;
-    source: string;
-  }[];
-}
+type FileResult = S["FileAccessResponse"];
 
 /** Admin "blast radius" page — answers two complementary questions:
  * "what files can principal X reach?" and "who can reach file Y?".
@@ -65,19 +39,27 @@ export default function AdminAccess() {
 
   const principalQ = useQuery<PrincipalResult>({
     queryKey: ["access", "principal", token, right],
-    queryFn: () =>
-      api.get<PrincipalResult>(
-        `/access?principal=${encodeURIComponent(token!)}&right=${right}&limit=20`,
-      ),
+    queryFn: async () => {
+      const r = ok(
+        await client.GET("/api/v1/access", {
+          params: { query: { principal: token!, right, limit: 20 } },
+        }),
+      );
+      if (!("principal" in r)) throw new Error("Unexpected access response");
+      return r;
+    },
     enabled: mode === "principal" && Boolean(token),
   });
 
   const fileQ = useQuery<FileResult>({
     queryKey: ["access", "file", fileId, right],
-    queryFn: () =>
-      api.get<FileResult>(
-        `/access?file=${encodeURIComponent(fileId!)}&right=${right}`,
-      ),
+    queryFn: async () => {
+      const r = ok(
+        await client.GET("/api/v1/access", { params: { query: { file: fileId!, right } } }),
+      );
+      if (!("entry_id" in r)) throw new Error("Unexpected access response");
+      return r;
+    },
     enabled: mode === "file" && Boolean(fileId),
   });
 

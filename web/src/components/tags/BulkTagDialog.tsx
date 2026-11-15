@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../../api/client";
+import { client } from "../../api/client";
 import { Button, Input } from "../ui";
 import { ModalShell } from "../ui/ModalShell";
 
@@ -34,11 +34,9 @@ export function BulkTagDialog({
   const [draft, setDraft] = useState("");
 
   const applyMut = useMutation({
-    mutationFn: (tags: string[]) =>
-      api.post<void>("/tags/bulk-apply", {
-        entry_ids: entryIds,
-        tags,
-      }),
+    mutationFn: async (tags: string[]) => {
+      await client.POST("/api/v1/tags/bulk-apply", { body: { entry_ids: entryIds, tags } });
+    },
     onSuccess: () => {
       // Each tagged entry's drawer query needs to refresh.
       for (const id of entryIds) {

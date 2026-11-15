@@ -1,10 +1,12 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
+from typing import Any
 
 
-class SourceCreate(BaseModel):
+class SourceCreate(ApiModel):
     name: str = Field(description="Display name; must be unique.", examples=['nas-projects'])
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`, `webdav`, `paperless`, `immich`, `gdrive`, `onedrive` or `dropbox`.")
     connection_config: dict = Field(description="Connection settings for the type (path, share, bucket, URL, ...). With a host, only share-level fields are needed. Secret-looking keys are masked on read. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
@@ -39,7 +41,7 @@ class SourceCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'name': 'nas-projects', 'type': 'smb', 'connection_config': {'share': 'projects', 'path': '/'}, 'host_id': '9b2c5a40-1d6e-4f0a-8c7b-3e5d2a1f4b60', 'scan_schedule': '0 2 * * *', 'exclude_patterns': ['*.tmp', '~$*']}]}}
 
 
-class SourceUpdate(BaseModel):
+class SourceUpdate(ApiModel):
     name: str | None = Field(default=None, description="New display name.")
     host_id: uuid.UUID | None = Field(default=None, description="Attach to a host of the same type. Null detaches (only for hostless types).")
     connection_config: dict | None = Field(default=None, description="Keys to merge into the stored config. A secret sent as `***` keeps its stored value. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
@@ -65,7 +67,7 @@ def _scrub_config(config: dict) -> dict:
     }
 
 
-class _HostInline(BaseModel):
+class _HostInline(ApiModel):
     """Inline shape carried on a SourceResponse — name + type only.
 
     Full host details (including masked credentials) live behind
@@ -87,7 +89,27 @@ class _HostInline(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SourceResponse(BaseModel):
+class PublicAccessBlock(ApiModel):
+    """S3 bucket-level Public Access Block settings."""
+
+    block_public_acls: bool = Field(description="Reject new public ACLs.")
+    ignore_public_acls: bool = Field(description="Ignore existing public ACLs.")
+    block_public_policy: bool = Field(description="Reject public bucket policies.")
+    restrict_public_buckets: bool = Field(description="Restrict access to buckets with public policies.")
+
+
+class SourceSecurityMetadata(ApiModel):
+    """Source-level security posture the scanner captures at scan start (S3)."""
+
+    captured_at: str = Field(description="When the scanner captured this, ISO 8601.")
+    bucket_acl: dict[str, Any] | None = Field(default=None, description="Raw S3 bucket ACL document.", json_schema_extra={"x-free-form": True})
+    bucket_policy_present: bool = Field(default=False, description="Whether the bucket has a policy.")
+    bucket_policy: dict[str, Any] | None = Field(default=None, description="Raw S3 bucket policy document.", json_schema_extra={"x-free-form": True})
+    public_access_block: PublicAccessBlock | None = Field(default=None, description="Public Access Block settings, when readable.")
+    is_public_inferred: bool = Field(default=False, description="Whether the scanner inferred the bucket is publicly reachable.")
+
+
+class SourceResponse(ApiModel):
     id: uuid.UUID = Field(description="Source id.")
     name: str = Field(description="Display name.")
     type: str = Field(description="Source type.")
@@ -106,17 +128,17 @@ class SourceResponse(BaseModel):
     status: str = Field(description="`online`, `scanning`, `failed` or `offline`.")
     created_at: datetime = Field(description="When the source was created.")
     updated_at: datetime = Field(description="When the source was last changed.")
-    security_metadata: dict | None = Field(default=None, description="Source-level security data reported by the scanner (for example an S3 bucket policy). Free-form: depends on the source type.", json_schema_extra={"x-free-form": True})
+    security_metadata: SourceSecurityMetadata | None = Field(default=None, description="Source-level security data reported by the scanner (S3 sources only).")
     is_removable: bool = Field(default=False, description="Whether the storage may be disconnected.")
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile merged under the config.")
 
-    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'name': 'nas-projects', 'type': 'smb', 'connection_config': {'share': 'projects', 'password': '***'}, 'scan_schedule': '0 2 * * *', 'exclude_patterns': ['*.tmp'], 'last_scan_at': '2026-04-27T22:00:00Z', 'status': 'online', 'created_at': '2026-01-10T09:00:00Z', 'updated_at': '2026-04-27T22:00:00Z'}]}}
+    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'name': 'nas-projects', 'type': 'smb', 'connection_config': {'share': 'projects', 'password': '***'}, 'scan_schedule': '0 2 * * *', 'exclude_patterns': ['*.tmp'], 'last_scan_at': '2026-04-27T22:00:00Z', 'status': 'online', 'is_removable': False, 'created_at': '2026-01-10T09:00:00Z', 'updated_at': '2026-04-27T22:00:00Z'}]}}
 
     def model_post_init(self, __context) -> None:
         self.connection_config = _scrub_config(self.connection_config)
 
 
-class SourceListResponse(BaseModel):
+class SourceListResponse(ApiModel):
     """Lean shape for `GET /api/v1/sources`. Drops the heavy fields
     (`connection_config`, `security_metadata`, `exclude_patterns`)
     that the Sources list view never reads — but adds a derived
@@ -145,8 +167,9 @@ class SourceListResponse(BaseModel):
     created_at: datetime = Field(description="When the source was created.")
     updated_at: datetime = Field(description="When the source was last changed.")
     is_removable: bool = Field(default=False, description="Whether the storage may be disconnected.")
+    credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile merged under the source's config, if any.")
 
-    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'name': 'nas-projects', 'type': 'smb', 'scan_schedule': '0 2 * * *', 'last_scan_at': '2026-04-27T22:00:00Z', 'status': 'online', 'summary': '\\\\nas.example.com\\projects', 'created_at': '2026-01-10T09:00:00Z', 'updated_at': '2026-04-27T22:00:00Z'}]}}
+    model_config = {"from_attributes": True, "json_schema_extra": {'examples': [{'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'name': 'nas-projects', 'type': 'smb', 'scan_schedule': '0 2 * * *', 'last_scan_at': '2026-04-27T22:00:00Z', 'status': 'online', 'summary': '\\\\nas.example.com\\projects', 'is_removable': False, 'created_at': '2026-01-10T09:00:00Z', 'updated_at': '2026-04-27T22:00:00Z'}]}}
 
     @classmethod
     def from_source(cls, source) -> "SourceListResponse":
@@ -173,6 +196,7 @@ class SourceListResponse(BaseModel):
             created_at=source.created_at,
             updated_at=source.updated_at,
             is_removable=source.is_removable,
+            credential_profile_id=source.credential_profile_id,
         )
 
 

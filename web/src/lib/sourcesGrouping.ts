@@ -1,8 +1,8 @@
-import type { Source } from "../types";
+import type { SourceListItem } from "../api/types";
 
 /**
  * One renderable row in the Sources page virtualizer. The page used
- * to render `Source[]` directly; v0.5.4 wraps them in a typed union
+ * to render `SourceListItem[]` directly; v0.5.4 wraps them in a typed union
  * so the same virtualizer can intersperse host header rows that
  * group all the cards belonging to one host.
  *
@@ -24,7 +24,7 @@ export type SourceRow =
        * connection_config. Used by HostHeader to render an indicator. */
       overrideCount: number;
     }
-  | { kind: "card"; key: string; source: Source };
+  | { kind: "card"; key: string; source: SourceListItem };
 
 /** localStorage key for the "Group by" toggle. */
 export const GROUP_BY_KEY = "sources-group-by";
@@ -69,7 +69,7 @@ export function writeHostCollapsed(hostKey: string, collapsed: boolean): void {
 }
 
 /**
- * Convert a flat `Source[]` into a row stream grouped by host.
+ * Convert a flat `SourceListItem[]` into a row stream grouped by host.
  *
  * Sources with `host_id == null` (i.e. `local` sources) bucket under
  * a synthetic "Direct sources" header keyed `__none__`. Host buckets
@@ -81,14 +81,14 @@ export function writeHostCollapsed(hostKey: string, collapsed: boolean): void {
  * height shrinks). Pass an empty Set to render fully expanded.
  */
 export function buildGroupedRows(
-  sources: readonly Source[],
+  sources: readonly SourceListItem[],
   collapsed: ReadonlySet<string>,
 ): SourceRow[] {
   if (sources.length === 0) return [];
 
   // Bucket by host_id. Use "__none__" as the sentinel key for the
   // null bucket so it sorts deterministically next to real ids.
-  const buckets = new Map<string, Source[]>();
+  const buckets = new Map<string, SourceListItem[]>();
   for (const s of sources) {
     const key = s.host_id ?? "__none__";
     const list = buckets.get(key);
@@ -103,7 +103,7 @@ export function buildGroupedRows(
     hostId: string | null;
     hostName: string;
     hostType: string | null;
-    sources: Source[];
+    sources: SourceListItem[];
   };
   const headers: BucketHeader[] = [];
   for (const [key, list] of buckets) {
@@ -158,41 +158,16 @@ export function buildGroupedRows(
 /**
  * v0.5.9 — count sources within a host group that override the host's
  * effective credentials. A source overrides when it has its own
- * `credential_profile_id` set OR when its `connection_config` carries
- * credential-shaped keys (username, password, key_path, etc.). The
- * lean list endpoint usually omits `connection_config`, so this
- * function falls back to checking just the profile id in that case —
- * which under-counts inline overrides. The HostHeader copy reflects
- * "at least N of M".
+ * `credential_profile_id` set. The lean list endpoint omits
+ * `connection_config`, so inline credential overrides are not counted;
+ * the HostHeader copy reflects "at least N of M".
  */
-const _CRED_KEYS = new Set([
-  "username", "password", "key_path", "key_passphrase",
-  "private_key", "access_key_id", "secret_access_key",
-  "krb5_principal", "auth_uid", "auth_gid",
-]);
-
-export function countCredentialOverrides(sources: readonly Source[]): number {
-  let n = 0;
-  for (const s of sources) {
-    if (s.credential_profile_id) {
-      n += 1;
-      continue;
-    }
-    const cfg = s.connection_config;
-    if (cfg) {
-      for (const k of Object.keys(cfg)) {
-        if (_CRED_KEYS.has(k)) {
-          n += 1;
-          break;
-        }
-      }
-    }
-  }
-  return n;
+export function countCredentialOverrides(sources: readonly SourceListItem[]): number {
+  return sources.filter((s) => s.credential_profile_id).length;
 }
 
 /** Convert a flat list to ungrouped row stream — one card per row. */
-export function buildUngroupedRows(sources: readonly Source[]): SourceRow[] {
+export function buildUngroupedRows(sources: readonly SourceListItem[]): SourceRow[] {
   return sources.map<SourceRow>((s) => ({
     kind: "card",
     key: `card:${s.id}`,

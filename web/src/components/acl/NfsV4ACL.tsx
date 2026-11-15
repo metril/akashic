@@ -1,4 +1,4 @@
-import type { NfsV4ACL as NfsV4ACLType, NfsV4ACE } from "../../types";
+import type { NfsV4ACL as NfsV4ACLType, NfsV4ACE } from "../../api/types";
 import { Chip } from "./shared";
 import { formatNfsV4Mask, formatAceFlag } from "../../lib/aclLabels";
 

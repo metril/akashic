@@ -10,7 +10,8 @@ import uuid
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, Request
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, require_scope
@@ -22,7 +23,7 @@ from akashic.services.source_tester import TestResult, test_connection
 router = ApiRouter(prefix="/sources", tags=["sources"])
 
 
-class TestSourceRequest(BaseModel):
+class TestSourceRequest(ApiModel):
     type: str = Field(description="Source type, e.g. `local`, `smb`, `nfs`, `s3`, `webdav`, `gdrive`.")
     connection_config: dict = Field(description="Connection settings for the type, as for source creation. May include `oauth_credential_id` for OAuth-backed types.")
     # v0.31.3 — credential-profile-backed / host-attached sources. The

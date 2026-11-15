@@ -113,7 +113,7 @@ def install_openapi(app: FastAPI) -> None:
         components.setdefault("securitySchemes", {}).update(SECURITY_SCHEMES)
         schemas = components.setdefault("schemas", {})
         for model in WS_EVENT_MODELS:
-            js = model.model_json_schema(ref_template="#/components/schemas/{model}")
+            js = model.model_json_schema(ref_template="#/components/schemas/{model}", mode="serialization")
             for name, sub in js.pop("$defs", {}).items():
                 schemas.setdefault(name, sub)
             schemas[model.__name__] = js

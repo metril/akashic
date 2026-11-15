@@ -13,7 +13,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import {
   Badge,
   Button,
@@ -33,57 +33,14 @@ import {
 import { useScopes } from "../hooks/useScopes";
 import { useDashboardLiveRefresh } from "../hooks/useDashboardLiveRefresh";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
+import type { components } from "../api/schema";
 
-interface DashboardSummary {
-  storage: {
-    total_bytes: number;
-    total_files: number;
-    delta_30d_bytes: number | null;
-    delta_30d_files: number | null;
-  };
-  scans: {
-    active: number;
-    total_sources: number;
-  };
-  forecast_hints: {
-    source_id: string;
-    source_name: string | null;
-    current_bytes: number;
-    slope_bytes_per_day: number;
-  }[];
-  top_owners: { owner: string; n: number; bytes: number }[];
-  top_extensions_growth_30d: {
-    extension: string;
-    delta_bytes: number;
-    current_bytes: number;
-  }[];
-  recent_scans: {
-    id: string;
-    source_id: string;
-    source_name: string | null;
-    scan_type: string;
-    status: string;
-    started_at: string | null;
-    completed_at: string | null;
-    files_new: number;
-    files_changed: number;
-  }[];
-  // v0.4.4: kept on the type for backwards-compat (the api still
-  // returns null here), but the actual count now ships via
-  // GET /dashboard/access-risks (admin-only, lazy, server-cached
-  // 60s) so a busy entries-table read doesn't block the rest of
-  // the summary.
-  access_risks: { public_read_count: number } | null;
-  identity_health: {
-    unbound_count: number;
-    unresolved_sid_count: number;
-  };
-}
+type S = components["schemas"];
 
-interface AccessRisksResponse {
-  access_risks: { public_read_count: number } | null;
-  cache_age_seconds?: number;
-}
+
+type DashboardSummary = S["DashboardSummary"];
+
+type AccessRisksResponse = S["AccessRisksResponse"];
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -94,7 +51,7 @@ export default function Dashboard() {
 
   const summaryQ = useQuery<DashboardSummary>({
     queryKey: ["dashboard", "summary"],
-    queryFn: () => api.get<DashboardSummary>("/dashboard/summary"),
+    queryFn: async () => ok(await client.GET("/api/v1/dashboard/summary")),
     // v0.4.4: keep data fresh for 10s after invalidation so a burst
     // of WS events from useDashboardLiveRefresh's leading-edge
     // throttle (5s) never causes back-to-back refetches.
@@ -113,7 +70,7 @@ export default function Dashboard() {
   // 60s cache means at most one fetch per minute per browser.
   const accessRisksQ = useQuery<AccessRisksResponse>({
     queryKey: ["dashboard", "access-risks"],
-    queryFn: () => api.get<AccessRisksResponse>("/dashboard/access-risks"),
+    queryFn: async () => ok(await client.GET("/api/v1/dashboard/access-risks")),
     enabled: canSeeRisks,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -361,7 +318,7 @@ export default function Dashboard() {
                         </div>
                         <div className="text-xs text-fg-muted mt-0.5">
                           {scanWhen(s)}
-                          {s.files_new > 0 && (
+                          {(s.files_new ?? 0) > 0 && (
                             <> · <span className="text-emerald-700 dark:text-emerald-300 font-medium">+{formatNumber(s.files_new)}</span> files</>
                           )}
                         </div>

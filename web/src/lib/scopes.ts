@@ -1,4 +1,4 @@
-import type { ScopeInfo } from "../types";
+import type { ScopeInfo } from "../api/types";
 
 /**
  * Scope helpers shared by the UI gating and the API token dialog. The API

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { SearchAsOverride } from "../../types";
-import type { PrincipalType } from "../../lib/effectivePermsTypes";
+import type { SearchAsOverride } from "../../api/types";
+import type { PrincipalType } from "../../api/types";
 
 const PRINCIPAL_TYPES: { value: PrincipalType; label: string }[] = [
   { value: "posix_uid",        label: "POSIX UID" },

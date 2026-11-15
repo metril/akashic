@@ -1,20 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import { useSources } from "../hooks/useSources";
 import { Badge, Button, Card, Input, SectionState, Select } from "../components/ui";
-import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, Source } from "../types";
-import type { PrincipalType } from "../lib/effectivePermsTypes";
+import type { components } from "../api/schema";
+import type { FsPerson, FsPersonInput, FsBinding, FsBindingInput, SourceListItem } from "../api/types";
 
-interface UnboundIdentity {
-  id: string;
-  user_id: string;
-  identity_type: string;
-  identifier: string;
-  confidence: "claim" | "ldap" | "name";
-  groups: string[];
-  first_seen_at: string;
-  last_seen_at: string;
-}
+type PrincipalType = FsBindingInput["identity_type"];
+
+type UnboundIdentity = components["schemas"]["UnboundIdentityOut"];
 
 /** Per-binding "where did this come from?" badge.
  *
@@ -55,26 +49,25 @@ export default function SettingsIdentities() {
   const qc = useQueryClient();
   const personsQ = useQuery<FsPerson[]>({
     queryKey: ["identities"],
-    queryFn:  () => api.get<FsPerson[]>("/identities"),
+    queryFn:  async () => ok(await client.GET("/api/v1/identities")),
   });
-  const sourcesQ = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn:  () => api.get<Source[]>("/sources"),
-  });
+  const sourcesQ = useSources();
   // Default scope is self; backend filters to current user without a
   // user_id param. Admin viewers can still query the raw endpoint via
   // /admin/identities (Phase 2b future) for the cross-user view.
   const unboundQ = useQuery<UnboundIdentity[]>({
     queryKey: ["identities", "unbound"],
-    queryFn:  () => api.get<UnboundIdentity[]>("/identities/unbound"),
+    queryFn:  async () => ok(await client.GET("/api/v1/identities/unbound", { params: { query: {} } })),
   });
 
   const createPerson = useMutation<FsPerson, Error, FsPersonInput>({
-    mutationFn: (body) => api.post<FsPerson>("/identities", body),
+    mutationFn: async (body) => ok(await client.POST("/api/v1/identities", { body })),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
   const deletePerson = useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`/identities/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/identities/{person_id}", { params: { path: { person_id: id } } });
+    },
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
 
@@ -121,19 +114,23 @@ export default function SettingsIdentities() {
 
 function PersonCard({
   person, sources, onDelete,
-}: { person: FsPerson; sources: Source[]; onDelete: () => void }) {
+}: { person: FsPerson; sources: SourceListItem[]; onDelete: () => void }) {
   const qc = useQueryClient();
 
   const addBinding = useMutation<FsBinding, Error, FsBindingInput>({
-    mutationFn: (body) => api.post<FsBinding>(`/identities/${person.id}/bindings`, body),
+    mutationFn: async (body) =>
+      ok(await client.POST("/api/v1/identities/{person_id}/bindings", { params: { path: { person_id: person.id } }, body })),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
   const deleteBinding = useMutation<void, Error, string>({
-    mutationFn: (bid) => api.delete<void>(`/identities/${person.id}/bindings/${bid}`),
+    mutationFn: async (bid) => {
+      await client.DELETE("/api/v1/identities/{person_id}/bindings/{binding_id}", { params: { path: { person_id: person.id, binding_id: bid } } });
+    },
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
   const resolveGroups = useMutation<FsBinding, Error, string>({
-    mutationFn: (bid) => api.post<FsBinding>(`/identities/${person.id}/bindings/${bid}/resolve-groups`, {}),
+    mutationFn: async (bid) =>
+      ok(await client.POST("/api/v1/identities/{person_id}/bindings/{binding_id}/resolve-groups", { params: { path: { person_id: person.id, binding_id: bid } } })),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ["identities"] }),
   });
 
@@ -262,7 +259,7 @@ function AddPersonForm({
 function AddBindingForm({
   sources, existingSourceIds, onSubmit, pending,
 }: {
-  sources: Source[];
+  sources: SourceListItem[];
   existingSourceIds: Set<string>;
   onSubmit: (body: FsBindingInput) => void;
   pending: boolean;
@@ -302,7 +299,7 @@ function AddBindingForm({
       className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3"
     >
       <Select
-        label="Source"
+        label="SourceListItem"
         value={sourceId}
         onChange={(e) => setSourceId(e.target.value)}
         options={available.map((s) => ({ value: s.id, label: s.name }))}

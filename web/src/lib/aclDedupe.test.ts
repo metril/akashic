@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { NtACE } from "../types";
+import type { NtACE } from "../api/types";
 import { dedupeAces } from "./aclDedupe";
 
 // Builder so test cases stay readable. NtACE has more fields than the

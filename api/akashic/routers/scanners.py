@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
-from pydantic import BaseModel, Field, field_validator
+from akashic.schemas.base import ApiModel
+from pydantic import Field, field_validator
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,14 +38,14 @@ router = ApiRouter(tags=["scanners"])
 _ALLOWED_SCAN_TYPES = {"incremental", "full"}
 
 
-class ScannerCreate(BaseModel):
+class ScannerCreate(ApiModel):
     name: str = Field(min_length=1, max_length=64, description="Unique scanner name.")
     pool: str = Field(default="default", min_length=1, max_length=64, description="Pool the scanner serves; scans are only leased to scanners in their pool.")
 
     model_config = {"json_schema_extra": {'examples': [{'name': 'nas-scanner-1', 'pool': 'default'}]}}
 
 
-class ScannerPatch(BaseModel):
+class ScannerPatch(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=64, description="New unique name.")
     pool: str | None = Field(default=None, min_length=1, max_length=64, description="New pool.")
     enabled: bool | None = Field(default=None, description="Enable or disable; a disabled scanner cannot authenticate.")
@@ -77,7 +78,7 @@ class ScannerPatch(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'enabled': True, 'allowed_scan_types': ['incremental'], 'extract_workers': 8}]}}
 
 
-class ScannerCreated(BaseModel):
+class ScannerCreated(ApiModel):
     """Returned ONCE on /POST /api/v1/scanners. The private_key_pem field
     isn't persisted on the api side — copy it now or rotate later."""
 
@@ -95,7 +96,7 @@ DEFAULT_EXTRACT_WORKERS = 4
 DEFAULT_MAX_CONCURRENT_UNITS = 1
 
 
-class ScannerEffectiveConfig(BaseModel):
+class ScannerEffectiveConfig(ApiModel):
     tika_url: str = Field(description="Tika URL the agent uses; empty when extraction is off.")
     extract_workers: int = Field(description="Text extraction workers.")
     max_concurrent_units: int = Field(description="Work units walked at once.")
@@ -110,7 +111,7 @@ def effective_scanner_config(s: Scanner) -> ScannerEffectiveConfig:
     )
 
 
-class ScannerSummary(BaseModel):
+class ScannerSummary(ApiModel):
     id: uuid.UUID = Field(description="Scanner id.")
     name: str = Field(description="Scanner name.")
     pool: str = Field(description="Pool the scanner serves.")
@@ -236,7 +237,7 @@ async def list_scanners(
     return [_to_summary(s) for s in rows]
 
 
-class ScannerCounts(BaseModel):
+class ScannerCounts(ApiModel):
     """Lightweight count summary for the Sources page banner — avoids
     re-fetching the whole scanner list per page mount."""
 
@@ -432,7 +433,7 @@ async def delete_scanner(
 # ── Join tokens (self-registration) ──────────────────────────────────────
 
 
-class ClaimTokenCreate(BaseModel):
+class ClaimTokenCreate(ApiModel):
     label: str = Field(min_length=1, max_length=64, description="Name for the token, used to name scanners enrolled with it.", examples=['branch-office'])
     pool: str = Field(default="default", min_length=1, max_length=64, description="Pool scanners enrolled with the token join.")
     ttl_minutes: int = Field(default=60, ge=1, le=60 * 24 * 30, description="Minutes until the token expires (1 to 43200, 30 days).")
@@ -442,7 +443,17 @@ class ClaimTokenCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'label': 'branch-office', 'pool': 'default', 'ttl_minutes': 60}]}}
 
 
-class ClaimTokenCreated(BaseModel):
+class ClaimSnippets(ApiModel):
+    """Install commands with the claim token filled in."""
+
+    shell: str = Field(description="Shell one-liner.")
+    docker_run: str = Field(description="`docker run` command.")
+    compose: str = Field(description="Docker Compose service.")
+    k8s: str = Field(description="Kubernetes manifest.")
+    env: str = Field(description="Environment file.")
+
+
+class ClaimTokenCreated(ApiModel):
     """Returned ONCE on POST /api/v1/scanner-claim-tokens. The plaintext
     `token` field isn't persisted on the api side (we keep only its
     sha256 hash) — copy it now or revoke and regenerate."""
@@ -454,10 +465,10 @@ class ClaimTokenCreated(BaseModel):
     allowed_scan_types: list[str] | None = Field(description="Scan type restriction for enrolled scanners.")
     token: str = Field(description="The plaintext claim token, shown only in this response.")
     expires_at: datetime = Field(description="When the token expires.")
-    snippets: dict[str, str] = Field(description="Ready-to-paste install commands keyed by format (`shell`, `docker_run`, `compose`, `k8s`, `env`), with the token filled in.")
+    snippets: ClaimSnippets = Field(description="Ready-to-paste install commands, with the token filled in.")
 
 
-class ClaimTokenSummary(BaseModel):
+class ClaimTokenSummary(ApiModel):
     id: uuid.UUID = Field(description="Token id.")
     label: str = Field(description="Token label.")
     pool: str = Field(description="Pool for enrolled scanners.")
@@ -636,7 +647,7 @@ async def revoke_claim_token(
 # ── Eligibility-discovery for the scanner-side modal (v0.5.6) ────────────
 
 
-class SourceReachabilityRow(BaseModel):
+class SourceReachabilityRow(ApiModel):
     source_id: uuid.UUID = Field(description="Source id.")
     source_name: str = Field(description="Source display name.")
     source_type: str = Field(description="Connector type.")
@@ -709,7 +720,7 @@ async def list_scanner_source_reachability(
 # ── Scanner-side bulk probe trigger (v0.28.0) ────────────────────────────
 
 
-class TestSourcesRequest(BaseModel):
+class TestSourcesRequest(ApiModel):
     """Optional source_ids subset for POST /scanners/{id}/test-sources.
 
     Omit → test every source the scanner is currently allowed to claim.
@@ -720,7 +731,7 @@ class TestSourcesRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'source_ids': ['3fa85f64-5717-4562-b3fc-2c963f66afa6']}]}}
 
 
-class TestSourcesResultRow(BaseModel):
+class TestSourcesResultRow(ApiModel):
     source_id: uuid.UUID = Field(description="Probed source.")
     ok: bool | None = Field(description="Probe outcome; null while pending.")
     step: str | None = Field(description="Probe step that failed, if any.")
@@ -729,7 +740,7 @@ class TestSourcesResultRow(BaseModel):
     completed_at: datetime | None = Field(default=None, description="When the probe finished.")
 
 
-class TestSourcesResponse(BaseModel):
+class TestSourcesResponse(ApiModel):
     results: list[TestSourcesResultRow] = Field(description="One row per probed source.")
 
 

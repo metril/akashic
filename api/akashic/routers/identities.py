@@ -5,7 +5,8 @@ from datetime import datetime
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +29,7 @@ from akashic.services.audit import record_event
 router = ApiRouter(prefix="/identities", tags=["identities"])
 
 
-class UnboundIdentityOut(BaseModel):
+class UnboundIdentityOut(ApiModel):
     id: uuid.UUID = Field(description="Claim id.")
     user_id: uuid.UUID = Field(description="User the claim was seen for.")
     identity_type: str = Field(description="Kind of identifier: `posix_uid`, `sid`, `nfsv4_principal` or `s3_canonical`.")

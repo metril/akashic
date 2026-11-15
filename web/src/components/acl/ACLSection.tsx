@@ -1,4 +1,4 @@
-import type { ACL, ACLType } from "../../types";
+import type { ACL, ACLType } from "../../api/types";
 import { Section } from "./shared";
 import { PosixACL } from "./PosixACL";
 import { NfsV4ACL } from "./NfsV4ACL";

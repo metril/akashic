@@ -2,8 +2,9 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { api } from "../api/client";
-import type { BrowseChild, BrowseResponse, Source } from "../types";
+import { client, ok } from "../api/client";
+import { useSources } from "../hooks/useSources";
+import type { BrowseChild, BrowseResponse, EffectiveCounts } from "../api/types";
 import {
   Card,
   Select,
@@ -27,12 +28,6 @@ import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
-
-interface EffectiveCounts {
-  visible: number;
-  hidden: number;
-  enforced: boolean;
-}
 
 function pathSegments(path: string): string[] {
   if (path === "/") return [];
@@ -90,10 +85,7 @@ export default function Browse() {
     }
   }, [showAll]);
 
-  const sourcesQuery = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
-  });
+  const sourcesQuery = useSources();
   const sources = sourcesQuery.data ?? [];
 
   const sourceId = params.get("source") ?? "";
@@ -156,8 +148,8 @@ export default function Browse() {
     [sources],
   );
 
-  const showAllParam = canSeeAll && showAll ? "&show_all=1" : "";
-  const filtersParam = filters.length > 0 ? `&filters=${serializeFilters(filters)}` : "";
+  const showAllFlag = canSeeAll && showAll;
+  const filtersParam = filters.length > 0 ? serializeFilters(filters) : undefined;
 
   // v0.4.11 — server-side substring filter via `?q=`. useDeferredValue
   // keeps the input snappy while the request lags; React drops stale
@@ -169,23 +161,30 @@ export default function Browse() {
   // virtualizer renders allEntries; an effect kicks fetchNextPage
   // when the scroll position approaches the end of the loaded set.
   // Sort + order are passed to the server now; client-side sort is gone.
-  const sortParam = `&sort=${sort.field}&order=${sort.dir}`;
-  const qParam = deferredFilter
-    ? `&q=${encodeURIComponent(deferredFilter.trim())}`
-    : "";
+  const qParam = deferredFilter ? deferredFilter.trim() : undefined;
 
   const browseQuery = useInfiniteQuery<BrowseResponse>({
     queryKey: [
-      "browse", sourceId, path, showAllParam, filtersParam,
-      sortParam, qParam,
+      "browse", sourceId, path, showAllFlag, filtersParam,
+      sort.field, sort.dir, qParam,
     ],
-    queryFn: ({ pageParam }) => {
-      const cursorParam = pageParam ? `&cursor=${encodeURIComponent(pageParam as string)}` : "";
-      return api.get<BrowseResponse>(
-        `/browse?source_id=${sourceId}&path=${encodeURIComponent(path)}` +
-          showAllParam + filtersParam + sortParam + qParam + cursorParam,
-      );
-    },
+    queryFn: async ({ pageParam }) =>
+      ok(
+        await client.GET("/api/v1/browse", {
+          params: {
+            query: {
+              source_id: sourceId,
+              path,
+              show_all: showAllFlag,
+              filters: filtersParam,
+              sort: sort.field,
+              order: sort.dir,
+              q: qParam,
+              cursor: pageParam ? (pageParam as string) : undefined,
+            },
+          },
+        }),
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: !!sourceId,
@@ -195,10 +194,12 @@ export default function Browse() {
   // Cheap (two indexed COUNT(*)s) so we run it alongside the browse
   // query rather than threading through the main response.
   const countsQuery = useQuery<EffectiveCounts>({
-    queryKey: ["browse-counts", sourceId, path, showAllParam],
-    queryFn: () =>
-      api.get<EffectiveCounts>(
-        `/browse/effective-counts?source_id=${sourceId}&path=${encodeURIComponent(path)}${showAllParam}`,
+    queryKey: ["browse-counts", sourceId, path, showAllFlag],
+    queryFn: async () =>
+      ok(
+        await client.GET("/api/v1/browse/effective-counts", {
+          params: { query: { source_id: sourceId, path, show_all: showAllFlag } },
+        }),
       ),
     enabled: !!sourceId,
   });

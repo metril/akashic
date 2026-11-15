@@ -23,7 +23,8 @@ from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +78,7 @@ async def _check_rate_limit(request: Request) -> None:
 # ── Schemas ──────────────────────────────────────────────────────────────
 
 
-class DiscoverRequest(BaseModel):
+class DiscoverRequest(ApiModel):
     public_key_pem: str = Field(min_length=1, description="The scanner's freshly generated Ed25519 public key, PEM encoded.")
     hostname: str | None = Field(default=None, max_length=255, description="Scanner host name, shown to the approving admin.")
     agent_version: str | None = Field(default=None, max_length=32, description="Agent build version.")
@@ -86,14 +87,14 @@ class DiscoverRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'public_key_pem': '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA...\n-----END PUBLIC KEY-----\n', 'hostname': 'scanner01.example.com', 'agent_version': '0.48.0', 'requested_pool': 'default'}]}}
 
 
-class DiscoverResponse(BaseModel):
+class DiscoverResponse(ApiModel):
     discovery_id: uuid.UUID = Field(description="Id to poll for the outcome.")
     pairing_code: str = Field(description="Short code (`ABCD-EFGH`) to display so the admin can match the request to this host.")
     expires_at: datetime = Field(description="When the request lapses if undecided.")
     poll_after_seconds: int = Field(description="Suggested delay before polling the status endpoint.")
 
 
-class DiscoverStatus(BaseModel):
+class DiscoverStatus(ApiModel):
     status: str = Field(description="`pending`, `approved`, `denied` or `expired`.")
     expires_at: datetime | None = Field(default=None, description="While pending: when the request lapses.")
     scanner_id: uuid.UUID | None = Field(default=None, description="When approved: id of the registered scanner (the `kid` for signing JWTs).")
@@ -103,7 +104,7 @@ class DiscoverStatus(BaseModel):
     deny_reason: str | None = Field(default=None, description="When denied: the admin's reason, if given.")
 
 
-class DiscoveryAdminSummary(BaseModel):
+class DiscoveryAdminSummary(ApiModel):
     id: uuid.UUID = Field(description="Discovery request id.")
     pairing_code: str = Field(description="Pairing code the scanner displays.")
     hostname: str | None = Field(description="Scanner host name.")
@@ -118,14 +119,14 @@ class DiscoveryAdminSummary(BaseModel):
     key_fingerprint: str = Field(description="Fingerprint of the scanner's public key; compare it with the one shown on the host.")
 
 
-class ApproveBody(BaseModel):
+class ApproveBody(ApiModel):
     name: str = Field(min_length=1, max_length=64, description="Name for the new scanner; must be unique.", examples=['nas-scanner-1'])
     pool: str = Field(default="default", min_length=1, max_length=64, description="Pool the scanner joins.")
 
     model_config = {"json_schema_extra": {'examples': [{'name': 'nas-scanner-1', 'pool': 'default'}]}}
 
 
-class DiscoveryApproved(BaseModel):
+class DiscoveryApproved(ApiModel):
     """The scanner created for an approved discovery request."""
 
     scanner_id: uuid.UUID = Field(description="Id of the newly registered scanner.")
@@ -133,7 +134,7 @@ class DiscoveryApproved(BaseModel):
     pool: str = Field(description="Scanner pool.")
 
 
-class DenyBody(BaseModel):
+class DenyBody(ApiModel):
     reason: str | None = Field(default=None, max_length=255, description="Reason shown to the scanner.")
 
     model_config = {"json_schema_extra": {'examples': [{'reason': 'Unknown host'}]}}

@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -341,7 +342,7 @@ async def delete_host(
     )
 
 
-class OnlineCheckResponse(BaseModel):
+class OnlineCheckResponse(ApiModel):
     """Result of POST /api/v1/hosts/{id}/online-check.
 
     Pure TCP probe from the API process — opens a socket to the
@@ -460,7 +461,7 @@ async def host_online_check(
 # ── Bulk reachability test across attached shares (v0.28.1) ──────────────
 
 
-class TestSharesRequest(BaseModel):
+class TestSharesRequest(ApiModel):
     """Optional per-source filter; default = every attached share."""
 
     source_ids: list[uuid.UUID] | None = Field(default=None, description="Only test these sources attached to the host; omit to test every attached share.")
@@ -468,7 +469,7 @@ class TestSharesRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'source_ids': ['0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f']}]}}
 
 
-class TestSharesResultRow(BaseModel):
+class TestSharesResultRow(ApiModel):
     """One (source, scanner) probe outcome."""
 
     source_id: uuid.UUID = Field(description="Source that was probed.")
@@ -481,7 +482,7 @@ class TestSharesResultRow(BaseModel):
     completed_at: datetime | None = Field(default=None, description="When the probe finished; null while pending.")
 
 
-class TestSharesResponse(BaseModel):
+class TestSharesResponse(ApiModel):
     results: list[TestSharesResultRow] = Field(description="One row per (source, eligible scanner).")
 
 
@@ -568,7 +569,7 @@ async def test_host_shares(
 # ── Eligibility-management UI (v0.5.7) ─────────────────────────────────────
 
 
-class HostScannerSummaryRow(BaseModel):
+class HostScannerSummaryRow(ApiModel):
     scanner_id: uuid.UUID = Field(description="Scanner id.")
     name: str = Field(description="Scanner name.")
     pool: str | None = Field(description="Scanner pool; null when unassigned.")
@@ -660,13 +661,13 @@ async def host_scanner_reachability_summary(
     return out
 
 
-class HostAllowedScannersRequest(BaseModel):
+class HostAllowedScannersRequest(ApiModel):
     scanner_ids: list[uuid.UUID] = Field(description="Scanners that should be allowed on every source of the host; all others are removed. May be empty.")
 
     model_config = {"json_schema_extra": {'examples': [{'scanner_ids': ['2f1d9e1a-6c1b-4f43-8d6a-3e9f7b1c2a40']}]}}
 
 
-class HostAllowedScannersResponse(BaseModel):
+class HostAllowedScannersResponse(ApiModel):
     sources_touched: int = Field(description="Number of sources attached to the host.")
     scanners_updated: int = Field(description="Number of scanners whose allow-list actually changed.")
 

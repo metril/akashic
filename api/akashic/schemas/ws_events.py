@@ -4,23 +4,24 @@ from __future__ import annotations
 
 from typing import Literal
 
+from akashic.schemas.base import ApiModel
 from pydantic import BaseModel, Field
 
 
-class WsPing(BaseModel):
+class WsPing(ApiModel):
     """Server keep-alive frame."""
 
     kind: Literal["ping"] = Field(description="Frame discriminator.")
 
 
-class WsError(BaseModel):
+class WsError(ApiModel):
     """Live stream failed; clients should fall back to polling."""
 
     kind: Literal["error"] = Field(description="Frame discriminator.")
     message: str = Field(description="Why the live stream is unavailable.")
 
 
-class WsScanLogLine(BaseModel):
+class WsScanLogLine(ApiModel):
     """One scan log line."""
 
     id: str = Field(description="Log entry id.")
@@ -31,7 +32,7 @@ class WsScanLogLine(BaseModel):
     scanner_name: str | None = Field(default=None, description="Scanner name snapshotted at write time.")
 
 
-class WsScanSnapshot(BaseModel):
+class WsScanSnapshot(ApiModel):
     """First frame on `/ws/v1/scans/{id}`: current scan state plus recent log lines."""
 
     kind: Literal["snapshot"] = Field(description="Frame discriminator.")
@@ -58,7 +59,7 @@ class WsScanSnapshot(BaseModel):
     recent_lines: list[WsScanLogLine] = Field(description="Most recent log lines, oldest first.")
 
 
-class WsScanProgress(BaseModel):
+class WsScanProgress(ApiModel):
     """Throttled progress frame on `/ws/v1/scans/{id}`."""
 
     kind: Literal["progress"] = Field(description="Frame discriminator.")
@@ -75,7 +76,7 @@ class WsScanProgress(BaseModel):
     current_batch_size: int | None = Field(default=None, description="Latest adaptive batch size.")
 
 
-class WsScanLog(BaseModel):
+class WsScanLog(ApiModel):
     """New log (or stderr) lines on `/ws/v1/scans/{id}`."""
 
     kind: Literal["log", "stderr"] = Field(description="Frame discriminator.")
@@ -83,7 +84,7 @@ class WsScanLog(BaseModel):
     lines: list[WsScanLogLine] = Field(description="Newly persisted lines.")
 
 
-class WsScanState(BaseModel):
+class WsScanState(ApiModel):
     """Scan state change on `/ws/v1/scans` (the source-list stream)."""
 
     kind: Literal["scan.state"] = Field(description="Frame discriminator.")

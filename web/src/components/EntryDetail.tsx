@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
-import type { EntryDetail as EntryDetailT } from "../types";
+import { client, ok } from "../api/client";
+import type { EntryDetail as EntryDetailT } from "../api/types";
 import { formatBytes, formatDateTime } from "../lib/format";
 import { formatMode, formatOctal } from "../lib/perms";
 import { Badge, Spinner, EmptyState } from "./ui";
@@ -58,7 +58,8 @@ const Mono = ({ children }: { children: React.ReactNode }) => (
 export function EntryDetail({ entryId }: Props) {
   const query = useQuery<EntryDetailT>({
     queryKey: ["entry", entryId],
-    queryFn: () => api.get<EntryDetailT>(`/entries/${entryId}`),
+    queryFn: async () =>
+      ok(await client.GET("/api/v1/entries/{entry_id}", { params: { path: { entry_id: entryId! } } })),
     enabled: !!entryId,
   });
 
@@ -88,7 +89,7 @@ export function EntryDetail({ entryId }: Props) {
 
   return (
     <div className="divide-y divide-line-subtle">
-      <S3ExposureBanner source={entry.source as import("../types").Source | undefined} />
+      <S3ExposureBanner source={entry.source as import("../api/types").Source | undefined} />
       <Section title="Tags">
         <EntryTags
           entryId={entry.id}

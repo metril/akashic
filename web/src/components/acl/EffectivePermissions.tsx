@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { api } from "../../api/client";
+import { client, ok } from "../../api/client";
 import type {
   ACL,
   EffectivePerms,
@@ -8,7 +8,7 @@ import type {
   GroupRef,
   PrincipalType,
   RightName,
-} from "../../types";
+} from "../../api/types";
 import { Section, Chip } from "./shared";
 import { Button } from "../ui";
 
@@ -51,8 +51,13 @@ export function EffectivePermissions({
   const [groups, setGroups] = useState<GroupRef[]>([]);
 
   const mutation = useMutation<EffectivePerms, Error, EffectivePermsRequest>({
-    mutationFn: (body) =>
-      api.post<EffectivePerms>(`/entries/${entryId}/effective-permissions`, body),
+    mutationFn: async (body) =>
+      ok(
+        await client.POST("/api/v1/entries/{entry_id}/effective-permissions", {
+          params: { path: { entry_id: entryId } },
+          body,
+        }),
+      ),
   });
 
   const submit = () => {

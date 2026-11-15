@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ACL } from "../../types";
+import type { ACL } from "../../api/types";
 import { diffACL, type ACLDiffItem } from "../../lib/aclDiff";
 
 const ICON: Record<ACLDiffItem["kind"], string> = {

@@ -11,11 +11,12 @@ unchanged; an explicit "" clears it.
 """
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,28 +35,28 @@ from akashic.services.server_settings import set_setting
 router = ApiRouter(prefix="/server-settings", tags=["server-settings"])
 
 
-class SettingValue(BaseModel):
+class SettingValue(ApiModel):
     key: str = Field(description="Setting key.")
     value: Any = Field(description="Current value; for a set secret, the mask. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
     set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
 
 
-class SettingDescription(BaseModel):
+class SettingDescription(ApiModel):
     """A setting with its metadata and current value."""
 
     key: str = Field(description="Setting key.")
-    type: str = Field(description="Value type, e.g. `bool`, `int`, `str`.")
+    type: Literal["bool", "int", "str", "list[str]", "dict[str,int]", "enum"] = Field(description="Value type.")
     group: str = Field(description="Group key the setting belongs to.")
     description: str = Field(description="Human-readable explanation.")
     secret: bool = Field(description="Whether the value is a secret (returned masked).")
     restart: bool = Field(description="Whether changing it needs a restart.")
     default: Any = Field(description="Default value. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
     value: Any = Field(description="Current value; the mask for a set secret. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
-    choices: list[Any] | None = Field(description="Allowed values, when constrained. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
+    choices: list[str] | None = Field(description="Allowed values, when constrained.")
     set: bool | None = Field(default=None, description="Secrets only: whether a value is stored.")
 
 
-class SettingGroup(BaseModel):
+class SettingGroup(ApiModel):
     """A labelled group of settings."""
 
     key: str = Field(description="Group key.")
@@ -63,19 +64,19 @@ class SettingGroup(BaseModel):
     settings: list[SettingDescription] = Field(description="Settings in the group.")
 
 
-class SettingsListResponse(BaseModel):
+class SettingsListResponse(ApiModel):
     """All server settings, grouped."""
 
     groups: list[SettingGroup] = Field(description="Setting groups in display order.")
 
 
-class SettingPatch(BaseModel):
+class SettingPatch(ApiModel):
     value: Any = Field(default=None, description="New value, coerced to the setting's type. For a secret: `null` or the mask keeps it, an empty string clears it. Free-form: the type depends on the setting.", json_schema_extra={"x-free-form": True})
 
     model_config = {"json_schema_extra": {'examples': [{'value': True}]}}
 
 
-class BulkPatch(BaseModel):
+class BulkPatch(ApiModel):
     values: dict[str, Any] = Field(description="New values keyed by setting key.")
 
     model_config = {"json_schema_extra": {'examples': [{'values': {'browse_enforce_perms': True}}]}}

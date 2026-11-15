@@ -4,7 +4,7 @@ import { useScopes } from "../hooks/useScopes";
 import { useAllTokens, useMyTokens, useTokenMutations } from "../hooks/useApiTokens";
 import { useSources } from "../hooks/useSources";
 import { formatDateTime, formatRelative } from "../lib/format";
-import type { AdminApiToken, ApiToken } from "../types";
+import type { AdminApiToken, ApiToken } from "../api/types";
 import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, SectionState } from "../components/ui";
 import { CreateTokenDialog } from "../components/tokens/CreateTokenDialog";
 

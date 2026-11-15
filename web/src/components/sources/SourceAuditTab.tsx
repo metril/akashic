@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useSourceAudit, type AuditEvent } from "../../hooks/useSourceAudit";
+import { useSourceAudit } from "../../hooks/useSourceAudit";
+import type { AuditEvent } from "../../api/types";
 import { formatDateTime } from "../../lib/format";
 
 interface SourceAuditTabProps {

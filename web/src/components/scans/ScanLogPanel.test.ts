@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ScanLogLine } from "../../types";
+import type { ScanLogLine } from "../../api/types";
 import {
   filterLogLines,
   isStreamStale,

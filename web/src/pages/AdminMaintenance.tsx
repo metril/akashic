@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import {
   Badge,
   Button,
@@ -15,55 +15,20 @@ import {
   StatCard,
 } from "../components/ui";
 import type { BadgeVariant } from "../components/ui";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
+
 
 // — wire types (mirror api/akashic/routers/maintenance.py) —
 
-interface Overview {
-  scans_by_status: Record<string, number>;
-  scans_active: number;
-  entries_total: number;
-  sources_total: number;
-  scanners_total: number;
-  scanners_online: number;
-  scan_log_rows: number;
-  scan_log_purgeable: number;
-  log_retention_days: number;
-  meili_documents: number | null;
-}
+type Overview = S["OverviewOut"];
 
-interface StuckScan {
-  scan_id: string;
-  source_id: string | null;
-  source_name: string | null;
-  status: string;
-  scan_type: string;
-  started_at: string | null;
-  last_heartbeat_at: string | null;
-  age_seconds: number | null;
-  assigned_scanner_id: string | null;
-  assigned_scanner_name: string | null;
-}
+type StuckScan = S["StuckScanOut"];
 
-interface MaintJob {
-  id: string;
-  kind: string;
-  status: "running" | "succeeded" | "failed";
-  params: Record<string, unknown>;
-  result: { rows_affected?: number } | null;
-  error: string | null;
-  started_at: string;
-  finished_at: string | null;
-}
+type MaintJob = S["JobOut"];
 
-interface ScannerRow {
-  id: string;
-  name: string;
-  hostname: string | null;
-  version: string | null;
-  last_seen_at: string | null;
-  online: boolean;
-  enabled: boolean;
-}
+type ScannerRow = S["ScannerSummary"];
 
 const JOB_KINDS: { kind: string; label: string; description: string }[] = [
   {
@@ -163,22 +128,22 @@ export default function AdminMaintenance() {
 
   const overviewQ = useQuery<Overview>({
     queryKey: ["maintenance", "overview"],
-    queryFn: () => api.get<Overview>("/admin/maintenance/overview"),
+    queryFn: async () => ok(await client.GET("/api/v1/admin/maintenance/overview")),
   });
   const stuckQ = useQuery<StuckScan[]>({
     queryKey: ["maintenance", "stuck"],
-    queryFn: () => api.get<StuckScan[]>("/admin/maintenance/scans/stuck"),
+    queryFn: async () => ok(await client.GET("/api/v1/admin/maintenance/scans/stuck")),
   });
   const jobsQ = useQuery<MaintJob[]>({
     queryKey: ["maintenance", "jobs"],
-    queryFn: () => api.get<MaintJob[]>("/admin/maintenance/jobs"),
+    queryFn: async () => ok(await client.GET("/api/v1/admin/maintenance/jobs")),
     // Poll only while a job is in flight.
     refetchInterval: (q) =>
       (q.state.data ?? []).some((j) => j.status === "running") ? 2500 : false,
   });
   const scannersQ = useQuery<ScannerRow[]>({
     queryKey: ["scanners"],
-    queryFn: () => api.get<ScannerRow[]>("/scanners"),
+    queryFn: async () => ok(await client.GET("/api/v1/scanners")),
     refetchInterval: 15_000,
   });
 
@@ -187,9 +152,13 @@ export default function AdminMaintenance() {
     qc.invalidateQueries({ queryKey: ["maintenance", "stuck"] });
   }
 
-  const cancelMut = useMutation<{ status: string }, Error, string>({
-    mutationFn: (scanId) =>
-      api.post<{ status: string }>(`/admin/maintenance/scans/${scanId}/cancel`),
+  const cancelMut = useMutation<S["CancelOut"], Error, string>({
+    mutationFn: async (scanId) =>
+      ok(
+        await client.POST("/api/v1/admin/maintenance/scans/{scan_id}/cancel", {
+          params: { path: { scan_id: scanId } },
+        }),
+      ),
     onSuccess: (r) => {
       toast.success(`Scan ${r.status}`);
       refreshScanState();
@@ -202,10 +171,7 @@ export default function AdminMaintenance() {
     Error,
     void
   >({
-    mutationFn: () =>
-      api.post<{ active_before: number; active_after: number }>(
-        "/admin/maintenance/watchdog/run",
-      ),
+    mutationFn: async () => ok(await client.POST("/api/v1/admin/maintenance/watchdog/run")),
     onSuccess: (r) => {
       const cleared = r.active_before - r.active_after;
       toast.success(
@@ -218,11 +184,13 @@ export default function AdminMaintenance() {
     onError: (e) => toast.error(e.message || "Watchdog failed"),
   });
 
-  const purgeMut = useMutation<{ deleted: number }, Error, number>({
-    mutationFn: (days) =>
-      api.post<{ deleted: number }>("/admin/maintenance/logs/purge", {
-        older_than_days: days,
-      }),
+  const purgeMut = useMutation<S["PurgeLogsOut"], Error, number>({
+    mutationFn: async (days) =>
+      ok(
+        await client.POST("/api/v1/admin/maintenance/logs/purge", {
+          body: { older_than_days: days },
+        }),
+      ),
     onSuccess: (r) => {
       toast.success(`Deleted ${r.deleted.toLocaleString()} log rows`);
       qc.invalidateQueries({ queryKey: ["maintenance", "overview"] });
@@ -231,8 +199,8 @@ export default function AdminMaintenance() {
   });
 
   const jobMut = useMutation<MaintJob, Error, string>({
-    mutationFn: (kind) =>
-      api.post<MaintJob>("/admin/maintenance/jobs", { kind, params: {} }),
+    mutationFn: async (kind) =>
+      ok(await client.POST("/api/v1/admin/maintenance/jobs", { body: { kind, params: {} } })),
     onSuccess: (job) => {
       toast.success(`${jobLabel(job.kind)} started`);
       qc.invalidateQueries({ queryKey: ["maintenance", "jobs"] });

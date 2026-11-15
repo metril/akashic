@@ -111,7 +111,8 @@
           }
         },
         "required": [
-          "access_risks"
+          "access_risks",
+          "cache_age_seconds"
         ],
         "title": "AccessRisksResponse",
         "type": "object"
@@ -181,7 +182,10 @@
           "id",
           "source_id",
           "path",
-          "filename"
+          "filename",
+          "size_bytes",
+          "owner_name",
+          "fs_modified_at"
         ],
         "title": "AccessSampleHit",
         "type": "object"
@@ -1143,7 +1147,16 @@
           "id",
           "kind",
           "name",
-          "path"
+          "path",
+          "extension",
+          "size_bytes",
+          "mime_type",
+          "content_hash",
+          "mode",
+          "owner_name",
+          "group_name",
+          "fs_modified_at",
+          "child_count"
         ],
         "title": "BrowseEntry",
         "type": "object"
@@ -1224,7 +1237,9 @@
         },
         "required": [
           "items",
+          "next_cursor",
           "limit",
+          "total",
           "source_id",
           "source_name",
           "path",
@@ -1388,6 +1403,45 @@
         "title": "ClaimResponse",
         "type": "object"
       },
+      "ClaimSnippets": {
+        "description": "Install commands with the claim token filled in.",
+        "properties": {
+          "compose": {
+            "description": "Docker Compose service.",
+            "title": "Compose",
+            "type": "string"
+          },
+          "docker_run": {
+            "description": "`docker run` command.",
+            "title": "Docker Run",
+            "type": "string"
+          },
+          "env": {
+            "description": "Environment file.",
+            "title": "Env",
+            "type": "string"
+          },
+          "k8s": {
+            "description": "Kubernetes manifest.",
+            "title": "K8S",
+            "type": "string"
+          },
+          "shell": {
+            "description": "Shell one-liner.",
+            "title": "Shell",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shell",
+          "docker_run",
+          "compose",
+          "k8s",
+          "env"
+        ],
+        "title": "ClaimSnippets",
+        "type": "object"
+      },
       "ClaimTokenCreate": {
         "examples": [
           {
@@ -1518,12 +1572,8 @@
             "type": "string"
           },
           "snippets": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Ready-to-paste install commands keyed by format (`shell`, `docker_run`, `compose`, `k8s`, `env`), with the token filled in.",
-            "title": "Snippets",
-            "type": "object"
+            "$ref": "#/components/schemas/ClaimSnippets",
+            "description": "Ready-to-paste install commands, with the token filled in."
           },
           "token": {
             "description": "The plaintext claim token, shown only in this response.",
@@ -1652,7 +1702,7 @@
         "title": "ClaimTokenSummary",
         "type": "object"
       },
-      "CloudDriveACL": {
+      "CloudDriveACL-Input": {
         "description": "Cloud-drive ACL — fifth discriminator alongside posix/nfsv4/nt/s3.\n\nFundamentally a list of per-principal grants rather than a POSIX-style\nowner+mode+ACE. Inheritance is per-grant rather than tree-wide, and\n\"anyone with link\" is a first-class principal type.",
         "properties": {
           "domain_restricted_to": {
@@ -1670,7 +1720,7 @@
           "grants": {
             "description": "Per-principal grants on the entry.",
             "items": {
-              "$ref": "#/components/schemas/CloudDriveGrant"
+              "$ref": "#/components/schemas/CloudDriveGrant-Input"
             },
             "title": "Grants",
             "type": "array"
@@ -1688,7 +1738,45 @@
         "title": "CloudDriveACL",
         "type": "object"
       },
-      "CloudDriveGrant": {
+      "CloudDriveACL-Output": {
+        "description": "Cloud-drive ACL — fifth discriminator alongside posix/nfsv4/nt/s3.\n\nFundamentally a list of per-principal grants rather than a POSIX-style\nowner+mode+ACE. Inheritance is per-grant rather than tree-wide, and\n\"anyone with link\" is a first-class principal type.",
+        "properties": {
+          "domain_restricted_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain that sharing is restricted to, when the provider enforces such a boundary; null otherwise.",
+            "title": "Domain Restricted To"
+          },
+          "grants": {
+            "description": "Per-principal grants on the entry.",
+            "items": {
+              "$ref": "#/components/schemas/CloudDriveGrant-Output"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "type": {
+            "const": "cloud_drive",
+            "description": "Discriminator, always `cloud_drive`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "grants",
+          "domain_restricted_to"
+        ],
+        "title": "CloudDriveACL",
+        "type": "object"
+      },
+      "CloudDriveGrant-Input": {
         "description": "One ``(principal, role)`` grant. ``inherited`` flags whether the\ngrant comes from an ancestor folder rather than this entry directly;\n``inherited_from`` lets the UI render \"inherited from /Foo/Bar\" the\nway the existing tag system does.",
         "properties": {
           "inherited": {
@@ -1733,7 +1821,7 @@
             "description": "The shared link the grant rides on, for link-based grants; null otherwise."
           },
           "principal": {
-            "$ref": "#/components/schemas/CloudDrivePrincipal",
+            "$ref": "#/components/schemas/CloudDrivePrincipal-Input",
             "description": "Who the grant is for."
           },
           "role": {
@@ -1752,6 +1840,78 @@
         "required": [
           "principal",
           "role"
+        ],
+        "title": "CloudDriveGrant",
+        "type": "object"
+      },
+      "CloudDriveGrant-Output": {
+        "description": "One ``(principal, role)`` grant. ``inherited`` flags whether the\ngrant comes from an ancestor folder rather than this entry directly;\n``inherited_from`` lets the UI render \"inherited from /Foo/Bar\" the\nway the existing tag system does.",
+        "properties": {
+          "inherited": {
+            "default": false,
+            "description": "True when the grant comes from an ancestor folder.",
+            "title": "Inherited",
+            "type": "boolean"
+          },
+          "inherited_from_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Provider id of the ancestor the grant is inherited from.",
+            "title": "Inherited From Id"
+          },
+          "inherited_from_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path of the ancestor the grant is inherited from.",
+            "title": "Inherited From Path"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudDriveLink"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shared link the grant rides on, for link-based grants; null otherwise."
+          },
+          "principal": {
+            "$ref": "#/components/schemas/CloudDrivePrincipal-Output",
+            "description": "Who the grant is for."
+          },
+          "role": {
+            "description": "`owner`, `writer`, `commenter`, `reader` or `file_organizer`.",
+            "enum": [
+              "owner",
+              "writer",
+              "commenter",
+              "reader",
+              "file_organizer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal",
+          "role",
+          "link",
+          "inherited",
+          "inherited_from_id",
+          "inherited_from_path"
         ],
         "title": "CloudDriveGrant",
         "type": "object"
@@ -1782,7 +1942,7 @@
         "title": "CloudDriveLink",
         "type": "object"
       },
-      "CloudDrivePrincipal": {
+      "CloudDrivePrincipal-Input": {
         "description": "One principal in a cloud-drive grant. ``id`` is whatever the provider\nuses to identify that principal (Drive permissionId, Microsoft Graph\nid, Dropbox account_id) — the connector keeps the raw value so we\ncan call back into the provider when needed.\n\n``email`` and ``name`` are present when the provider returns them with\nthe grant, so the UI doesn't need a per-grant lookup. Anonymous\n\"anyone with the link\" grants come through as ``type='anyone'`` with\nno email/name set.",
         "properties": {
           "email": {
@@ -1829,6 +1989,59 @@
         "required": [
           "type",
           "id"
+        ],
+        "title": "CloudDrivePrincipal",
+        "type": "object"
+      },
+      "CloudDrivePrincipal-Output": {
+        "description": "One principal in a cloud-drive grant. ``id`` is whatever the provider\nuses to identify that principal (Drive permissionId, Microsoft Graph\nid, Dropbox account_id) — the connector keeps the raw value so we\ncan call back into the provider when needed.\n\n``email`` and ``name`` are present when the provider returns them with\nthe grant, so the UI doesn't need a per-grant lookup. Anonymous\n\"anyone with the link\" grants come through as ``type='anyone'`` with\nno email/name set.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Email address, when the provider returns one.",
+            "title": "Email"
+          },
+          "id": {
+            "description": "Provider's identifier for the principal (Drive permission id, Microsoft Graph id or Dropbox account id).",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name, when the provider returns one.",
+            "title": "Name"
+          },
+          "type": {
+            "description": "`user`, `group`, `anyone` (public link) or `domain`.",
+            "enum": [
+              "user",
+              "group",
+              "anyone",
+              "domain"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "email",
+          "name"
         ],
         "title": "CloudDrivePrincipal",
         "type": "object"
@@ -2072,6 +2285,11 @@
           },
           "type": {
             "description": "Credential type: `smb`, `nfs` or `s3`.",
+            "enum": [
+              "smb",
+              "nfs",
+              "s3"
+            ],
             "title": "Type",
             "type": "string"
           },
@@ -2086,6 +2304,8 @@
           "id",
           "name",
           "type",
+          "credentials",
+          "description",
           "created_at",
           "updated_at"
         ],
@@ -2120,6 +2340,11 @@
           },
           "type": {
             "description": "Credential type: `smb`, `nfs` or `s3`.",
+            "enum": [
+              "smb",
+              "nfs",
+              "s3"
+            ],
             "title": "Type",
             "type": "string"
           }
@@ -2127,7 +2352,8 @@
         "required": [
           "id",
           "name",
-          "type"
+          "type",
+          "description"
         ],
         "title": "CredentialProfileSummary",
         "type": "object"
@@ -2417,7 +2643,9 @@
         "required": [
           "entry_id",
           "path",
-          "ok"
+          "ok",
+          "step",
+          "message"
         ],
         "title": "DeleteCopyOutcome",
         "type": "object"
@@ -2625,7 +2853,13 @@
           }
         },
         "required": [
-          "status"
+          "status",
+          "expires_at",
+          "scanner_id",
+          "name",
+          "pool",
+          "server_protocol_version",
+          "deny_reason"
         ],
         "title": "DiscoverStatus",
         "type": "object"
@@ -3019,7 +3253,7 @@
           "groups": {
             "description": "The groups taken into account.",
             "items": {
-              "$ref": "#/components/schemas/GroupRef"
+              "$ref": "#/components/schemas/GroupRef-Output"
             },
             "title": "Groups",
             "type": "array"
@@ -3038,13 +3272,15 @@
             "type": "string"
           },
           "principal": {
-            "$ref": "#/components/schemas/PrincipalRef",
+            "$ref": "#/components/schemas/PrincipalRef-Output",
             "description": "The principal that was evaluated."
           }
         },
         "required": [
           "model",
-          "principal"
+          "principal",
+          "groups",
+          "caveats"
         ],
         "title": "EffectivePermsEvaluatedWith",
         "type": "object"
@@ -3070,13 +3306,13 @@
           "groups": {
             "description": "Groups the principal belongs to; they are not looked up for you.",
             "items": {
-              "$ref": "#/components/schemas/GroupRef"
+              "$ref": "#/components/schemas/GroupRef-Input"
             },
             "title": "Groups",
             "type": "array"
           },
           "principal": {
-            "$ref": "#/components/schemas/PrincipalRef",
+            "$ref": "#/components/schemas/PrincipalRef-Input",
             "description": "The principal to evaluate."
           },
           "principal_name_hint": {
@@ -3114,7 +3350,9 @@
             "path": "/Reports/2026/q1.pdf",
             "size_bytes": 482133,
             "source_id": "0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f",
-            "uid": 1000
+            "tags": [],
+            "uid": 1000,
+            "versions": []
           }
         ],
         "properties": {
@@ -3123,29 +3361,29 @@
               {
                 "discriminator": {
                   "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL",
-                    "nfsv4": "#/components/schemas/NfsV4ACL",
-                    "nt": "#/components/schemas/NtACL",
-                    "posix": "#/components/schemas/PosixACL",
-                    "s3": "#/components/schemas/S3ACL"
+                    "cloud_drive": "#/components/schemas/CloudDriveACL-Output",
+                    "nfsv4": "#/components/schemas/NfsV4ACL-Output",
+                    "nt": "#/components/schemas/NtACL-Output",
+                    "posix": "#/components/schemas/PosixACL-Output",
+                    "s3": "#/components/schemas/S3ACL-Output"
                   },
                   "propertyName": "type"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/components/schemas/PosixACL"
+                    "$ref": "#/components/schemas/PosixACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/NfsV4ACL"
+                    "$ref": "#/components/schemas/NfsV4ACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/NtACL"
+                    "$ref": "#/components/schemas/NtACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/S3ACL"
+                    "$ref": "#/components/schemas/S3ACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/CloudDriveACL"
+                    "$ref": "#/components/schemas/CloudDriveACL-Output"
                   }
                 ]
               },
@@ -3447,7 +3685,16 @@
           "fs_modified_at",
           "first_seen_at",
           "last_seen_at",
-          "is_deleted"
+          "is_deleted",
+          "acl",
+          "xattrs",
+          "domain_metadata",
+          "native_id",
+          "fs_created_at",
+          "fs_accessed_at",
+          "versions",
+          "source",
+          "tags"
         ],
         "title": "EntryDetailResponse",
         "type": "object"
@@ -3460,29 +3707,29 @@
               {
                 "discriminator": {
                   "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL",
-                    "nfsv4": "#/components/schemas/NfsV4ACL",
-                    "nt": "#/components/schemas/NtACL",
-                    "posix": "#/components/schemas/PosixACL",
-                    "s3": "#/components/schemas/S3ACL"
+                    "cloud_drive": "#/components/schemas/CloudDriveACL-Input",
+                    "nfsv4": "#/components/schemas/NfsV4ACL-Input",
+                    "nt": "#/components/schemas/NtACL-Input",
+                    "posix": "#/components/schemas/PosixACL-Input",
+                    "s3": "#/components/schemas/S3ACL-Input"
                   },
                   "propertyName": "type"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/components/schemas/PosixACL"
+                    "$ref": "#/components/schemas/PosixACL-Input"
                   },
                   {
-                    "$ref": "#/components/schemas/NfsV4ACL"
+                    "$ref": "#/components/schemas/NfsV4ACL-Input"
                   },
                   {
-                    "$ref": "#/components/schemas/NtACL"
+                    "$ref": "#/components/schemas/NtACL-Input"
                   },
                   {
-                    "$ref": "#/components/schemas/S3ACL"
+                    "$ref": "#/components/schemas/S3ACL-Input"
                   },
                   {
-                    "$ref": "#/components/schemas/CloudDriveACL"
+                    "$ref": "#/components/schemas/CloudDriveACL-Input"
                   }
                 ]
               },
@@ -4000,7 +4247,9 @@
           }
         },
         "required": [
-          "tag"
+          "tag",
+          "inherited",
+          "inherited_from_path"
         ],
         "title": "EntryTagAssignment",
         "type": "object"
@@ -4052,29 +4301,29 @@
               {
                 "discriminator": {
                   "mapping": {
-                    "cloud_drive": "#/components/schemas/CloudDriveACL",
-                    "nfsv4": "#/components/schemas/NfsV4ACL",
-                    "nt": "#/components/schemas/NtACL",
-                    "posix": "#/components/schemas/PosixACL",
-                    "s3": "#/components/schemas/S3ACL"
+                    "cloud_drive": "#/components/schemas/CloudDriveACL-Output",
+                    "nfsv4": "#/components/schemas/NfsV4ACL-Output",
+                    "nt": "#/components/schemas/NtACL-Output",
+                    "posix": "#/components/schemas/PosixACL-Output",
+                    "s3": "#/components/schemas/S3ACL-Output"
                   },
                   "propertyName": "type"
                 },
                 "oneOf": [
                   {
-                    "$ref": "#/components/schemas/PosixACL"
+                    "$ref": "#/components/schemas/PosixACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/NfsV4ACL"
+                    "$ref": "#/components/schemas/NfsV4ACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/NtACL"
+                    "$ref": "#/components/schemas/NtACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/S3ACL"
+                    "$ref": "#/components/schemas/S3ACL-Output"
                   },
                   {
-                    "$ref": "#/components/schemas/CloudDriveACL"
+                    "$ref": "#/components/schemas/CloudDriveACL-Output"
                   }
                 ]
               },
@@ -4266,6 +4515,7 @@
         "required": [
           "code",
           "message",
+          "detail",
           "request_id"
         ],
         "title": "ErrorResponse",
@@ -4347,7 +4597,9 @@
           }
         },
         "required": [
-          "path"
+          "path",
+          "mime_type",
+          "size_bytes"
         ],
         "title": "ExtractCandidate",
         "type": "object"
@@ -4441,7 +4693,9 @@
         "required": [
           "token",
           "kind",
-          "source"
+          "source",
+          "name",
+          "domain"
         ],
         "title": "FilePrincipal",
         "type": "object"
@@ -4868,7 +5122,8 @@
           "user_id",
           "label",
           "is_primary",
-          "created_at"
+          "created_at",
+          "bindings"
         ],
         "title": "FsPersonOut",
         "type": "object"
@@ -4903,7 +5158,7 @@
         "title": "FsPersonPatch",
         "type": "object"
       },
-      "GroupRef": {
+      "GroupRef-Input": {
         "properties": {
           "identifier": {
             "description": "Identifier of that type, e.g. a gid or a group SID.",
@@ -4932,6 +5187,40 @@
         "required": [
           "type",
           "identifier"
+        ],
+        "title": "GroupRef",
+        "type": "object"
+      },
+      "GroupRef-Output": {
+        "properties": {
+          "identifier": {
+            "description": "Identifier of that type, e.g. a gid or a group SID.",
+            "title": "Identifier",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Display name; informational only.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.",
+            "enum": [
+              "posix_uid",
+              "sid",
+              "nfsv4_principal",
+              "s3_canonical",
+              "cloud_drive_user"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "identifier",
+          "name"
         ],
         "title": "GroupRef",
         "type": "object"
@@ -5044,10 +5333,12 @@
           }
         },
         "required": [
+          "config",
           "accepted",
           "server_protocol_version",
           "accepted_min",
-          "accepted_max"
+          "accepted_max",
+          "reason"
         ],
         "title": "HandshakeResponse",
         "type": "object"
@@ -5362,6 +5653,10 @@
           "name",
           "type",
           "connection_config",
+          "credential_profile_id",
+          "max_parallel_scanners",
+          "scan_chunk_size",
+          "source_count",
           "created_at",
           "updated_at"
         ],
@@ -5820,7 +6115,10 @@
         "required": [
           "id",
           "type",
-          "connection_config"
+          "connection_config",
+          "exclude_patterns",
+          "max_parallel_scanners",
+          "scan_chunk_size"
         ],
         "title": "LeasedSource",
         "type": "object"
@@ -5862,6 +6160,11 @@
             "title": "Step"
           }
         },
+        "required": [
+          "shares",
+          "step",
+          "error"
+        ],
         "title": "ListSharesResponse",
         "type": "object"
       },
@@ -5949,7 +6252,9 @@
           "id",
           "ts",
           "level",
-          "message"
+          "message",
+          "scanner_id",
+          "scanner_name"
         ],
         "title": "LogEntryOut",
         "type": "object"
@@ -6135,12 +6440,13 @@
           "pending_tasks",
           "last_task_at",
           "last_task_status",
-          "ok"
+          "ok",
+          "error"
         ],
         "title": "MeiliActivity",
         "type": "object"
       },
-      "NfsV4ACE": {
+      "NfsV4ACE-Input": {
         "properties": {
           "ace_type": {
             "description": "`allow`, `deny`, `audit` or `alarm`.",
@@ -6182,12 +6488,56 @@
         "title": "NfsV4ACE",
         "type": "object"
       },
-      "NfsV4ACL": {
+      "NfsV4ACE-Output": {
+        "properties": {
+          "ace_type": {
+            "description": "`allow`, `deny`, `audit` or `alarm`.",
+            "enum": [
+              "allow",
+              "deny",
+              "audit",
+              "alarm"
+            ],
+            "title": "Ace Type",
+            "type": "string"
+          },
+          "flags": {
+            "description": "Flags on the entry, e.g. `identifier_group` for a group principal.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "mask": {
+            "description": "Permission names granted or denied, e.g. `READ_DATA`, `WRITE_DATA`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Mask",
+            "type": "array"
+          },
+          "principal": {
+            "description": "Principal, e.g. `alice@example.com`, `GROUP:staff@example.com` or `EVERYONE@`.",
+            "title": "Principal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal",
+          "ace_type",
+          "flags",
+          "mask"
+        ],
+        "title": "NfsV4ACE",
+        "type": "object"
+      },
+      "NfsV4ACL-Input": {
         "properties": {
           "entries": {
             "description": "ACL entries in evaluation order.",
             "items": {
-              "$ref": "#/components/schemas/NfsV4ACE"
+              "$ref": "#/components/schemas/NfsV4ACE-Input"
             },
             "title": "Entries",
             "type": "array"
@@ -6206,7 +6556,31 @@
         "title": "NfsV4ACL",
         "type": "object"
       },
-      "NtACE": {
+      "NfsV4ACL-Output": {
+        "properties": {
+          "entries": {
+            "description": "ACL entries in evaluation order.",
+            "items": {
+              "$ref": "#/components/schemas/NfsV4ACE-Output"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "type": {
+            "const": "nfsv4",
+            "description": "Discriminator, always `nfsv4`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entries"
+        ],
+        "title": "NfsV4ACL",
+        "type": "object"
+      },
+      "NtACE-Input": {
         "properties": {
           "ace_type": {
             "description": "`allow`, `deny` or `audit`.",
@@ -6253,7 +6627,57 @@
         "title": "NtACE",
         "type": "object"
       },
-      "NtACL": {
+      "NtACE-Output": {
+        "properties": {
+          "ace_type": {
+            "description": "`allow`, `deny` or `audit`.",
+            "enum": [
+              "allow",
+              "deny",
+              "audit"
+            ],
+            "title": "Ace Type",
+            "type": "string"
+          },
+          "flags": {
+            "description": "Inheritance and audit flags on the entry, as reported by the scanner.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "mask": {
+            "description": "Access right names granted or denied, e.g. `READ_DATA`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Mask",
+            "type": "array"
+          },
+          "name": {
+            "default": "",
+            "description": "Resolved account name, when known; empty otherwise.",
+            "title": "Name",
+            "type": "string"
+          },
+          "sid": {
+            "description": "Security identifier the entry applies to.",
+            "title": "Sid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sid",
+          "name",
+          "ace_type",
+          "flags",
+          "mask"
+        ],
+        "title": "NtACE",
+        "type": "object"
+      },
+      "NtACL-Input": {
         "properties": {
           "control": {
             "description": "Security descriptor control flags, e.g. `owner_defaulted`.",
@@ -6266,7 +6690,7 @@
           "entries": {
             "description": "ACL entries in evaluation order.",
             "items": {
-              "$ref": "#/components/schemas/NtACE"
+              "$ref": "#/components/schemas/NtACE-Input"
             },
             "title": "Entries",
             "type": "array"
@@ -6274,7 +6698,7 @@
           "group": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/NtPrincipal"
+                "$ref": "#/components/schemas/NtPrincipal-Input"
               },
               {
                 "type": "null"
@@ -6285,7 +6709,7 @@
           "owner": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/NtPrincipal"
+                "$ref": "#/components/schemas/NtPrincipal-Input"
               },
               {
                 "type": "null"
@@ -6307,7 +6731,64 @@
         "title": "NtACL",
         "type": "object"
       },
-      "NtPrincipal": {
+      "NtACL-Output": {
+        "properties": {
+          "control": {
+            "description": "Security descriptor control flags, e.g. `owner_defaulted`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Control",
+            "type": "array"
+          },
+          "entries": {
+            "description": "ACL entries in evaluation order.",
+            "items": {
+              "$ref": "#/components/schemas/NtACE-Output"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NtPrincipal-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary group of the object; null when not reported."
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NtPrincipal-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner of the object; null when not reported."
+          },
+          "type": {
+            "const": "nt",
+            "description": "Discriminator, always `nt`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "owner",
+          "group",
+          "control",
+          "entries"
+        ],
+        "title": "NtACL",
+        "type": "object"
+      },
+      "NtPrincipal-Input": {
         "properties": {
           "name": {
             "default": "",
@@ -6323,6 +6804,27 @@
         },
         "required": [
           "sid"
+        ],
+        "title": "NtPrincipal",
+        "type": "object"
+      },
+      "NtPrincipal-Output": {
+        "properties": {
+          "name": {
+            "default": "",
+            "description": "Resolved account name, when known; empty otherwise.",
+            "title": "Name",
+            "type": "string"
+          },
+          "sid": {
+            "description": "Security identifier, e.g. `S-1-5-21-...`.",
+            "title": "Sid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sid",
+          "name"
         ],
         "title": "NtPrincipal",
         "type": "object"
@@ -6396,6 +6898,11 @@
           },
           "provider": {
             "description": "Provider key: `google`, `microsoft` or `dropbox`.",
+            "enum": [
+              "google",
+              "microsoft",
+              "dropbox"
+            ],
             "title": "Provider",
             "type": "string"
           },
@@ -6516,6 +7023,11 @@
           },
           "provider": {
             "description": "Provider key.",
+            "enum": [
+              "google",
+              "microsoft",
+              "dropbox"
+            ],
             "title": "Provider",
             "type": "string"
           },
@@ -6572,7 +7084,8 @@
           "scope",
           "access_token_expires_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "source_name"
         ],
         "title": "OAuthCredentialSummary",
         "type": "object"
@@ -6881,7 +7394,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[AuditEventOut]",
         "type": "object"
@@ -6928,7 +7443,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[DuplicateFile]",
         "type": "object"
@@ -6975,7 +7492,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[DuplicateGroup]",
         "type": "object"
@@ -7022,7 +7541,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[EntryResponse]",
         "type": "object"
@@ -7069,7 +7590,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[LogEntryOut]",
         "type": "object"
@@ -7116,7 +7639,9 @@
         },
         "required": [
           "items",
-          "limit"
+          "next_cursor",
+          "limit",
+          "total"
         ],
         "title": "Page[ScanResponse]",
         "type": "object"
@@ -7158,12 +7683,14 @@
           }
         },
         "required": [
+          "scanner_id",
+          "scanner_name",
           "outcomes"
         ],
         "title": "PerScannerHistory",
         "type": "object"
       },
-      "PosixACE": {
+      "PosixACE-Input": {
         "properties": {
           "perms": {
             "description": "Three characters from `rwx-`, e.g. `r-x`.",
@@ -7189,13 +7716,40 @@
         "title": "PosixACE",
         "type": "object"
       },
-      "PosixACL": {
+      "PosixACE-Output": {
+        "properties": {
+          "perms": {
+            "description": "Three characters from `rwx-`, e.g. `r-x`.",
+            "title": "Perms",
+            "type": "string"
+          },
+          "qualifier": {
+            "default": "",
+            "description": "Uid or gid the entry applies to; empty for the owner, owning group, mask and other.",
+            "title": "Qualifier",
+            "type": "string"
+          },
+          "tag": {
+            "description": "POSIX ACL tag, e.g. `user_obj`, `user`, `group_obj`, `group`, `mask` or `other`.",
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "qualifier",
+          "perms"
+        ],
+        "title": "PosixACE",
+        "type": "object"
+      },
+      "PosixACL-Input": {
         "properties": {
           "default_entries": {
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/PosixACE"
+                  "$ref": "#/components/schemas/PosixACE-Input"
                 },
                 "type": "array"
               },
@@ -7209,7 +7763,7 @@
           "entries": {
             "description": "Access ACL entries.",
             "items": {
-              "$ref": "#/components/schemas/PosixACE"
+              "$ref": "#/components/schemas/PosixACE-Input"
             },
             "title": "Entries",
             "type": "array"
@@ -7224,6 +7778,46 @@
         "required": [
           "type",
           "entries"
+        ],
+        "title": "PosixACL",
+        "type": "object"
+      },
+      "PosixACL-Output": {
+        "properties": {
+          "default_entries": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PosixACE-Output"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default ACL entries inherited by new children of a directory; null when none.",
+            "title": "Default Entries"
+          },
+          "entries": {
+            "description": "Access ACL entries.",
+            "items": {
+              "$ref": "#/components/schemas/PosixACE-Output"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "type": {
+            "const": "posix",
+            "description": "Discriminator, always `posix`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entries",
+          "default_entries"
         ],
         "title": "PosixACL",
         "type": "object"
@@ -7273,6 +7867,13 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "encoding",
+          "text",
+          "truncated",
+          "byte_size_total",
+          "binary"
+        ],
         "title": "PreviewResponse",
         "type": "object"
       },
@@ -7338,7 +7939,7 @@
         "title": "PrincipalAccessResponse",
         "type": "object"
       },
-      "PrincipalRef": {
+      "PrincipalRef-Input": {
         "properties": {
           "identifier": {
             "description": "Identifier of that type, e.g. a uid, a SID or an NFSv4 principal.",
@@ -7367,6 +7968,40 @@
         "required": [
           "type",
           "identifier"
+        ],
+        "title": "PrincipalRef",
+        "type": "object"
+      },
+      "PrincipalRef-Output": {
+        "properties": {
+          "identifier": {
+            "description": "Identifier of that type, e.g. a uid, a SID or an NFSv4 principal.",
+            "title": "Identifier",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Display name; informational only.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Identity type: `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical` or `cloud_drive_user`.",
+            "enum": [
+              "posix_uid",
+              "sid",
+              "nfsv4_principal",
+              "s3_canonical",
+              "cloud_drive_user"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "identifier",
+          "name"
         ],
         "title": "PrincipalRef",
         "type": "object"
@@ -7479,11 +8114,45 @@
           }
         },
         "required": [
+          "local",
           "oidc",
           "ldap",
           "setup_required"
         ],
         "title": "ProvidersResponse",
+        "type": "object"
+      },
+      "PublicAccessBlock": {
+        "description": "S3 bucket-level Public Access Block settings.",
+        "properties": {
+          "block_public_acls": {
+            "description": "Reject new public ACLs.",
+            "title": "Block Public Acls",
+            "type": "boolean"
+          },
+          "block_public_policy": {
+            "description": "Reject public bucket policies.",
+            "title": "Block Public Policy",
+            "type": "boolean"
+          },
+          "ignore_public_acls": {
+            "description": "Ignore existing public ACLs.",
+            "title": "Ignore Public Acls",
+            "type": "boolean"
+          },
+          "restrict_public_buckets": {
+            "description": "Restrict access to buckets with public policies.",
+            "title": "Restrict Public Buckets",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "block_public_acls",
+          "ignore_public_acls",
+          "block_public_policy",
+          "restrict_public_buckets"
+        ],
+        "title": "PublicAccessBlock",
         "type": "object"
       },
       "PurgeDeletedResponse": {
@@ -7661,6 +8330,8 @@
         },
         "required": [
           "ok",
+          "step",
+          "error",
           "started_at",
           "completed_at"
         ],
@@ -7750,7 +8421,8 @@
           "last_at",
           "last_step",
           "last_error",
-          "last_scanner_id"
+          "last_scanner_id",
+          "last_scanner_name"
         ],
         "title": "ReachabilitySummary",
         "type": "object"
@@ -8032,6 +8704,12 @@
           },
           "status": {
             "description": "`resolved`, `unresolved`, `skipped` (source type has no LSARPC) or `error` (lookup failed).",
+            "enum": [
+              "resolved",
+              "unresolved",
+              "skipped",
+              "error"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -8064,17 +8742,18 @@
           }
         },
         "required": [
-          "granted"
+          "granted",
+          "by"
         ],
         "title": "RightResult",
         "type": "object"
       },
-      "S3ACL": {
+      "S3ACL-Input": {
         "properties": {
           "grants": {
             "description": "Grants on the object.",
             "items": {
-              "$ref": "#/components/schemas/S3Grant"
+              "$ref": "#/components/schemas/S3Grant-Input"
             },
             "title": "Grants",
             "type": "array"
@@ -8082,7 +8761,7 @@
           "owner": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/S3Owner"
+                "$ref": "#/components/schemas/S3Owner-Input"
               },
               {
                 "type": "null"
@@ -8103,7 +8782,43 @@
         "title": "S3ACL",
         "type": "object"
       },
-      "S3Grant": {
+      "S3ACL-Output": {
+        "properties": {
+          "grants": {
+            "description": "Grants on the object.",
+            "items": {
+              "$ref": "#/components/schemas/S3Grant-Output"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/S3Owner-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Object owner; null when not reported."
+          },
+          "type": {
+            "const": "s3",
+            "description": "Discriminator, always `s3`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "owner",
+          "grants"
+        ],
+        "title": "S3ACL",
+        "type": "object"
+      },
+      "S3Grant-Input": {
         "properties": {
           "grantee_id": {
             "default": "",
@@ -8147,7 +8862,53 @@
         "title": "S3Grant",
         "type": "object"
       },
-      "S3Owner": {
+      "S3Grant-Output": {
+        "properties": {
+          "grantee_id": {
+            "default": "",
+            "description": "Canonical user id or group URI; empty when not applicable.",
+            "title": "Grantee Id",
+            "type": "string"
+          },
+          "grantee_name": {
+            "default": "",
+            "description": "Display name or email address; empty when not reported.",
+            "title": "Grantee Name",
+            "type": "string"
+          },
+          "grantee_type": {
+            "description": "`canonical_user`, `group` or `amazon_customer_by_email`.",
+            "enum": [
+              "canonical_user",
+              "group",
+              "amazon_customer_by_email"
+            ],
+            "title": "Grantee Type",
+            "type": "string"
+          },
+          "permission": {
+            "description": "`FULL_CONTROL`, `READ`, `WRITE`, `READ_ACP` or `WRITE_ACP`.",
+            "enum": [
+              "FULL_CONTROL",
+              "READ",
+              "WRITE",
+              "READ_ACP",
+              "WRITE_ACP"
+            ],
+            "title": "Permission",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grantee_type",
+          "grantee_id",
+          "grantee_name",
+          "permission"
+        ],
+        "title": "S3Grant",
+        "type": "object"
+      },
+      "S3Owner-Input": {
         "properties": {
           "display_name": {
             "default": "",
@@ -8163,6 +8924,27 @@
         },
         "required": [
           "id"
+        ],
+        "title": "S3Owner",
+        "type": "object"
+      },
+      "S3Owner-Output": {
+        "properties": {
+          "display_name": {
+            "default": "",
+            "description": "Owner display name; empty when not reported.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Canonical user id of the owner.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name"
         ],
         "title": "S3Owner",
         "type": "object"
@@ -8287,7 +9069,8 @@
         },
         "required": [
           "files_processed",
-          "scan_id"
+          "scan_id",
+          "extract_candidates"
         ],
         "title": "ScanBatchResponse",
         "type": "object"
@@ -8295,18 +9078,27 @@
       "ScanResponse": {
         "examples": [
           {
+            "bytes_scanned_so_far": 5368709120,
             "completed_at": "2026-04-27T22:09:00Z",
             "current_path": "/projects/2026",
+            "dirs_queued": 0,
+            "dirs_walked": 310,
             "files_changed": 14,
             "files_deleted": 3,
             "files_found": 12840,
             "files_new": 120,
+            "files_skipped": 2,
             "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            "inaccessible_dirs": 0,
+            "inaccessible_files": 0,
+            "last_heartbeat_at": "2026-04-27T22:09:00Z",
             "phase": "finalize",
+            "previous_scan_files": 12700,
             "scan_type": "incremental",
             "source_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "started_at": "2026-04-27T22:00:00Z",
-            "status": "completed"
+            "status": "completed",
+            "total_estimated": 12840
           }
         ],
         "properties": {
@@ -8504,7 +9296,19 @@
           "files_changed",
           "files_deleted",
           "started_at",
-          "completed_at"
+          "completed_at",
+          "error_message",
+          "current_path",
+          "last_heartbeat_at",
+          "bytes_scanned_so_far",
+          "files_skipped",
+          "dirs_walked",
+          "dirs_queued",
+          "total_estimated",
+          "phase",
+          "previous_scan_files",
+          "inaccessible_dirs",
+          "inaccessible_files"
         ],
         "title": "ScanResponse",
         "type": "object"
@@ -8614,7 +9418,8 @@
           "source_id",
           "source_name",
           "scan_type",
-          "last_scan_at"
+          "last_scan_at",
+          "created"
         ],
         "title": "ScanTriggerResponse",
         "type": "object"
@@ -9183,7 +9988,13 @@
           "registered_at",
           "last_seen_at",
           "enabled",
-          "online"
+          "online",
+          "allowed_source_ids",
+          "allowed_scan_types",
+          "tika_url",
+          "extract_workers",
+          "max_concurrent_units",
+          "effective_config"
         ],
         "title": "ScannerSummary",
         "type": "object"
@@ -9388,8 +10199,17 @@
         },
         "required": [
           "id",
+          "source_id",
           "path",
-          "filename"
+          "filename",
+          "extension",
+          "mime_type",
+          "size_bytes",
+          "fs_modified_at",
+          "content_text",
+          "tags",
+          "content_hash",
+          "dup_count"
         ],
         "title": "SearchHit",
         "type": "object"
@@ -9460,8 +10280,11 @@
         },
         "required": [
           "items",
+          "next_cursor",
           "limit",
-          "query"
+          "total",
+          "query",
+          "facet_distribution"
         ],
         "title": "SearchPage",
         "type": "object"
@@ -9521,7 +10344,8 @@
         },
         "required": [
           "ok",
-          "latency_ms"
+          "latency_ms",
+          "error"
         ],
         "title": "ServiceProbe",
         "type": "object"
@@ -9631,16 +10455,17 @@
           "choices": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "type": "string"
+                },
                 "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Allowed values, when constrained. Free-form: the type depends on the setting.",
-            "title": "Choices",
-            "x-free-form": true
+            "description": "Allowed values, when constrained.",
+            "title": "Choices"
           },
           "default": {
             "description": "Default value. Free-form: the type depends on the setting.",
@@ -9685,7 +10510,15 @@
             "title": "Set"
           },
           "type": {
-            "description": "Value type, e.g. `bool`, `int`, `str`.",
+            "description": "Value type.",
+            "enum": [
+              "bool",
+              "int",
+              "str",
+              "list[str]",
+              "dict[str,int]",
+              "enum"
+            ],
             "title": "Type",
             "type": "string"
           },
@@ -9704,7 +10537,8 @@
           "restart",
           "default",
           "value",
-          "choices"
+          "choices",
+          "set"
         ],
         "title": "SettingDescription",
         "type": "object"
@@ -9782,7 +10616,8 @@
         },
         "required": [
           "key",
-          "value"
+          "value",
+          "set"
         ],
         "title": "SettingValue",
         "type": "object"
@@ -9976,6 +10811,7 @@
           {
             "created_at": "2026-01-10T09:00:00Z",
             "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "is_removable": false,
             "last_scan_at": "2026-04-27T22:00:00Z",
             "name": "nas-projects",
             "scan_schedule": "0 2 * * *",
@@ -9991,6 +10827,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "credential_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credential profile merged under the source's config, if any.",
+            "title": "Credential Profile Id"
           },
           "host": {
             "anyOf": [
@@ -10108,12 +10957,18 @@
           "id",
           "name",
           "type",
+          "host_id",
+          "host",
           "scan_schedule",
+          "preferred_pool",
+          "max_parallel_scanners",
           "last_scan_at",
           "status",
           "summary",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "is_removable",
+          "credential_profile_id"
         ],
         "title": "SourceListResponse",
         "type": "object"
@@ -10229,6 +11084,7 @@
               "*.tmp"
             ],
             "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "is_removable": false,
             "last_scan_at": "2026-04-27T22:00:00Z",
             "name": "nas-projects",
             "scan_schedule": "0 2 * * *",
@@ -10384,16 +11240,13 @@
           "security_metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/SourceSecurityMetadata"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Source-level security data reported by the scanner (for example an S3 bucket policy). Free-form: depends on the source type.",
-            "title": "Security Metadata",
-            "x-free-form": true
+            "description": "Source-level security data reported by the scanner (S3 sources only)."
           },
           "status": {
             "description": "`online`, `scanning`, `failed` or `offline`.",
@@ -10416,15 +11269,94 @@
           "id",
           "name",
           "type",
+          "host_id",
+          "host",
           "connection_config",
           "scan_schedule",
           "exclude_patterns",
+          "preferred_pool",
+          "max_parallel_scanners",
+          "scan_chunk_size",
           "last_scan_at",
           "status",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "security_metadata",
+          "is_removable",
+          "credential_profile_id"
         ],
         "title": "SourceResponse",
+        "type": "object"
+      },
+      "SourceSecurityMetadata": {
+        "description": "Source-level security posture the scanner captures at scan start (S3).",
+        "properties": {
+          "bucket_acl": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw S3 bucket ACL document.",
+            "title": "Bucket Acl",
+            "x-free-form": true
+          },
+          "bucket_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw S3 bucket policy document.",
+            "title": "Bucket Policy",
+            "x-free-form": true
+          },
+          "bucket_policy_present": {
+            "default": false,
+            "description": "Whether the bucket has a policy.",
+            "title": "Bucket Policy Present",
+            "type": "boolean"
+          },
+          "captured_at": {
+            "description": "When the scanner captured this, ISO 8601.",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "is_public_inferred": {
+            "default": false,
+            "description": "Whether the scanner inferred the bucket is publicly reachable.",
+            "title": "Is Public Inferred",
+            "type": "boolean"
+          },
+          "public_access_block": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicAccessBlock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Public Access Block settings, when readable."
+          }
+        },
+        "required": [
+          "captured_at",
+          "bucket_acl",
+          "bucket_policy_present",
+          "bucket_policy",
+          "public_access_block",
+          "is_public_inferred"
+        ],
+        "title": "SourceSecurityMetadata",
         "type": "object"
       },
       "SourceUpdate": {
@@ -11506,7 +12438,9 @@
           "scanner_id",
           "ok",
           "step",
-          "error"
+          "error",
+          "pending",
+          "completed_at"
         ],
         "title": "TestScannersResultRow",
         "type": "object"
@@ -11640,7 +12574,9 @@
           "scanner_id",
           "ok",
           "step",
-          "error"
+          "error",
+          "pending",
+          "completed_at"
         ],
         "title": "TestSharesResultRow",
         "type": "object"
@@ -11818,7 +12754,9 @@
           "source_id",
           "ok",
           "step",
-          "error"
+          "error",
+          "pending",
+          "completed_at"
         ],
         "title": "TestSourcesResultRow",
         "type": "object"
@@ -11883,7 +12821,8 @@
           "extracted_total",
           "extracted_last_5min",
           "last_extracted_at",
-          "ok"
+          "ok",
+          "error"
         ],
         "title": "TikaActivity",
         "type": "object"
@@ -11909,7 +12848,8 @@
           }
         },
         "required": [
-          "access_token"
+          "access_token",
+          "token_type"
         ],
         "title": "TokenResponse",
         "type": "object"
@@ -11979,10 +12919,13 @@
           }
         },
         "required": [
+          "id",
           "kind",
           "name",
           "path",
-          "size_bytes"
+          "size_bytes",
+          "color_key",
+          "children"
         ],
         "title": "TreeNode",
         "type": "object"
@@ -12318,7 +13261,8 @@
           "id",
           "scan_id",
           "path",
-          "status"
+          "status",
+          "lease_expires_at"
         ],
         "title": "WorkUnitOut",
         "type": "object"
@@ -12449,7 +13393,9 @@
           "id",
           "ts",
           "level",
-          "message"
+          "message",
+          "scanner_id",
+          "scanner_name"
         ],
         "title": "WsScanLogLine",
         "type": "object"
@@ -12554,12 +13500,16 @@
         "required": [
           "kind",
           "scan_id",
+          "current_path",
           "files_scanned",
           "bytes_scanned",
           "files_skipped",
           "dirs_walked",
           "dirs_queued",
-          "ts"
+          "total_estimated",
+          "phase",
+          "ts",
+          "current_batch_size"
         ],
         "title": "WsScanProgress",
         "type": "object"
@@ -12759,6 +13709,8 @@
           "scan_id",
           "source_id",
           "status",
+          "phase",
+          "current_path",
           "files_found",
           "files_new",
           "files_changed",
@@ -12767,6 +13719,13 @@
           "bytes_scanned_so_far",
           "dirs_walked",
           "dirs_queued",
+          "total_estimated",
+          "previous_scan_files",
+          "started_at",
+          "completed_at",
+          "last_heartbeat_at",
+          "error_message",
+          "current_batch_size",
           "recent_lines"
         ],
         "title": "WsScanSnapshot",
@@ -12872,7 +13831,12 @@
           "source_id",
           "scan_id",
           "scan_status",
-          "source_status"
+          "source_status",
+          "scanner_id",
+          "scanner_name",
+          "scan_type",
+          "files_found",
+          "current_path"
         ],
         "title": "WsScanState",
         "type": "object"
@@ -12952,7 +13916,8 @@
         "required": [
           "id",
           "name",
-          "type"
+          "type",
+          "security_metadata"
         ],
         "title": "_EntrySourceRef",
         "type": "object"
@@ -12993,7 +13958,8 @@
         "required": [
           "id",
           "name",
-          "type"
+          "type",
+          "credential_profile_id"
         ],
         "title": "_HostInline",
         "type": "object"

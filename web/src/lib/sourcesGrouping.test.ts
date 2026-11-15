@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildGroupedRows, buildUngroupedRows } from "./sourcesGrouping";
-import type { Source } from "../types";
+import type { SourceListItem } from "../api/types";
 
-function src(overrides: Partial<Source>): Source {
+function src(overrides: Partial<SourceListItem>): SourceListItem {
   return {
     id: "id-" + (overrides.id ?? Math.random().toString(36).slice(2, 8)),
     name: "src",
@@ -17,6 +17,7 @@ function src(overrides: Partial<Source>): Source {
     created_at: "2026-05-04T00:00:00Z",
     updated_at: "2026-05-04T00:00:00Z",
     is_removable: false,
+    summary: "",
     credential_profile_id: null,
     ...overrides,
   };
@@ -30,9 +31,9 @@ describe("buildGroupedRows", () => {
   it("groups sources by host_id and emits header + cards per host", () => {
     const rows = buildGroupedRows(
       [
-        src({ id: "a1", name: "Public",      host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb" } }),
-        src({ id: "a2", name: "Engineering", host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb" } }),
-        src({ id: "b1", name: "Backups",     host_id: "host-b", host: { id: "host-b", name: "beta",  type: "nfs" } }),
+        src({ id: "a1", name: "Public",      host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb", credential_profile_id: null } }),
+        src({ id: "a2", name: "Engineering", host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb", credential_profile_id: null } }),
+        src({ id: "b1", name: "Backups",     host_id: "host-b", host: { id: "host-b", name: "beta",  type: "nfs", credential_profile_id: null } }),
       ],
       new Set(),
     );
@@ -47,9 +48,9 @@ describe("buildGroupedRows", () => {
   it("sorts hosts alphabetically and sources within a host alphabetically", () => {
     const rows = buildGroupedRows(
       [
-        src({ id: "z1", name: "zeta",  host_id: "h-z", host: { id: "h-z", name: "zeta-host",  type: "smb" } }),
-        src({ id: "a1", name: "alpha", host_id: "h-a", host: { id: "h-a", name: "alpha-host", type: "smb" } }),
-        src({ id: "a2", name: "beta",  host_id: "h-a", host: { id: "h-a", name: "alpha-host", type: "smb" } }),
+        src({ id: "z1", name: "zeta",  host_id: "h-z", host: { id: "h-z", name: "zeta-host",  type: "smb", credential_profile_id: null } }),
+        src({ id: "a1", name: "alpha", host_id: "h-a", host: { id: "h-a", name: "alpha-host", type: "smb", credential_profile_id: null } }),
+        src({ id: "a2", name: "beta",  host_id: "h-a", host: { id: "h-a", name: "alpha-host", type: "smb", credential_profile_id: null } }),
       ],
       new Set(),
     );
@@ -59,7 +60,7 @@ describe("buildGroupedRows", () => {
     expect(headerNames).toEqual(["alpha-host", "zeta-host"]);
 
     // Within alpha-host, sources sorted by name: alpha, beta
-    expect(rows.slice(1, 3).map((r) => (r as { source: Source }).source.name))
+    expect(rows.slice(1, 3).map((r) => (r as { source: SourceListItem }).source.name))
       .toEqual(["alpha", "beta"]);
   });
 
@@ -67,7 +68,7 @@ describe("buildGroupedRows", () => {
     const rows = buildGroupedRows(
       [
         src({ id: "loc", name: "local-fs",  host_id: null }),
-        src({ id: "rem", name: "remote",    host_id: "h-1", host: { id: "h-1", name: "named-host", type: "smb" } }),
+        src({ id: "rem", name: "remote",    host_id: "h-1", host: { id: "h-1", name: "named-host", type: "smb", credential_profile_id: null } }),
       ],
       new Set(),
     );
@@ -80,8 +81,8 @@ describe("buildGroupedRows", () => {
   it("omits card rows for collapsed groups but keeps the header", () => {
     const rows = buildGroupedRows(
       [
-        src({ id: "a1", name: "Public", host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb" } }),
-        src({ id: "b1", name: "Bckp",   host_id: "host-b", host: { id: "host-b", name: "beta",  type: "nfs" } }),
+        src({ id: "a1", name: "Public", host_id: "host-a", host: { id: "host-a", name: "alpha", type: "smb", credential_profile_id: null } }),
+        src({ id: "b1", name: "Bckp",   host_id: "host-b", host: { id: "host-b", name: "beta",  type: "nfs", credential_profile_id: null } }),
       ],
       new Set(["host-a"]),
     );
@@ -105,7 +106,7 @@ describe("buildUngroupedRows", () => {
       src({ id: "b", name: "beta" }),
     ]);
     expect(rows.map((r) => r.kind)).toEqual(["card", "card"]);
-    expect((rows[0] as { source: Source }).source.id).toContain("a");
+    expect((rows[0] as { source: SourceListItem }).source.id).toContain("a");
   });
 });
 
@@ -117,8 +118,8 @@ describe("buildUngroupedRows", () => {
 // of each other.
 describe("row keys (virtualizer stability)", () => {
   const sources = [
-    src({ id: "src-a", name: "alpha", host_id: "host-1", host: { id: "host-1", name: "fileserv01", type: "smb" } }),
-    src({ id: "src-b", name: "beta",  host_id: "host-1", host: { id: "host-1", name: "fileserv01", type: "smb" } }),
+    src({ id: "src-a", name: "alpha", host_id: "host-1", host: { id: "host-1", name: "fileserv01", type: "smb", credential_profile_id: null } }),
+    src({ id: "src-b", name: "beta",  host_id: "host-1", host: { id: "host-1", name: "fileserv01", type: "smb", credential_profile_id: null } }),
     src({ id: "src-c", name: "gamma", host_id: null }),
   ];
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { EntryDetail } from "../../types";
+import type { EntryDetail } from "../../api/types";
 import { Button, Spinner } from "../ui";
 import { useEntryPreview } from "../../hooks/useEntryPreview";
 import { downloadEntryContent } from "../../lib/downloadEntry";

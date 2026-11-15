@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { api } from "../api/client";
-import type { SearchResult, Source, FsPerson, SearchAsOverride } from "../types";
+import { client, ok } from "../api/client";
+import { useSources } from "../hooks/useSources";
+import type { SearchResult, FsPerson, SearchAsOverride } from "../api/types";
 
 type SearchMode = "fuzzy" | "glob" | "regex";
 type SortField = "relevance" | "name" | "size" | "mtime";
@@ -61,18 +62,10 @@ import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
+import type { components } from "../api/schema";
 
-interface SearchResponse {
-  items: SearchResult[];
-  next_cursor: string | null;
-  limit: number;
-  total: number;
-  query: string;
-  // v0.6.0 — populated when the Meili path serves the request and the
-  // result set carries any well-known domain_metadata key. Null on the
-  // SQL fallback path; the facet panel just elides itself.
-  facet_distribution?: Record<string, Record<string, number>> | null;
-}
+type S = components["schemas"];
+type SearchPage = S["SearchPage"];
 
 // v0.4.14 — Search is now infinite-scroll. Page size matches the
 // API's new default (api/akashic/routers/search.py); the cap mirrors
@@ -164,14 +157,11 @@ export default function Search() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, mode, sort, order]);
 
-  const sourcesQuery = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
-  });
+  const sourcesQuery = useSources();
 
   const identitiesQ = useQuery<FsPerson[]>({
     queryKey: ["identities"],
-    queryFn:  () => api.get<FsPerson[]>("/identities"),
+    queryFn:  async () => ok(await client.GET("/api/v1/identities")),
   });
   const hasIdentities = (identitiesQ.data ?? []).length > 0;
 
@@ -203,24 +193,30 @@ export default function Search() {
     query.trim() || sourceId || extension || minSize || maxSize || filtersEncoded,
   );
 
-  const searchQuery = useInfiniteQuery<SearchResponse>({
+  const searchQuery = useInfiniteQuery<SearchPage>({
     queryKey: ["search", query, mode, sourceId, extension, minSize, maxSize, effectivePermissionFilter, searchAs, filtersEncoded, sort, order],
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams();
-      if (query.trim()) params.set("q", query.trim());
-      if (mode !== "fuzzy") params.set("mode", mode);
-      if (sourceId) params.set("source_id", sourceId);
-      if (extension) params.set("extension", extension);
-      if (minSize) params.set("min_size", minSize);
-      if (maxSize) params.set("max_size", maxSize);
-      params.set("permission_filter", effectivePermissionFilter);
-      if (searchAs) params.set("search_as", JSON.stringify(searchAs));
-      if (filtersEncoded) params.set("filters", filtersEncoded);
-      if (sort !== "relevance") params.set("sort", sort);
-      if (sort !== "relevance" && order !== "desc") params.set("order", order);
-      if (pageParam) params.set("cursor", pageParam as string);
-      params.set("limit", String(PAGE_SIZE));
-      return api.get<SearchResponse>(`/search?${params.toString()}`);
+    queryFn: async ({ pageParam }) => {
+      return ok(
+        await client.GET("/api/v1/search", {
+          params: {
+            query: {
+              q: query.trim() || undefined,
+              mode: mode !== "fuzzy" ? mode : undefined,
+              source_id: sourceId || undefined,
+              extension: extension || undefined,
+              min_size: minSize ? Number(minSize) : undefined,
+              max_size: maxSize ? Number(maxSize) : undefined,
+              permission_filter: effectivePermissionFilter,
+              search_as: searchAs ? JSON.stringify(searchAs) : undefined,
+              filters: filtersEncoded || undefined,
+              sort: sort !== "relevance" ? sort : undefined,
+              order: sort !== "relevance" && order !== "desc" ? order : undefined,
+              cursor: pageParam ? (pageParam as string) : undefined,
+              limit: PAGE_SIZE,
+            },
+          },
+        }),
+      );
     },
     initialPageParam: null as string | null,
     getNextPageParam: (last, allPages) => {

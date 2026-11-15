@@ -1,4 +1,4 @@
-import type { Source } from "../types";
+import type { Source, SourceListItem } from "../api/types";
 
 const REMOVABLE_LOCAL_PREFIXES = [
   "/media/",
@@ -43,11 +43,11 @@ export function inferIsRemovable(
  * filled or has unfamiliar keys — fall back to the source name rather
  * than rendering nothing.
  */
-export function formatSourceSummary(source: Source): string {
+export function formatSourceSummary(source: Source | SourceListItem): string {
   // Prefer the server-rendered summary if the lean list endpoint
   // shipped one — saves work + works for sources whose
   // connection_config wasn't included in the payload.
-  if (source.summary) {
+  if ("summary" in source) {
     return source.summary;
   }
   const cfg = (source.connection_config ?? {}) as Record<string, unknown>;

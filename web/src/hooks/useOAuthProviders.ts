@@ -11,51 +11,22 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
 
 export type OAuthProviderName = "google" | "microsoft" | "dropbox";
 
-export interface OAuthProviderSummary {
-  provider: OAuthProviderName;
-  client_id: string;
-  has_secret: boolean;
-  redirect_uri: string;
-  configured_at: string;
-  updated_at: string;
-}
+export type OAuthProviderSummary = S["OAuthAppConfigSummary"];
 
-export interface OAuthProviderUpsert {
-  client_id: string;
-  // Optional on update — null/empty means "keep the existing
-  // encrypted secret" (review W-I8). Required on first create.
-  client_secret: string | null;
-  redirect_uri: string;
-}
+export type OAuthProviderUpsert = S["OAuthAppConfigUpsert"];
 
-export interface OAuthCredentialSummary {
-  id: string;
-  source_id: string | null;
-  provider: OAuthProviderName;
-  account_email: string | null;
-  account_label: string | null;
-  scope: string | null;
-  access_token_expires_at: string | null;
-  created_at: string;
-  updated_at: string;
-  // v0.21.0 — name of the Source this credential is attached to.
-  // Null when unattached. Surfaced on the SettingsOAuth row.
-  source_name?: string | null;
-}
+export type OAuthCredentialSummary = S["OAuthCredentialSummary"];
 
-export interface OAuthStartResponse {
-  authorization_url: string;
-  state: string;
-}
+export type OAuthStartResponse = S["OAuthStartResponse"];
 
-export interface OAuthRefreshResponse {
-  access_token: string;
-  expires_at: string | null;
-}
+export type OAuthRefreshResponse = S["OAuthRefreshResponse"];
 
 export const PROVIDER_LABELS: Record<OAuthProviderName, string> = {
   google: "Google (Drive)",
@@ -66,7 +37,7 @@ export const PROVIDER_LABELS: Record<OAuthProviderName, string> = {
 export function useOAuthProviders() {
   return useQuery<OAuthProviderSummary[]>({
     queryKey: ["oauth", "providers"],
-    queryFn: () => api.get<OAuthProviderSummary[]>("/oauth/providers"),
+    queryFn: async () => ok(await client.GET("/api/v1/oauth/providers")),
   });
 }
 
@@ -77,8 +48,8 @@ export function useUpsertOAuthProvider() {
     Error,
     { provider: OAuthProviderName; body: OAuthProviderUpsert }
   >({
-    mutationFn: ({ provider, body }) =>
-      api.put<OAuthProviderSummary>(`/oauth/providers/${provider}`, body),
+    mutationFn: async ({ provider, body }) =>
+      ok(await client.PUT("/api/v1/oauth/providers/{provider}", { params: { path: { provider } }, body })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth", "providers"] });
     },
@@ -88,7 +59,9 @@ export function useUpsertOAuthProvider() {
 export function useDeleteOAuthProvider() {
   const qc = useQueryClient();
   return useMutation<void, Error, OAuthProviderName>({
-    mutationFn: (provider) => api.delete(`/oauth/providers/${provider}`),
+    mutationFn: async (provider) => {
+      await client.DELETE("/api/v1/oauth/providers/{provider}", { params: { path: { provider } } });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth", "providers"] });
     },
@@ -98,14 +71,16 @@ export function useDeleteOAuthProvider() {
 export function useOAuthCredentials() {
   return useQuery<OAuthCredentialSummary[]>({
     queryKey: ["oauth", "credentials"],
-    queryFn: () => api.get<OAuthCredentialSummary[]>("/oauth/credentials"),
+    queryFn: async () => ok(await client.GET("/api/v1/oauth/credentials")),
   });
 }
 
 export function useDeleteOAuthCredential() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete(`/oauth/credentials/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/oauth/credentials/{credential_id}", { params: { path: { credential_id: id } } });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth", "credentials"] });
     },
@@ -118,16 +93,16 @@ export function useStartOAuth() {
     Error,
     { provider: OAuthProviderName; mode: "associate" | "test" }
   >({
-    mutationFn: ({ provider, mode }) =>
-      api.post<OAuthStartResponse>("/oauth/start", { provider, mode }),
+    mutationFn: async ({ provider, mode }) =>
+      ok(await client.POST("/api/v1/oauth/start", { body: { provider, mode } })),
   });
 }
 
 export function useRefreshOAuthCredential() {
   const qc = useQueryClient();
   return useMutation<OAuthRefreshResponse, Error, string>({
-    mutationFn: (id) =>
-      api.post<OAuthRefreshResponse>(`/oauth/credentials/${id}/refresh`),
+    mutationFn: async (id) =>
+      ok(await client.POST("/api/v1/oauth/credentials/{credential_id}/refresh", { params: { path: { credential_id: id } } })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth", "credentials"] });
     },

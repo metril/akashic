@@ -20,7 +20,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { Source } from "../types";
+import type { Source } from "../api/types";
 import { useScansStreamEvents } from "./useScansStreamEvents";
 
 /**

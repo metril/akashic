@@ -1,20 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../../api/client";
+import { client, ok } from "../../api/client";
 import { Button, Input } from "../ui";
+import type { components } from "../../api/schema";
 
-export interface ScannerOverrides {
-  tika_url: string | null;
-  extract_workers: number | null;
-  max_concurrent_units: number | null;
-}
+export type ScannerOverrides = Pick<
+  components["schemas"]["ScannerSummary"],
+  "tika_url" | "extract_workers" | "max_concurrent_units"
+>;
 
-export interface ScannerEffectiveConfig {
-  tika_url: string;
-  extract_workers: number;
-  max_concurrent_units: number;
-}
+export type ScannerEffectiveConfig = components["schemas"]["ScannerEffectiveConfig"];
 
 // null = inherit. For tika_url, "" = extraction explicitly disabled.
 export interface ConfigDraft {
@@ -71,9 +67,9 @@ export function isDirty(d: ConfigDraft, o: ScannerOverrides): boolean {
 }
 
 /** Build the PATCH body: changed fields only; reverted-to-inherit → clear_*. */
-export function buildPatch(d: ConfigDraft, o: ScannerOverrides): Record<string, unknown> {
+export function buildPatch(d: ConfigDraft, o: ScannerOverrides): components["schemas"]["ScannerPatch"] {
   const i = draftFromOverrides(o);
-  const body: Record<string, unknown> = {};
+  const body: components["schemas"]["ScannerPatch"] = {};
   if (d.tika_url !== i.tika_url) {
     if (d.tika_url == null) body.clear_tika_url = true;
     else body.tika_url = d.tika_url.trim();
@@ -102,7 +98,8 @@ export function ScannerConfigPanel({
 }: {
   scannerId: string;
   overrides: ScannerOverrides;
-  effective: ScannerEffectiveConfig;
+  /** null until the scanner has reported its effective config. */
+  effective: ScannerEffectiveConfig | null;
 }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<ConfigDraft>(() => draftFromOverrides(overrides));
@@ -110,8 +107,14 @@ export function ScannerConfigPanel({
   const dirty = isDirty(draft, overrides);
   const hasErrors = Object.keys(errors).length > 0;
 
-  const saveMut = useMutation<unknown, Error, Record<string, unknown>>({
-    mutationFn: (body) => api.patch(`/scanners/${scannerId}`, body),
+  const saveMut = useMutation<unknown, Error, components["schemas"]["ScannerPatch"]>({
+    mutationFn: async (body) =>
+      ok(
+        await client.PATCH("/api/v1/scanners/{scanner_id}", {
+          params: { path: { scanner_id: scannerId } },
+          body,
+        }),
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanners"] }),
   });
 
@@ -122,7 +125,7 @@ export function ScannerConfigPanel({
   const text = (v: string) => (v === "" ? null : v);
 
   const tikaDisabled = draft.tika_url === "";
-  const tikaInherit = effective.tika_url
+  const tikaInherit = effective?.tika_url
     ? `inherits: ${effective.tika_url}`
     : "inherits: extraction disabled";
 
@@ -174,7 +177,7 @@ export function ScannerConfigPanel({
               inputMode="numeric"
               value={draft.extract_workers ?? ""}
               onChange={(e) => set({ extract_workers: text(e.target.value) })}
-              placeholder={`inherits: ${effective.extract_workers}`}
+              placeholder={`inherits: ${effective?.extract_workers ?? "default"}`}
               error={errors.extract_workers}
               hint="1–64"
             />
@@ -191,7 +194,7 @@ export function ScannerConfigPanel({
               inputMode="numeric"
               value={draft.max_concurrent_units ?? ""}
               onChange={(e) => set({ max_concurrent_units: text(e.target.value) })}
-              placeholder={`inherits: ${effective.max_concurrent_units}`}
+              placeholder={`inherits: ${effective?.max_concurrent_units ?? "default"}`}
               error={errors.max_concurrent_units}
               hint="1–32"
             />

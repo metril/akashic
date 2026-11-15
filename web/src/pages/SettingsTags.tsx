@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
 import {
   Card,
   CardHeader,
@@ -10,6 +10,10 @@ import {
   SectionState,
   Badge,
 } from "../components/ui";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
+
 
 interface Tag {
   id: string;
@@ -17,12 +21,7 @@ interface Tag {
   color: string | null;
 }
 
-interface TagUsage {
-  name: string;
-  color: string | null;
-  direct_count: number;
-  inherited_count: number;
-}
+type TagUsage = S["TagUsageResponse"];
 
 const COLOR_PRESETS = [
   { value: "",        label: "default" },
@@ -55,17 +54,17 @@ export default function SettingsTags() {
   const qc = useQueryClient();
   const tagsQ = useQuery<Tag[]>({
     queryKey: ["tags"],
-    queryFn: () => api.get<Tag[]>("/tags"),
+    queryFn: async () => ok(await client.GET("/api/v1/tags")),
   });
 
   const usageQ = useQuery<TagUsage[]>({
     queryKey: ["tags", "usage"],
-    queryFn: () => api.get<TagUsage[]>("/tags/usage"),
+    queryFn: async () => ok(await client.GET("/api/v1/tags/usage")),
   });
   const usageByName = new Map((usageQ.data ?? []).map((u) => [u.name, u]));
 
   const createTag = useMutation<Tag, Error, { name: string; color: string | null }>({
-    mutationFn: (body) => api.post<Tag>("/tags", body),
+    mutationFn: async (body) => ok(await client.POST("/api/v1/tags", { body })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tags"] });
       qc.invalidateQueries({ queryKey: ["tags", "usage"] });
@@ -73,7 +72,9 @@ export default function SettingsTags() {
   });
 
   const deleteTag = useMutation<void, Error, string>({
-    mutationFn: (id) => api.delete<void>(`/tags/${id}`),
+    mutationFn: async (id) => {
+      await client.DELETE("/api/v1/tags/{tag_id}", { params: { path: { tag_id: id } } });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tags"] });
       qc.invalidateQueries({ queryKey: ["tags", "usage"] });

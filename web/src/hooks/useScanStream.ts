@@ -6,7 +6,7 @@ import type {
   ScanProgressEvent,
   ScanSnapshot,
   ScanWsEvent,
-} from "../types";
+} from "../api/types";
 
 // v0.33.0 — the viewer loads the *entire* persisted log so its client-side
 // level / search / scanner filters operate on the whole history, not just a

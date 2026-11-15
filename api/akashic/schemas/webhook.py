@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from akashic.schemas.base import ApiModel
+from pydantic import Field, field_validator
 
 from akashic.services.url_guard import UnsafeURL, validate_outbound_url_literal
 
 
-class WebhookCreate(BaseModel):
+class WebhookCreate(ApiModel):
     event_type: str = Field(description="Event to subscribe to, e.g. `scan.completed` or `scan.failed`.")
     url: str = Field(description="HTTPS or HTTP endpoint that receives the POST. Must resolve to a public address.")
     secret: str = Field(description="Shared secret used to sign deliveries (hex HMAC-SHA256 of the raw request body in `X-Akashic-Signature`). Write-only: never returned.")
@@ -21,7 +22,7 @@ class WebhookCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'event_type': 'scan.completed', 'url': 'https://hooks.example.com/akashic', 'secret': 'whsec_4f9d2c'}]}}
 
 
-class WebhookResponse(BaseModel):
+class WebhookResponse(ApiModel):
     id: uuid.UUID = Field(description="Webhook id.")
     event_type: str = Field(description="Event the webhook subscribes to.")
     url: str = Field(description="Delivery endpoint.")

@@ -13,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Request
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +47,7 @@ _TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 
 # — schemas —
 
-class OverviewOut(BaseModel):
+class OverviewOut(ApiModel):
     scans_by_status: dict[str, int] = Field(description="Number of scans in each status (`pending`, `running`, `completed`, `failed`, `cancelled`).")
     scans_active: int = Field(description="Scans that are `pending` or `running`.")
     entries_total: int = Field(description="Indexed entries (files and directories) across all sources.")
@@ -59,7 +60,7 @@ class OverviewOut(BaseModel):
     meili_documents: int | None = Field(description="Documents in the search index; null if the search service could not be reached.")
 
 
-class StuckScanOut(BaseModel):
+class StuckScanOut(ApiModel):
     scan_id: uuid.UUID = Field(description="Scan id.")
     source_id: uuid.UUID | None = Field(description="Source being scanned; null if it was deleted.")
     source_name: str | None = Field(description="Source name.")
@@ -72,28 +73,28 @@ class StuckScanOut(BaseModel):
     assigned_scanner_name: str | None = Field(description="Name of that scanner.")
 
 
-class CancelOut(BaseModel):
+class CancelOut(ApiModel):
     scan_id: uuid.UUID = Field(description="Scan id.")
     status: str = Field(description="Scan status after the call (`cancelled`, or the terminal status it already had).")
 
 
-class WatchdogOut(BaseModel):
+class WatchdogOut(ApiModel):
     active_before: int = Field(description="Active scans before the pass.")
     active_after: int = Field(description="Active scans after the pass.")
 
 
-class PurgeLogsRequest(BaseModel):
+class PurgeLogsRequest(ApiModel):
     older_than_days: int | None = Field(default=None, ge=0, description="Delete logs of finished scans that completed more than this many days ago (`0` for all finished scans). Mutually exclusive with `scan_id`.")
     scan_id: uuid.UUID | None = Field(default=None, description="Delete all logs of this one scan, whatever its status. Mutually exclusive with `older_than_days`.")
 
     model_config = {"json_schema_extra": {'examples': [{'older_than_days': 14}]}}
 
 
-class PurgeLogsOut(BaseModel):
+class PurgeLogsOut(ApiModel):
     deleted: int = Field(description="Log rows deleted.")
 
 
-class JobOut(BaseModel):
+class JobOut(ApiModel):
     id: uuid.UUID = Field(description="Job id.")
     kind: str = Field(description="Job kind: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
     status: str = Field(description="`running`, `succeeded` or `failed`.")
@@ -106,7 +107,7 @@ class JobOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class StartJobRequest(BaseModel):
+class StartJobRequest(ApiModel):
     kind: str = Field(description="Job to run: `reindex_search`, `backfill_subtree_sizes`, `backfill_viewable` or `warm_groups`.")
     params: dict = Field(default_factory=dict, description="Optional job parameters: `batch_size` (`reindex_search`, `backfill_viewable`) and `source_id` (the three backfills and `warm_groups`). Free-form: depends on the job kind.", json_schema_extra={"x-free-form": True})
 

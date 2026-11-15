@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { api } from "../api/client";
-import type { DuplicateGroup, FileEntry, Paginated } from "../types";
+import { api, client, ok } from "../api/client";
+import type { DuplicateGroup, DuplicateFile } from "../api/types";
 import {
   Card,
   CardHeader,
@@ -41,9 +41,9 @@ type Selection = Map<string, "keep" | "delete">;
 // Default keep candidate: oldest fs_modified_at, fallback to oldest
 // first_seen_at. Surfaces "the original" so users don't accidentally
 // nuke the canonical copy.
-function pickDefaultKeep(files: FileEntry[]): string | null {
+function pickDefaultKeep(files: DuplicateFile[]): string | null {
   if (files.length === 0) return null;
-  const ts = (f: FileEntry) =>
+  const ts = (f: DuplicateFile) =>
     Date.parse(f.fs_modified_at ?? f.first_seen_at ?? "") || Number.MAX_SAFE_INTEGER;
   return files.slice().sort((a, b) => ts(a) - ts(b))[0].id;
 }
@@ -78,13 +78,13 @@ function DuplicateGroupRow({ group, canDeleteCopies, autoOpen }: DuplicateGroupR
   const [busy, setBusy] = useState(false);
   const [failedById, setFailedById] = useState<Map<string, string>>(new Map());
 
-  const filesQuery = useQuery<FileEntry[]>({
+  const filesQuery = useQuery<DuplicateFile[]>({
     queryKey: ["duplicates", group.content_hash, "files"],
     queryFn: async () =>
-      (
-        await api.get<Paginated<FileEntry>>(
-          `/duplicates/${group.content_hash}/files`,
-        )
+      ok(
+        await client.GET("/api/v1/duplicates/{content_hash}/files", {
+          params: { path: { content_hash: group.content_hash } },
+        }),
       ).items,
     enabled: expanded,
   });
@@ -406,7 +406,7 @@ export default function Duplicates() {
   } = useQuery<DuplicateGroup[]>({
     queryKey: ["duplicates"],
     queryFn: async () =>
-      (await api.get<Paginated<DuplicateGroup>>("/duplicates")).items,
+      ok(await client.GET("/api/v1/duplicates")).items,
   });
 
   const sorted = [...(groups ?? [])].sort(

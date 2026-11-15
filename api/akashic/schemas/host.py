@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 from akashic.schemas.source import _scrub_config
 
@@ -9,7 +10,7 @@ from akashic.schemas.source import _scrub_config
 # Scan-distribution controls (v0.35.0). A host value is inherited by
 # every attached source that leaves its own field NULL. None on create
 # = no host-level setting (the built-in default applies).
-class HostCreate(BaseModel):
+class HostCreate(ApiModel):
     name: str = Field(description="Unique host name.")
     type: str = Field(description="Host type: `smb`, `nfs` or `s3`. Local storage has no host.")
     connection_config: dict = Field(description="Type-specific connection settings shared by the attached sources, including any inline credentials. Secrets are masked in responses. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
@@ -20,7 +21,7 @@ class HostCreate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'name': 'fileserver01', 'type': 'smb', 'connection_config': {'host': 'fileserver01.example.com'}, 'credential_profile_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'max_parallel_scanners': 4, 'scan_chunk_size': 2000}]}}
 
 
-class HostUpdate(BaseModel):
+class HostUpdate(ApiModel):
     name: str | None = Field(default=None, description="New unique host name.")
     connection_config: dict | None = Field(default=None, description="Connection settings to change. A masked value (`***`) keeps the stored secret. Free-form: keys depend on the source or host type.", json_schema_extra={"x-free-form": True})
     credential_profile_id: uuid.UUID | None = Field(default=None, description="Credential profile to use; null detaches the current one.")
@@ -30,7 +31,7 @@ class HostUpdate(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'name': 'fileserver01-new', 'max_parallel_scanners': None}]}}
 
 
-class HostResponse(BaseModel):
+class HostResponse(ApiModel):
     id: uuid.UUID = Field(description="Host id.")
     name: str = Field(description="Host name.")
     type: str = Field(description="Host type: `smb`, `nfs` or `s3`.")
@@ -51,7 +52,7 @@ class HostResponse(BaseModel):
         self.connection_config = _scrub_config(self.connection_config)
 
 
-class ListSharesResponse(BaseModel):
+class ListSharesResponse(ApiModel):
     """POST /api/v1/hosts/{id}/list-shares result.
 
     `shares` is the enumerated list (possibly empty) on success. On
@@ -65,14 +66,14 @@ class ListSharesResponse(BaseModel):
     error: str | None = Field(default=None, description="Failure message; null on success.")
 
 
-class AddSharesItem(BaseModel):
+class AddSharesItem(ApiModel):
     """One row in an /add-shares batch."""
 
     name: str = Field(description="Name for the new source; must be unique across all sources.")
     share: str = Field(description="Share name (SMB), export path (NFS) or bucket (S3).")
 
 
-class AddSharesRequest(BaseModel):
+class AddSharesRequest(ApiModel):
     shares: list[AddSharesItem] = Field(description="Shares to create as sources.")
     scan_schedule: str | None = Field(default=None, description="Cron expression applied to every created source; null for no schedule.")
     max_parallel_scanners: int | None = Field(default=None, description="Scanner cap (1 to 16) for every created source; null inherits from the host.")
@@ -83,13 +84,13 @@ class AddSharesRequest(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'shares': [{'name': 'fileserver01/finance', 'share': 'finance'}, {'name': 'fileserver01/hr', 'share': 'hr'}], 'scan_schedule': '0 2 * * *', 'preferred_pool': 'site-amsterdam'}]}}
 
 
-class AddSharesResponse(BaseModel):
+class AddSharesResponse(ApiModel):
     created: int = Field(description="Number of sources created.")
     skipped: int = Field(description="Number of entries skipped because a source with that name already exists.")
     sources: list[uuid.UUID] = Field(description="Ids of the sources that were created.")
 
 
-class HostSummary(BaseModel):
+class HostSummary(ApiModel):
     """Inlined-on-source shape: name + type only.
 
     Inlining the full HostResponse (with credentials, even masked)

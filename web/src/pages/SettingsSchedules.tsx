@@ -7,11 +7,11 @@ import {
   Badge,
 } from "../components/ui";
 import { useSources, useUpdateSource } from "../hooks/useSources";
-import type { Source } from "../types";
+import type { SourceListItem } from "../api/types";
 import { formatDate } from "../lib/format";
 
 interface RowProps {
-  source: Source;
+  source: SourceListItem;
 }
 
 function ScheduleRow({ source }: RowProps) {

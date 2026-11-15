@@ -3,7 +3,8 @@ import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from akashic.routing import ApiRouter
 from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query
 from sqlalchemy import select, delete, func
@@ -35,7 +36,7 @@ async def _cleanup_meilisearch_for_source(source_id: str, db_url: str):
         logger.warning("Meilisearch cleanup failed for source %s: %s", source_id, exc)
 
 
-class PurgeSourceResponse(BaseModel):
+class PurgeSourceResponse(ApiModel):
     """Outcome of purging a source's entries."""
 
     source_id: uuid.UUID = Field(description="Purged source id.")
@@ -44,7 +45,7 @@ class PurgeSourceResponse(BaseModel):
     total_removed: int = Field(description="Files plus directories removed.")
 
 
-class PurgeDeletedResponse(BaseModel):
+class PurgeDeletedResponse(ApiModel):
     """Outcome of purging old soft-deleted entries."""
 
     files_removed: int = Field(description="Files permanently removed.")

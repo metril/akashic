@@ -4,7 +4,8 @@ import uuid
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = ApiRouter(prefix="/duplicates", tags=["duplicates"])
 
 
-class DuplicateGroup(BaseModel):
+class DuplicateGroup(ApiModel):
     """A set of files sharing one content hash."""
 
     content_hash: str = Field(description="Shared content hash.")
@@ -36,7 +37,7 @@ class DuplicateGroup(BaseModel):
     wasted_bytes: int = Field(description="Bytes reclaimable by keeping one copy.")
 
 
-class DuplicateFile(BaseModel):
+class DuplicateFile(ApiModel):
     """One copy within a duplicate group."""
 
     id: uuid.UUID = Field(description="Entry id.")
@@ -168,14 +169,14 @@ async def get_duplicate_files(
 # ── Bulk delete ────────────────────────────────────────────────────────────
 
 
-class DeleteCopiesRequest(BaseModel):
+class DeleteCopiesRequest(ApiModel):
     keep_entry_id: uuid.UUID = Field(description="Entry to keep. It must belong to the duplicate group.")
     delete_entry_ids: list[uuid.UUID] = Field(description="Entries to delete. Must be non-empty, must not include `keep_entry_id`, and every entry must be a file with the group's content hash.")
 
     model_config = {"json_schema_extra": {'examples': [{'keep_entry_id': '6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11', 'delete_entry_ids': ['a1b2c3d4-0000-4000-8000-000000000001', 'a1b2c3d4-0000-4000-8000-000000000002']}]}}
 
 
-class DeleteCopyOutcome(BaseModel):
+class DeleteCopyOutcome(ApiModel):
     entry_id: str = Field(description="Entry the outcome is for.")
     path: str = Field(description="Path of the entry.")
     ok: bool = Field(description="Whether the copy was deleted.")
@@ -183,7 +184,7 @@ class DeleteCopyOutcome(BaseModel):
     message: str = Field(default="", description="Failure message, for a failed copy; empty on success.")
 
 
-class DeleteCopiesResponse(BaseModel):
+class DeleteCopiesResponse(ApiModel):
     deleted: list[DeleteCopyOutcome] = Field(description="Copies deleted from storage and the index.")
     failed: list[DeleteCopyOutcome] = Field(description="Copies that could not be deleted; they remain indexed.")
 

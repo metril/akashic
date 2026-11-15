@@ -17,10 +17,9 @@ import {
   Page,
 } from "../components/ui";
 import { useBulkTriggerScans } from "../hooks/useScanActions";
-import type { Scan, Source } from "../types";
+import type { Scan, SourceListItem } from "../api/types";
 import { computeETA, formatDateTime, formatDuration, formatNumber, formatRelative } from "../lib/format";
 import { deriveSourcePill, formatSourceSummary, type SourcePillState } from "../lib/sources";
-import { BucketSecurityCard } from "../components/acl/BucketSecurityCard";
 import { useScopes } from "../hooks/useScopes";
 import { AddSourceForm } from "../components/sources/AddSourceForm";
 import { ReachabilityBadge } from "../components/sources/ReachabilityBadge";
@@ -63,7 +62,7 @@ function SourcePill({ state }: { state: SourcePillState }) {
 }
 
 interface SourceCardProps {
-  source: Source;
+  source: SourceListItem;
   onOpen: (id: string) => void;
   onOpenLog: (scanId: string) => void;
 }
@@ -246,7 +245,6 @@ const SourceCard = memo(function SourceCard({ source, onOpen, onOpenLog }: Sourc
         </div>
       )}
 
-      {source.type === "s3" && <BucketSecurityCard source={source} />}
     </Card>
   );
 });

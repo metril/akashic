@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { Paginated, Scan } from "../types";
+import { client, ok } from "../api/client";
+import type { Scan } from "../api/types";
 
 // Most-recent N scans across all sources, in started_at desc order
 // (server already sorts that way). Used by the dashboard's Recent
@@ -10,7 +10,7 @@ export function useRecentScans(limit = 6) {
   return useQuery<Scan[]>({
     queryKey: ["scans", "recent", limit],
     queryFn: async () =>
-      (await api.get<Paginated<Scan>>(`/scans?limit=${limit}`)).items,
+      ok(await client.GET("/api/v1/scans", { params: { query: { limit } } })).items,
     staleTime: 30 * 1000,
   });
 }

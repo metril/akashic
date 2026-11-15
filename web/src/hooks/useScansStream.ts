@@ -27,7 +27,7 @@
  */
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
-import type { Scan } from "../types";
+import type { Scan } from "../api/types";
 import {
   type ScansStreamEvent,
   type SnapshotScan,
@@ -108,19 +108,37 @@ function recomputeBySource(byScan: Record<string, Scan>): Record<string, Scan> {
   return out;
 }
 
-function streamScanToModel(s: SnapshotScan): Scan {
+/** A Scan row with every counter zeroed; the list-level stream only carries
+ *  the fields the caller overrides. */
+function blankScan(init: Pick<Scan, "id" | "source_id" | "scan_type" | "status">): Scan {
   return {
-    id: s.scan_id,
-    source_id: s.source_id,
-    scan_type: s.scan_type,
-    status: s.scan_status,
-    files_found: s.files_found,
+    ...init,
+    files_found: 0,
     files_new: 0,
     files_changed: 0,
     files_deleted: 0,
-    started_at: s.started_at,
+    files_skipped: 0,
+    dirs_walked: 0,
+    dirs_queued: 0,
+    inaccessible_dirs: 0,
+    inaccessible_files: 0,
+    started_at: null,
     completed_at: null,
     error_message: null,
+    current_path: null,
+    last_heartbeat_at: null,
+    bytes_scanned_so_far: null,
+    total_estimated: null,
+    previous_scan_files: null,
+    phase: null,
+  };
+}
+
+function streamScanToModel(s: SnapshotScan): Scan {
+  return {
+    ...blankScan({ id: s.scan_id, source_id: s.source_id, scan_type: s.scan_type, status: s.scan_status }),
+    files_found: s.files_found,
+    started_at: s.started_at,
     current_path: s.current_path,
   };
 }
@@ -131,20 +149,9 @@ function streamEventToScan(
 ): Scan {
   // Preserve fields the event doesn't carry (per-scan progress
   // counters live on the per-scan WS, not the list-level one).
-  const base: Scan = existing ?? {
-    id: e.scan_id,
-    source_id: e.source_id,
-    scan_type: e.scan_type,
-    status: e.scan_status,
-    files_found: 0,
-    files_new: 0,
-    files_changed: 0,
-    files_deleted: 0,
-    started_at: null,
-    completed_at: null,
-    error_message: null,
-    current_path: null,
-  };
+  const base: Scan =
+    existing ??
+    blankScan({ id: e.scan_id, source_id: e.source_id, scan_type: e.scan_type, status: e.scan_status });
   return {
     ...base,
     status: e.scan_status,

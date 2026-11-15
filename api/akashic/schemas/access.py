@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from akashic.schemas.base import ApiModel
+from pydantic import ConfigDict, Field
 
 
-class AccessPrincipal(BaseModel):
+class AccessPrincipal(ApiModel):
     """The principal that was looked up."""
 
     token: str = Field(description="Canonical principal token, e.g. `sid:S-1-5-...` or `posix:uid:1000`.")
@@ -15,7 +16,7 @@ class AccessPrincipal(BaseModel):
     kind: str = Field(description="`user`, `group`, `wildcard` or `unknown`.")
 
 
-class AccessSummary(BaseModel):
+class AccessSummary(ApiModel):
     """Totals across everything the principal can reach."""
 
     file_count: int = Field(description="Files reachable.")
@@ -23,7 +24,7 @@ class AccessSummary(BaseModel):
     source_count: int = Field(description="Sources containing reachable files.")
 
 
-class AccessSourceRollup(BaseModel):
+class AccessSourceRollup(ApiModel):
     """Reachable files within one source."""
 
     source_id: str = Field(description="Source id.")
@@ -31,7 +32,7 @@ class AccessSourceRollup(BaseModel):
     file_count: int = Field(description="Reachable files in the source.")
 
 
-class AccessSampleHit(BaseModel):
+class AccessSampleHit(ApiModel):
     """One reachable file from the search index."""
 
     model_config = ConfigDict(extra="allow")
@@ -45,7 +46,7 @@ class AccessSampleHit(BaseModel):
     fs_modified_at: int | None = Field(default=None, description="Modified time, epoch seconds.")
 
 
-class PrincipalAccessResponse(BaseModel):
+class PrincipalAccessResponse(ApiModel):
     """Principal-to-files lookup (`?principal=`)."""
 
     principal: AccessPrincipal = Field(description="The looked-up principal.")
@@ -57,7 +58,7 @@ class PrincipalAccessResponse(BaseModel):
     limit: int = Field(description="Page size requested.")
 
 
-class FilePrincipal(BaseModel):
+class FilePrincipal(ApiModel):
     """A principal holding the right on a file."""
 
     token: str = Field(description="Canonical principal token.")
@@ -67,7 +68,7 @@ class FilePrincipal(BaseModel):
     domain: str | None = Field(default=None, description="Resolved domain (SIDs only).")
 
 
-class FileAccessResponse(BaseModel):
+class FileAccessResponse(ApiModel):
     """File-to-principals lookup (`?file=`)."""
 
     entry_id: uuid.UUID = Field(description="Entry id.")

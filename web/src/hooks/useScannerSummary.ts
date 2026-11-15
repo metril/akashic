@@ -6,20 +6,18 @@
  */
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../api/client";
-import { useScopes } from "./useScopes";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
 
-interface ScannerCounts {
-  registered: number;
-  online: number;
-}
+type S = components["schemas"];
+import { useScopes } from "./useScopes";
 
 export function useScannerSummary() {
   const { has } = useScopes();
   const canReadScanners = has("scanners:read");
-  return useQuery<ScannerCounts>({
+  return useQuery<S["ScannerCounts"]>({
     queryKey: ["scanners", "summary"],
-    queryFn: () => api.get<ScannerCounts>("/scanners/summary"),
+    queryFn: async () => ok(await client.GET("/api/v1/scanners/summary")),
     // Non-admins don't see the banner so the data is irrelevant.
     enabled: canReadScanners,
     staleTime: 30_000,

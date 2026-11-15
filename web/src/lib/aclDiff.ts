@@ -1,4 +1,4 @@
-import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../types";
+import type { ACL, ACLType, PosixACE, PosixACL, NfsV4ACE, NfsV4ACL, NtACE, NtACL, NtPrincipal, S3ACL, S3Grant, S3Owner } from "../api/types";
 
 export type ACLDiffKind =
   | "type_changed"

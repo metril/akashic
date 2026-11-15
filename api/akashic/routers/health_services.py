@@ -35,7 +35,8 @@ from typing import Any, Optional
 import httpx
 from akashic.routing import ApiRouter
 from fastapi import Depends
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,13 +52,13 @@ router = ApiRouter(prefix="/health/services", tags=["health"])
 
 # In-process cache. Per-key (liveness vs activity) so the cheaper
 # liveness poll doesn't fall behind the activity poll's TTL.
-class ServiceProbe(BaseModel):
+class ServiceProbe(ApiModel):
     ok: bool = Field(description="Whether the service answered within 2 seconds.")
     latency_ms: float | None = Field(description="Round-trip time in milliseconds; null when the probe failed.")
     error: str | None = Field(default=None, description="Why the probe failed; absent when it succeeded.")
 
 
-class ServicesHealth(BaseModel):
+class ServicesHealth(ApiModel):
     postgres: ServiceProbe = Field(description="Postgres probe.")
     redis: ServiceProbe = Field(description="Redis probe.")
     meilisearch: ServiceProbe = Field(description="Meilisearch probe.")
@@ -67,7 +68,7 @@ class ServicesHealth(BaseModel):
     model_config = {"json_schema_extra": {'examples': [{'postgres': {'ok': True, 'latency_ms': 1.2}, 'redis': {'ok': True, 'latency_ms': 0.8}, 'meilisearch': {'ok': True, 'latency_ms': 4.1}, 'tika': {'ok': True, 'latency_ms': 12.5}, 'checked_at': '2026-04-27T22:00:00Z'}]}}
 
 
-class TikaActivity(BaseModel):
+class TikaActivity(ApiModel):
     extracted_total: int | None = Field(description="Lifetime count of files whose text was extracted; null if unreadable.")
     extracted_last_5min: int | None = Field(description="Files extracted in the last 5 minutes; null if unreadable.")
     last_extracted_at: str | None = Field(description="ISO-8601 time the latest extraction was reported, as stored.")
@@ -75,7 +76,7 @@ class TikaActivity(BaseModel):
     error: str | None = Field(default=None, description="Why the counters could not be read.")
 
 
-class MeiliActivity(BaseModel):
+class MeiliActivity(ApiModel):
     documents_in_index: int | None = Field(description="Documents in the file index; null if unreadable.")
     pending_tasks: int | None = Field(description="Enqueued or processing index tasks; null if unreadable.")
     last_task_at: str | None = Field(description="Time the latest index task finished or was enqueued, as reported by Meilisearch.")
@@ -84,7 +85,7 @@ class MeiliActivity(BaseModel):
     error: str | None = Field(default=None, description="Why Meilisearch could not be read.")
 
 
-class ServicesActivity(BaseModel):
+class ServicesActivity(ApiModel):
     tika: TikaActivity = Field(description="Text extraction throughput.")
     meilisearch: MeiliActivity = Field(description="Search index activity.")
     checked_at: datetime = Field(description="When the data was gathered (cached for 5 seconds).")

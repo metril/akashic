@@ -17,9 +17,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
-import { api } from "../../api/client";
+import { client } from "../../api/client";
 import { useScopes } from "../../hooks/useScopes";
-import type { EntryDetail, EntryTagAssignment } from "../../types";
+import type { EntryDetail, EntryTagAssignment } from "../../api/types";
 import { Button } from "../ui";
 import { FilterableCell } from "../ui/FilterableCell";
 import { cn } from "../ui/cn";
@@ -53,8 +53,12 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
   const queryKey = useMemo(() => ["entry", entryId] as const, [entryId]);
 
   const applyMut = useMutation({
-    mutationFn: (newTags: string[]) =>
-      api.post<void>(`/entries/${entryId}/tags`, { tags: newTags }),
+    mutationFn: async (newTags: string[]) => {
+      await client.POST("/api/v1/entries/{entry_id}/tags", {
+        params: { path: { entry_id: entryId } },
+        body: { tags: newTags },
+      });
+    },
     onMutate: async (newTags: string[]) => {
       await queryClient.cancelQueries({ queryKey });
       const prev = queryClient.getQueryData<EntryDetail>(queryKey);
@@ -82,8 +86,11 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
   });
 
   const removeMut = useMutation({
-    mutationFn: (tag: string) =>
-      api.delete<void>(`/entries/${entryId}/tags/${encodeURIComponent(tag)}`),
+    mutationFn: async (tag: string) => {
+      await client.DELETE("/api/v1/entries/{entry_id}/tags/{tag}", {
+        params: { path: { entry_id: entryId, tag } },
+      });
+    },
     onMutate: async (tag: string) => {
       await queryClient.cancelQueries({ queryKey });
       const prev = queryClient.getQueryData<EntryDetail>(queryKey);

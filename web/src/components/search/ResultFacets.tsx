@@ -13,12 +13,10 @@
  * uninformative and the chip would just duplicate the dropdown.
  */
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 
-import { api } from "../../api/client";
+import { useSources } from "../../hooks/useSources";
 import { useFilterUrlState } from "../../hooks/useFilterUrlState";
 import type { Predicate } from "../../lib/filterGrammar";
-import type { Source } from "../../types";
 
 const MAX_PER_FIELD = 8;
 
@@ -37,10 +35,7 @@ export function ResultFacets({ facetDistribution, hideSource, className }: Props
   // Fetch the sources list so we can render names rather than UUIDs.
   // React-query dedupes against the same key in Search.tsx — no extra
   // network request.
-  const sourcesQuery = useQuery<Source[]>({
-    queryKey: ["sources"],
-    queryFn: () => api.get<Source[]>("/sources"),
-  });
+  const sourcesQuery = useSources();
   const sourceLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of sourcesQuery.data ?? []) m.set(s.id, s.name);

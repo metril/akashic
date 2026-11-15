@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from akashic.schemas.base import ApiModel
+from pydantic import Field
 
 from akashic.schemas.common import Page
 
 
-class SearchHit(BaseModel):
+class SearchHit(ApiModel):
     """A search result from Meilisearch — uses only fields that are indexed.
 
     `source_id` is nullable because entries can become orphaned when their
@@ -37,7 +38,7 @@ class SearchHit(BaseModel):
     content_hash: str | None = Field(default=None, description="Content hash; null for directories and unhashed files.")
     dup_count: int = Field(default=0, description="Number of other files with the same content hash within the caller's visible sources.")
 
-    model_config = {"json_schema_extra": {'examples': [{'id': '3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'path': '/projects/report.pdf', 'filename': 'report.pdf', 'extension': 'pdf', 'mime_type': 'application/pdf', 'size_bytes': 482113, 'fs_modified_at': 1777327200, 'tags': ['invoice'], 'content_hash': '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', 'dup_count': 2}]}}
+    model_config = {"json_schema_extra": {'examples': [{'id': '3b1f0c9e-5d0a-4e7c-8a41-9a6b2f5c7d10', 'source_id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'path': '/projects/report.pdf', 'filename': 'report.pdf', 'extension': 'pdf', 'mime_type': 'application/pdf', 'size_bytes': 482113, 'fs_modified_at': 1777327200, 'tags': ['invoice'], 'content_hash': '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08', 'dup_count': 2, 'content_text': None}]}}
 
 
 class SearchPage(Page[SearchHit]):

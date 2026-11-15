@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { NtACL as NtACLType, NtACE, NtPrincipal } from "../../types";
+import type { NtACL as NtACLType, NtACE, NtPrincipal } from "../../api/types";
 import { Chip, Mono } from "./shared";
 import { Button } from "../ui";
 import { formatNtMask, formatAceFlag, formatNtControl } from "../../lib/aclLabels";

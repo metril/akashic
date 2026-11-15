@@ -2,7 +2,7 @@ import type {
   CloudDriveACL as CloudDriveACLType,
   CloudDriveGrant,
   CloudDriveRole,
-} from "../../types";
+} from "../../api/types";
 import { Chip, Mono } from "./shared";
 
 const ROLE_VARIANT: Record<CloudDriveRole, "allow" | "neutral" | "muted"> = {

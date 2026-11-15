@@ -1,4 +1,4 @@
-import createClient, { type Client, type Middleware } from "openapi-fetch";
+import createClient, { type Middleware } from "openapi-fetch";
 
 import type { paths } from "./schema";
 
@@ -242,28 +242,13 @@ const clientOptions = {
 export const client = createClient<paths>(clientOptions);
 client.use(authMiddleware);
 
-// Untyped-path escape hatch for call sites not yet moved to `client`.
-const untyped: Client<Record<string, never>> = createClient<Record<string, never>>(clientOptions);
-untyped.use(authMiddleware);
-
-type Verb = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-
-async function call<T>(method: Verb, path: string, body?: unknown): Promise<T> {
-  const init = body === undefined ? undefined : { body };
-  const { data } = await (untyped as unknown as Record<Verb, (u: string, i?: unknown) => Promise<{ data?: unknown }>>)[method](
-    `${API_BASE}${path}`,
-    init,
-  );
-  return data as T;
+/** The success body of a typed call. The middleware throws ApiError on any
+ *  non-2xx response, so `data` is always present for bodies that have one. */
+export function ok<T>(result: { data?: T }): T {
+  return result.data as T;
 }
 
 export const api = {
-  get: <T>(path: string) => call<T>("GET", path),
-  post: <T>(path: string, body?: unknown) => call<T>("POST", path, body),
-  patch: <T>(path: string, body?: unknown) => call<T>("PATCH", path, body),
-  put: <T>(path: string, body?: unknown) => call<T>("PUT", path, body),
-  delete: <T>(path: string) => call<T>("DELETE", path),
-
   login: async (username: string, password: string) =>
     (await client.POST("/api/v1/users/login", { body: { username, password } })).data!,
 

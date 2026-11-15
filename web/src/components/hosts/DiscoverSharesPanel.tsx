@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "../ui";
 import {
@@ -6,8 +6,7 @@ import {
   useListShares,
   type ListSharesResult,
 } from "../../hooks/useHosts";
-import { useSources } from "../../hooks/useSources";
-import type { Host } from "../../types";
+import type { Host } from "../../api/types";
 
 interface Props {
   host: Host;
@@ -22,8 +21,6 @@ interface ShareRow {
    *  prefix would be redundant. v0.5.5. */
   name: string;
   selected: boolean;
-  /** True when the host already has a Source attached for this share. */
-  alreadyAdded: boolean;
 }
 
 /**
@@ -44,26 +41,9 @@ interface ShareRow {
 export function DiscoverSharesPanel({ host, onAdded }: Props) {
   const listShares = useListShares();
   const addShares = useAddShares();
-  const sourcesQuery = useSources();
 
   const [discovered, setDiscovered] = useState<ListSharesResult | null>(null);
   const [rows, setRows] = useState<ShareRow[]>([]);
-
-  const existingShareValues = useMemo(() => {
-    if (!sourcesQuery.data) return new Set<string>();
-    const key = host.type === "smb" ? "share"
-      : host.type === "nfs" ? "export_path"
-      : host.type === "s3" ? "bucket"
-      : "";
-    if (!key) return new Set<string>();
-    const out = new Set<string>();
-    for (const s of sourcesQuery.data) {
-      if (s.host_id !== host.id) continue;
-      const v = (s.connection_config as Record<string, unknown> | undefined)?.[key];
-      if (typeof v === "string") out.add(v);
-    }
-    return out;
-  }, [sourcesQuery.data, host.id, host.type]);
 
   // Fire enumeration once when the host changes.
   useEffect(() => {
@@ -73,15 +53,13 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
       onSuccess: (res) => {
         setDiscovered(res);
         const next: ShareRow[] = (res.shares ?? []).map((share) => {
-          const already = existingShareValues.has(share);
           return {
             share,
             // v0.5.5: was `${host.name}/${share}` — the host header on
             // the Sources page already labels the parent, so the prefix
             // was redundant noise.
             name: share,
-            selected: !already,
-            alreadyAdded: already,
+            selected: true,
           };
         });
         setRows(next);
@@ -90,12 +68,12 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host.id]);
 
-  const selectableCount = rows.filter((r) => !r.alreadyAdded).length;
-  const selectedCount = rows.filter((r) => r.selected && !r.alreadyAdded).length;
+  const selectableCount = rows.length;
+  const selectedCount = rows.filter((r) => r.selected).length;
 
   function toggleAll(checked: boolean) {
     setRows((prev) =>
-      prev.map((r) => (r.alreadyAdded ? r : { ...r, selected: checked })),
+      prev.map((r) => ({ ...r, selected: checked })),
     );
   }
 
@@ -111,7 +89,7 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
 
   async function handleAdd() {
     const toAdd = rows
-      .filter((r) => r.selected && !r.alreadyAdded)
+      .filter((r) => r.selected)
       .map((r) => ({ name: r.name.trim(), share: r.share }));
     if (toAdd.length === 0) {
       toast.error("Select at least one share to add.");
@@ -212,16 +190,11 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
         {rows.map((r, idx) => (
           <li
             key={r.share}
-            className={`flex items-start gap-2 p-2 rounded-md border ${
-              r.alreadyAdded
-                ? "bg-app border-line-subtle"
-                : "border-line"
-            }`}
+            className="flex items-start gap-2 p-2 rounded-md border border-line"
           >
             <input
               type="checkbox"
               checked={r.selected}
-              disabled={r.alreadyAdded}
               onChange={(e) => setRowSelected(idx, e.target.checked)}
               className="mt-1.5 h-4 w-4 rounded border-line text-accent-600 focus:ring-accent-400"
             />
@@ -230,21 +203,14 @@ export function DiscoverSharesPanel({ host, onAdded }: Props) {
                 <code className="text-xs text-fg font-mono truncate">
                   {r.share}
                 </code>
-                {r.alreadyAdded && (
-                  <span className="text-[11px] text-fg-muted italic">
-                    (already added)
-                  </span>
-                )}
               </div>
-              {!r.alreadyAdded && (
-                <input
+              <input
                   type="text"
                   value={r.name}
                   onChange={(e) => setRowName(idx, e.target.value)}
                   placeholder="Source name"
                   className="w-full rounded-md border border-line px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400"
-                />
-              )}
+              />
             </div>
           </li>
         ))}

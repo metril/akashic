@@ -9,33 +9,18 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api/client";
+import { client, ok } from "../api/client";
+import type { components } from "../api/schema";
+
+type S = components["schemas"];
 import { useScopes } from "./useScopes";
 import { useScannersStreamEvents } from "./useScannersStreamEvents";
 
-export interface DiscoveryRequest {
-  id: string;
-  pairing_code: string;
-  hostname: string | null;
-  agent_version: string | null;
-  requested_pool: string | null;
-  requested_at: string;
-  expires_at: string;
-  status: "pending" | "approved" | "denied" | "expired";
-  decided_at: string | null;
-  deny_reason: string | null;
-  approved_scanner_id: string | null;
-  key_fingerprint: string;
-}
+export type DiscoveryRequest = S["DiscoveryAdminSummary"];
 
-export interface ApproveBody {
-  name: string;
-  pool?: string;
-}
+export type ApproveBody = S["ApproveBody"];
 
-export interface DenyBody {
-  reason?: string;
-}
+export type DenyBody = S["DenyBody"];
 
 export function useDiscoveryRequests() {
   const { has } = useScopes();
@@ -44,20 +29,22 @@ export function useDiscoveryRequests() {
 
   const list = useQuery<DiscoveryRequest[]>({
     queryKey: ["scanner-discovery-requests"],
-    queryFn: () => api.get<DiscoveryRequest[]>("/scanner-discovery-requests"),
+    queryFn: async () => ok(await client.GET("/api/v1/scanner-discovery-requests")),
     enabled: canReadScanners,
     refetchInterval: 30_000,
   });
 
   const approve = useMutation<
-    { scanner_id: string; name: string; pool: string },
+    S["DiscoveryApproved"],
     Error,
     { id: string; body: ApproveBody }
   >({
-    mutationFn: ({ id, body }) =>
-      api.post<{ scanner_id: string; name: string; pool: string }>(
-        `/scanner-discovery-requests/${id}/approve`,
-        body,
+    mutationFn: async ({ id, body }) =>
+      ok(
+        await client.POST("/api/v1/scanner-discovery-requests/{discovery_id}/approve", {
+          params: { path: { discovery_id: id } },
+          body,
+        }),
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["scanner-discovery-requests"] });
@@ -66,8 +53,12 @@ export function useDiscoveryRequests() {
   });
 
   const deny = useMutation<void, Error, { id: string; body: DenyBody }>({
-    mutationFn: ({ id, body }) =>
-      api.post<void>(`/scanner-discovery-requests/${id}/deny`, body),
+    mutationFn: async ({ id, body }) => {
+      await client.POST("/api/v1/scanner-discovery-requests/{discovery_id}/deny", {
+        params: { path: { discovery_id: id } },
+        body,
+      });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scanner-discovery-requests"] }),
   });
 
