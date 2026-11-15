@@ -64,11 +64,27 @@ def _dependency_names(route: APIRoute) -> set[str]:
     return names
 
 
+def _flatten(routes) -> list:
+    """Resolve the app's route table into API routes, on old and new FastAPI.
+
+    Newer FastAPI keeps ``include_router`` results as lazy ``_IncludedRouter``
+    nodes whose effective routes (full path, merged tags/responses/dependencies)
+    come from ``effective_candidates()``; older versions flatten eagerly.
+    """
+    out = []
+    for r in routes:
+        if hasattr(r, "effective_candidates"):
+            out.extend(_flatten(r.effective_candidates()))
+        elif isinstance(r, APIRoute) or isinstance(getattr(r, "original_route", None), APIRoute):
+            out.append(r)
+    return out
+
+
 def _routes(app) -> list[tuple[str, APIRoute]]:
     return [
         (f"{method} {route.path}", route)
-        for route in app.routes
-        if isinstance(route, APIRoute) and route.include_in_schema
+        for route in _flatten(app.routes)
+        if route.include_in_schema
         for method in sorted(route.methods - {"HEAD", "OPTIONS"})
     ]
 
@@ -105,6 +121,20 @@ def collect_violations(app, spec: dict) -> dict[str, set[str]]:
             if not body.get("description"):
                 out["description"].add(f"{name}.{prop}")
     return out
+
+
+def test_route_enumeration_matches_spec(app):
+    """Guard: the enumerated operations equal the spec's, and are never empty."""
+    keys = [k for k, _ in _routes(app)]
+    spec_ops = {
+        f"{m.upper()} {path}"
+        for path, item in app.openapi()["paths"].items()
+        for m in item
+        if m in {"get", "put", "post", "delete", "patch"}
+    }
+    assert keys, "route enumeration found no routes"
+    assert len(keys) == len(set(keys)) == len(spec_ops)
+    assert set(keys) == spec_ops
 
 
 def test_public_routes_are_real_and_unauthenticated(app):

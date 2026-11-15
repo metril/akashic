@@ -343,9 +343,10 @@ func (c *Client) CreateTag(ctx context.Context, name string) (*Tag, error) {
 	return &tag, nil
 }
 
-func (c *Client) TagFile(ctx context.Context, fileID, tagID string) error {
-	path := fmt.Sprintf("/api/v1/files/%s/tags/%s", fileID, tagID)
-	resp, err := c.post(ctx, path, nil)
+// TagFile applies the named tag to an entry (POST /entries/{id}/tags, 204).
+func (c *Client) TagFile(ctx context.Context, entryID, tagName string) error {
+	path := fmt.Sprintf("/api/v1/entries/%s/tags", entryID)
+	resp, err := c.post(ctx, path, map[string][]string{"tags": {tagName}})
 	if err != nil {
 		return err
 	}

@@ -8,6 +8,8 @@ redirect URIs already registered at an identity provider keep working for now.
 """
 from __future__ import annotations
 
+from starlette.responses import RedirectResponse
+
 from akashic.errors import error_response, request_id_of
 
 API_PREFIX = "/api/v1"
@@ -47,11 +49,7 @@ class UnversionedPathMiddleware:
             if target is not None and scope["method"] in ("GET", "HEAD"):
                 qs = scope.get("query_string", b"").decode("latin-1")
                 location = f"{target}?{qs}" if qs else target
-                response = error_response(
-                    308, f"Moved permanently: use {location}", request_id_of(scope),
-                    headers={"Location": location}, code="api_version_required",
-                )
-                return await response(scope, receive, send)
+                return await RedirectResponse(location, status_code=308)(scope, receive, send)
             response = error_response(
                 410,
                 f"Unversioned API paths were removed; use {API_PREFIX}{path[len('/api'):]}",

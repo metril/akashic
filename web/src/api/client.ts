@@ -1,5 +1,5 @@
-export const API_BASE = "/api/v1/v1";
-export const WS_BASE = "/ws/v1/v1";
+export const API_BASE = "/api/v1";
+export const WS_BASE = "/ws/v1";
 
 // Access JWT lives in memory only (review W-C1). A stored JWT in
 // localStorage is readable by any same-origin script — including any

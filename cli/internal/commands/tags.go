@@ -21,33 +21,11 @@ func NewTagCmd(c *client.Client) *cobra.Command {
 		Short: "Tag a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			var tagID, tagName string
-
-			existingTags, err := c.ListTags(ctx)
-			if err != nil {
-				return fmt.Errorf("list tags: %w", err)
-			}
-			for _, t := range existingTags {
-				if t.Name == addTagName {
-					tagID = t.ID
-					tagName = t.Name
-					break
-				}
-			}
-
-			if tagID == "" {
-				created, err := c.CreateTag(ctx, addTagName)
-				if err != nil {
-					return fmt.Errorf("create tag: %w", err)
-				}
-				tagID = created.ID
-				tagName = created.Name
-			}
-
-			if err := c.TagFile(ctx, addFileID, tagID); err != nil {
+			// The server creates the catalogue tag on demand when applying by name.
+			if err := c.TagFile(ctx, addFileID, addTagName); err != nil {
 				return fmt.Errorf("tag file: %w", err)
 			}
-			fmt.Printf("Tagged file %s with tag %q (id: %s)\n", addFileID, tagName, tagID)
+			fmt.Printf("Tagged file %s with tag %q\n", addFileID, addTagName)
 			return nil
 		},
 	}

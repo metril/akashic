@@ -54,7 +54,7 @@ def test_callbacks_redirect_with_query(raw_client, old, new):
     r = raw_client.get(f"{old}?code=abc&state=xyz")
     assert r.status_code == 308
     assert r.headers["location"] == f"{new}?code=abc&state=xyz"
-    assert r.json()["code"] == "api_version_required"
+    assert not r.content  # plain redirect, no error envelope
 
 
 def test_callback_redirect_is_get_only(raw_client):
@@ -66,8 +66,3 @@ def test_unversioned_websocket_rejected(raw_client):
         with raw_client.websocket_connect("/ws/scans"):
             pass
     assert exc.value.code == 1008
-
-
-def test_old_scanner_protocol_is_rejected():
-    from akashic.protocol import ACCEPTED_MIN, PROTOCOL_VERSION
-    assert PROTOCOL_VERSION == 2 and ACCEPTED_MIN == 2

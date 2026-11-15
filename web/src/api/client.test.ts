@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, parseApiError } from "./client";
+import { API_BASE, ApiError, WS_BASE, api, parseApiError } from "./client";
 
 describe("parseApiError", () => {
   it("reads the ErrorResponse envelope", () => {
@@ -26,5 +26,23 @@ describe("parseApiError", () => {
 
   it("tolerates non-JSON bodies", () => {
     expect(parseApiError(502, null).message).toBe("HTTP error 502");
+  });
+});
+
+describe("versioned base paths", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("pins the constants", () => {
+    expect(API_BASE).toBe("/api/v1");
+    expect(WS_BASE).toBe("/ws/v1");
+  });
+
+  it("api() calls fetch under /api/v1", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await api.get("/sources");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/sources");
   });
 });

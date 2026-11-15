@@ -119,3 +119,24 @@ func TestAPIMessage(t *testing.T) {
 		t.Errorf("APIError: got %q", got)
 	}
 }
+
+func TestClient_TagFile(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string][]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	c := New(server.URL, "k")
+	if err := c.TagFile(context.Background(), "e1", "invoices"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/entries/e1/tags" {
+		t.Errorf("got %s %s", gotMethod, gotPath)
+	}
+	if len(gotBody["tags"]) != 1 || gotBody["tags"][0] != "invoices" {
+		t.Errorf("body = %v", gotBody)
+	}
+}

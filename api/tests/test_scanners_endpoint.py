@@ -369,3 +369,28 @@ async def test_expired_token_is_rejected(setup_db, admin_client: AsyncClient):
             headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_handshake_rejects_protocol_v1_agent(
+    setup_db, admin_client: AsyncClient,
+):
+    """Pre-/api/v1 agents speak protocol 1; the server now requires >= 2."""
+    from akashic.protocol import ACCEPTED_MIN
+
+    assert ACCEPTED_MIN == 2
+    create = await admin_client.post(
+        "/api/v1/scanners", json={"name": "old", "pool": "default"},
+    )
+    body = create.json()
+    token = _scanner_token(body["id"], body["private_key_pem"])
+
+    async with _build_unauth_client(setup_db) as ac:
+        r = await ac.post(
+            "/api/v1/scanners/handshake",
+            json={"protocol_version": 1, "version": "0.47.0", "hostname": None},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 426
+    assert r.json()["accepted"] is False
+    assert r.json()["accepted_min"] == 2
