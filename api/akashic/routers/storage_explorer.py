@@ -44,7 +44,9 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
+from akashic.auth.source_scope import restrict_sources
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import restrict_sources
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -135,11 +137,11 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, sees_all: bool) -> st
 @router.get("/sources")
 async def list_storage_sources(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Cross-source treemap. One row per source the caller can see,
     sized by total bytes from the latest scan_snapshot."""
-    src_stmt = select(Source.id, Source.name, Source.type)
+    src_stmt = restrict_sources(select(Source.id, Source.name, Source.type), principal, Source.id)
     sources = (await db.execute(src_stmt)).all()
     if not sources:
         return {"sources": []}
@@ -182,7 +184,7 @@ async def list_children(
     show_all: bool = Query(default=False),
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Returns the top `limit` children of `path` in `source_id`,
     each with the size + color-dimension aggregate. A synthetic
@@ -679,7 +681,7 @@ async def get_tree(
     color_by: ColorMode = Query(default="type"),
     show_all: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Recursive subtree expansion bounded by node budget. The frontend
     feeds the returned `root` directly into d3-hierarchy and renders one

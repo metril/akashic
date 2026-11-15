@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import ensure_source_allowed
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -27,12 +28,13 @@ async def post_effective_permissions(
     entry_id: uuid.UUID,
     request: EffectivePermsRequest,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("identities:read"),
+    principal: Principal = require_scope("identities:read", source_scoped=True),
 ) -> EffectivePerms:
     user = principal.user
     entry = (await db.execute(select(Entry).where(Entry.id == entry_id))).scalar_one_or_none()
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
     await check_source_access(entry.source_id, principal, db)
 
     # entry.acl is JSONB; validate into the discriminated union (or None).

@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.source_scope import restrict_sources
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.routers.browse import _should_enforce_perms
@@ -23,11 +24,11 @@ _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
 @router.get("/storage-by-type")
 async def get_storage_by_type(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     filters = list(_FILE_FILTERS)
 
-    stmt = (
+    stmt = restrict_sources(
         select(
             Entry.extension,
             func.count(Entry.id).label("count"),
@@ -35,7 +36,8 @@ async def get_storage_by_type(
         )
         .where(*filters)
         .group_by(Entry.extension)
-        .order_by(func.sum(Entry.size_bytes).desc())
+        .order_by(func.sum(Entry.size_bytes).desc()),
+        principal,
     )
     result = await db.execute(stmt)
     return [
@@ -47,11 +49,11 @@ async def get_storage_by_type(
 @router.get("/storage-by-source")
 async def get_storage_by_source(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     filters = list(_FILE_FILTERS)
 
-    stmt = (
+    stmt = restrict_sources(
         select(
             Entry.source_id,
             Source.name.label("source_name"),
@@ -61,7 +63,8 @@ async def get_storage_by_source(
         .join(Source, Source.id == Entry.source_id)
         .where(*filters)
         .group_by(Entry.source_id, Source.name)
-        .order_by(func.sum(Entry.size_bytes).desc())
+        .order_by(func.sum(Entry.size_bytes).desc()),
+        principal,
     )
     result = await db.execute(stmt)
     return [
@@ -79,7 +82,7 @@ async def get_storage_by_source(
 async def get_largest_files(
     n: int = Query(default=10, le=100),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     user = principal.user
     filters = [*_FILE_FILTERS, Entry.size_bytes.isnot(None)]
@@ -87,8 +90,7 @@ async def get_largest_files(
         filters.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
     stmt = (
-        select(Entry)
-        .where(*filters)
+        restrict_sources(select(Entry).where(*filters), principal)
         .order_by(Entry.size_bytes.desc())
         .limit(n)
     )
@@ -116,13 +118,14 @@ async def get_timeseries(
     metric: str = Query(default="size", pattern="^(size|count)$"),
     days: int = Query(default=90, ge=1, le=730),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Return [{taken_at, value}] points for the given source's metric.
 
     `size` reads `total_size_bytes`; `count` reads `file_count`. Caller
     can plot directly in recharts. The response is ordered oldest-to-newest
     so the X axis is monotonic without a client-side sort."""
+    await check_source_access(source_id, principal, db)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     col = ScanSnapshot.total_size_bytes if metric == "size" else ScanSnapshot.file_count
@@ -146,7 +149,7 @@ async def get_forecast(
     horizon_days: int = Query(default=30, ge=1, le=365),
     lookback_days: int = Query(default=90, ge=7, le=730),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Linear extrapolation of total_size_bytes over `lookback_days`.
 
@@ -154,6 +157,7 @@ async def get_forecast(
     the last N snapshots, residual stddev for a 95% interval band. If
     fewer than 3 snapshots exist, returns `null` for the projection so
     the UI can render a "not enough history yet" empty state."""
+    await check_source_access(source_id, principal, db)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     rows = (
@@ -226,13 +230,14 @@ async def get_extension_trend(
     extensions: str = Query(..., description="comma-separated, e.g. pdf,mp4,docx"),
     days: int = Query(default=90, ge=1, le=730),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Per-extension series extracted from each snapshot's by_extension JSONB.
 
     Returns `{extension: [{taken_at, n, bytes}]}`. Missing extensions in
     a given snapshot return zeros so the chart's lines remain monotonic
     in time."""
+    await check_source_access(source_id, principal, db)
     requested = [e.strip().lower() for e in extensions.split(",") if e.strip()]
     if not requested:
         return {}
@@ -266,13 +271,14 @@ async def get_extension_trend(
 async def get_owner_distribution(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """Latest snapshot's by_owner — one row per owner_name, ordered by bytes.
 
     Names are hydrated via principals_cache when the owner_name looks
     like a SID; raw POSIX names pass through. Used by the Dashboard's
     'Top owners by size' tile."""
+    await check_source_access(source_id, principal, db)
 
     row = (
         await db.execute(

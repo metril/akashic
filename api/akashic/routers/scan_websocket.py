@@ -27,7 +27,6 @@ from akashic.auth.dependencies import Principal, principal_from_jwt
 from akashic.database import async_session
 from akashic.models.scan import Scan
 from akashic.models.scan_log_entry import ScanLogEntry
-from akashic.models.user import User
 from akashic.services import scan_pubsub
 
 logger = logging.getLogger(__name__)

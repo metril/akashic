@@ -20,6 +20,7 @@ from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.source_scope import restrict_sources
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
@@ -38,7 +39,7 @@ _RECENT_SCANS = 6
 
 
 async def _latest_snapshots(
-    db: AsyncSession,
+    db: AsyncSession, principal: Principal,
 ) -> list[ScanSnapshot]:
     """One row per source — the most recent snapshot. Used to compute
     'current' totals and the per-source breakdowns. Skipped sources
@@ -50,11 +51,12 @@ async def _latest_snapshots(
         .order_by(ScanSnapshot.source_id, ScanSnapshot.taken_at.desc())
         .distinct(ScanSnapshot.source_id)
     )
+    inner = restrict_sources(inner, principal, ScanSnapshot.source_id)
     return list((await db.execute(inner)).scalars().all())
 
 
 async def _snapshots_at_age(
-    db: AsyncSession, days: int,
+    db: AsyncSession, principal: Principal, days: int,
 ) -> dict[str, ScanSnapshot]:
     """Per-source latest snapshot taken at-or-before `days` ago. Used
     for the 30d delta. Returns {source_id_str: ScanSnapshot}."""
@@ -65,6 +67,7 @@ async def _snapshots_at_age(
         .order_by(ScanSnapshot.source_id, ScanSnapshot.taken_at.desc())
         .distinct(ScanSnapshot.source_id)
     )
+    stmt = restrict_sources(stmt, principal, ScanSnapshot.source_id)
     rows = (await db.execute(stmt)).scalars().all()
     return {str(r.source_id): r for r in rows}
 
@@ -89,19 +92,20 @@ def _aggregate_jsonb(snapshots: list[ScanSnapshot], field: str) -> dict[str, dic
 @router.get("/summary")
 async def get_summary(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     user = principal.user
-    all_users = principal.has("users:read")
+    # cross-user counts are never shown to a source-limited token
+    all_users = principal.has("users:read") and not principal.source_limited
 
     # ── Source counts ───────────────────────────────────────────────────
-    src_stmt = select(Source.id, Source.status, Source.name)
+    src_stmt = restrict_sources(select(Source.id, Source.status, Source.name), principal, Source.id)
     sources = (await db.execute(src_stmt)).all()
     active_scan_count = sum(1 for s in sources if s.status in ("running", "scanning"))
 
     # ── Storage totals + 30d delta (snapshot-driven) ───────────────────
-    latest = await _latest_snapshots(db)
-    older = await _snapshots_at_age(db, days=30)
+    latest = await _latest_snapshots(db, principal)
+    older = await _snapshots_at_age(db, principal, days=30)
 
     total_bytes = sum(s.total_size_bytes or 0 for s in latest)
     total_files = sum(s.file_count or 0 for s in latest)
@@ -161,7 +165,7 @@ async def get_summary(
 
     # ── Recent scans ───────────────────────────────────────────────────
     scan_stmt = (
-        select(Scan)
+        restrict_sources(select(Scan), principal, Scan.source_id)
         .order_by(Scan.started_at.desc().nulls_last())
         .limit(_RECENT_SCANS)
     )
@@ -253,12 +257,13 @@ _risk_lock = asyncio.Lock()
 @router.get("/access-risks")
 async def get_access_risks(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("analytics:read"),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     """World-readable file count. Admin-only — non-admins get 200 +
     `null` so the tile can render a "not visible to your role"
     placeholder without a 403 round-trip per dashboard mount."""
-    if not principal.has("audit:read"):
+    # The count is global and cached; it cannot be narrowed to a token's sources.
+    if not principal.has("audit:read") or principal.source_limited:
         return {"access_risks": None}
 
     # Serve from cache when fresh.

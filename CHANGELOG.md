@@ -16,8 +16,14 @@ detail.
 - **OIDC and source-OAuth callback URIs changed** to `https://<host>/api/v1/auth/oidc/callback` and `https://<host>/api/v1/oauth/callback`. Update the redirect URIs registered at your identity provider and at Google, Microsoft and Dropbox. Old URIs get a temporary 308 redirect so sign-in keeps working in the meantime; the redirect will be removed in a later release. The `oidc_redirect_uri` default changed too; set it explicitly in Settings → Server if you rely on the default.
 - **The refresh cookie path is now `/api/v1/auth`.** Everyone is signed out once and must log in again.
 
+### Added
+
+- **Personal API tokens** (`akp_...`) for scripts and integrations: create, rename, narrow and revoke them under `/api/v1/me/tokens`; admins list and revoke everyone's under `/api/v1/admin/tokens`. The secret is shown once and only its hash is stored. A token's effective scopes are its own scopes intersected with its owner's current role, so demoting a user shrinks their tokens immediately. Creating, first use and revoking a token are audited.
+- **Per-source limits**: a token can be limited to chosen sources. Anything outside the list answers 404 (never 403) across search, browse, entries, content, duplicates, analytics, dashboard, storage, access, scans, sources and tags, and Meilisearch results are filtered to those sources. A limited token cannot hold write scopes on other resources, and routes that act beyond a source (creating sources, the tag catalogue, scanner allow-lists) refuse it with `source_limited`.
+
 ### Changed
 
+- Ingest tokens now stop working as soon as their holder loses the right to write sources, instead of at expiry.
 - Scanner-agent endpoints (claim, handshake, heartbeat, leases, ingest, discovery) are tagged "Scanner protocol (internal)" in the API docs and live in their own router module.
 
 ## v0.47.0 — 2026-11-14

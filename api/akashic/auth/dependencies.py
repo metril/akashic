@@ -9,8 +9,9 @@ from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.auth.api_tokens import is_api_token, principal_from_token
 from akashic.auth.jwt import decode_access_token, decode_ingest_token
-from akashic.auth.scopes import ACL_BYPASS_SCOPE, SCOPES, scopes_for_role
+from akashic.auth.scopes import ACL_BYPASS_SCOPE, INGEST_SCOPE, SCOPES, scopes_for_role
 from akashic.database import get_db
 from akashic.errors import ApiHTTPException
 from akashic.models.user import User
@@ -59,10 +60,10 @@ class Principal:
     user: User
     scopes: frozenset[str]
     allowed_source_ids: frozenset[uuid.UUID] | None = None
-    via: Literal["jwt", "ingest"] = "jwt"
+    via: Literal["jwt", "token", "ingest"] = "jwt"
 
     @classmethod
-    def for_user(cls, user: User, *, via: Literal["jwt", "ingest"] = "jwt") -> "Principal":
+    def for_user(cls, user: User, *, via: Literal["jwt", "token", "ingest"] = "jwt") -> "Principal":
         return cls(user=user, scopes=scopes_for_role(user.role), via=via)
 
     def has(self, scope: str) -> bool:
@@ -76,9 +77,32 @@ class Principal:
             )
 
     @property
+    def source_limited(self) -> bool:
+        return self.allowed_source_ids is not None
+
+    def allows_source(self, source_id: uuid.UUID | None) -> bool:
+        """False when this principal is limited and ``source_id`` is outside the limit
+        (a NULL/orphan source is outside every limit)."""
+        if self.allowed_source_ids is None:
+            return True
+        return source_id is not None and source_id in self.allowed_source_ids
+
+    def ensure_unrestricted(self) -> None:
+        """403 for a source-limited principal: for actions that reach beyond its sources."""
+        if self.source_limited:
+            raise _source_limited_error()
+
+    @property
     def bypasses_acl(self) -> bool:
         """True when per-user file ACL filtering does not apply to this caller."""
         return ACL_BYPASS_SCOPE in self.scopes
+
+
+def _source_limited_error() -> ApiHTTPException:
+    return ApiHTTPException(
+        status.HTTP_403_FORBIDDEN, "This token is limited to specific sources and cannot do this",
+        code="source_limited",
+    )
 
 
 async def _load_user(user_id: str, db: AsyncSession) -> User | None:
@@ -100,11 +124,17 @@ async def principal_from_jwt(token: str, db: AsyncSession) -> Principal | None:
 
 
 async def get_principal(
+    request: Request,
     token: str = Security(security),
     db: AsyncSession = Depends(get_db),
 ) -> Principal:
-    """Authenticate the request. Scope enforcement is `require_scope`'s job."""
-    principal = await principal_from_jwt(token, db)
+    """Authenticate the request (login JWT or ``akp_`` API token).
+
+    Scope enforcement is `require_scope`'s job."""
+    if is_api_token(token):
+        principal = await principal_from_token(token, db, request)
+    else:
+        principal = await principal_from_jwt(token, db)
     if principal is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token",
@@ -113,8 +143,12 @@ async def get_principal(
     return principal
 
 
-def require_scope(scope: str) -> Any:
+def require_scope(scope: str, *, source_scoped: bool = False) -> Any:
     """Dependency factory: the caller must hold ``scope``.
+
+    ``source_scoped=True`` declares that the route honours a source-limited
+    principal (see ``auth.source_scope``). Without it, a source-limited token
+    is refused (403 ``source_limited``): limits fail closed.
 
     Use as ``principal: Principal = require_scope("files:read")``. The scope
     is published as an OAuth2 scope on the operation. A scope missing from
@@ -125,9 +159,12 @@ def require_scope(scope: str) -> Any:
 
     async def _require(principal: Principal = Depends(get_principal)) -> Principal:
         principal.ensure(scope)
+        if principal.source_limited and not source_scoped:
+            raise _source_limited_error()
         return principal
 
     _require.required_scope = scope  # type: ignore[attr-defined]
+    _require.source_scoped = source_scoped  # type: ignore[attr-defined]
     # Security(security, scopes=...) on a parent makes `scopes` reach the
     # OAuth2 scheme under get_principal; only the scheme reads them.
     return Security(_require, scopes=[scope])
@@ -156,6 +193,9 @@ async def get_ingest_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # The token was minted while the holder could write sources; a later
+    # downgrade must end the capability immediately, not at token expiry.
+    Principal.for_user(user, via="ingest").ensure(INGEST_SCOPE)
     return user
 
 
@@ -203,5 +243,8 @@ async def check_source_access(
     db: AsyncSession,
 ) -> None:
     """Per-source access hook. Authorisation is the route's declared scope
-    alone; this adds no scope requirement of its own. (File-level visibility
-    is narrowed by filesystem-ACL filtering, not by per-source grants.)"""
+    alone; this adds no scope requirement of its own. A source-limited token
+    gets 404 for any source outside its list. (File-level visibility is
+    narrowed by filesystem-ACL filtering, not by per-source grants.)"""
+    if not principal.allows_source(source_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")

@@ -107,7 +107,7 @@ async def browse(
     include_total: bool = Query(default=True),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     await check_source_access(source_id, principal, db)
@@ -400,7 +400,7 @@ async def effective_counts(
     path: str = Query(default="/"),
     show_all: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ) -> dict:
     """How many entries under `path` the user can/can't see — feeds the
     Browse "X items hidden" footer. Cheap (two COUNT(*) queries with the

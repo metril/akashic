@@ -26,6 +26,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.source_scope import ensure_source_allowed, restrict_sources
 from akashic.config import settings
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -103,10 +104,11 @@ async def _build_doc_with_tags(entry: Entry, db: AsyncSession) -> dict:
 async def create_tag(
     data: TagCreate,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:write"),
+    principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
     """Pre-create a catalogue entry (lets admins set a colour up front).
     Apply endpoints also auto-create — this is the explicit path."""
+    principal.ensure_unrestricted()  # the tag catalogue is global
     user = principal.user
     existing = await db.execute(select(Tag).where(Tag.name == data.name))
     if existing.scalar_one_or_none():
@@ -121,7 +123,7 @@ async def create_tag(
 @router.get("/tags", response_model=list[TagResponse])
 async def list_tags(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:read"),
+    principal: Principal = require_scope("tags:read", source_scoped=True),
 ):
     result = await db.execute(select(Tag).order_by(Tag.name))
     return result.scalars().all()
@@ -137,7 +139,7 @@ class TagUsageResponse(BaseModel):
 @router.get("/tags/usage", response_model=list[TagUsageResponse])
 async def list_tag_usage(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:read"),
+    principal: Principal = require_scope("tags:read", source_scoped=True),
 ):
     """Per-tag usage split into direct vs inherited applications.
     Backs the Settings → Tags page.
@@ -154,10 +156,13 @@ async def list_tag_usage(
               COALESCE(SUM(CASE WHEN et.inherited_from_entry_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS inherited_count
             FROM tags t
             LEFT JOIN entry_tags et ON et.tag = t.name
+              AND (CAST(:ids AS uuid[]) IS NULL OR et.entry_id IN (
+                    SELECT e.id FROM entries e WHERE e.source_id = ANY(CAST(:ids AS uuid[]))))
             GROUP BY t.id, t.name, t.color
             ORDER BY t.name
             """
-        )
+        ),
+        {"ids": sorted(principal.allowed_source_ids) if principal.source_limited else None},
     )
     return [
         TagUsageResponse(
@@ -174,10 +179,11 @@ async def list_tag_usage(
 async def delete_tag_catalogue(
     tag_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:write"),
+    principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
     """Delete a catalogue entry and every applied/inherited row that
     referenced it by name. Cascade is global — admin-only."""
+    principal.ensure_unrestricted()  # the tag catalogue is global
     tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
     tag = tag_result.scalar_one_or_none()
     if tag is None:
@@ -225,7 +231,7 @@ async def apply_tags_to_entry(
     body: _TagApplyBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:write"),
+    principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
     """Apply one or more tags (by name) to an entry.
 
@@ -239,6 +245,7 @@ async def apply_tags_to_entry(
     entry = entry_res.scalar_one_or_none()
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
 
     await _ensure_catalogue_entries(db, names=body.tags, user_id=user.id)
 
@@ -264,14 +271,15 @@ async def remove_tag_from_entry(
     tag: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:write"),
+    principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
     """Remove a directly-applied tag from an entry. Inherited copies
     sourced from this entry cascade-delete; descendants that were also
     directly tagged keep their direct rows."""
-    entry_res = await db.execute(select(Entry).where(Entry.id == entry_id))
-    if entry_res.scalar_one_or_none() is None:
+    entry = (await db.execute(select(Entry).where(Entry.id == entry_id))).scalar_one_or_none()
+    if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
 
     affected = await remove_tag(db, entry_id=entry_id, tag=tag)
     await db.commit()
@@ -287,14 +295,15 @@ async def remove_tag_from_entry(
 async def get_entry_tags(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:read"),
+    principal: Principal = require_scope("tags:read", source_scoped=True),
 ):
     """Tags on this entry, grouped by origin (direct vs inherited).
     Open to any authenticated user — read-only."""
     user = principal.user
-    entry_res = await db.execute(select(Entry).where(Entry.id == entry_id))
-    if entry_res.scalar_one_or_none() is None:
+    entry = (await db.execute(select(Entry).where(Entry.id == entry_id))).scalar_one_or_none()
+    if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
     return await get_tags_for_entry(db, entry_id=entry_id)
 
 
@@ -311,7 +320,7 @@ async def bulk_apply(
     body: _BulkApplyBody,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("tags:write"),
+    principal: Principal = require_scope("tags:write", source_scoped=True),
 ):
     """Apply each of `tags` to every entry in `entry_ids`. Used by the
     Search UI's "Tag selected (N)" action.
@@ -321,7 +330,7 @@ async def bulk_apply(
     directory."""
     user = principal.user
     res = await db.execute(
-        select(Entry).where(Entry.id.in_(body.entry_ids))
+        restrict_sources(select(Entry).where(Entry.id.in_(body.entry_ids)), principal)
     )
     entries = list(res.scalars().all())
     if len(entries) != len(set(body.entry_ids)):

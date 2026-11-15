@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import ensure_source_allowed, restrict_sources
 from akashic.database import get_db
 from akashic.models.entry import Entry, EntryVersion
 from akashic.models.source import Source
@@ -36,13 +37,13 @@ async def list_entries(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     if source_id:
         await check_source_access(source_id, principal, db)
 
-    stmt = select(Entry).where(Entry.is_deleted == False)  # noqa: E712
+    stmt = restrict_sources(select(Entry).where(Entry.is_deleted == False), principal)  # noqa: E712
     if source_id:
         stmt = stmt.where(Entry.source_id == source_id)
     if kind:
@@ -62,15 +63,15 @@ async def list_entries(
 async def get_entries_by_hash(
     content_hash: str,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     """All file entries sharing a given content_hash, scoped to permitted sources."""
     user = principal.user
-    stmt = select(Entry).where(
+    stmt = restrict_sources(select(Entry).where(
         Entry.content_hash == content_hash,
         Entry.kind == "file",
         Entry.is_deleted == False,  # noqa: E712
-    )
+    ), principal)
     if await _should_enforce_perms(principal, True, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
     result = await db.execute(stmt)
@@ -81,7 +82,7 @@ async def get_entries_by_hash(
 async def get_entry(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     result = await db.execute(select(Entry).where(Entry.id == entry_id))
@@ -93,6 +94,7 @@ async def get_entry(
     # source row to gate on. Per-entry visibility still applies via
     # `user_can_view` below, so non-admins who legitimately had
     # access at scan time keep it.
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
     if entry.source_id is not None:
         await check_source_access(entry.source_id, principal, db)
     # Same filter Browse applies — and 404 (not 403) when the user
@@ -152,13 +154,14 @@ async def get_entry(
 async def get_entry_versions(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     entry_result = await db.execute(select(Entry).where(Entry.id == entry_id))
     entry = entry_result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(principal, entry.source_id, "Entry not found")
     if entry.source_id is not None:
         await check_source_access(entry.source_id, principal, db)
     if not await user_can_view(entry, principal, db):

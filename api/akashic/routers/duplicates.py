@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.source_scope import restrict_sources
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -28,7 +29,7 @@ async def list_duplicates(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     base_filter = [
@@ -52,6 +53,7 @@ async def list_duplicates(
     )
     if min_size:
         stmt = stmt.having(func.min(Entry.size_bytes) >= min_size)
+    stmt = restrict_sources(stmt, principal)
     stmt = stmt.order_by(func.sum(Entry.size_bytes).desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
@@ -75,7 +77,7 @@ async def get_duplicate_files(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     stmt = select(Entry).where(
@@ -83,6 +85,7 @@ async def get_duplicate_files(
         Entry.content_hash == content_hash,
         Entry.is_deleted == False,  # noqa: E712
     ).order_by(Entry.id).offset(offset).limit(limit)
+    stmt = restrict_sources(stmt, principal)
     if await _should_enforce_perms(principal, False, db):
         stmt = stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
 
@@ -137,7 +140,7 @@ async def delete_duplicate_copies(
     body: DeleteCopiesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     """Bulk-delete copies of a duplicate group from disk + index.
 
@@ -171,6 +174,7 @@ async def delete_duplicate_copies(
         Entry.id.in_(all_ids),
         Entry.is_deleted == False,  # noqa: E712
     )
+    stmt = restrict_sources(stmt, principal)  # out-of-limit entries read as not found
     result = await db.execute(stmt)
     by_id: dict[uuid.UUID, Entry] = {e.id: e for e in result.scalars().all()}
 

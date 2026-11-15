@@ -75,8 +75,9 @@ async def post_test(
     body: TestSourceRequest,
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
+    principal.ensure_unrestricted()  # probes arbitrary endpoints, not an existing source
     user = principal.user
     cfg = dict(body.connection_config or {})
 

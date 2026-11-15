@@ -36,9 +36,13 @@ AUTHENTICATED_ONLY = frozenset({
     "GET /api/v1/scopes",
 })
 
-# Catalog scopes with no route yet. Ratchet: fails once a route uses one, so
-# the entry has to be removed. (3b adds the token-management routes.)
-UNROUTED_SCOPES = frozenset({"tokens:read", "tokens:write", "tokens:admin"})
+# Tags whose routes return source-scoped data. They must declare
+# ``require_scope(..., source_scoped=True)`` (and apply the limit; the
+# behavioural check is tests/test_api_tokens.py); no other route may.
+DATA_TAGS = frozenset({
+    "search", "entries", "browse", "duplicates", "analytics", "dashboard", "storage",
+    "access", "effective-permissions", "scans", "sources", "tags",
+})
 
 # Routes that are intentionally unauthenticated: they mint credentials,
 # bootstrap a scanner, or are browser redirects.
@@ -90,6 +94,20 @@ def _required_scopes(route: APIRoute) -> list[str]:
 
     walk(route.dependant)
     return found
+
+
+def _source_scoped(route: APIRoute) -> bool:
+    """True when the route's ``require_scope`` declares it honours source limits."""
+    found: list[bool] = []
+
+    def walk(dependant) -> None:
+        for sub in dependant.dependencies:
+            if getattr(sub.call, "required_scope", None) is not None:
+                found.append(bool(getattr(sub.call, "source_scoped", False)))
+            walk(sub)
+
+    walk(route.dependant)
+    return any(found)
 
 
 def _is_user_route(key: str, route: APIRoute) -> bool:
@@ -259,10 +277,7 @@ def test_every_catalog_scope_is_used(app):
     used = {s for _, route in _routes(app) for s in _required_scopes(route)}
     assert used <= set(SCOPES), f"routes use scopes missing from the catalog: {sorted(used - set(SCOPES))}"
     unused = set(SCOPES) - used
-    assert unused == UNROUTED_SCOPES, (
-        f"unused scopes {sorted(unused)} != UNROUTED_SCOPES {sorted(UNROUTED_SCOPES)}; "
-        "remove entries from UNROUTED_SCOPES once a route uses them"
-    )
+    assert not unused, f"catalog scopes no route uses: {sorted(unused)}"
 
 
 def test_role_bundles_only_contain_catalog_scopes():
@@ -280,3 +295,15 @@ def test_operations_publish_their_required_scope(app, spec):
         method, path = key.split(" ", 1)
         security = spec["paths"][path][method.lower()]["security"]
         assert {"userJWT": scopes} in security, key
+
+
+def test_data_routes_depend_on_source_scoping(app):
+    """A source-limited token is refused on every route that is not declared
+    source-aware, so the declaration must match the data tags exactly."""
+    for key, route in _routes(app):
+        if SCANNER_TAG in (route.tags or []) or not _required_scopes(route):
+            continue
+        is_data = bool(DATA_TAGS & set(route.tags or []))
+        assert _source_scoped(route) == is_data, (
+            f"{key}: tags {route.tags} but source_scoped={_source_scoped(route)}"
+        )

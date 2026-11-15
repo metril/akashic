@@ -57,6 +57,10 @@ async def make_client(setup_db):
         await c.aclose()
 
 
+# Added after the pre-scope matrix: a viewer manages their own API tokens.
+_TOKEN_ROUTES_FOR_VIEWER = frozenset(k for k, sc in _SCOPED if sc in ("tokens:read", "tokens:write"))
+
+
 def test_scoped_routes_are_discovered():
     assert len(_SCOPED) > 100
     assert {s for _, s in _SCOPED} <= set(SCOPES)
@@ -92,7 +96,9 @@ async def test_viewer_access_matches_pre_scope_behaviour(make_client, key, scope
     method, path = key.split(" ", 1)
     resp = await client.request(method, _fill(path))
     denied = resp.status_code == 403 and resp.json().get("code") == "insufficient_scope"
-    assert denied == (key not in PRE_3A_VIEWER_ALLOWED), (key, resp.status_code, resp.text[:200])
+    assert denied == (key not in PRE_3A_VIEWER_ALLOWED | _TOKEN_ROUTES_FOR_VIEWER), (
+        key, resp.status_code, resp.text[:200],
+    )
 
 
 def test_pre_3a_matrix_routes_exist():

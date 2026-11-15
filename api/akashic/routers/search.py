@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import meili_source_filter
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.user import User
@@ -153,7 +154,7 @@ async def search(
     limit: int = Query(default=100, ge=1, le=500),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:read"),
+    principal: Principal = require_scope("files:read", source_scoped=True),
 ):
     user = principal.user
     if extension and not _SAFE_EXTENSION.match(extension):
@@ -189,7 +190,10 @@ async def search(
             detail="search_as is admin-only",
         )
 
-    allowed_source_ids = None  # all sources readable by any viewer
+    # None = every source; a source-limited token is held to its list on both paths.
+    allowed_source_ids = principal.allowed_source_ids
+    if source_id is not None:
+        await check_source_access(source_id, principal, db)
 
     # Default policy: has bindings → 'readable'; no bindings → 'all'
     if permission_filter is None:
@@ -225,9 +229,9 @@ async def search(
         filters: list[str] = []
         if source_id:
             filters.append(f'source_id = "{source_id}"')
-        elif allowed_source_ids is not None:
-            sid_filter = " OR ".join(f'source_id = "{s}"' for s in allowed_source_ids)
-            filters.append(f"({sid_filter})")
+        limit_clause = meili_source_filter(principal)
+        if limit_clause is not None:
+            filters.append(limit_clause)
         if extension:
             filters.append(f'extension = "{extension}"')
         if min_size is not None:

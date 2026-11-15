@@ -16,6 +16,7 @@ SCANNER_TAG = "Scanner protocol (internal)"
 
 TAGS: list[dict[str, str]] = [
     {"name": "auth", "description": "Login, token refresh, logout, OIDC single sign-on, and the scope catalog."},
+    {"name": "tokens", "description": "Personal API tokens: create, narrow and revoke your own; admins manage everyone's."},
     {"name": "users", "description": "User accounts and registration."},
     {"name": "sources", "description": "Indexed storage sources: connections, scans, reachability and scanner allow-lists."},
     {"name": "hosts", "description": "Hosts that group sources, and share discovery on them."},

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from akashic.auth.source_scope import restrict_sources
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
@@ -139,8 +140,9 @@ async def create_source(
     data: SourceCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
+    principal.ensure_unrestricted()  # a new source is outside any source limit
     user = principal.user
     err = reject_sentinel_in_create(data.connection_config)
     if err:
@@ -279,13 +281,13 @@ async def create_source(
 @router.get("", response_model=list[SourceListResponse])
 async def list_sources(
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     """Lean list view — drops connection_config/security_metadata/
     exclude_patterns and ships a server-rendered `summary` for the
     SourceCard subtitle. Per-source detail (with full config) is
     served by GET /sources/{id} which the panel fetches on click."""
-    result = await db.execute(select(Source).order_by(Source.name))
+    result = await db.execute(restrict_sources(select(Source), principal, Source.id).order_by(Source.name))
     return [SourceListResponse.from_source(s) for s in result.scalars().all()]
 
 
@@ -293,7 +295,7 @@ async def list_sources(
 async def get_source(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     user = principal.user
     await check_source_access(source_id, principal, db)
@@ -310,7 +312,7 @@ async def get_source_audit(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     """Per-source audit timeline. Visible to any user with read access
     to the source — the same gate that lets them browse its files.
@@ -362,9 +364,10 @@ async def update_source(
     data: SourceUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     user = principal.user
+    await check_source_access(source_id, principal, db)
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -539,9 +542,10 @@ async def delete_source(
         ),
     ),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     user = principal.user
+    await check_source_access(source_id, principal, db)
     result = await db.execute(select(Source).where(Source.id == source_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -620,7 +624,7 @@ class SourceEntryCount(BaseModel):
 async def get_source_entry_count(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     """Cheap COUNT used by the delete-source modal to show blast
     radius. Excludes soft-deleted entries (`is_deleted = true`)
@@ -649,13 +653,14 @@ class OrphanMatchCount(BaseModel):
 async def get_orphan_match_count(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     """How many orphaned entries (source_id IS NULL) share a path
     with an entry of THIS source. Used by the source-detail
     banner to decide whether to surface the 'Recover orphans'
     affordance — returns instantly because it's a single COUNT on
     indexed columns."""
+    principal.ensure_unrestricted()  # orphans belong to no source, so to no limit
     from akashic.services.orphan_matcher import count_potential_matches
     cnt = await count_potential_matches(db, source_id)
     return OrphanMatchCount(count=cnt)
@@ -682,13 +687,14 @@ async def reattach_orphans(
     body: ReattachRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     """Re-attach orphaned entries (source_id IS NULL) into this
     source where (path, name, kind) — and optionally content_hash
     — match a freshly-scanned entry. The orphan keeps its history
     (tags, version history, audit trail); the duplicate fresh
     entry is deleted."""
+    principal.ensure_unrestricted()  # orphans belong to no source, so to no limit
     user = principal.user
     from akashic.services.orphan_matcher import (
         Strategy, commit_matches, find_matches,
@@ -844,7 +850,7 @@ async def test_source_scanners(
     source_id: uuid.UUID,
     body: TestScannersRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     """User-triggered reachability probe — for one source, against one
     or more scanners.
@@ -929,7 +935,7 @@ class ReachabilitySummary(BaseModel):
 async def get_source_reachability_summary(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     """Single-source reachability snapshot for the badge component.
 
@@ -1019,7 +1025,7 @@ async def get_source_reachability_history(
     source_id: uuid.UUID,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     user = principal.user
     await check_source_access(source_id, principal, db)
@@ -1080,7 +1086,7 @@ class ScannerReachabilityRow(BaseModel):
 async def list_source_scanner_reachability(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:read"),
+    principal: Principal = require_scope("sources:read", source_scoped=True),
 ):
     """For a given source, return every registered scanner's current
     allow-state and the latest probe outcome by that scanner. Feeds
@@ -1145,7 +1151,7 @@ async def patch_source_allowed_scanners(
     body: AllowedScannersRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("sources:write"),
+    principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
     """Set the per-scanner allow-list for ONE source.
 
@@ -1161,6 +1167,7 @@ async def patch_source_allowed_scanners(
     Idempotent: re-applying the same set is a no-op. Audit:
     `source_allowed_scanners_updated` per affected scanner.
     """
+    principal.ensure_unrestricted()  # rewrites other scanners' allow-lists
     user = principal.user
     src = (await db.execute(
         select(Source).where(Source.id == source_id)

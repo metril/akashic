@@ -23,7 +23,8 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from akashic.auth.dependencies import Principal, require_scope
+from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import ensure_source_allowed, meili_source_filter
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.principals_cache import PrincipalsCache
@@ -116,7 +117,7 @@ async def access_query(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    caller: Principal = require_scope("access:read"),
+    caller: Principal = require_scope("access:read", source_scoped=True),
 ):
     """Single endpoint, two modes.
 
@@ -148,11 +149,13 @@ async def access_query(
     if source_id is not None:
         audit_payload["source_id"] = str(source_id)
 
+    if source_id is not None:
+        await check_source_access(source_id, caller, db)
     if file is not None:
-        result = await _file_to_principals(file, right, db)
+        result = await _file_to_principals(file, right, caller, db)
     else:
         assert principal is not None
-        result = await _principal_to_files(principal, right, source_id, offset, limit, db)
+        result = await _principal_to_files(principal, right, source_id, offset, limit, caller, db)
 
     await record_event(
         db=db, user=caller.user,
@@ -171,12 +174,16 @@ async def _principal_to_files(
     source_id: uuid.UUID | None,
     offset: int,
     limit: int,
+    caller: Principal,
     db: AsyncSession,
 ):
     field = _RIGHT_FIELDS[right]
     parts = [f'{field} = "{_meili_quote(principal)}"']
     if source_id is not None:
         parts.append(f'source_id = "{source_id}"')
+    limit_clause = meili_source_filter(caller)
+    if limit_clause is not None:
+        parts.append(limit_clause)
     filterstr = " AND ".join(parts)
 
     client = await get_meili_client()
@@ -290,6 +297,7 @@ async def _principal_to_files(
 async def _file_to_principals(
     entry_id: uuid.UUID,
     right: str,
+    caller: Principal,
     db: AsyncSession,
 ):
     entry = (
@@ -297,6 +305,7 @@ async def _file_to_principals(
     ).scalar_one_or_none()
     if entry is None:
         raise HTTPException(status_code=404, detail="Entry not found")
+    ensure_source_allowed(caller, entry.source_id, "Entry not found")
 
     # denormalize_acl wants a typed ACL or None.
     acl_obj = None

@@ -23,6 +23,7 @@ from akashic.auth.dependencies import (
     get_ingest_user,
     require_scope,
 )
+from akashic.auth.source_scope import ensure_source_allowed
 from akashic.database import get_db
 from akashic.openapi import SCANNER_TAG
 from akashic.models.scan import Scan
@@ -350,7 +351,7 @@ async def get_log(
     kind: str = Query("all", pattern="^(structured|stderr|all)$"),
     limit: int = Query(2000, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scans:read"),
+    principal: Principal = require_scope("scans:read", source_scoped=True),
 ) -> list[LogEntryOut]:
     """Backfill / catch-up endpoint. The WS path streams new events live;
     GET handles the gap on reconnect and the full-history load the log
@@ -369,7 +370,7 @@ async def get_log(
     scan = (await db.execute(select(Scan).where(Scan.id == scan_id))).scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="scan not found")
-    await check_source_access(scan.source_id, principal, db)
+    ensure_source_allowed(principal, scan.source_id, "scan not found")
 
     stmt = select(ScanLogEntry).where(ScanLogEntry.scan_id == scan_id)
     if since is not None:

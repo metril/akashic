@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import ensure_source_allowed
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.source import Source
@@ -54,6 +55,7 @@ async def _load_entry_and_source(
     entry = await db.get(Entry, entry_id)
     if entry is None or entry.kind != "file" or entry.is_deleted:
         raise HTTPException(status_code=404, detail="entry not found or not a file")
+    ensure_source_allowed(principal, entry.source_id, "entry not found or not a file")
     if entry.source_id is None:
         # The source this entry was indexed from has been deleted
         # (preserve-entries flavour). Without a connection_config
@@ -113,7 +115,7 @@ async def get_content(
     entry_id: uuid.UUID,
     as_attachment: bool = Query(default=False, alias="attachment"),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:content"),
+    principal: Principal = require_scope("files:content", source_scoped=True),
 ):
     entry, source = await _load_entry_and_source(entry_id, db, principal)
     media_type = entry.mime_type or "application/octet-stream"
@@ -170,7 +172,7 @@ async def get_content(
 async def get_preview(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("files:content"),
+    principal: Principal = require_scope("files:content", source_scoped=True),
 ):
     entry, source = await _load_entry_and_source(entry_id, db, principal)
 

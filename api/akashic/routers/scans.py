@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import ensure_source_allowed, restrict_sources
 from akashic.database import get_db
 from akashic.models.scan import Scan
 from akashic.models.source import Source
@@ -40,7 +41,7 @@ async def trigger_scan(
     data: ScanTriggerRequest,
     background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scans:write"),
+    principal: Principal = require_scope("scans:write", source_scoped=True),
 ):
     """Enqueue a scan into the lease queue.
 
@@ -163,13 +164,13 @@ async def list_scans(
     offset: int = 0,
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scans:read"),
+    principal: Principal = require_scope("scans:read", source_scoped=True),
 ):
     user = principal.user
     if source_id:
         await check_source_access(source_id, principal, db)
 
-    stmt = select(Scan)
+    stmt = restrict_sources(select(Scan), principal, Scan.source_id)
     if source_id:
         stmt = stmt.where(Scan.source_id == source_id)
     if status:
@@ -189,14 +190,14 @@ async def list_scans(
 async def get_scan(
     scan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scans:read"),
+    principal: Principal = require_scope("scans:read", source_scoped=True),
 ):
     user = principal.user
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    await check_source_access(scan.source_id, principal, db)
+    ensure_source_allowed(principal, scan.source_id, "Scan not found")
     return scan
 
 
@@ -275,7 +276,7 @@ async def cancel_scan_core(db: AsyncSession, scan: Scan, *, reason: str) -> str:
 async def cancel_scan(
     scan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: Principal = require_scope("scans:write"),
+    principal: Principal = require_scope("scans:write", source_scoped=True),
 ):
     """Mark a running scan as cancelled. The next heartbeat from the
     scanner will receive HTTP 409 and exit cleanly. Idempotent: calling
@@ -286,6 +287,6 @@ async def cancel_scan(
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    await check_source_access(scan.source_id, principal, db)
+    ensure_source_allowed(principal, scan.source_id, "Scan not found")
     status = await cancel_scan_core(db, scan, reason="user")
     return CancelResponse(scan_id=scan.id, status=status)

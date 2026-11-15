@@ -45,6 +45,8 @@ SCOPES: dict[str, str] = {
 # a scope held by the principal, so a narrower token cannot gain them.
 ACL_BYPASS_SCOPE = "users:write"  # sees all files regardless of per-user ACL filtering
 
+INGEST_SCOPE = "sources:write"  # the holder of an ingest token must still be allowed to write sources
+
 # Exactly what a viewer could do before scopes existed (not "every read scope"):
 # read the index and own data, manage own identities and webhooks, own tokens.
 ROLE_SCOPES: dict[str, frozenset[str]] = {
@@ -67,3 +69,18 @@ def roles_with_scope(scope: str) -> list[str]:
 def scopes_for_role(role: str | None) -> frozenset[str]:
     """Scopes granted by a role; an unknown role grants nothing."""
     return ROLE_SCOPES.get(role or "", frozenset())
+
+
+# A token limited to some sources may only change things inside those sources.
+# Write scopes that reach other resources (users, settings, webhooks, hosts,
+# credentials, maintenance, purge, tokens...) are refused for it at creation.
+SOURCE_LIMITED_WRITE_SCOPES = frozenset({"sources:write", "scans:write", "tags:write"})
+
+
+def forbidden_with_source_limit(scopes: "frozenset[str] | set[str] | list[str]") -> list[str]:
+    """Scopes in ``scopes`` that a source-limited token may not hold, sorted."""
+    return sorted(
+        s for s in scopes
+        if (s.endswith(":write") or s in {"data:purge", "tokens:admin"})
+        and s not in SOURCE_LIMITED_WRITE_SCOPES
+    )

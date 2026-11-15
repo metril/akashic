@@ -17,6 +17,7 @@ from akashic.models.audit_event import AuditEvent
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.refresh_token import RefreshToken
+from akashic.models.api_token import ApiToken
 from akashic.models.scanner import Scanner
 from akashic.models.scanner_claim_token import ScannerClaimToken
 from akashic.models.scanner_discovery_request import ScannerDiscoveryRequest
@@ -50,6 +51,7 @@ __all__ = [
     "PrincipalGroupsCache",
     "PrincipalsCache",
     "RefreshToken",
+    "ApiToken",
     "Scanner",
     "ScannerClaimToken",
     "ScannerDiscoveryRequest",
