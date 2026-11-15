@@ -20,6 +20,7 @@ detail.
 
 - **Personal API tokens** (`akp_...`) for scripts and integrations: create, rename, narrow and revoke them under `/api/v1/me/tokens`; admins list and revoke everyone's under `/api/v1/admin/tokens`. The secret is shown once and only its hash is stored. A token's effective scopes are its own scopes intersected with its owner's current role, so demoting a user shrinks their tokens immediately. Creating, first use and revoking a token are audited.
 - **Per-source limits**: a token can be limited to chosen sources. Anything outside the list answers 404 (never 403) across search, browse, entries, content, duplicates, analytics, dashboard, storage, access, scans, sources and tags, and Meilisearch results are filtered to those sources. A limited token cannot hold write scopes on other resources, and routes that act beyond a source (creating sources, the tag catalogue, scanner allow-lists) refuse it with `source_limited`.
+- **API tokens in the web UI** (Settings → API tokens): create tokens from scope checkboxes grouped by resource with Read-only and Full presets, optionally limit them to sources and set an expiry; the secret is shown once with a copy button. Rename and revoke from the list; admins get an "All tokens" view. The UI now gates every action and page by scope instead of role (viewer and admin see exactly what they did before).
 
 ### Changed
 

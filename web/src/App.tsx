@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { bootstrapAuth, isAuthenticated } from "./api/client";
-import { useAuth } from "./hooks/useAuth";
-import AdminRoute from "./components/AdminRoute";
+import { useScopes } from "./hooks/useScopes";
+import ScopeRoute from "./components/ScopeRoute";
 import Layout from "./components/Layout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import Login from "./pages/Login";
@@ -29,6 +29,7 @@ const SettingsScanners   = lazy(() => import("./pages/SettingsScanners"));
 const SettingsCredentials = lazy(() => import("./pages/SettingsCredentials"));
 const SettingsServer     = lazy(() => import("./pages/SettingsServer"));
 const SettingsOAuth      = lazy(() => import("./pages/SettingsOAuth"));
+const ApiTokens          = lazy(() => import("./pages/ApiTokens"));
 const AdminAudit         = lazy(() => import("./pages/AdminAudit"));
 const AdminAccess        = lazy(() => import("./pages/AdminAccess"));
 const AdminSystemStatus  = lazy(() => import("./pages/AdminSystemStatus"));
@@ -49,8 +50,8 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function SettingsIndexRedirect() {
-  const { isAdmin } = useAuth();
-  return <Navigate to={isAdmin ? "credentials" : "identities"} replace />;
+  const { has } = useScopes();
+  return <Navigate to={has("credentials:read") ? "credentials" : "identities"} replace />;
 }
 
 function PageLoader() {
@@ -197,104 +198,114 @@ export default function App() {
             }
           />
           <Route
+            path="tokens"
+            element={
+              <ScopeRoute scope="tokens:read">
+                <Suspense fallback={<PageLoader />}>
+                  <ApiTokens />
+                </Suspense>
+              </ScopeRoute>
+            }
+          />
+          <Route
             path="tags"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="tags:write">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsTags />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
           <Route
             path="schedules"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="sources:write">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsSchedules />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
           <Route
             path="scanners"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="scanners:read">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsScanners />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
           <Route
             path="credentials"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="credentials:read">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsCredentials />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
           <Route
             path="oauth"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="credentials:read">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsOAuth />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
         <Route
             path="server"
             element={
-              <AdminRoute>
+              <ScopeRoute scope="settings:read">
                 <Suspense fallback={<PageLoader />}>
                   <SettingsServer />
                 </Suspense>
-              </AdminRoute>
+              </ScopeRoute>
             }
           />
         </Route>
         <Route
           path="admin/audit"
           element={
-            <AdminRoute>
+            <ScopeRoute scope="audit:read">
               <Suspense fallback={<PageLoader />}>
                 <AdminAudit />
               </Suspense>
-            </AdminRoute>
+            </ScopeRoute>
           }
         />
         <Route
           path="admin/access"
           element={
-            <AdminRoute>
+            <ScopeRoute scope="access:read">
               <Suspense fallback={<PageLoader />}>
                 <AdminAccess />
               </Suspense>
-            </AdminRoute>
+            </ScopeRoute>
           }
         />
         <Route
           path="admin/system-status"
           element={
-            <AdminRoute>
+            <ScopeRoute scope="health:read">
               <Suspense fallback={<PageLoader />}>
                 <AdminSystemStatus />
               </Suspense>
-            </AdminRoute>
+            </ScopeRoute>
           }
         />
         <Route
           path="admin/maintenance"
           element={
-            <AdminRoute>
+            <ScopeRoute scope="maintenance:write">
               <Suspense fallback={<PageLoader />}>
                 <AdminMaintenance />
               </Suspense>
-            </AdminRoute>
+            </ScopeRoute>
           }
         />
       </Route>

@@ -10,7 +10,7 @@ import {
   useUpdateHost,
 } from "../../hooks/useHosts";
 import { useSources } from "../../hooks/useSources";
-import { useAuth } from "../../hooks/useAuth";
+import { useScopes } from "../../hooks/useScopes";
 import {
   HostFields,
   type HostConfig,
@@ -38,7 +38,9 @@ interface Props {
 }
 
 export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canWriteHosts = has("hosts:write");
+  const canScan = has("scans:write");
   const hostQuery = useHostDetail(hostId);
   const sourcesQuery = useSources();
   const updateHost = useUpdateHost();
@@ -295,7 +297,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
             <div className="flex flex-wrap gap-2 pt-2 border-t border-line-subtle">
               {!editing ? (
                 <>
-                  {isAdmin && (
+                  {canWriteHosts && (
                     <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                       Edit
                     </Button>
@@ -320,7 +322,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       Test reachability
                     </Button>
                   )}
-                  {isAdmin && DISCOVERABLE.has(host.type) && (
+                  {canWriteHosts && DISCOVERABLE.has(host.type) && (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -331,7 +333,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       {discovering ? "Hide shares" : "Discover shares"}
                     </Button>
                   )}
-                  {isAdmin && attachedSources.length > 0 && (
+                  {canScan && attachedSources.length > 0 && (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -342,7 +344,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
                       Scan all attached
                     </Button>
                   )}
-                  {isAdmin && (
+                  {canWriteHosts && (
                     <Button
                       size="sm"
                       variant="danger"
@@ -421,7 +423,7 @@ export function HostDetail({ hostId, open, onClose, autoDiscover }: Props) {
               </div>
             )}
 
-            {isAdmin && (
+            {canWriteHosts && (
               <div className="pt-3 border-t border-line-subtle">
                 <p className="text-xs uppercase tracking-wide text-fg-subtle mb-2">
                   Allowed scanners (applies to all attached shares)

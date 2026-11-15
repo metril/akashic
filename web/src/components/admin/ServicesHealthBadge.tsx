@@ -9,15 +9,16 @@
  */
 import { Link } from "react-router-dom";
 
-import { useAuth } from "../../hooks/useAuth";
+import { useScopes } from "../../hooks/useScopes";
 import { useServicesHealth } from "../../hooks/useServicesHealth";
 import { cn } from "../ui";
 
 export function ServicesHealthBadge({ collapsed = false }: { collapsed?: boolean }) {
-  const { isAdmin } = useAuth();
-  const { data, isError } = useServicesHealth({ enabled: isAdmin });
+  const { has } = useScopes();
+  const canReadHealth = has("health:read");
+  const { data, isError } = useServicesHealth({ enabled: canReadHealth });
 
-  if (!isAdmin || isError || !data) return null;
+  if (!canReadHealth || isError || !data) return null;
 
   const services = [data.postgres, data.redis, data.meilisearch, data.tika];
   const down = services.filter((s) => !s.ok).length;

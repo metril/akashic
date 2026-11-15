@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { useAuth } from "./useAuth";
+import { useScopes } from "./useScopes";
 
 interface ScannerCounts {
   registered: number;
@@ -15,12 +15,13 @@ interface ScannerCounts {
 }
 
 export function useScannerSummary() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canReadScanners = has("scanners:read");
   return useQuery<ScannerCounts>({
     queryKey: ["scanners", "summary"],
     queryFn: () => api.get<ScannerCounts>("/scanners/summary"),
     // Non-admins don't see the banner so the data is irrelevant.
-    enabled: isAdmin,
+    enabled: canReadScanners,
     staleTime: 30_000,
     // Offline is time-derived from last_seen_at (no triggering event),
     // so a poll is the only way the online count self-heals when a

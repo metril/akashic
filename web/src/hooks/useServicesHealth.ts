@@ -8,7 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { useAuth } from "./useAuth";
+import { useScopes } from "./useScopes";
 
 export interface ServiceLiveness {
   ok: boolean;
@@ -51,11 +51,12 @@ export interface ServicesActivity {
 }
 
 export function useServicesHealth(options: { enabled?: boolean } = {}) {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canReadHealth = has("health:read");
   return useQuery<ServicesHealth>({
     queryKey: ["health", "services"],
     queryFn: () => api.get<ServicesHealth>("/health/services"),
-    enabled: isAdmin && (options.enabled ?? true),
+    enabled: canReadHealth && (options.enabled ?? true),
     refetchInterval: 30_000,
     // Stale-while-revalidate so the chip doesn't flicker on each poll.
     staleTime: 25_000,
@@ -63,11 +64,12 @@ export function useServicesHealth(options: { enabled?: boolean } = {}) {
 }
 
 export function useServicesActivity(options: { enabled?: boolean } = {}) {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canReadHealth = has("health:read");
   return useQuery<ServicesActivity>({
     queryKey: ["health", "services", "activity"],
     queryFn: () => api.get<ServicesActivity>("/health/services/activity"),
-    enabled: isAdmin && (options.enabled ?? true),
+    enabled: canReadHealth && (options.enabled ?? true),
     refetchInterval: 10_000,
     staleTime: 8_000,
   });

@@ -57,7 +57,7 @@ import { SearchAsForm } from "../components/search/SearchAsForm";
 import { DomainMetadataFacets } from "../components/search/DomainMetadataFacets";
 import { ResultFacets } from "../components/search/ResultFacets";
 import { BulkTagDialog } from "../components/tags/BulkTagDialog";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
@@ -124,7 +124,8 @@ export default function Search() {
   const [showSearchAs, setShowSearchAs] = useState(false);
   const { openEntry } = useEntryDetail();
   const { filters } = useFilterUrlState();
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canTag = has("tags:write");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
 
@@ -422,7 +423,7 @@ export default function Search() {
             </div>
           </div>
 
-          {isAdmin && (
+          {canTag && (
             <SelectionBar
               results={results}
               selectedIds={selectedIds}
@@ -436,7 +437,7 @@ export default function Search() {
                 <SearchResultRow
                   key={file.id}
                   file={file}
-                  isAdmin={isAdmin}
+                  canTag={canTag}
                   selected={selectedIds.has(file.id)}
                   sourceLabel={
                     file.source_id == null
@@ -481,7 +482,7 @@ export default function Search() {
 // shared state itself.
 interface SearchResultRowProps {
   file: SearchResult;
-  isAdmin: boolean;
+  canTag: boolean;
   selected: boolean;
   sourceLabel: string | null;
   onOpen: (id: string) => void;
@@ -490,7 +491,7 @@ interface SearchResultRowProps {
 
 const SearchResultRow = memo(function SearchResultRow({
   file,
-  isAdmin,
+  canTag,
   selected,
   sourceLabel,
   onOpen,
@@ -509,7 +510,7 @@ const SearchResultRow = memo(function SearchResultRow({
       className="px-4 py-2.5 hover:bg-surface-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
     >
       <div className="flex items-baseline justify-between gap-4">
-        {isAdmin && (
+        {canTag && (
           <input
             type="checkbox"
             checked={selected}

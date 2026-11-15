@@ -16,7 +16,7 @@ Universal file index — hybrid Go scanner + Python API + Meilisearch + React we
 ## Documentation
 
 - **[Configuration reference](docs/configuration.md)** — every env var and feature flag.
-- **[Authentication](docs/authentication.md)** — local users, OIDC, direct LDAP, OIDC + LDAP fallback.
+- **[Authentication](docs/authentication.md)** — local users, OIDC, direct LDAP, OIDC + LDAP fallback, scopes and personal API tokens.
 - **[Permissions model](docs/permissions-model.md)** — ACL projection, `viewable_by_*` columns, FsBindings.
 - **[Storage view](docs/storage-view.md)** — treemap, sunburst, colour modes (incl. Risk).
 - **[Search and Browse](docs/search-and-browse.md)** — query syntax, filter chips, search-as.

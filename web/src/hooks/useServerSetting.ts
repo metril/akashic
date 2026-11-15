@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { useAuth } from "./useAuth";
+import { useScopes } from "./useScopes";
 
 interface SettingValue<T> {
   key: string;
@@ -17,7 +17,8 @@ interface SettingValue<T> {
 }
 
 export function useServerSetting<T>(key: string, defaultValue: T) {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canReadSettings = has("settings:read");
   const qc = useQueryClient();
 
   const query = useQuery<T>({
@@ -32,7 +33,7 @@ export function useServerSetting<T>(key: string, defaultValue: T) {
         return defaultValue;
       }
     },
-    enabled: isAdmin,
+    enabled: canReadSettings,
     staleTime: 10_000,
   });
 
@@ -81,13 +82,14 @@ export interface ServerSettingsResponse {
 const ALL_KEY = ["server-settings", "all"] as const;
 
 export function useServerSettings() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canReadSettings = has("settings:read");
   const qc = useQueryClient();
 
   const query = useQuery<ServerSettingsResponse>({
     queryKey: ALL_KEY,
     queryFn: () => api.get<ServerSettingsResponse>("/server-settings"),
-    enabled: isAdmin,
+    enabled: canReadSettings,
     staleTime: 10_000,
   });
 

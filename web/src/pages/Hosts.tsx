@@ -4,7 +4,7 @@ import { Badge, Card, EmptyState, Page, Skeleton } from "../components/ui";
 import { AddHostForm } from "../components/hosts/AddHostForm";
 import { HostDetail } from "../components/hosts/HostDetail";
 import { useHosts } from "../hooks/useHosts";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 
 // v0.28.0 — host-level reachability badge dropped along with the
 // host.is_reachable / last_reachable_at columns. The host card now
@@ -12,7 +12,8 @@ import { useAuth } from "../hooks/useAuth";
 // surfaces in the SourceCard / SourceDetail panel where it belongs.
 
 export default function Hosts() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canWriteHosts = has("hosts:write");
   const hostsQuery = useHosts();
   const [openHostId, setOpenHostId] = useState<string | null>(null);
   const [autoDiscover, setAutoDiscover] = useState(false);
@@ -52,7 +53,7 @@ export default function Hosts() {
               <EmptyState
                 title="No hosts yet"
                 description={
-                  isAdmin
+                  canWriteHosts
                     ? "Add a host on the right, then attach shares from the Sources page."
                     : undefined
                 }
@@ -88,7 +89,7 @@ export default function Hosts() {
         </div>
 
         <div className="lg:col-span-1">
-          {isAdmin && <AddHostForm />}
+          {canWriteHosts && <AddHostForm />}
         </div>
       </div>
 

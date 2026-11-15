@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { useAuth } from "./useAuth";
+import { useScopes } from "./useScopes";
 
 export interface ClaimTokenSummary {
   id: string;
@@ -50,13 +50,14 @@ export interface CreateTokenBody {
 }
 
 export function useScannerClaimTokens() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canManageScanners = has("scanners:write");
   const qc = useQueryClient();
 
   const list = useQuery<ClaimTokenSummary[]>({
     queryKey: ["scanner-claim-tokens"],
     queryFn: () => api.get<ClaimTokenSummary[]>("/scanner-claim-tokens"),
-    enabled: isAdmin,
+    enabled: canManageScanners,
     refetchInterval: 30_000,
   });
 

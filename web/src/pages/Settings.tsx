@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { Icon, Page, type IconName } from "../components/ui";
 import { cn } from "../components/ui/cn";
 
@@ -10,8 +10,8 @@ interface SettingsTab {
   iconName: IconName;
   /** Tooltip on the tab; describes what the section is for. */
   hint: string;
-  /** Hidden from non-admins; the matching route is wrapped in AdminRoute. */
-  adminOnly?: boolean;
+  /** Scope needed to see the tab; the matching route is wrapped in ScopeRoute. */
+  scope: string;
 }
 
 /**
@@ -24,57 +24,65 @@ interface SettingsTab {
 const TABS: SettingsTab[] = [
   {
     to: "/settings/credentials",
-    adminOnly: true,
+    scope: "credentials:read",
     label: "Credentials",
     iconName: "shield",
     hint: "Reusable credential profiles for SMB / NFS / S3 hosts and shares.",
   },
   {
     to: "/settings/oauth",
-    adminOnly: true,
+    scope: "credentials:read",
     label: "OAuth",
     iconName: "box",
     hint: "OAuth client apps for Google Drive, OneDrive, and Dropbox.",
   },
   {
     to: "/settings/scanners",
-    adminOnly: true,
+    scope: "scanners:read",
     label: "Scanners",
     iconName: "database",
     hint: "Registered scanner agents, join tokens, and auto-discovery.",
   },
   {
     to: "/settings/schedules",
-    adminOnly: true,
+    scope: "sources:write",
     label: "Schedules",
     iconName: "clock",
     hint: "Source scan cadences (cron) — one row per source.",
   },
   {
     to: "/settings/identities",
+    scope: "identities:read",
     label: "Identities",
     iconName: "user",
     hint: "Cross-source identity bindings used for ACL-aware search.",
   },
   {
     to: "/settings/tags",
-    adminOnly: true,
+    scope: "tags:write",
     label: "Tags",
     iconName: "tag",
     hint: "Custom labels applied to entries for filter and search.",
   },
   {
     to: "/settings/server",
-    adminOnly: true,
+    scope: "settings:read",
     label: "Server",
     iconName: "settings",
     hint: "Server-wide runtime settings (auth, scanning, ingest, limits).",
   },
+  {
+    to: "/settings/tokens",
+    scope: "tokens:read",
+    label: "API tokens",
+    iconName: "key",
+    hint: "Personal tokens for scripts and integrations.",
+  },
 ];
 
 export default function Settings() {
-  const { isAdmin } = useAuth();
-  const tabs = TABS.filter((t) => isAdmin || !t.adminOnly);
+  const { has } = useScopes();
+  const tabs = TABS.filter((t) => has(t.scope));
   return (
     <Page
       title="Settings"

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Badge, Button, Drawer, Spinner } from "../ui";
 import { api } from "../../api/client";
-import { useAuth } from "../../hooks/useAuth";
+import { useScopes } from "../../hooks/useScopes";
 import {
   useDeleteSource,
   useUpdateSource,
@@ -250,7 +250,8 @@ const DetailsTab = memo(function DetailsTab({
   source, onClose, activeScanId,
 }: DetailsTabProps) {
   const queryClient = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canWriteSources = has("sources:write");
   const updateSource = useUpdateSource();
   const deleteSource = useDeleteSource();
   const testSource = useTestSource();
@@ -500,7 +501,7 @@ const DetailsTab = memo(function DetailsTab({
       <div className="flex flex-wrap gap-2 pt-2 border-t border-line-subtle">
         {!editing ? (
           <>
-            {isAdmin && (
+            {canWriteSources && (
               <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                 Edit
               </Button>
@@ -524,7 +525,7 @@ const DetailsTab = memo(function DetailsTab({
                   ? "Queued…"
                   : "Scan now"}
             </Button>
-            {isAdmin && (
+            {canWriteSources && (
               <Button
                 size="sm"
                 variant="danger"
@@ -534,7 +535,7 @@ const DetailsTab = memo(function DetailsTab({
                 Delete
               </Button>
             )}
-            {isAdmin && (
+            {canWriteSources && (
               <Button
                 size="sm"
                 variant="secondary"

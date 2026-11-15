@@ -15,7 +15,7 @@ import {
   Button,
   ConfirmDialog,
 } from "../components/ui";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { formatBytes, formatNumber } from "../lib/format";
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -50,13 +50,13 @@ function pickDefaultKeep(files: FileEntry[]): string | null {
 
 interface DuplicateGroupRowProps {
   group: DuplicateGroup;
-  isAdmin: boolean;
+  canDeleteCopies: boolean;
   /** v0.20.0 — when set, the row opens itself and scrolls into view on
    *  mount. Used by the ?hash= deep-link from Search-result rows. */
   autoOpen?: boolean;
 }
 
-function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps) {
+function DuplicateGroupRow({ group, canDeleteCopies, autoOpen }: DuplicateGroupRowProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(autoOpen ?? false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -235,7 +235,7 @@ function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps)
             <p className="text-sm text-fg-subtle py-3 px-5">No files.</p>
           ) : (
             <>
-              {isAdmin && (
+              {canDeleteCopies && (
                 <div className="px-5 pt-3 pb-2 flex items-center justify-between gap-3 border-b border-line-subtle">
                   <p className="text-xs text-fg-muted">
                     Pick one copy to keep; check the others to delete from disk.
@@ -263,7 +263,7 @@ function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps)
                         isKeep ? "bg-emerald-50/40 dark:bg-emerald-500/5" : ""
                       } ${isDelete ? "bg-rose-50/40 dark:bg-rose-500/5" : ""}`}
                     >
-                      {isAdmin && (
+                      {canDeleteCopies && (
                         <div className="flex flex-col items-center gap-1 pt-0.5">
                           <label
                             className="flex flex-col items-center gap-0.5 cursor-pointer"
@@ -318,7 +318,7 @@ function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps)
                   );
                 })}
               </ul>
-              {isAdmin && deleteIds.length > 0 && (
+              {canDeleteCopies && deleteIds.length > 0 && (
                 <div className="sticky bottom-0 z-10 bg-surface border-t border-line px-5 py-3 flex flex-wrap items-center justify-between gap-3 shadow-card">
                   <div className="text-sm text-fg-muted min-w-0">
                     Keep{" "}
@@ -388,7 +388,8 @@ function DuplicateGroupRow({ group, isAdmin, autoOpen }: DuplicateGroupRowProps)
 }
 
 export default function Duplicates() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canDeleteCopies = has("sources:write");
   const [searchParams] = useSearchParams();
   // v0.20.0 — `?hash=...` deep-link from the +N copies badge on Search.
   // The matching DuplicateGroupRow auto-expands and scrolls into view.
@@ -438,7 +439,7 @@ export default function Duplicates() {
         <CardHeader
           title="Groups"
           description={
-            isAdmin
+            canDeleteCopies
               ? "Sorted by wasted space. Expand a group to keep one copy and delete the rest from disk."
               : "Sorted by wasted space. Admin permission is required to delete copies."
           }
@@ -464,7 +465,7 @@ export default function Duplicates() {
               <DuplicateGroupRow
                 key={g.content_hash}
                 group={g}
-                isAdmin={isAdmin}
+                canDeleteCopies={canDeleteCopies}
                 autoOpen={targetHash === g.content_hash}
               />
             ))}

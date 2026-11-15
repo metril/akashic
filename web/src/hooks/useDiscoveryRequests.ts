@@ -10,7 +10,7 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../api/client";
-import { useAuth } from "./useAuth";
+import { useScopes } from "./useScopes";
 import { useScannersStreamEvents } from "./useScannersStreamEvents";
 
 export interface DiscoveryRequest {
@@ -38,13 +38,14 @@ export interface DenyBody {
 }
 
 export function useDiscoveryRequests() {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canManageScanners = has("scanners:write");
   const qc = useQueryClient();
 
   const list = useQuery<DiscoveryRequest[]>({
     queryKey: ["scanner-discovery-requests"],
     queryFn: () => api.get<DiscoveryRequest[]>("/scanner-discovery-requests"),
-    enabled: isAdmin,
+    enabled: canManageScanners,
     refetchInterval: 30_000,
   });
 
@@ -87,9 +88,9 @@ export function useDiscoveryRequests() {
   // Also invalidate once on mount so a freshly-loaded page that
   // missed the most-recent event still ends up consistent.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canManageScanners) return;
     qc.invalidateQueries({ queryKey: ["scanner-discovery-requests"] });
-  }, [isAdmin, qc]);
+  }, [canManageScanners, qc]);
 
   return { list, approve, deny };
 }

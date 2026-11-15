@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { cn } from "./ui/cn";
 import { Icon, type IconName } from "./ui";
 import { BrandMark } from "./BrandMark";
@@ -11,11 +11,12 @@ interface NavItem {
   label: string;
   iconName: IconName;
   end?: boolean;
+  /** Scope needed to see the item; omitted means everyone. */
+  scope?: string;
 }
 
 interface NavSection {
   label: string;
-  adminOnly?: boolean;
   items: NavItem[];
 }
 
@@ -44,12 +45,11 @@ const sections: NavSection[] = [
   },
   {
     label: "Admin",
-    adminOnly: true,
     items: [
-      { to: "/admin/access", label: "Access", iconName: "shield" },
-      { to: "/admin/audit", label: "Audit log", iconName: "audit-log" },
-      { to: "/admin/system-status", label: "System status", iconName: "database" },
-      { to: "/admin/maintenance", label: "Maintenance", iconName: "wrench" },
+      { to: "/admin/access", label: "Access", iconName: "shield", scope: "access:read" },
+      { to: "/admin/audit", label: "Audit log", iconName: "audit-log", scope: "audit:read" },
+      { to: "/admin/system-status", label: "System status", iconName: "database", scope: "health:read" },
+      { to: "/admin/maintenance", label: "Maintenance", iconName: "wrench", scope: "maintenance:write" },
     ],
   },
 ];
@@ -85,8 +85,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   // using a separate key here would fragment the cache and let the
   // sidebar's "Admin" group flicker out of sync with role-gated UI
   // elsewhere when the role query refreshes.
-  const { isAdmin } = useAuth();
-  const visibleSections = sections.filter((s) => !s.adminOnly || isAdmin);
+  const { has } = useScopes();
+  const visibleSections = sections
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.scope || has(i.scope)) }))
+    .filter((s) => s.items.length > 0);
 
   // Inner panel — same content used both for the static md+ sidebar and
   // the off-canvas mobile sheet. Collapsed mode hides labels; off-canvas

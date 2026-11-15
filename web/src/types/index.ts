@@ -568,3 +568,57 @@ export type {
   AuditEvent,
   AuditEventList,
 } from "../lib/auditTypes";
+
+// --- Scopes and API tokens (hand-written; replaced by generated types later) ---
+
+export interface CurrentUser {
+  id: string;
+  username: string;
+  email: string | null;
+  role: string;
+  created_at: string;
+  /** Effective scopes of the calling credential, sorted. */
+  scopes: string[];
+}
+
+export interface ScopeInfo {
+  name: string;
+  description: string;
+}
+
+export interface ScopeCatalog {
+  scopes: ScopeInfo[];
+  /** Scopes granted by each role, keyed by role name. */
+  roles: Record<string, string[]>;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  scopes: string[];
+  /** null means every source. */
+  source_ids: string[] | null;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiTokenCreated extends ApiToken {
+  /** The secret. Returned once, never retrievable again. */
+  token: string;
+}
+
+export interface AdminApiToken extends ApiToken {
+  user_id: string;
+  username: string;
+}
+
+export interface ApiTokenCreate {
+  name: string;
+  scopes: string[];
+  source_ids?: string[];
+  expires_at?: string;
+}

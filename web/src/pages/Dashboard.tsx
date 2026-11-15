@@ -30,7 +30,7 @@ import {
   formatNumber,
   formatRelative,
 } from "../lib/format";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { useDashboardLiveRefresh } from "../hooks/useDashboardLiveRefresh";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
 
@@ -87,7 +87,10 @@ interface AccessRisksResponse {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canSeeRisks = has("audit:read");
+  const canOpenAccess = has("access:read");
+  const canSeeAllIdentities = has("users:read");
 
   const summaryQ = useQuery<DashboardSummary>({
     queryKey: ["dashboard", "summary"],
@@ -111,7 +114,7 @@ export default function Dashboard() {
   const accessRisksQ = useQuery<AccessRisksResponse>({
     queryKey: ["dashboard", "access-risks"],
     queryFn: () => api.get<AccessRisksResponse>("/dashboard/access-risks"),
-    enabled: isAdmin,
+    enabled: canSeeRisks,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
@@ -162,7 +165,7 @@ export default function Dashboard() {
             className="cursor-pointer hover:border-accent-300 transition-colors"
           />
         </Link>
-        {isAdmin && (
+        {canSeeRisks && canOpenAccess && (
           <Link
             to={`/admin/access?principal=${encodeURIComponent("*")}`}
             className="contents"
@@ -396,7 +399,7 @@ export default function Dashboard() {
               </span>
               <span className="text-xs text-accent-700">Manage →</span>
             </button>
-            {isAdmin && (
+            {canSeeAllIdentities && (
               <button
                 type="button"
                 onClick={() => navigate("/settings/identities")}

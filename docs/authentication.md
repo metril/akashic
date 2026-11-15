@@ -220,3 +220,151 @@ long-lived refresh token (`REFRESH_TOKEN_EXPIRE_DAYS`, default 30)
 delivered as an HttpOnly cookie scoped to `/api/v1/auth`. Replay of
 a rotated refresh token revokes the entire chain — see
 [permissions-model.md](permissions-model.md#refresh-tokens).
+
+## Scopes and API tokens
+
+Every API route is authorised by a *scope*, never by role. A role is
+a named bundle of scopes, and a request can do only what its
+effective scopes allow. `GET /api/v1/scopes` is the authoritative
+catalog (names, descriptions and the role bundles); the table below
+is a snapshot. `GET /api/v1/users/me` returns the caller's effective
+`scopes`.
+
+| Scope | Allows | In viewer bundle |
+|-------|--------|------------------|
+| `files:read` | Search, browse and read file and directory metadata, including duplicates. | yes |
+| `files:content` | Download or preview file contents (kept separate from reading metadata). | yes |
+| `tags:read` | List tags and the tags applied to files. | yes |
+| `tags:write` | Create and delete tags, and apply or remove them on files. | no |
+| `analytics:read` | Read analytics, the dashboard and the storage explorer. | yes |
+| `sources:read` | List sources and read their details, audit trail and reachability. | yes |
+| `sources:write` | Create, test, update, delete and re-attach sources. | no |
+| `credentials:list` | List credential profile names and ids (no secrets), e.g. to fill a source form. | yes |
+| `credentials:read` | Read credential profiles, and OAuth credentials and providers. | no |
+| `credentials:write` | Create, change and delete credential profiles and OAuth credentials and providers. | no |
+| `scans:read` | Read scans, scan progress and logs, and subscribe to scan streams. | yes |
+| `scans:write` | Trigger and cancel scans. | no |
+| `scanners:read` | Read scanners, claim tokens, discovery requests and scanner reachability. | no |
+| `scanners:write` | Register, change and remove scanners and claim tokens; approve discoveries. | no |
+| `hosts:read` | Read hosts and their scanner reachability. | yes |
+| `hosts:write` | Create, change and remove hosts, and test or add their shares. | no |
+| `identities:read` | Read identities, bindings, principals, effective permissions and access reports. | yes |
+| `access:read` | Run access reports: who can access what, across every principal's ACLs. | no |
+| `identities:write` | Manage identities and bindings, and resolve their groups. | yes |
+| `webhooks:read` | List webhooks. | yes |
+| `webhooks:write` | Create and delete webhooks. | yes |
+| `users:read` | Read other users' accounts and unbound identities. | no |
+| `users:write` | Create users, and see files regardless of per-user ACL filtering. | no |
+| `settings:read` | Read server settings. | no |
+| `settings:write` | Change server settings. | no |
+| `audit:read` | Read the admin audit log. | no |
+| `health:read` | Read dependency health and service activity. | no |
+| `maintenance:write` | Run maintenance jobs. | no |
+| `data:purge` | Permanently purge indexed data. Destructive, so it must be granted explicitly. | no |
+| `tokens:read` | List your own API tokens. | yes |
+| `tokens:write` | Create, change and revoke your own API tokens. | yes |
+| `tokens:admin` | List and revoke every user's API tokens. | no |
+
+### Role bundles
+
+- **viewer** — exactly what a viewer could do before scopes existed:
+  read the index and its own data, manage its own identities,
+  webhooks and API tokens (the "yes" column above).
+- **admin** — every scope, including `data:purge`, `users:write`
+  (which also sees files regardless of per-user ACL filtering) and
+  `tokens:admin`.
+- An unknown role grants nothing.
+
+### Creating a token
+
+In the web UI: **Settings → API tokens → New token**. Pick a name,
+the scopes (only scopes you hold are offered; "Read-only" and "Full"
+are shortcuts), optionally limit it to some sources, and choose an
+expiry. The token (`akp_...`) is shown once; copy it then. Only its
+hash is stored. Admins also get an "All tokens" view where they can
+revoke anyone's token.
+
+With curl (from a login session; see the interactive-session rule
+below):
+
+```bash
+curl -sX POST https://akashic.example.com/api/v1/me/tokens \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"name": "nightly export", "scopes": ["files:read", "sources:read"],
+       "source_ids": null, "expires_at": "2027-01-01T00:00:00Z"}'
+# -> 201 {"id": "...", "token": "akp_...", ...}   (the token is returned once)
+```
+
+`source_ids` and `expires_at` are optional. Manage tokens with
+`GET /api/v1/me/tokens`, `PATCH /api/v1/me/tokens/{id}` (rename or
+narrow scopes, never widen) and `DELETE /api/v1/me/tokens/{id}`
+(revoke). Admins: `GET`/`DELETE /api/v1/admin/tokens` (`tokens:admin`).
+
+### Using a token
+
+```bash
+curl -H "Authorization: Bearer akp_..." https://akashic.example.com/api/v1/search?q=invoice
+```
+
+Tokens work on the REST API only. They are not accepted for
+WebSockets, scanner endpoints or the ingest audience.
+
+### Effective scopes: token ∩ current role
+
+A token's effective scopes are the scopes stored on the token
+intersected with its owner's **current** role bundle, evaluated on
+every request. Demoting a user shrinks their tokens immediately.
+Revoked, expired, unknown or deleted-owner tokens get 401. A token
+can never hold more than its creator held when it was created (422
+otherwise).
+
+### Interactive-session rule
+
+Creating a token and PATCHing one require a login session (a JWT), not
+another API token; a token calling them gets 403
+`interactive_session_required`. Otherwise a token could mint
+non-expiring tokens that outlive its own revocation. Listing and
+revoking your own tokens with a token still works.
+
+### Source limits
+
+A token created with `source_ids` is limited to those sources:
+
+- Anything outside the limit answers **404**, never 403, across
+  search, browse, entries, content, duplicates, analytics, dashboard,
+  storage, access, scans, sources and tags. Search results are
+  filtered to the allowed sources.
+- Routes that are not source-aware (hosts, credentials, scanners,
+  identities, webhooks, users, settings, audit, health, maintenance,
+  purge, tokens) and actions reaching beyond a source (creating
+  sources, the tag catalogue, scanner allow-lists) answer **403**
+  `source_limited`.
+- A limited token may hold only these write scopes: `sources:write`,
+  `scans:write`, `tags:write` (others give 422 at creation). Any
+  `:read` scope is allowed.
+- On `PATCH /sources/{id}` it may change only `name`,
+  `scan_schedule`, `exclude_patterns`, `preferred_pool`,
+  `max_parallel_scanners`, `scan_chunk_size` and `is_removable`;
+  connection config, credential profile and host give 403
+  `source_limited`.
+- It can only apply tags that already exist; applying an unknown tag
+  name gives 403 `source_limited`. `GET /tags` lists only tags used
+  in its sources.
+- A limited token never bypasses filesystem ACL filtering: it holds
+  no `users:write`, so the owner's per-user ACL filtering always
+  applies.
+- Known limitation: because applying an unknown tag is refused, a
+  limited token can tell whether a tag name exists in the catalogue.
+
+### Error codes
+
+Errors are `{code, message, detail?, request_id}`.
+
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 401 | `unauthorized` | Missing, invalid, expired or revoked credential. |
+| 403 | `insufficient_scope` | The credential lacks the route's scope (the message names it). |
+| 403 | `source_limited` | A source-limited token used a route or action outside its sources. |
+| 403 | `interactive_session_required` | Creating or changing a token needs a login session. |
+| 404 | `not_found` | Missing, or outside a token's source limit. |
+| 422 | `validation_error` | E.g. scopes beyond your own, unknown scopes or sources, write scopes on a limited token, past expiry. |

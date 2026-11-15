@@ -18,7 +18,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { api } from "../../api/client";
-import { useAuth } from "../../hooks/useAuth";
+import { useScopes } from "../../hooks/useScopes";
 import type { EntryDetail, EntryTagAssignment } from "../../types";
 import { Button } from "../ui";
 import { FilterableCell } from "../ui/FilterableCell";
@@ -32,7 +32,8 @@ interface Props {
 }
 
 export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canTag = has("tags:write");
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
@@ -128,7 +129,7 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
           direct={direct}
           inherited={inherited}
           onRemove={
-            isAdmin && direct
+            canTag && direct
               ? () => removeMut.mutate(tag)
               : undefined
           }
@@ -137,7 +138,7 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
         />
       ))}
 
-      {isAdmin && !adding && (
+      {canTag && !adding && (
         <button
           type="button"
           onClick={() => setAdding(true)}
@@ -148,7 +149,7 @@ export function EntryTags({ entryId, sourceId, parentPath, tags }: Props) {
         </button>
       )}
 
-      {isAdmin && adding && (
+      {canTag && adding && (
         <div className="flex items-center gap-1">
           <input
             type="text"

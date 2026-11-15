@@ -23,7 +23,7 @@ import { formatMode, iconPathForKind } from "../lib/perms";
 import { downloadEntryContent } from "../lib/downloadEntry";
 import { Icon } from "../components/ui";
 import { BulkTagDialog } from "../components/tags/BulkTagDialog";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
@@ -69,7 +69,9 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 export default function Browse() {
   const [params, setParams] = useSearchParams();
   const routerNav = useNavigate();
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canTag = has("tags:write");
+  const canSeeAll = has("users:write");
   // Phase-5: admin opt-out for the per-user ACL trim. Off by default;
   // toggling it sticks to localStorage so an admin debugging "what does
   // user X see?" doesn't have to flip it on every navigation.
@@ -154,7 +156,7 @@ export default function Browse() {
     [sources],
   );
 
-  const showAllParam = isAdmin && showAll ? "&show_all=1" : "";
+  const showAllParam = canSeeAll && showAll ? "&show_all=1" : "";
   const filtersParam = filters.length > 0 ? `&filters=${serializeFilters(filters)}` : "";
 
   // v0.4.11 — server-side substring filter via `?q=`. useDeferredValue
@@ -281,7 +283,7 @@ export default function Browse() {
             <Breadcrumb segments={segments} />
           </div>
           <div className="flex gap-2">
-            {isAdmin && countsQuery.data?.enforced && (
+            {canSeeAll && countsQuery.data?.enforced && (
               // Admin-only opt-out for the per-user ACL trim. Visible
               // only when filtering is actually being applied — no
               // point offering the toggle when there's nothing to bypass.
@@ -335,7 +337,7 @@ export default function Browse() {
 
       <FilterChips showSwitchToSearch className="mb-3" />
 
-      {isAdmin && visibleEntries.length > 0 && (
+      {canTag && visibleEntries.length > 0 && (
         <BrowseSelectionBar
           entries={visibleEntries}
           selectedIds={selectedIds}
@@ -401,7 +403,7 @@ export default function Browse() {
             hasNextPage={!!browseQuery.hasNextPage}
             isFetchingNextPage={browseQuery.isFetchingNextPage}
             fetchNextPage={() => { void browseQuery.fetchNextPage(); }}
-            isAdmin={isAdmin}
+            canTag={canTag}
             aclHiddenCount={
               countsQuery.data?.enforced ? countsQuery.data.hidden : 0
             }
@@ -429,7 +431,7 @@ export default function Browse() {
                 {(countsQuery.data.visible + countsQuery.data.hidden).toLocaleString()}{" "}
                 items hidden by your access permissions.
               </span>
-              {isAdmin && !showAll && (
+              {canSeeAll && !showAll && (
                 <div className="ml-auto">
                   <Button
                     size="sm"
@@ -574,10 +576,10 @@ interface BrowseListProps {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
-  /** Bulk-tag selection (admin only). When `isAdmin` is false the
+  /** Bulk-tag selection (admin only). When `canTag` is false the
    *  checkbox column is suppressed and `selectedIds` / `toggleSelected`
    *  are unused. */
-  isAdmin: boolean;
+  canTag: boolean;
   selectedIds: Set<string>;
   toggleSelected: (id: string) => void;
   /** v0.5.11 — when ACL filtering is active and the user's filter
@@ -598,7 +600,7 @@ function BrowseList({
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
-  isAdmin,
+  canTag,
   selectedIds,
   toggleSelected,
   aclHiddenCount,
@@ -726,7 +728,7 @@ function BrowseList({
               >
                 {/* Name (always visible, truncates) */}
                 <div className="flex items-center gap-2.5 min-w-0 text-sm">
-                  {isAdmin && (
+                  {canTag && (
                     <input
                       type="checkbox"
                       checked={selectedIds.has(child.id)}

@@ -27,7 +27,7 @@ import {
 } from "../components/ui";
 import type { BreadcrumbSegment } from "../components/ui";
 import { formatBytes, formatNumber } from "../lib/format";
-import { useAuth } from "../hooks/useAuth";
+import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { serialize as serializeFilters } from "../lib/filterGrammar";
 import type { Predicate } from "../lib/filterGrammar";
@@ -65,7 +65,8 @@ const DEFAULT_TREE_NODES = 5000;
 export default function StorageExplorer() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { has } = useScopes();
+  const canSeeAll = has("users:write");
   const { openEntry } = useEntryDetail();
 
   const sourceId = params.get("source") ?? "";
@@ -332,7 +333,7 @@ export default function StorageExplorer() {
           <ColorModeToggle
             value={colorMode}
             onChange={setColorMode}
-            allowRisk={isAdmin}
+            allowRisk={canSeeAll}
           />
         </div>
       </Card>

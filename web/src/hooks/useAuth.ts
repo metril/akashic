@@ -2,20 +2,13 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, setToken, clearToken, isAuthenticated } from "../api/client";
-
-interface CurrentUser {
-  id: string;
-  username: string;
-  email: string | null;
-  role: string;
-}
+import type { CurrentUser } from "../types";
 
 /**
- * `useAuth` exposes the user's role via a /api/v1/users/me lookup. The role
- * lives on the server-side User row and isn't encoded in the JWT, so
- * client-side gating that depends on role (e.g., showing the Edit
- * button on a source) MUST go through this hook rather than decoding
- * the token.
+ * `useAuth` exposes the signed-in user (role for display, effective
+ * `scopes` for gating) via a /api/v1/users/me lookup. Neither is encoded in
+ * the JWT, so client-side gating MUST go through `useScopes()` (built from
+ * this query) rather than decoding the token or checking the role.
  *
  * The query is gated on `isAuthenticated` so logged-out states don't
  * fire a 401 in the background.
@@ -73,8 +66,6 @@ export function useAuth() {
   return {
     isAuthenticated: authed,
     user: meQuery.data ?? null,
-    role: meQuery.data?.role ?? null,
-    isAdmin: meQuery.data?.role === "admin",
     login,
     logout,
     loading,
