@@ -1,7 +1,6 @@
 """OpenAPI metadata: tags, security schemes, version, WebSocket schemas."""
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -67,15 +66,20 @@ _HEADING = re.compile(r"^##\s+v?(\d+\.\d+\.\d+\S*)", re.MULTILINE)
 
 
 def app_version() -> str:
-    """Version from the top heading of CHANGELOG.md, else ``APP_VERSION``, else ``dev``."""
+    """Version from the top heading of CHANGELOG.md (the source of truth).
+
+    Raises if the file is missing or has no `## vX.Y.Z` heading: a wrong
+    version in the published spec is worse than a loud failure.
+    """
     here = Path(__file__).resolve()
-    for root in (here.parents[2], here.parents[1]):
+    for root in (here.parents[2], here.parents[1]):  # repo root, or /app in the image
         changelog = root / "CHANGELOG.md"
         if changelog.is_file():
             m = _HEADING.search(changelog.read_text(encoding="utf-8"))
-            if m:
-                return m.group(1)
-    return os.getenv("APP_VERSION", "dev")
+            if m is None:
+                raise RuntimeError(f"{changelog}: no '## vX.Y.Z' heading found")
+            return m.group(1)
+    raise RuntimeError("CHANGELOG.md not found next to the api package or at the repo root")
 
 
 def operation_id(route: APIRoute) -> str:

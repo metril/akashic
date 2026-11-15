@@ -26,7 +26,7 @@ SPEC_PATH = REPO_ROOT / "openapi.json"
 # Dependencies that authenticate the caller (directly or transitively).
 AUTH_DEPENDENCIES = frozenset({
     "get_current_user", "require_admin", "get_ingest_user",
-    "get_ingest_scanner_id", "verify_scanner_jwt",
+    "verify_scanner_jwt",
 })
 
 # Routes that are intentionally unauthenticated: they mint credentials,
@@ -105,6 +105,15 @@ def collect_violations(app, spec: dict) -> dict[str, set[str]]:
             if not body.get("description"):
                 out["description"].add(f"{name}.{prop}")
     return out
+
+
+def test_public_routes_are_real_and_unauthenticated(app):
+    """Ratchet: every PUBLIC_ROUTES entry exists and really has no auth dependency."""
+    by_key = dict(_routes(app))
+    missing = sorted(PUBLIC_ROUTES - by_key.keys())
+    assert not missing, f"PUBLIC_ROUTES entries that no longer exist: {missing}"
+    gated = sorted(k for k in PUBLIC_ROUTES if _dependency_names(by_key[k]) & AUTH_DEPENDENCIES)
+    assert not gated, f"PUBLIC_ROUTES entries that now require auth (remove them): {gated}"
 
 
 @pytest.fixture(autouse=True)

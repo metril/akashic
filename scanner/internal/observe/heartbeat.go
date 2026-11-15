@@ -91,8 +91,7 @@ func (r *Reporter) postHeartbeat(ctx context.Context) (terminal bool) {
 // decodeCancelMessage parses the 409 body into an accurate exit-log line
 // and whether the scan ended by normal completion (vs. a cancellation or
 // watchdog reap — which drives the log level). Falls back to a user-cancel
-// line when the body is missing, malformed, or pre-v0.29.8 (legacy
-// contract).
+// line when the body is missing, malformed, or carries no structured detail.
 func decodeCancelMessage(body io.Reader) (msg string, completed bool) {
 	type detail struct {
 		Detail struct {

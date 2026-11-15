@@ -13,9 +13,10 @@ def _check(body, code):
 @pytest.mark.asyncio
 async def test_unauthorized_envelope(client):
     r = await client.get("/api/users/me")
-    assert r.status_code in (401, 403)
+    assert r.status_code == 401  # HTTPBearer rejects a missing header
     body = r.json()
-    assert body["message"] and body["request_id"] == r.headers["x-request-id"]
+    _check(body, "unauthorized")
+    assert body["request_id"] == r.headers["x-request-id"]
 
 
 @pytest.mark.asyncio
@@ -36,10 +37,21 @@ async def test_validation_envelope(client):
 
 
 @pytest.mark.asyncio
-async def test_http_exception_headers_preserved(client):
-    r = await client.post("/api/users/login", json={"username": "ghost", "password": "x" * 12})
+async def test_http_exception_headers_preserved():
+    from fastapi import HTTPException
+
+    app = create_app()
+
+    @app.get("/gated")
+    async def gated():
+        raise HTTPException(401, "nope", headers={"WWW-Authenticate": "Bearer"})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        r = await ac.get("/gated")
     assert r.status_code == 401
+    assert r.headers["www-authenticate"] == "Bearer"
     _check(r.json(), "unauthorized")
+    assert r.json()["message"] == "nope"
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
-from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, new_request_id
+from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, request_id_of
 from akashic.openapi import TAGS, app_version, install_openapi, operation_id
 from akashic.schemas.common import ERROR_RESPONSES
 from akashic.services import metrics as metrics_svc
@@ -101,13 +101,13 @@ class _GzipRequestMiddleware:
                 raise EOFError("truncated gzip stream")
         except (zlib.error, EOFError) as exc:
             await error_response(
-                400, f"Invalid gzip body: {exc}", scope.get("state", {}).get("request_id") or new_request_id(),
+                400, f"Invalid gzip body: {exc}", request_id_of(scope),
             )(scope, receive, send)
             return
         if too_big:
             await error_response(
                 413, "Decompressed body exceeds 32 MB cap",
-                scope.get("state", {}).get("request_id") or new_request_id(),
+                request_id_of(scope),
             )(scope, receive, send)
             return
 
