@@ -160,7 +160,7 @@ async def seed_scan(db_session, source_id, *, status: str = "pending"):
 # recorded as (method, matched route template, status). At session end each
 # observed status must be declared in that route's OpenAPI responses, so the
 # existing tests double as evidence that the spec lists what routes return.
-# Only requests that matched no route (unknown paths, wrong method) are not recorded; any
+# Only requests that matched no route (unknown paths, wrong method) and routes added by tests themselves are not recorded; any
 # observation on a real route that the spec cannot account for fails the audit
 # (see tests/runtime_audit.py).
 _OBSERVED: set[tuple[str, str, str, int, bool]] = set()
@@ -190,6 +190,7 @@ def _documented_responses_audit():
             if (
                 scope["type"] == "http" and path and status_box and scope["method"] not in ("HEAD", "OPTIONS")
                 and getattr(self.state, "akashic_api", False)
+                and getattr(getattr(route, "endpoint", None), "__module__", "").startswith("akashic.")
                 and scope["method"] in (getattr(route, "methods", None) or ())
             ):
                 _OBSERVED.add((
