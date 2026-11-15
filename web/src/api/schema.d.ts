@@ -10704,6 +10704,72 @@ export interface components {
             message: string;
         };
         /**
+         * WsHostChanged
+         * @description A host was created, edited or deleted; refetch hosts (`/ws/v1/scans`).
+         */
+        WsHostChanged: {
+            /**
+             * Host Id
+             * @description Host id.
+             */
+            host_id: string;
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "host.changed";
+        };
+        /**
+         * WsPendingDiscovery
+         * @description A scanner discovery request awaiting approval.
+         */
+        WsPendingDiscovery: {
+            /**
+             * Agent Version
+             * @description Scanner version.
+             * @default null
+             */
+            agent_version: string | null;
+            /**
+             * Expires At
+             * @description ISO-8601 expiry time.
+             */
+            expires_at: string;
+            /**
+             * Hostname
+             * @description Scanner host name.
+             * @default null
+             */
+            hostname: string | null;
+            /**
+             * Id
+             * @description Discovery request id.
+             */
+            id: string;
+            /**
+             * Key Fingerprint
+             * @description Fingerprint of the scanner's public key.
+             */
+            key_fingerprint: string;
+            /**
+             * Pairing Code
+             * @description Code the operator matches against the scanner's console.
+             */
+            pairing_code: string;
+            /**
+             * Requested At
+             * @description ISO-8601 request time.
+             */
+            requested_at: string;
+            /**
+             * Requested Pool
+             * @description Pool the scanner asked to join.
+             * @default null
+             */
+            requested_pool: string | null;
+        };
+        /**
          * WsPing
          * @description Server keep-alive frame.
          */
@@ -10714,6 +10780,83 @@ export interface components {
              * @constant
              */
             kind: "ping";
+        };
+        /**
+         * WsScanListEntry
+         * @description One active scan in the `/ws/v1/scans` snapshot.
+         */
+        WsScanListEntry: {
+            /**
+             * Current Path
+             * @description Path currently being walked.
+             * @default null
+             */
+            current_path: string | null;
+            /**
+             * Files Found
+             * @description Files found so far.
+             */
+            files_found: number;
+            /**
+             * Scan Id
+             * @description Scan id.
+             */
+            scan_id: string;
+            /**
+             * Scan Status
+             * @description Scan status.
+             */
+            scan_status: string;
+            /**
+             * Scan Type
+             * @description Scan type (`incremental` or `full`).
+             */
+            scan_type: string;
+            /**
+             * Scanner Id
+             * @description Assigned scanner id.
+             * @default null
+             */
+            scanner_id: string | null;
+            /**
+             * Scanner Name
+             * @description Assigned scanner name.
+             * @default null
+             */
+            scanner_name: string | null;
+            /**
+             * Source Id
+             * @description Source id.
+             */
+            source_id: string;
+            /**
+             * Source Status
+             * @description Source status.
+             */
+            source_status: string;
+            /**
+             * Started At
+             * @description ISO-8601 start time.
+             * @default null
+             */
+            started_at: string | null;
+        };
+        /**
+         * WsScanListSnapshot
+         * @description First frame on `/ws/v1/scans`: the pending, running and failed scans the caller can see.
+         */
+        WsScanListSnapshot: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "snapshot";
+            /**
+             * Scans
+             * @description Pending, running and recently failed scans.
+             */
+            scans: components["schemas"]["WsScanListEntry"][];
         };
         /**
          * WsScanLog
@@ -10978,6 +11121,12 @@ export interface components {
          */
         WsScanState: {
             /**
+             * Current Batch Size
+             * @description Latest adaptive batch size, when the scanner reported one.
+             * @default null
+             */
+            current_batch_size: number | null;
+            /**
              * Current Path
              * @description Path currently being walked.
              * @default null
@@ -10986,9 +11135,8 @@ export interface components {
             /**
              * Files Found
              * @description Files found so far.
-             * @default null
              */
-            files_found: number | null;
+            files_found: number;
             /**
              * Kind
              * @description Frame discriminator.
@@ -11008,9 +11156,8 @@ export interface components {
             /**
              * Scan Type
              * @description Scan type (`incremental` or `full`).
-             * @default null
              */
-            scan_type: string | null;
+            scan_type: string;
             /**
              * Scanner Id
              * @description Assigned scanner id.
@@ -11033,6 +11180,283 @@ export interface components {
              * @description Source status.
              */
             source_status: string;
+            /**
+             * Started At
+             * @description ISO-8601 start time; null until a scanner has started the scan.
+             * @default null
+             */
+            started_at: string | null;
+        };
+        /**
+         * WsScannerClaimRedeemed
+         * @description A claim token was redeemed and a scanner registered (`/ws/v1/scanners`).
+         */
+        WsScannerClaimRedeemed: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.claim_redeemed";
+            /**
+             * Pool
+             * @description Scanner pool.
+             */
+            pool: string;
+            /**
+             * Scanner Id
+             * @description New scanner id.
+             */
+            scanner_id: string;
+            /**
+             * Scanner Name
+             * @description Scanner name.
+             */
+            scanner_name: string;
+            /**
+             * Token Id
+             * @description Claim token id.
+             */
+            token_id: string;
+        };
+        /**
+         * WsScannerDeleted
+         * @description A scanner was removed (`/ws/v1/scanners`).
+         */
+        WsScannerDeleted: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.deleted";
+            /**
+             * Scanner Id
+             * @description Scanner id.
+             */
+            scanner_id: string;
+        };
+        /**
+         * WsScannerDiscoveryApproved
+         * @description A discovery request was approved (`/ws/v1/scanners`).
+         */
+        WsScannerDiscoveryApproved: {
+            /**
+             * Discovery Id
+             * @description Discovery request id.
+             */
+            discovery_id: string;
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.discovery_approved";
+            /**
+             * Pool
+             * @description Scanner pool.
+             */
+            pool: string;
+            /**
+             * Scanner Id
+             * @description New scanner id.
+             */
+            scanner_id: string;
+            /**
+             * Scanner Name
+             * @description Scanner name.
+             */
+            scanner_name: string;
+        };
+        /**
+         * WsScannerDiscoveryDenied
+         * @description A discovery request was denied (`/ws/v1/scanners`).
+         */
+        WsScannerDiscoveryDenied: {
+            /**
+             * Deny Reason
+             * @description Operator-supplied reason.
+             * @default null
+             */
+            deny_reason: string | null;
+            /**
+             * Discovery Id
+             * @description Discovery request id.
+             */
+            discovery_id: string;
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.discovery_denied";
+        };
+        /**
+         * WsScannerDiscoveryExpired
+         * @description A discovery request expired unanswered (`/ws/v1/scanners`).
+         */
+        WsScannerDiscoveryExpired: {
+            /**
+             * Discovery Id
+             * @description Discovery request id.
+             */
+            discovery_id: string;
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.discovery_expired";
+        };
+        /**
+         * WsScannerDiscoveryRequested
+         * @description A scanner asked to be approved (`/ws/v1/scanners`).
+         */
+        WsScannerDiscoveryRequested: {
+            /**
+             * Agent Version
+             * @description Scanner version.
+             * @default null
+             */
+            agent_version: string | null;
+            /**
+             * Discovery Id
+             * @description Discovery request id.
+             */
+            discovery_id: string;
+            /**
+             * Expires At
+             * @description ISO-8601 expiry time.
+             */
+            expires_at: string;
+            /**
+             * Hostname
+             * @description Scanner host name.
+             * @default null
+             */
+            hostname: string | null;
+            /**
+             * Key Fingerprint
+             * @description Fingerprint of the scanner's public key.
+             */
+            key_fingerprint: string;
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.discovery_requested";
+            /**
+             * Pairing Code
+             * @description Pairing code.
+             */
+            pairing_code: string;
+            /**
+             * Requested Pool
+             * @description Requested pool.
+             * @default null
+             */
+            requested_pool: string | null;
+        };
+        /**
+         * WsScannerUpdated
+         * @description A scanner's settings or reported metadata changed; refetch it (`/ws/v1/scanners`).
+         */
+        WsScannerUpdated: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "scanner.updated";
+            /**
+             * Scanner Id
+             * @description Scanner id.
+             */
+            scanner_id: string;
+        };
+        /**
+         * WsScannersSnapshot
+         * @description First frame on `/ws/v1/scanners`: pending discovery requests.
+         */
+        WsScannersSnapshot: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "snapshot";
+            /**
+             * Pending Discoveries
+             * @description Discovery requests awaiting approval, newest first.
+             */
+            pending_discoveries: components["schemas"]["WsPendingDiscovery"][];
+        };
+        /**
+         * WsSourceCreated
+         * @description A source was created (`/ws/v1/scans`).
+         */
+        WsSourceCreated: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "source.created";
+            /**
+             * Name
+             * @description Source name.
+             */
+            name: string;
+            /**
+             * Source Id
+             * @description Source id.
+             */
+            source_id: string;
+            /**
+             * Source Status
+             * @description Source status.
+             */
+            source_status: string;
+            /**
+             * Type
+             * @description Source type.
+             */
+            type: string;
+        };
+        /**
+         * WsSourceDeleted
+         * @description A source was deleted (`/ws/v1/scans`).
+         */
+        WsSourceDeleted: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "source.deleted";
+            /**
+             * Source Id
+             * @description Source id.
+             */
+            source_id: string;
+        };
+        /**
+         * WsSourceUpdated
+         * @description A source was edited; refetch it (`/ws/v1/scans`).
+         */
+        WsSourceUpdated: {
+            /**
+             * Kind
+             * @description Frame discriminator.
+             * @constant
+             */
+            kind: "source.updated";
+            /**
+             * Source Id
+             * @description Source id.
+             */
+            source_id: string;
         };
         /**
          * _BulkApplyBody

@@ -74,6 +74,8 @@ function scanStateEvent(opts: {
     scan_type: "incremental",
     files_found: opts.files_found ?? 0,
     current_path: opts.current_path ?? null,
+    started_at: null,
+    current_batch_size: null,
   };
 }
 

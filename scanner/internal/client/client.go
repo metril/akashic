@@ -268,8 +268,9 @@ func (c *Client) sendOnce(ctx context.Context, batch apiclient.ScanBatchIn) (*Ba
 		// blip, TLS handshake timeout, server-half-closed mid-request.
 		return nil, retryableError{fmt.Errorf("send batch: %w", err)}
 	}
-	// The body is read in full (and closed) by the generated parser; a
-	// decode failure leaves `parsed` nil, which only matters on a 200.
+	// bufferBody reads and closes the body but leaves a re-readable copy, so
+	// the generated parser below can still decode it; a decode failure
+	// leaves `parsed` nil, which only matters on a 200.
 	status := httpResp.StatusCode
 	body, err := bufferBody(httpResp)
 	if err != nil {

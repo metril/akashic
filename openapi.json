@@ -13330,6 +13330,109 @@
         "title": "WsError",
         "type": "object"
       },
+      "WsHostChanged": {
+        "description": "A host was created, edited or deleted; refetch hosts (`/ws/v1/scans`).",
+        "properties": {
+          "host_id": {
+            "description": "Host id.",
+            "title": "Host Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "host.changed",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "host_id"
+        ],
+        "title": "WsHostChanged",
+        "type": "object"
+      },
+      "WsPendingDiscovery": {
+        "description": "A scanner discovery request awaiting approval.",
+        "properties": {
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Scanner version.",
+            "title": "Agent Version"
+          },
+          "expires_at": {
+            "description": "ISO-8601 expiry time.",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Scanner host name.",
+            "title": "Hostname"
+          },
+          "id": {
+            "description": "Discovery request id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "key_fingerprint": {
+            "description": "Fingerprint of the scanner's public key.",
+            "title": "Key Fingerprint",
+            "type": "string"
+          },
+          "pairing_code": {
+            "description": "Code the operator matches against the scanner's console.",
+            "title": "Pairing Code",
+            "type": "string"
+          },
+          "requested_at": {
+            "description": "ISO-8601 request time.",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Pool the scanner asked to join.",
+            "title": "Requested Pool"
+          }
+        },
+        "required": [
+          "id",
+          "pairing_code",
+          "hostname",
+          "agent_version",
+          "requested_pool",
+          "requested_at",
+          "expires_at",
+          "key_fingerprint"
+        ],
+        "title": "WsPendingDiscovery",
+        "type": "object"
+      },
       "WsPing": {
         "description": "Server keep-alive frame.",
         "properties": {
@@ -13344,6 +13447,132 @@
           "kind"
         ],
         "title": "WsPing",
+        "type": "object"
+      },
+      "WsScanListEntry": {
+        "description": "One active scan in the `/ws/v1/scans` snapshot.",
+        "properties": {
+          "current_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Path currently being walked.",
+            "title": "Current Path"
+          },
+          "files_found": {
+            "description": "Files found so far.",
+            "title": "Files Found",
+            "type": "integer"
+          },
+          "scan_id": {
+            "description": "Scan id.",
+            "title": "Scan Id",
+            "type": "string"
+          },
+          "scan_status": {
+            "description": "Scan status.",
+            "title": "Scan Status",
+            "type": "string"
+          },
+          "scan_type": {
+            "description": "Scan type (`incremental` or `full`).",
+            "title": "Scan Type",
+            "type": "string"
+          },
+          "scanner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Assigned scanner id.",
+            "title": "Scanner Id"
+          },
+          "scanner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Assigned scanner name.",
+            "title": "Scanner Name"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_status": {
+            "description": "Source status.",
+            "title": "Source Status",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ISO-8601 start time.",
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "scan_id",
+          "source_id",
+          "scan_status",
+          "source_status",
+          "scanner_id",
+          "scanner_name",
+          "scan_type",
+          "files_found",
+          "current_path",
+          "started_at"
+        ],
+        "title": "WsScanListEntry",
+        "type": "object"
+      },
+      "WsScanListSnapshot": {
+        "description": "First frame on `/ws/v1/scans`: the pending, running and failed scans the caller can see.",
+        "properties": {
+          "kind": {
+            "const": "snapshot",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "scans": {
+            "description": "Pending, running and recently failed scans.",
+            "items": {
+              "$ref": "#/components/schemas/WsScanListEntry"
+            },
+            "title": "Scans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "scans"
+        ],
+        "title": "WsScanListSnapshot",
         "type": "object"
       },
       "WsScanLog": {
@@ -13775,6 +14004,19 @@
       "WsScanState": {
         "description": "Scan state change on `/ws/v1/scans` (the source-list stream).",
         "properties": {
+          "current_batch_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest adaptive batch size, when the scanner reported one.",
+            "title": "Current Batch Size"
+          },
           "current_path": {
             "anyOf": [
               {
@@ -13789,17 +14031,9 @@
             "title": "Current Path"
           },
           "files_found": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
             "description": "Files found so far.",
-            "title": "Files Found"
+            "title": "Files Found",
+            "type": "integer"
           },
           "kind": {
             "const": "scan.state",
@@ -13818,17 +14052,9 @@
             "type": "string"
           },
           "scan_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
             "description": "Scan type (`incremental` or `full`).",
-            "title": "Scan Type"
+            "title": "Scan Type",
+            "type": "string"
           },
           "scanner_id": {
             "anyOf": [
@@ -13865,6 +14091,19 @@
             "description": "Source status.",
             "title": "Source Status",
             "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ISO-8601 start time; null until a scanner has started the scan.",
+            "title": "Started At"
           }
         },
         "required": [
@@ -13877,9 +14116,384 @@
           "scanner_name",
           "scan_type",
           "files_found",
-          "current_path"
+          "current_path",
+          "started_at",
+          "current_batch_size"
         ],
         "title": "WsScanState",
+        "type": "object"
+      },
+      "WsScannerClaimRedeemed": {
+        "description": "A claim token was redeemed and a scanner registered (`/ws/v1/scanners`).",
+        "properties": {
+          "kind": {
+            "const": "scanner.claim_redeemed",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pool": {
+            "description": "Scanner pool.",
+            "title": "Pool",
+            "type": "string"
+          },
+          "scanner_id": {
+            "description": "New scanner id.",
+            "title": "Scanner Id",
+            "type": "string"
+          },
+          "scanner_name": {
+            "description": "Scanner name.",
+            "title": "Scanner Name",
+            "type": "string"
+          },
+          "token_id": {
+            "description": "Claim token id.",
+            "title": "Token Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scanner_id",
+          "scanner_name",
+          "pool",
+          "token_id"
+        ],
+        "title": "WsScannerClaimRedeemed",
+        "type": "object"
+      },
+      "WsScannerDeleted": {
+        "description": "A scanner was removed (`/ws/v1/scanners`).",
+        "properties": {
+          "kind": {
+            "const": "scanner.deleted",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "scanner_id": {
+            "description": "Scanner id.",
+            "title": "Scanner Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scanner_id"
+        ],
+        "title": "WsScannerDeleted",
+        "type": "object"
+      },
+      "WsScannerDiscoveryApproved": {
+        "description": "A discovery request was approved (`/ws/v1/scanners`).",
+        "properties": {
+          "discovery_id": {
+            "description": "Discovery request id.",
+            "title": "Discovery Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "scanner.discovery_approved",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pool": {
+            "description": "Scanner pool.",
+            "title": "Pool",
+            "type": "string"
+          },
+          "scanner_id": {
+            "description": "New scanner id.",
+            "title": "Scanner Id",
+            "type": "string"
+          },
+          "scanner_name": {
+            "description": "Scanner name.",
+            "title": "Scanner Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "discovery_id",
+          "scanner_id",
+          "scanner_name",
+          "pool"
+        ],
+        "title": "WsScannerDiscoveryApproved",
+        "type": "object"
+      },
+      "WsScannerDiscoveryDenied": {
+        "description": "A discovery request was denied (`/ws/v1/scanners`).",
+        "properties": {
+          "deny_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Operator-supplied reason.",
+            "title": "Deny Reason"
+          },
+          "discovery_id": {
+            "description": "Discovery request id.",
+            "title": "Discovery Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "scanner.discovery_denied",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "discovery_id",
+          "deny_reason"
+        ],
+        "title": "WsScannerDiscoveryDenied",
+        "type": "object"
+      },
+      "WsScannerDiscoveryExpired": {
+        "description": "A discovery request expired unanswered (`/ws/v1/scanners`).",
+        "properties": {
+          "discovery_id": {
+            "description": "Discovery request id.",
+            "title": "Discovery Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "scanner.discovery_expired",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "discovery_id"
+        ],
+        "title": "WsScannerDiscoveryExpired",
+        "type": "object"
+      },
+      "WsScannerDiscoveryRequested": {
+        "description": "A scanner asked to be approved (`/ws/v1/scanners`).",
+        "properties": {
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Scanner version.",
+            "title": "Agent Version"
+          },
+          "discovery_id": {
+            "description": "Discovery request id.",
+            "title": "Discovery Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "ISO-8601 expiry time.",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Scanner host name.",
+            "title": "Hostname"
+          },
+          "key_fingerprint": {
+            "description": "Fingerprint of the scanner's public key.",
+            "title": "Key Fingerprint",
+            "type": "string"
+          },
+          "kind": {
+            "const": "scanner.discovery_requested",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pairing_code": {
+            "description": "Pairing code.",
+            "title": "Pairing Code",
+            "type": "string"
+          },
+          "requested_pool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Requested pool.",
+            "title": "Requested Pool"
+          }
+        },
+        "required": [
+          "kind",
+          "discovery_id",
+          "pairing_code",
+          "hostname",
+          "agent_version",
+          "requested_pool",
+          "expires_at",
+          "key_fingerprint"
+        ],
+        "title": "WsScannerDiscoveryRequested",
+        "type": "object"
+      },
+      "WsScannerUpdated": {
+        "description": "A scanner's settings or reported metadata changed; refetch it (`/ws/v1/scanners`).",
+        "properties": {
+          "kind": {
+            "const": "scanner.updated",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "scanner_id": {
+            "description": "Scanner id.",
+            "title": "Scanner Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "scanner_id"
+        ],
+        "title": "WsScannerUpdated",
+        "type": "object"
+      },
+      "WsScannersSnapshot": {
+        "description": "First frame on `/ws/v1/scanners`: pending discovery requests.",
+        "properties": {
+          "kind": {
+            "const": "snapshot",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pending_discoveries": {
+            "description": "Discovery requests awaiting approval, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/WsPendingDiscovery"
+            },
+            "title": "Pending Discoveries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "pending_discoveries"
+        ],
+        "title": "WsScannersSnapshot",
+        "type": "object"
+      },
+      "WsSourceCreated": {
+        "description": "A source was created (`/ws/v1/scans`).",
+        "properties": {
+          "kind": {
+            "const": "source.created",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Source name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_status": {
+            "description": "Source status.",
+            "title": "Source Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Source type.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source_id",
+          "source_status",
+          "name",
+          "type"
+        ],
+        "title": "WsSourceCreated",
+        "type": "object"
+      },
+      "WsSourceDeleted": {
+        "description": "A source was deleted (`/ws/v1/scans`).",
+        "properties": {
+          "kind": {
+            "const": "source.deleted",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source_id"
+        ],
+        "title": "WsSourceDeleted",
+        "type": "object"
+      },
+      "WsSourceUpdated": {
+        "description": "A source was edited; refetch it (`/ws/v1/scans`).",
+        "properties": {
+          "kind": {
+            "const": "source.updated",
+            "description": "Frame discriminator.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source id.",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source_id"
+        ],
+        "title": "WsSourceUpdated",
         "type": "object"
       },
       "_BulkApplyBody": {
@@ -28201,6 +28815,139 @@
     {
       "description": "Endpoints spoken only by scanner agents; not a public integration surface. Protocol version 2 is required (the handshake answers 426 to anything else). Flow: enrol (`POST /scanners/claim` with a claim token, or `POST /scanners/discover` and wait for approval) -> `POST /scanners/handshake` on every start -> repeat `POST /scans/lease` (and the join long-poll `GET /scanners/{scanner_id}/scans/long-poll`) -> while holding a lease, `POST /scans/{scan_id}/heartbeat`, `POST /ingest/batch` and `/ingest/content`, log posts, and for parallel scans `POST /scans/{scan_id}/work/lease|split|{unit_id}/heartbeat|complete|fail` -> `POST /scans/{scan_id}/complete`. Scanner requests are signed with an Ed25519 JWT (`kid` is the scanner id); ingest, heartbeat and log calls use the `api_jwt` ingest token returned by the lease.",
       "name": "Scanner protocol (internal)"
+    }
+  ],
+  "x-error-codes": [
+    {
+      "code": "bad_request",
+      "description": "Malformed or unacceptable request.",
+      "status": 400
+    },
+    {
+      "code": "unauthorized",
+      "description": "Missing, invalid, expired or revoked credentials.",
+      "status": 401
+    },
+    {
+      "code": "forbidden",
+      "description": "Authenticated but not permitted.",
+      "status": 403
+    },
+    {
+      "code": "insufficient_scope",
+      "description": "The credential lacks the scope the operation requires.",
+      "status": 403
+    },
+    {
+      "code": "source_limited",
+      "description": "The token is limited to specific sources and cannot do this.",
+      "status": 403
+    },
+    {
+      "code": "interactive_session_required",
+      "description": "Creating or changing API tokens needs a login session, not another token.",
+      "status": 403
+    },
+    {
+      "code": "not_found",
+      "description": "Resource not found, or outside a source-limited token's sources.",
+      "status": 404
+    },
+    {
+      "code": "method_not_allowed",
+      "description": "The path does not support this method.",
+      "status": 405
+    },
+    {
+      "code": "conflict",
+      "description": "Conflicts with the current resource state.",
+      "status": 409
+    },
+    {
+      "code": "api_version_required",
+      "description": "Unversioned `/api/*` path; use `/api/v1/...`.",
+      "status": 410
+    },
+    {
+      "code": "payload_too_large",
+      "description": "Request body too large.",
+      "status": 413
+    },
+    {
+      "code": "validation_error",
+      "description": "Invalid input; `detail` lists the field errors.",
+      "status": 422
+    },
+    {
+      "code": "upgrade_required",
+      "description": "Scanner protocol version no longer accepted.",
+      "status": 426
+    },
+    {
+      "code": "rate_limited",
+      "description": "Too many requests.",
+      "status": 429
+    },
+    {
+      "code": "internal_error",
+      "description": "Unexpected server error.",
+      "status": 500
+    },
+    {
+      "code": "bad_gateway",
+      "description": "An upstream service returned an invalid response.",
+      "status": 502
+    },
+    {
+      "code": "service_unavailable",
+      "description": "A dependency is unavailable.",
+      "status": 503
+    }
+  ],
+  "x-websockets": [
+    {
+      "description": "Live progress and log lines of one scan. Requires `scans:read`; a source-limited token sees only its sources.",
+      "events": [
+        "WsScanSnapshot",
+        "WsScanProgress",
+        "WsScanLog",
+        "WsPing",
+        "WsError"
+      ],
+      "path": "/ws/v1/scans/{scan_id}",
+      "scope": "scans:read"
+    },
+    {
+      "description": "Scan and source state changes for every source the caller can see. Requires `scans:read`.",
+      "events": [
+        "WsScanListSnapshot",
+        "WsScanState",
+        "WsSourceCreated",
+        "WsSourceUpdated",
+        "WsSourceDeleted",
+        "WsHostChanged",
+        "WsPing",
+        "WsError"
+      ],
+      "path": "/ws/v1/scans",
+      "scope": "scans:read"
+    },
+    {
+      "description": "Scanner lifecycle events: enrolment, discovery requests and scanner changes. Requires `scanners:read`.",
+      "events": [
+        "WsScannersSnapshot",
+        "WsScannerClaimRedeemed",
+        "WsScannerDiscoveryRequested",
+        "WsScannerDiscoveryApproved",
+        "WsScannerDiscoveryDenied",
+        "WsScannerDiscoveryExpired",
+        "WsScannerUpdated",
+        "WsScannerDeleted",
+        "WsPing",
+        "WsError"
+      ],
+      "path": "/ws/v1/scanners",
+      "scope": "scanners:read"
     }
   ]
 }

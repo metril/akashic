@@ -49,6 +49,30 @@ export type ScanProgressEvent = S["WsScanProgress"];
 export type ScanSnapshot = S["WsScanSnapshot"];
 export type ScanLogEvent = S["WsScanLog"];
 export type ScanWsEvent = ScanSnapshot | ScanProgressEvent | ScanLogEvent | S["WsPing"];
+/** Frames on /ws/v1/scans (source and scan state). */
+export type ScansStreamEvent =
+  | S["WsScanListSnapshot"]
+  | S["WsScanState"]
+  | S["WsSourceCreated"]
+  | S["WsSourceUpdated"]
+  | S["WsSourceDeleted"]
+  | S["WsHostChanged"]
+  | S["WsPing"]
+  | S["WsError"];
+export type SnapshotScan = S["WsScanListEntry"];
+export type PendingDiscoverySnapshot = S["WsPendingDiscovery"];
+/** Frames on /ws/v1/scanners (scanner lifecycle, admin only). */
+export type ScannersStreamEvent =
+  | S["WsScannersSnapshot"]
+  | S["WsScannerClaimRedeemed"]
+  | S["WsScannerDiscoveryRequested"]
+  | S["WsScannerDiscoveryApproved"]
+  | S["WsScannerDiscoveryDenied"]
+  | S["WsScannerDiscoveryExpired"]
+  | S["WsScannerUpdated"]
+  | S["WsScannerDeleted"]
+  | S["WsPing"]
+  | S["WsError"];
 export type DuplicateFile = S["DuplicateFile"];
 export type AuditEvent = S["AuditEventOut"];
 export type FsPerson = S["FsPersonOut"];

@@ -1,7 +1,5 @@
 """Discriminated-union ACL schemas — one shape per ACL model."""
-from typing import Annotated, Literal, Union
-
-from typing_extensions import TypeAliasType
+from typing import Annotated, Literal, TypeAliasType, Union
 
 from akashic.schemas.base import ApiModel
 from pydantic import Field, field_validator

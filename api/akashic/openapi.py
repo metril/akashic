@@ -10,7 +10,7 @@ from fastapi.routing import APIRoute
 from fastapi.openapi.utils import get_openapi
 
 from akashic.auth.scopes import SCOPES
-from akashic.schemas.ws_events import WS_EVENT_MODELS
+from akashic.schemas.ws_events import WS_ENDPOINTS, WS_EVENT_MODELS
 
 SCANNER_TAG = "Scanner protocol (internal)"
 
@@ -77,6 +77,29 @@ SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
     },
 }
 
+# Every `code` an error body can carry: the status-derived defaults in
+# `akashic.errors._CODES` plus the specific ones raised with `code=...`.
+# Published as `x-error-codes`; tests keep it in step with the code.
+ERROR_CODES: list[dict[str, Any]] = [
+    {"status": 400, "code": "bad_request", "description": "Malformed or unacceptable request."},
+    {"status": 401, "code": "unauthorized", "description": "Missing, invalid, expired or revoked credentials."},
+    {"status": 403, "code": "forbidden", "description": "Authenticated but not permitted."},
+    {"status": 403, "code": "insufficient_scope", "description": "The credential lacks the scope the operation requires."},
+    {"status": 403, "code": "source_limited", "description": "The token is limited to specific sources and cannot do this."},
+    {"status": 403, "code": "interactive_session_required", "description": "Creating or changing API tokens needs a login session, not another token."},
+    {"status": 404, "code": "not_found", "description": "Resource not found, or outside a source-limited token's sources."},
+    {"status": 405, "code": "method_not_allowed", "description": "The path does not support this method."},
+    {"status": 409, "code": "conflict", "description": "Conflicts with the current resource state."},
+    {"status": 410, "code": "api_version_required", "description": "Unversioned `/api/*` path; use `/api/v1/...`."},
+    {"status": 413, "code": "payload_too_large", "description": "Request body too large."},
+    {"status": 422, "code": "validation_error", "description": "Invalid input; `detail` lists the field errors."},
+    {"status": 426, "code": "upgrade_required", "description": "Scanner protocol version no longer accepted."},
+    {"status": 429, "code": "rate_limited", "description": "Too many requests."},
+    {"status": 500, "code": "internal_error", "description": "Unexpected server error."},
+    {"status": 502, "code": "bad_gateway", "description": "An upstream service returned an invalid response."},
+    {"status": 503, "code": "service_unavailable", "description": "A dependency is unavailable."},
+]
+
 _HEADING = re.compile(r"^##\s+v?(\d+\.\d+\.\d+\S*)", re.MULTILINE)
 
 
@@ -117,6 +140,11 @@ def install_openapi(app: FastAPI) -> None:
             for name, sub in js.pop("$defs", {}).items():
                 schemas.setdefault(name, sub)
             schemas[model.__name__] = js
+        schema["x-error-codes"] = ERROR_CODES
+        schema["x-websockets"] = [
+            {"path": path, "scope": scope, "description": description, "events": [m.__name__ for m in models]}
+            for path, scope, description, models in WS_ENDPOINTS
+        ]
         app.openapi_schema = schema
         return schema
 

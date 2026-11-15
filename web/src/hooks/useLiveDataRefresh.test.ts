@@ -29,6 +29,8 @@ function scanState(
     scan_type: "incremental",
     files_found: 0,
     current_path: null,
+    started_at: null,
+    current_batch_size: null,
   };
 }
 

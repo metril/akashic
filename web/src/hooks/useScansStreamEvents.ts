@@ -16,40 +16,9 @@
 import { useEffect, useRef } from "react";
 
 import { WS_BASE, completeSsoLogin, getToken } from "../api/client";
+import type { ScansStreamEvent, SnapshotScan } from "../api/types";
 
-export type ScansStreamEvent =
-  | { kind: "snapshot"; scans: SnapshotScan[] }
-  | { kind: "scan.state"; source_id: string; scan_id: string;
-      scan_status: "pending" | "running" | "completed" | "failed" | "cancelled";
-      source_status: string;
-      scanner_id: string | null; scanner_name: string | null;
-      scan_type: string; files_found: number; current_path: string | null;
-      // v0.4.10 — present on lease + heartbeat + complete (i.e.
-      // every event after the scanner has actually started). Trigger
-      // events still send null since started_at isn't set yet at
-      // pending. Surfaces in bySource[id].started_at so ETA + the
-      // recomputeBySource ordering have the real timestamp.
-      started_at?: string | null }
-  | { kind: "source.created"; source_id: string; source_status: string;
-      name: string; type: string }
-  | { kind: "source.updated"; source_id: string }
-  | { kind: "source.deleted"; source_id: string }
-  | { kind: "host.changed"; host_id: string }
-  | { kind: "ping" }
-  | { kind: "error"; message: string };
-
-export interface SnapshotScan {
-  scan_id: string;
-  source_id: string;
-  scan_status: string;
-  source_status: string;
-  scanner_id: string | null;
-  scanner_name: string | null;
-  scan_type: string;
-  files_found: number;
-  current_path: string | null;
-  started_at: string | null;
-}
+export type { ScansStreamEvent, SnapshotScan };
 
 type Listener = (event: ScansStreamEvent) => void;
 

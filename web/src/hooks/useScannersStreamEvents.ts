@@ -10,36 +10,9 @@
 import { useEffect, useRef } from "react";
 
 import { WS_BASE, completeSsoLogin, getToken } from "../api/client";
+import type { PendingDiscoverySnapshot, ScannersStreamEvent } from "../api/types";
 
-export interface PendingDiscoverySnapshot {
-  id: string;
-  pairing_code: string;
-  hostname: string | null;
-  agent_version: string | null;
-  requested_pool: string | null;
-  requested_at: string;
-  expires_at: string;
-  key_fingerprint: string;
-}
-
-export type ScannersStreamEvent =
-  | { kind: "snapshot"; pending_discoveries: PendingDiscoverySnapshot[] }
-  | { kind: "scanner.claim_redeemed"; scanner_id: string; scanner_name: string;
-      pool: string; token_id: string }
-  | { kind: "scanner.discovery_requested"; discovery_id: string;
-      pairing_code: string; hostname: string | null;
-      agent_version: string | null; requested_pool: string | null;
-      expires_at: string; key_fingerprint: string }
-  | { kind: "scanner.discovery_approved"; discovery_id: string;
-      scanner_id: string; scanner_name: string; pool: string }
-  | { kind: "scanner.discovery_denied"; discovery_id: string;
-      deny_reason: string | null }
-  | { kind: "scanner.discovery_expired"; discovery_id: string }
-  | { kind: "scanner.registered"; scanner_id: string }
-  | { kind: "scanner.updated"; scanner_id: string }
-  | { kind: "scanner.deleted"; scanner_id: string }
-  | { kind: "ping" }
-  | { kind: "error"; message: string };
+export type { PendingDiscoverySnapshot, ScannersStreamEvent };
 
 type Listener = (event: ScannersStreamEvent) => void;
 

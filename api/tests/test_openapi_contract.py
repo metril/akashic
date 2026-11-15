@@ -871,3 +871,54 @@ def test_unresolvable_akashic_local_import_raises(scan_this_module):
     with pytest.raises(ImportError):
         _routing._local_imports(_ast.parse("def f():\n    from akashic.auth.dependencies import nope\n"))
     assert _routing._local_imports(_ast.parse("def f():\n    import not_installed_pkg_xyz\n")) == {}
+
+
+def test_every_ws_frame_kind_the_server_sends_has_a_schema():
+    """Each ``"kind": "<literal>"`` a WebSocket producer emits has a Ws* component, and vice versa."""
+    import re
+    import typing
+
+    from akashic.schemas.ws_events import WS_EVENT_MODELS
+
+    documented: set[str] = set()
+    for model in WS_EVENT_MODELS:
+        kind = model.model_fields.get("kind")
+        if kind is not None:
+            documented.update(typing.get_args(kind.annotation))
+
+    pattern = re.compile(r'"kind":\s*"([\w.]+)"')
+    sent: set[str] = set()
+    for path in (REPO_ROOT / "api" / "akashic").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        # server_settings publishes `setting.changed` on its own internal channel, never to a socket.
+        if ("scan_pubsub" in text or path.name == "scan_websocket.py") and path.name != "server_settings.py":
+            sent.update(pattern.findall(text))
+    assert sent == documented, f"sent but undocumented: {sorted(sent - documented)}; documented but never sent: {sorted(documented - sent)}"
+
+
+def test_error_code_catalog_matches_the_code():
+    import re
+
+    from akashic import errors
+    from akashic.openapi import ERROR_CODES
+
+    listed = {(e["status"], e["code"]) for e in ERROR_CODES}
+    assert {(st, c) for st, c in errors._CODES.items()} <= listed
+    raised = set()
+    for path in (REPO_ROOT / "api" / "akashic").rglob("*.py"):
+        raised.update(re.findall(r'code="([a-z_]+)"', path.read_text(encoding="utf-8")))
+    assert raised <= {e["code"] for e in ERROR_CODES}, sorted(raised - {e["code"] for e in ERROR_CODES})
+
+
+def test_committed_api_md_is_current():
+    """docs/api.md is rendered from the committed openapi.json (stdlib only, no app import)."""
+    import importlib.util
+
+    script = REPO_ROOT / "api" / "scripts" / "render_api_md.py"
+    mod_spec = importlib.util.spec_from_file_location("render_api_md", script)
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod_spec.loader.exec_module(mod)
+    expected = mod.render(json.loads(SPEC_PATH.read_text(encoding="utf-8")))
+    docs = REPO_ROOT / "docs" / "api.md"
+    assert docs.is_file(), "docs/api.md missing; run `make openapi`"
+    assert docs.read_text(encoding="utf-8") == expected, "docs/api.md is stale; run `make openapi` and commit it"
