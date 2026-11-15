@@ -15,6 +15,7 @@ Universal file index — hybrid Go scanner + Python API + Meilisearch + React we
 
 ## Documentation
 
+- **[API reference](docs/api.md)** — every endpoint, scope, error and WebSocket event, generated from `openapi.json` (also attached to each release); interactive docs at `/api/docs`.
 - **[Configuration reference](docs/configuration.md)** — every env var and feature flag.
 - **[Authentication](docs/authentication.md)** — local users, OIDC, direct LDAP, OIDC + LDAP fallback, scopes and personal API tokens.
 - **[Permissions model](docs/permissions-model.md)** — ACL projection, `viewable_by_*` columns, FsBindings.

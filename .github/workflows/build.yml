@@ -133,6 +133,24 @@ jobs:
         run: python api/scripts/dump_openapi.py
       - name: Committed openapi.json is current
         run: git diff --exit-code openapi.json || { echo "::error::openapi.json is stale; run 'make openapi' and commit it"; exit 1; }
+      - name: Committed docs/api.md is current
+        run: |
+          python api/scripts/render_api_md.py
+          git diff --exit-code docs/api.md || { echo "::error::docs/api.md is stale; run 'make openapi' and commit it"; exit 1; }
+
+  api-breaking-gate:
+    name: API breaking-change gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # the gate finds the last release tag; it refuses a shallow clone
+      # Compares openapi.json with the last stable v* tag's (highest version
+      # reachable from HEAD, skipped when that tag has none). Breaking changes
+      # fail unless the top CHANGELOG section has a `### Breaking` subsection;
+      # any tool error fails too. oasdiff is pinned and run in docker.
+      - name: oasdiff breaking
+        run: .github/scripts/api_breaking_gate.sh
 
   test-scanner:
     name: Scanner tests
@@ -154,7 +172,7 @@ jobs:
             || { echo "::error::Go API clients are stale; run 'make openapi' and commit them"; exit 1; }
       - name: Run go test
         working-directory: scanner
-        run: go test ./...
+        run: go test -race ./...
       - name: cli vet + test
         working-directory: cli
         run: go vet ./... && go test -race ./...
@@ -194,7 +212,7 @@ jobs:
 
   build-api:
     name: Build api image
-    needs: [ test-api, api-contract, test-scanner ]
+    needs: [ test-api, api-contract, api-breaking-gate, test-scanner ]
     runs-on: ubuntu-latest
     permissions:
       contents: read

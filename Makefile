@@ -76,6 +76,7 @@ ps:
 	docker compose ps
 
 # Regenerate the committed OpenAPI spec (openapi.json at the repo root), the
+# API reference rendered from it (docs/api.md, stdlib only), the
 # TypeScript schema built from it (web/src/api/schema.d.ts) and the Go clients
 # (scanner/internal/apiclient, cli/internal/apiclient). The spec needs the api
 # package installed (`pip install -e "api[dev]"`); no DB or Redis. The TS step
@@ -84,6 +85,7 @@ ps:
 # CI fails if any committed output is stale.
 openapi:
 	python api/scripts/dump_openapi.py
+	python api/scripts/render_api_md.py
 	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/w node:20-alpine sh -c '\
 		mkdir -p /tmp/gen/web/src/api && cp /w/openapi.json /tmp/gen/ && \
 		cp /w/web/package.json /w/web/package-lock.json /tmp/gen/web/ && cd /tmp/gen/web && \
