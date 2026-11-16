@@ -869,23 +869,12 @@ async def ingest_batch(
         background_tasks.add_task(
             meili_indexer.flush, batch.source_id,
         )
-        # Order matters: rollup runs BEFORE the snapshot writer so the
-        # snapshot's totals see the freshly-computed subtree aggregates.
-        # Both run in the background — the user sees the ScanBatchResponse
+        # Rollup, mirror relink, snapshot, webhooks run sequentially in
+        # one background task; the user sees the ScanBatchResponse
         # immediately and these settle asynchronously.
+        from akashic.services.post_scan import run_post_scan_tasks
         background_tasks.add_task(
-            _rollup_subtree_aggregates,
-            str(batch.source_id),
-            settings.database_url,
-        )
-        background_tasks.add_task(
-            _write_scan_snapshot,
-            str(batch.scan_id),
-            str(batch.source_id),
-            settings.database_url,
-        )
-        background_tasks.add_task(
-            _dispatch_scan_webhooks,
+            run_post_scan_tasks,
             str(batch.scan_id),
             str(batch.source_id),
             scan.status,

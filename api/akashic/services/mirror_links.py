@@ -312,20 +312,29 @@ async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uu
 _MAX_FLUSH_ROUNDS = 1000
 
 
+async def relink_and_flush(db: AsyncSession, backing_id: uuid.UUID) -> bool:
+    """Relink one backing, commit, and sync the changed entries to the search index.
+
+    Rolls the session back and returns False on an invalid mapping.
+    """
+    try:
+        result = await relink_backing(db, backing_id)
+        await db.commit()
+    except MirrorConfigError:
+        await db.rollback()
+        logger.exception("mirror relink failed for backing_id=%s", backing_id)
+        return False
+    await meili_indexer.mark_dirty(backing_id, result.changed_ids)
+    # flush() caps work per call; drain this backing's dirty set.
+    for _ in range(_MAX_FLUSH_ROUNDS):
+        if not await meili_indexer.flush(backing_id):
+            break
+    return True
+
+
 async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
     for backing_id in await backing_sources_for(db, source_id):
-        try:
-            result = await relink_backing(db, backing_id)
-            await db.commit()
-        except MirrorConfigError:
-            await db.rollback()
-            logger.exception("mirror relink failed for backing_id=%s", backing_id)
-            continue
-        await meili_indexer.mark_dirty(backing_id, result.changed_ids)
-        # flush() caps work per call; drain this backing's dirty set.
-        for _ in range(_MAX_FLUSH_ROUNDS):
-            if not await meili_indexer.flush(backing_id):
-                break
+        await relink_and_flush(db, backing_id)
 
 
 async def logical_view_source_ids(db: AsyncSession) -> set[uuid.UUID]:

@@ -514,20 +514,9 @@ async def complete_unit(
         await _broadcast_terminal(scan, source, scanner, new_status)
         # Mirror the ingest-batch IsFinal=true post-scan tasks.
         from akashic.config import settings as _settings
-        from akashic.routers.ingest import (
-            _dispatch_scan_webhooks,
-            _rollup_subtree_aggregates,
-            _write_scan_snapshot,
-        )
+        from akashic.services.post_scan import run_post_scan_tasks
         background_tasks.add_task(
-            _rollup_subtree_aggregates, str(source.id), _settings.database_url,
-        )
-        background_tasks.add_task(
-            _write_scan_snapshot, str(scan.id), str(source.id),
-            _settings.database_url,
-        )
-        background_tasks.add_task(
-            _dispatch_scan_webhooks, str(scan.id), str(source.id),
+            run_post_scan_tasks, str(scan.id), str(source.id),
             new_status, _settings.database_url,
         )
 

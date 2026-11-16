@@ -1748,7 +1748,7 @@ type ClientInterface interface {
 	// CreateSourceWithBody Create a source
 	//
 	// Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1758,7 +1758,7 @@ type ClientInterface interface {
 	// CreateSource Create a source
 	//
 	// Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1789,7 +1789,7 @@ type ClientInterface interface {
 
 	// DeleteSource Delete a source
 	//
-	// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details.
+	// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source removes its mappings from every source's `mirror_of` and unlinks the files that were linked to it.
 	// Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the token's sources.
 	//
 	// Corresponds with DELETE /api/v1/sources/{source_id} (the `DeleteSource` operationId).
@@ -1806,7 +1806,7 @@ type ClientInterface interface {
 	// UpdateSourceWithBody Update a source
 	//
 	// Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1816,7 +1816,7 @@ type ClientInterface interface {
 	// UpdateSource Update a source
 	//
 	// Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2433,7 +2433,7 @@ func (c *Client) ListSources(ctx context.Context, reqEditors ...RequestEditorFn)
 // CreateSourceWithBody Create a source
 //
 // Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2453,7 +2453,7 @@ func (c *Client) CreateSourceWithBody(ctx context.Context, contentType string, b
 // CreateSource Create a source
 //
 // Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2514,7 +2514,7 @@ func (c *Client) PostTest(ctx context.Context, body PostTestJSONRequestBody, req
 
 // DeleteSource Delete a source
 //
-// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details.
+// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source removes its mappings from every source's `mirror_of` and unlinks the files that were linked to it.
 // Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the token's sources.
 //
 // Corresponds with DELETE /api/v1/sources/{source_id} (the `DeleteSource` operationId).
@@ -2551,7 +2551,7 @@ func (c *Client) GetSource(ctx context.Context, sourceId openapi_types.UUID, req
 // UpdateSourceWithBody Update a source
 //
 // Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2571,7 +2571,7 @@ func (c *Client) UpdateSourceWithBody(ctx context.Context, sourceId openapi_type
 // UpdateSource Update a source
 //
 // Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5325,7 +5325,7 @@ type ClientWithResponsesInterface interface {
 	// CreateSourceWithBodyWithResponse Create a source
 	//
 	// Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5335,7 +5335,7 @@ type ClientWithResponsesInterface interface {
 	// CreateSourceWithResponse Create a source
 	//
 	// Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+	// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5366,7 +5366,7 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteSourceWithResponse Delete a source
 	//
-	// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details.
+	// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source removes its mappings from every source's `mirror_of` and unlinks the files that were linked to it.
 	// Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the token's sources.
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -5387,7 +5387,7 @@ type ClientWithResponsesInterface interface {
 	// UpdateSourceWithBodyWithResponse Update a source
 	//
 	// Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5397,7 +5397,7 @@ type ClientWithResponsesInterface interface {
 	// UpdateSourceWithResponse Update a source
 	//
 	// Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+	// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -8650,7 +8650,7 @@ func (c *ClientWithResponses) ListSourcesWithResponse(ctx context.Context, reqEd
 // CreateSourceWithBodyWithResponse Create a source
 //
 // Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8666,7 +8666,7 @@ func (c *ClientWithResponses) CreateSourceWithBodyWithResponse(ctx context.Conte
 // CreateSourceWithResponse Create a source
 //
 // Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup or out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or `oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+// Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8715,7 +8715,7 @@ func (c *ClientWithResponses) PostTestWithResponse(ctx context.Context, body Pos
 
 // DeleteSourceWithResponse Delete a source
 //
-// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details.
+// Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source removes its mappings from every source's `mirror_of` and unlinks the files that were linked to it.
 // Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the token's sources.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -8748,7 +8748,7 @@ func (c *ClientWithResponses) GetSourceWithResponse(ctx context.Context, sourceI
 // UpdateSourceWithBodyWithResponse Update a source
 //
 // Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8764,7 +8764,7 @@ func (c *ClientWithResponses) UpdateSourceWithBodyWithResponse(ctx context.Conte
 // UpdateSourceWithResponse Update a source
 //
 // Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or profile) does not exist or is outside the token's sources; 422 for a malformed body.
+// Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

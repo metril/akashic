@@ -3,14 +3,15 @@ import uuid
 from datetime import datetime
 
 from akashic.schemas.ws_events import WsSourceCreated, WsSourceDeleted, WsSourceUpdated
-from akashic.routing import ApiRouter
-from fastapi import Depends, HTTPException, Path, Query, Request, status
+from akashic.routing import ApiRouter, raises
+from fastapi import BackgroundTasks, Depends, HTTPException, Path, Query, Request, status
 from akashic.schemas.base import ApiModel
 from pydantic import Field
-from sqlalchemy import delete as sql_delete, func, select
+from sqlalchemy import delete as sql_delete, func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.source_scope import restrict_sources
+from akashic.config import settings
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
 from akashic.models.audit_event import AuditEvent
@@ -28,7 +29,15 @@ from akashic.schemas.reachability import (
 from akashic.schemas.source import (
     SourceCreate, SourceListResponse, SourceResponse, SourceUpdate,
 )
+from akashic.services import post_scan
 from akashic.services.audit import record_event
+from akashic.services.mirror_links import (
+    MIRROR_APP_TYPES,
+    MirrorConfigError,
+    backing_sources_for,
+    relink_and_flush,
+    validate_mirror_of,
+)
 from akashic.services.source_config import (
     merge_host_and_source,
     validate_scan_controls,
@@ -155,15 +164,17 @@ async def _validate_smb_password_requirement(
         "(secrets omitted).\n"
         "Requires scope `sources:write`. Not available to source-limited tokens, since a new source "
         "is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile "
-        "of a different type, a hostless type given a host, an invalid SMB password setup or "
-        "out-of-range scan controls; 404 for an unknown `host_id`, `credential_profile_id` or "
-        "`oauth_credential_id`; 409 if the OAuth credential is attached elsewhere; 422 for a "
+        "of a different type, a hostless type given a host, an invalid SMB password setup, "
+        "out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, "
+        "`credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a "
         "malformed body."
     ),
 )
+@raises(400, 404)  # MirrorConfigError carries its own status
 async def create_source(
     data: SourceCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
@@ -225,6 +236,14 @@ async def create_source(
         )
 
     payload = data.model_dump()
+    if isinstance(payload.get("connection_config"), dict) and "mirror_of" in payload["connection_config"]:
+        try:
+            payload["connection_config"]["mirror_of"] = await validate_mirror_of(
+                db, backing_id=None, backing_type=data.type,
+                raw=payload["connection_config"]["mirror_of"],
+            )
+        except MirrorConfigError as e:
+            raise HTTPException(e.status_code, e.detail)
     # v0.35.0 — a NULL max_parallel_scanners / scan_chunk_size now means
     # "inherit from the host" (or the built-in default), so it is kept
     # as NULL rather than forced to a concrete value here.
@@ -277,6 +296,10 @@ async def create_source(
         cred.source_id = source.id
     await db.commit()
     await db.refresh(source)
+    if (source.connection_config or {}).get("mirror_of"):
+        background_tasks.add_task(
+            post_scan.relink_source_bg, str(source.id), settings.database_url,
+        )
     # Push to /ws/v1/scans subscribers so the Sources page sees the
     # new card without polling.
     from akashic.services import scan_pubsub
@@ -426,14 +449,18 @@ LIMITED_UPDATE_FIELDS = frozenset({
         "`source_limited`.\n"
         "Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a "
         "hostless type given a host, removing a required host, a masked `***` in a non-secret key, an "
-        "invalid SMB password setup or out-of-range scan controls; 404 if the source (or host or "
-        "profile) does not exist or is outside the token's sources; 422 for a malformed body."
+        "invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the "
+        "source (or host, profile or `mirror_of` target) does not exist or is outside the token's "
+        "sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised "
+        "and starts a background mirror-link pass."
     ),
 )
+@raises(400, 404)  # MirrorConfigError carries its own status
 async def update_source(
     source_id: Annotated[uuid.UUID, Path(description="Source to update.")],
     data: SourceUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     principal: Principal = require_scope("sources:write", source_scoped=True),
 ):
@@ -553,8 +580,24 @@ async def update_source(
             connection_config=source.connection_config,
         )
 
+    mirror_changed = False
+    if "mirror_of" in (incoming.get("connection_config") or {}):
+        try:
+            normalized = await validate_mirror_of(
+                db, backing_id=source.id, backing_type=source.type,
+                raw=(source.connection_config or {}).get("mirror_of"),
+            )
+        except MirrorConfigError as e:
+            raise HTTPException(e.status_code, e.detail)
+        source.connection_config = {**source.connection_config, "mirror_of": normalized}
+        mirror_changed = normalized != (before["connection_config"].get("mirror_of") or [])
+
     await db.commit()
     await db.refresh(source)
+    if mirror_changed:
+        background_tasks.add_task(
+            post_scan.relink_source_bg, str(source.id), settings.database_url,
+        )
     # Push to /ws/v1/scans subscribers so other tabs/users see the edit
     # without polling (mirrors source.created / source.deleted).
     from akashic.services import scan_pubsub
@@ -608,7 +651,9 @@ async def update_source(
         "searchable, content unavailable) and can later be re-attached to another source with `POST "
         "/sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans "
         "are kept, detached from the source. The search index is updated, a `source.deleted` event is "
-        "published and a `source_deleted` audit event records the details.\n"
+        "published and a `source_deleted` audit event records the details. Deleting an Immich or "
+        "Paperless source removes its mappings from every source's `mirror_of` and unlinks the "
+        "files that were linked to it.\n"
         "Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the "
         "token's sources."
     ),
@@ -639,6 +684,32 @@ async def delete_source(
     }
     deleted_id = source.id
 
+    # Mirror links: strip this app source from every backing's mirror_of
+    # (relinked after the delete commits); unlink a backing's own files.
+    stripped_backings: list[uuid.UUID] = []
+    if source.type in MIRROR_APP_TYPES:
+        for backing_id in await backing_sources_for(db, source_id):
+            backing = await db.get(Source, backing_id)
+            before_cfg = dict(backing.connection_config or {})
+            kept = [
+                m for m in before_cfg.get("mirror_of") or []
+                if m.get("source_id") != str(source_id)
+            ]
+            backing.connection_config = {**before_cfg, "mirror_of": kept}
+            await record_event(
+                db=db, user=user, event_type="source_updated", source_id=backing.id,
+                request=request, commit=False,
+                payload={"diff": {"connection_config": field_diff(before_cfg, backing.connection_config)}},
+            )
+            stripped_backings.append(backing_id)
+    elif not purge_entries:
+        await db.execute(
+            sql_update(Entry).where(Entry.source_id == source_id).values(
+                linked_entry_id=None, link_role=None,
+                link_target_viewable=None, link_target_source_id=None,
+            )
+        )
+
     # Snapshot the affected entry ids BEFORE the source delete so we
     # can sync Meilisearch in either flavour. On the preserve path
     # the FK rule will SET source_id=NULL after `db.delete(source)`;
@@ -654,6 +725,8 @@ async def delete_source(
 
     await db.delete(source)
     await db.commit()
+    for backing_id in stripped_backings:
+        await relink_and_flush(db, backing_id)
 
     # Sync Meilisearch. Failures here are logged but don't break the
     # delete — search index drift is recoverable, a half-deleted

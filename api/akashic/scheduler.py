@@ -387,11 +387,7 @@ async def _finalize_orphaned_complete_scans():
             # Broadcast so the Sources page + Dashboard reflect it live,
             # and run the post-scan tasks /work/complete would have.
             from akashic.services import scan_broadcast, scan_pubsub
-            from akashic.routers.ingest import (
-                _dispatch_scan_webhooks,
-                _rollup_subtree_aggregates,
-                _write_scan_snapshot,
-            )
+            from akashic.services.post_scan import run_post_scan_tasks
             await scan_pubsub.publish_source_event(WsScanState(
                 source_id=str(source.id),
                 scan_id=str(scan.id),
@@ -407,11 +403,7 @@ async def _finalize_orphaned_complete_scans():
                 ),
             ))
             await scan_broadcast.clear_broadcast(str(scan.id))
-            _spawn_bg(_rollup_subtree_aggregates(
-                str(source.id), settings.database_url))
-            _spawn_bg(_write_scan_snapshot(
-                str(scan.id), str(source.id), settings.database_url))
-            _spawn_bg(_dispatch_scan_webhooks(
+            _spawn_bg(run_post_scan_tasks(
                 str(scan.id), str(source.id), new_status, settings.database_url))
 
 
