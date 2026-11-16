@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -25,6 +26,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from akashic.database import Base
 
+# Mirror-link roles: how a backing file relates to the Immich/Paperless
+# entry it belongs to. Mirrored verbatim in alembic 0047_mirror_links.
+LINK_ROLES: tuple[str, ...] = (
+    "original",
+    "thumbnail",
+    "encoded_video",
+    "sidecar",
+    "archive",
+    "version",
+)
+
 
 class Entry(Base):
     """A file or directory observed on a source."""
@@ -34,6 +46,16 @@ class Entry(Base):
         UniqueConstraint("source_id", "path", name="uq_entries_source_path"),
         Index("ix_entries_browse", "source_id", "parent_path", "kind"),
         Index("ix_entries_content_hash", "content_hash"),
+        CheckConstraint(
+            "link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')",
+            name="ck_entries_link_role",
+        ),
+        Index(
+            "ix_entries_linked_entry_id",
+            "linked_entry_id",
+            postgresql_where=text("linked_entry_id IS NOT NULL"),
+        ),
+        Index("ix_entries_source_link_role", "source_id", "link_role"),
         Index(
             "ix_entries_viewable_read_gin",
             "viewable_by_read",
@@ -116,6 +138,21 @@ class Entry(Base):
     )
     viewable_by_delete: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
+    )
+
+    # Mirror links: set on a backing file (e.g. an Immich/Paperless file on
+    # disk) pointing at the Immich/Paperless entry it belongs to.
+    # link_target_viewable / link_target_source_id snapshot the target's ACL
+    # projection and source for permission checks.
+    linked_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True
+    )
+    link_role: Mapped[str | None] = mapped_column(String, nullable=True)
+    link_target_viewable: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text), nullable=True
+    )
+    link_target_source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
     )
 
     # Phase 9 — directory-only aggregates. NULL on file rows; populated
