@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,11 +104,17 @@ def prefix_with_sep(local_prefix: str, backing_type: str) -> str:
 async def load_mappings(db: AsyncSession, backing: Source) -> list[MirrorMapping]:
     out: list[MirrorMapping] = []
     for m in (backing.connection_config or {}).get("mirror_of") or []:
-        target_id = uuid.UUID(m["source_id"])
+        try:
+            target_id = uuid.UUID(m["source_id"])
+            remote, local = m["remote_prefix"], m["local_prefix"]
+        except (KeyError, ValueError, TypeError) as exc:
+            raise MirrorConfigError(409, f"corrupt mirror_of mapping: {exc!r}") from exc
         target = await db.get(Source, target_id)
         if target is None or target.type not in MIRROR_APP_TYPES:
             raise MirrorConfigError(409, f"mirror_of target {target_id} is missing or invalid")
         out.append(
-            MirrorMapping(target_id, m["remote_prefix"], m["local_prefix"], target.type)  # type: ignore[arg-type]
+            MirrorMapping(
+                target_id, remote, local, cast(Literal["immich", "paperless"], target.type)
+            )
         )
     return out

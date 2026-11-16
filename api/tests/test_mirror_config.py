@@ -7,6 +7,7 @@ from akashic.services.mirror_links import (
     MirrorConfigError,
     normalize_mapping,
     prefix_with_sep,
+    load_mappings,
     validate_mirror_of,
 )
 
@@ -38,8 +39,9 @@ def test_normalize_rejects_relative_remote_prefix():
 def test_normalize_rejects_unknown_key():
     raw = _m("", "/x")
     raw["bogus"] = 1
-    with pytest.raises(MirrorConfigError):
+    with pytest.raises(MirrorConfigError) as e:
         normalize_mapping(raw, "local")
+    assert e.value.status_code == 400
 
 
 def test_normalize_rejects_relative_local_prefix_non_s3():
@@ -54,10 +56,10 @@ async def _src(db, type_):
     return s
 
 
-async def _call(db, target, raw_extra=None, *, backing_id=None, backing_type="local", **kw):
+async def _call(db, target, *, backing_id=None, backing_type="local", **kw):
     m = _m(kw.get("remote", ""), kw.get("local", "/x"), str(target))
     return await validate_mirror_of(
-        db, backing_id=backing_id, backing_type=backing_type, raw=raw_extra or [m]
+        db, backing_id=backing_id, backing_type=backing_type, raw=[m]
     )
 
 
@@ -138,3 +140,31 @@ def test_prefix_with_sep():
     assert prefix_with_sep("", "s3") == ""
     assert prefix_with_sep("", "local") == "/"
     assert prefix_with_sep("/m", "nfs") == "/m/"
+
+
+@pytest.mark.asyncio
+async def test_load_mappings_resolves_kind(db_session):
+    t = await _src(db_session, "paperless")
+    b = await _src(db_session, "local")
+    b.connection_config = {"mirror_of": [_m("", "/x", str(t.id))]}
+    out = await load_mappings(db_session, b)
+    assert len(out) == 1 and out[0].kind == "paperless" and out[0].source_id == t.id
+
+
+@pytest.mark.asyncio
+async def test_load_mappings_missing_target_raises(db_session):
+    b = await _src(db_session, "local")
+    b.connection_config = {"mirror_of": [_m("", "/x", str(uuid.uuid4()))]}
+    with pytest.raises(MirrorConfigError) as e:
+        await load_mappings(db_session, b)
+    assert e.value.status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [{}, {"source_id": "nope", "remote_prefix": "", "local_prefix": ""}])
+async def test_load_mappings_corrupt_raises(db_session, bad):
+    b = await _src(db_session, "local")
+    b.connection_config = {"mirror_of": [bad]}
+    with pytest.raises(MirrorConfigError) as e:
+        await load_mappings(db_session, b)
+    assert e.value.status_code == 409
