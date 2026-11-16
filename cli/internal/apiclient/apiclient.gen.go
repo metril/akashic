@@ -54,6 +54,39 @@ func (e ScanTriggerRequestScanType) Valid() bool {
 	}
 }
 
+// Defines values for StorageByLinkRoleLinkRole.
+const (
+	Archive      StorageByLinkRoleLinkRole = "archive"
+	EncodedVideo StorageByLinkRoleLinkRole = "encoded_video"
+	Original     StorageByLinkRoleLinkRole = "original"
+	Sidecar      StorageByLinkRoleLinkRole = "sidecar"
+	Thumbnail    StorageByLinkRoleLinkRole = "thumbnail"
+	Unlinked     StorageByLinkRoleLinkRole = "unlinked"
+	Version      StorageByLinkRoleLinkRole = "version"
+)
+
+// Valid indicates whether the value is a known member of the StorageByLinkRoleLinkRole enum.
+func (e StorageByLinkRoleLinkRole) Valid() bool {
+	switch e {
+	case Archive:
+		return true
+	case EncodedVideo:
+		return true
+	case Original:
+		return true
+	case Sidecar:
+		return true
+	case Thumbnail:
+		return true
+	case Unlinked:
+		return true
+	case Version:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TestResultStep.
 const (
 	Auth    TestResultStep = "auth"
@@ -387,6 +420,78 @@ type ErrorResponse struct {
 	RequestId string `json:"request_id"`
 }
 
+// ExtensionTrendPoint One snapshot's totals for an extension.
+type ExtensionTrendPoint struct {
+	// Bytes Total bytes of files with this extension.
+	Bytes int `json:"bytes"`
+
+	// N File count with this extension.
+	N int `json:"n"`
+
+	// TakenAt Snapshot time, ISO 8601.
+	TakenAt string `json:"taken_at"`
+}
+
+// ForecastPoint One projected point with its 95% interval.
+type ForecastPoint struct {
+	// High Upper bound of the 95% interval.
+	High int `json:"high"`
+
+	// Low Lower bound of the 95% interval.
+	Low int `json:"low"`
+
+	// TakenAt Projected time, ISO 8601.
+	TakenAt string `json:"taken_at"`
+
+	// Value Projected size in bytes.
+	Value int `json:"value"`
+}
+
+// ForecastProjection The linear projection computed from history.
+type ForecastProjection struct {
+	// HorizonDays Days projected beyond the last snapshot.
+	HorizonDays int `json:"horizon_days"`
+
+	// Points Projected points, oldest to newest.
+	Points []ForecastPoint `json:"points"`
+
+	// SlopeBytesPerDay Fitted growth rate in bytes per day.
+	SlopeBytesPerDay int `json:"slope_bytes_per_day"`
+}
+
+// ForecastResponse Capacity forecast for one source.
+type ForecastResponse struct {
+	// Forecast Projection; null when there is too little history.
+	Forecast *ForecastProjection `json:"forecast"`
+
+	// History Observed total size per snapshot, oldest to newest.
+	History []SeriesPoint `json:"history"`
+
+	// Reason `ok`, or `insufficient_history` when fewer than 3 snapshots exist.
+	Reason string `json:"reason"`
+}
+
+// LargestFile One of the largest files the caller can see.
+type LargestFile struct {
+	// Filename Base name of the file.
+	Filename string `json:"filename"`
+
+	// Id Entry id.
+	Id openapi_types.UUID `json:"id"`
+
+	// MimeType Detected MIME type, if known.
+	MimeType *string `json:"mime_type"`
+
+	// Path Full path within the source.
+	Path string `json:"path"`
+
+	// SizeBytes File size in bytes.
+	SizeBytes *int `json:"size_bytes"`
+
+	// SourceId Owning source id.
+	SourceId openapi_types.UUID `json:"source_id"`
+}
+
 // LogEntryOut defines model for LogEntryOut.
 type LogEntryOut struct {
 	// Id Log line id.
@@ -445,6 +550,27 @@ type MeResponseRole string
 type OrphanMatchCount struct {
 	// Count Orphaned entries whose path matches an entry of the source.
 	Count int `json:"count"`
+}
+
+// OwnerDistribution Owners of the latest snapshot, largest first.
+type OwnerDistribution struct {
+	// Owners Owners ordered by bytes descending.
+	Owners []OwnerShare `json:"owners"`
+
+	// TakenAt Snapshot time, ISO 8601; null when the source has no snapshot.
+	TakenAt *string `json:"taken_at"`
+}
+
+// OwnerShare One owner's totals in the latest snapshot.
+type OwnerShare struct {
+	// Bytes Total bytes owned.
+	Bytes int `json:"bytes"`
+
+	// N Number of files owned.
+	N int `json:"n"`
+
+	// Owner Owner name (or SID/uid token when unresolved).
+	Owner string `json:"owner"`
 }
 
 // PageAuditEventOut defines model for Page_AuditEventOut_.
@@ -863,6 +989,15 @@ type SearchPage struct {
 	Total *int `json:"total"`
 }
 
+// SeriesPoint One snapshot value in a time series.
+type SeriesPoint struct {
+	// TakenAt Snapshot time, ISO 8601.
+	TakenAt string `json:"taken_at"`
+
+	// Value Metric value at that time (bytes or file count).
+	Value int `json:"value"`
+}
+
 // SourceCreate Examples: {"connection_config":{"path":"/","share":"projects"},"exclude_patterns":["*.tmp","~$*"],"host_id":"9b2c5a40-1d6e-4f0a-8c7b-3e5d2a1f4b60","name":"nas-projects","scan_schedule":"0 2 * * *","type":"smb"}
 type SourceCreate struct {
 	// ConnectionConfig Connection settings for the type (path, share, bucket, URL, ...). With a host, only share-level fields are needed. Secret-looking keys are masked on read. Free-form: keys depend on the source or host type.
@@ -1079,6 +1214,51 @@ type SourceUpdate struct {
 
 	// ScanSchedule New cron expression; null clears the schedule.
 	ScanSchedule *string `json:"scan_schedule,omitempty"`
+}
+
+// StorageByLinkRole Files and bytes of one source in one mirror-link bucket.
+type StorageByLinkRole struct {
+	// Count Number of non-deleted files in the bucket.
+	Count int `json:"count"`
+
+	// LinkRole Mirror-link role; `unlinked` for files with no link.
+	LinkRole StorageByLinkRoleLinkRole `json:"link_role"`
+
+	// TotalSize Sum of `size_bytes`, in bytes.
+	TotalSize int `json:"total_size"`
+}
+
+// StorageByLinkRoleLinkRole Mirror-link role; `unlinked` for files with no link.
+type StorageByLinkRoleLinkRole string
+
+// StorageBySource Aggregate file count and bytes for one source.
+type StorageBySource struct {
+	// Count Number of files in the source.
+	Count int `json:"count"`
+
+	// LogicalView True when the source is the target of a mirror link; its bytes are counted on the backing source instead.
+	LogicalView bool `json:"logical_view"`
+
+	// SourceId Source id.
+	SourceId openapi_types.UUID `json:"source_id"`
+
+	// SourceName Source display name.
+	SourceName string `json:"source_name"`
+
+	// TotalSize Sum of `size_bytes`, in bytes. Always 0 for a logical-view source.
+	TotalSize *int `json:"total_size"`
+}
+
+// StorageByType Aggregate file count and bytes for one file extension.
+type StorageByType struct {
+	// Count Number of files with this extension.
+	Count int `json:"count"`
+
+	// Extension Lower-case extension without the dot; null for files with none.
+	Extension *string `json:"extension"`
+
+	// TotalSize Sum of `size_bytes`, in bytes.
+	TotalSize *int `json:"total_size"`
 }
 
 // TagCreate Examples: {"color":"#2563eb","name":"invoice"}
@@ -1338,6 +1518,60 @@ type UnderscoreTagApplyBody struct {
 	Tags []string `json:"tags"`
 }
 
+// GetExtensionTrendParams defines parameters for GetExtensionTrend.
+type GetExtensionTrendParams struct {
+	// SourceId Source to chart.
+	SourceId openapi_types.UUID `form:"source_id" json:"source_id"`
+
+	// Extensions Comma-separated extensions, without dots.
+	Extensions string `form:"extensions" json:"extensions"`
+
+	// Days Window length in days, ending now.
+	Days *int `form:"days,omitempty" json:"days,omitempty"`
+}
+
+// GetForecastParams defines parameters for GetForecast.
+type GetForecastParams struct {
+	// SourceId Source to forecast.
+	SourceId openapi_types.UUID `form:"source_id" json:"source_id"`
+
+	// HorizonDays How many days ahead to project.
+	HorizonDays *int `form:"horizon_days,omitempty" json:"horizon_days,omitempty"`
+
+	// LookbackDays How many days of history to fit.
+	LookbackDays *int `form:"lookback_days,omitempty" json:"lookback_days,omitempty"`
+}
+
+// GetLargestFilesParams defines parameters for GetLargestFiles.
+type GetLargestFilesParams struct {
+	// N Number of files to return (maximum 100).
+	N *int `form:"n,omitempty" json:"n,omitempty"`
+}
+
+// GetOwnerDistributionParams defines parameters for GetOwnerDistribution.
+type GetOwnerDistributionParams struct {
+	// SourceId Source to summarise.
+	SourceId openapi_types.UUID `form:"source_id" json:"source_id"`
+}
+
+// GetStorageByLinkRoleParams defines parameters for GetStorageByLinkRole.
+type GetStorageByLinkRoleParams struct {
+	// SourceId Source to break down.
+	SourceId openapi_types.UUID `form:"source_id" json:"source_id"`
+}
+
+// GetTimeseriesParams defines parameters for GetTimeseries.
+type GetTimeseriesParams struct {
+	// SourceId Source to chart.
+	SourceId openapi_types.UUID `form:"source_id" json:"source_id"`
+
+	// Metric `size` plots total bytes, `count` plots file count.
+	Metric *string `form:"metric,omitempty" json:"metric,omitempty"`
+
+	// Days Window length in days, ending now.
+	Days *int `form:"days,omitempty" json:"days,omitempty"`
+}
+
 // ListDuplicatesParams defines parameters for ListDuplicates.
 type ListDuplicatesParams struct {
 	// MinSize Only groups whose single-copy size is at least this many bytes.
@@ -1591,6 +1825,67 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+
+	// GetExtensionTrend Per-extension trend
+	//
+	// Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Corresponds with GET /api/v1/analytics/extension-trend (the `GetExtensionTrend` operationId).
+	GetExtensionTrend(ctx context.Context, params *GetExtensionTrendParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetForecast Capacity forecast
+	//
+	// Linear projection of a source's total size from its recent snapshots (least-squares slope with a 95% interval band). With fewer than 3 snapshots in the lookback window `forecast` is null and `reason` is `insufficient_history`.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Corresponds with GET /api/v1/analytics/forecast (the `GetForecast` operationId).
+	GetForecast(ctx context.Context, params *GetForecastParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetLargestFiles Largest files
+	//
+	// The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Corresponds with GET /api/v1/analytics/largest-files (the `GetLargestFiles` operationId).
+	GetLargestFiles(ctx context.Context, params *GetLargestFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetOwnerDistribution Owner distribution
+	//
+	// File count and bytes per owner from the source's latest snapshot, largest first; empty when the source has no snapshot. Owner SIDs are resolved to names from the principals cache where known.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+	//
+	// Corresponds with GET /api/v1/analytics/owner-distribution (the `GetOwnerDistribution` operationId).
+	GetOwnerDistribution(ctx context.Context, params *GetOwnerDistributionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStorageByLinkRole Storage by mirror-link role
+	//
+	// File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-link-role (the `GetStorageByLinkRole` operationId).
+	GetStorageByLinkRole(ctx context.Context, params *GetStorageByLinkRoleParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStorageBySource Storage by source
+	//
+	// File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-source (the `GetStorageBySource` operationId).
+	GetStorageBySource(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStorageByType Storage by file type
+	//
+	// File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-type (the `GetStorageByType` operationId).
+	GetStorageByType(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTimeseries Size or file-count history
+	//
+	// History of one source's total size or file count, oldest first, one point per scan snapshot in the window.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Corresponds with GET /api/v1/analytics/timeseries (the `GetTimeseries` operationId).
+	GetTimeseries(ctx context.Context, params *GetTimeseriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListDuplicates List duplicate groups
 	//
@@ -2095,6 +2390,147 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
 	UpdateUserRole(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// GetExtensionTrend Per-extension trend
+//
+// Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Corresponds with GET /api/v1/analytics/extension-trend (the `GetExtensionTrend` operationId).
+func (c *Client) GetExtensionTrend(ctx context.Context, params *GetExtensionTrendParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetExtensionTrendRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetForecast Capacity forecast
+//
+// Linear projection of a source's total size from its recent snapshots (least-squares slope with a 95% interval band). With fewer than 3 snapshots in the lookback window `forecast` is null and `reason` is `insufficient_history`.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Corresponds with GET /api/v1/analytics/forecast (the `GetForecast` operationId).
+func (c *Client) GetForecast(ctx context.Context, params *GetForecastParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetForecastRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetLargestFiles Largest files
+//
+// The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Corresponds with GET /api/v1/analytics/largest-files (the `GetLargestFiles` operationId).
+func (c *Client) GetLargestFiles(ctx context.Context, params *GetLargestFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLargestFilesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetOwnerDistribution Owner distribution
+//
+// File count and bytes per owner from the source's latest snapshot, largest first; empty when the source has no snapshot. Owner SIDs are resolved to names from the principals cache where known.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+//
+// Corresponds with GET /api/v1/analytics/owner-distribution (the `GetOwnerDistribution` operationId).
+func (c *Client) GetOwnerDistribution(ctx context.Context, params *GetOwnerDistributionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOwnerDistributionRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetStorageByLinkRole Storage by mirror-link role
+//
+// File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+//
+// Corresponds with GET /api/v1/analytics/storage-by-link-role (the `GetStorageByLinkRole` operationId).
+func (c *Client) GetStorageByLinkRole(ctx context.Context, params *GetStorageByLinkRoleParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStorageByLinkRoleRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetStorageBySource Storage by source
+//
+// File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Corresponds with GET /api/v1/analytics/storage-by-source (the `GetStorageBySource` operationId).
+func (c *Client) GetStorageBySource(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStorageBySourceRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetStorageByType Storage by file type
+//
+// File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Corresponds with GET /api/v1/analytics/storage-by-type (the `GetStorageByType` operationId).
+func (c *Client) GetStorageByType(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStorageByTypeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTimeseries Size or file-count history
+//
+// History of one source's total size or file count, oldest first, one point per scan snapshot in the window.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Corresponds with GET /api/v1/analytics/timeseries (the `GetTimeseries` operationId).
+func (c *Client) GetTimeseries(ctx context.Context, params *GetTimeseriesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTimeseriesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // ListDuplicates List duplicate groups
@@ -3149,6 +3585,432 @@ func (c *Client) UpdateUserRole(ctx context.Context, userId openapi_types.UUID, 
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewGetExtensionTrendRequest constructs an http.Request for the GetExtensionTrend method
+func NewGetExtensionTrendRequest(server string, params *GetExtensionTrendParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/extension-trend")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "extensions", params.Extensions, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Days != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "days", *params.Days, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetForecastRequest constructs an http.Request for the GetForecast method
+func NewGetForecastRequest(server string, params *GetForecastParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/forecast")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.HorizonDays != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "horizon_days", *params.HorizonDays, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.LookbackDays != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "lookback_days", *params.LookbackDays, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetLargestFilesRequest constructs an http.Request for the GetLargestFiles method
+func NewGetLargestFilesRequest(server string, params *GetLargestFilesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/largest-files")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.N != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "n", *params.N, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetOwnerDistributionRequest constructs an http.Request for the GetOwnerDistribution method
+func NewGetOwnerDistributionRequest(server string, params *GetOwnerDistributionParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/owner-distribution")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetStorageByLinkRoleRequest constructs an http.Request for the GetStorageByLinkRole method
+func NewGetStorageByLinkRoleRequest(server string, params *GetStorageByLinkRoleParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/storage-by-link-role")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetStorageBySourceRequest constructs an http.Request for the GetStorageBySource method
+func NewGetStorageBySourceRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/storage-by-source")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetStorageByTypeRequest constructs an http.Request for the GetStorageByType method
+func NewGetStorageByTypeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/storage-by-type")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTimeseriesRequest constructs an http.Request for the GetTimeseries method
+func NewGetTimeseriesRequest(server string, params *GetTimeseriesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/analytics/timeseries")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Metric != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "metric", *params.Metric, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Days != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "days", *params.Days, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListDuplicatesRequest constructs an http.Request for the ListDuplicates method
@@ -5145,6 +6007,83 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// GetExtensionTrendWithResponse Per-extension trend
+	//
+	// Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/extension-trend (the `GetExtensionTrend` operationId).
+	GetExtensionTrendWithResponse(ctx context.Context, params *GetExtensionTrendParams, reqEditors ...RequestEditorFn) (*GetExtensionTrendReply, error)
+
+	// GetForecastWithResponse Capacity forecast
+	//
+	// Linear projection of a source's total size from its recent snapshots (least-squares slope with a 95% interval band). With fewer than 3 snapshots in the lookback window `forecast` is null and `reason` is `insufficient_history`.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/forecast (the `GetForecast` operationId).
+	GetForecastWithResponse(ctx context.Context, params *GetForecastParams, reqEditors ...RequestEditorFn) (*GetForecastReply, error)
+
+	// GetLargestFilesWithResponse Largest files
+	//
+	// The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/largest-files (the `GetLargestFiles` operationId).
+	GetLargestFilesWithResponse(ctx context.Context, params *GetLargestFilesParams, reqEditors ...RequestEditorFn) (*GetLargestFilesReply, error)
+
+	// GetOwnerDistributionWithResponse Owner distribution
+	//
+	// File count and bytes per owner from the source's latest snapshot, largest first; empty when the source has no snapshot. Owner SIDs are resolved to names from the principals cache where known.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/owner-distribution (the `GetOwnerDistribution` operationId).
+	GetOwnerDistributionWithResponse(ctx context.Context, params *GetOwnerDistributionParams, reqEditors ...RequestEditorFn) (*GetOwnerDistributionReply, error)
+
+	// GetStorageByLinkRoleWithResponse Storage by mirror-link role
+	//
+	// File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-link-role (the `GetStorageByLinkRole` operationId).
+	GetStorageByLinkRoleWithResponse(ctx context.Context, params *GetStorageByLinkRoleParams, reqEditors ...RequestEditorFn) (*GetStorageByLinkRoleReply, error)
+
+	// GetStorageBySourceWithResponse Storage by source
+	//
+	// File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-source (the `GetStorageBySource` operationId).
+	GetStorageBySourceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStorageBySourceReply, error)
+
+	// GetStorageByTypeWithResponse Storage by file type
+	//
+	// File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/storage-by-type (the `GetStorageByType` operationId).
+	GetStorageByTypeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStorageByTypeReply, error)
+
+	// GetTimeseriesWithResponse Size or file-count history
+	//
+	// History of one source's total size or file count, oldest first, one point per scan snapshot in the window.
+	// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/analytics/timeseries (the `GetTimeseries` operationId).
+	GetTimeseriesWithResponse(ctx context.Context, params *GetTimeseriesParams, reqEditors ...RequestEditorFn) (*GetTimeseriesReply, error)
+
 	// ListDuplicatesWithResponse List duplicate groups
 	//
 	// Groups of non-deleted files that share a content hash (two or more copies), largest combined size first. `wasted_bytes` is what keeping a single copy would reclaim. Files hidden by per-user ACL filtering are not counted.
@@ -5698,6 +6637,523 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
 	UpdateUserRoleWithResponse(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error)
+}
+
+type GetExtensionTrendReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string][]ExtensionTrendPoint
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetExtensionTrendReply) GetJSON200() *map[string][]ExtensionTrendPoint {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetExtensionTrendReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetExtensionTrendReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetExtensionTrendReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetExtensionTrendReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetExtensionTrendReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetExtensionTrendReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetExtensionTrendReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetExtensionTrendReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetForecastReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ForecastResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetForecastReply) GetJSON200() *ForecastResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetForecastReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetForecastReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetForecastReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetForecastReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetForecastReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetForecastReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetForecastReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetForecastReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetLargestFilesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]LargestFile
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetLargestFilesReply) GetJSON200() *[]LargestFile {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetLargestFilesReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetLargestFilesReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetLargestFilesReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetLargestFilesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetLargestFilesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetLargestFilesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetLargestFilesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetOwnerDistributionReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OwnerDistribution
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetOwnerDistributionReply) GetJSON200() *OwnerDistribution {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetOwnerDistributionReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetOwnerDistributionReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetOwnerDistributionReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetOwnerDistributionReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetOwnerDistributionReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetOwnerDistributionReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetOwnerDistributionReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetOwnerDistributionReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetStorageByLinkRoleReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]StorageByLinkRole
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetStorageByLinkRoleReply) GetJSON200() *[]StorageByLinkRole {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetStorageByLinkRoleReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetStorageByLinkRoleReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetStorageByLinkRoleReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetStorageByLinkRoleReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetStorageByLinkRoleReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStorageByLinkRoleReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStorageByLinkRoleReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStorageByLinkRoleReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetStorageBySourceReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]StorageBySource
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetStorageBySourceReply) GetJSON200() *[]StorageBySource {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetStorageBySourceReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetStorageBySourceReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetStorageBySourceReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStorageBySourceReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStorageBySourceReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStorageBySourceReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetStorageByTypeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]StorageByType
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetStorageByTypeReply) GetJSON200() *[]StorageByType {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetStorageByTypeReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetStorageByTypeReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetStorageByTypeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStorageByTypeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStorageByTypeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStorageByTypeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTimeseriesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]SeriesPoint
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTimeseriesReply) GetJSON200() *[]SeriesPoint {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetTimeseriesReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetTimeseriesReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetTimeseriesReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetTimeseriesReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTimeseriesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTimeseriesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTimeseriesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTimeseriesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListDuplicatesReply struct {
@@ -8362,6 +9818,131 @@ func (r UpdateUserRoleReply) ContentType() string {
 	return ""
 }
 
+// GetExtensionTrendWithResponse Per-extension trend
+//
+// Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/extension-trend (the `GetExtensionTrend` operationId).
+func (c *ClientWithResponses) GetExtensionTrendWithResponse(ctx context.Context, params *GetExtensionTrendParams, reqEditors ...RequestEditorFn) (*GetExtensionTrendReply, error) {
+	rsp, err := c.GetExtensionTrend(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetExtensionTrendReply(rsp)
+}
+
+// GetForecastWithResponse Capacity forecast
+//
+// Linear projection of a source's total size from its recent snapshots (least-squares slope with a 95% interval band). With fewer than 3 snapshots in the lookback window `forecast` is null and `reason` is `insufficient_history`.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/forecast (the `GetForecast` operationId).
+func (c *ClientWithResponses) GetForecastWithResponse(ctx context.Context, params *GetForecastParams, reqEditors ...RequestEditorFn) (*GetForecastReply, error) {
+	rsp, err := c.GetForecast(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetForecastReply(rsp)
+}
+
+// GetLargestFilesWithResponse Largest files
+//
+// The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/largest-files (the `GetLargestFiles` operationId).
+func (c *ClientWithResponses) GetLargestFilesWithResponse(ctx context.Context, params *GetLargestFilesParams, reqEditors ...RequestEditorFn) (*GetLargestFilesReply, error) {
+	rsp, err := c.GetLargestFiles(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLargestFilesReply(rsp)
+}
+
+// GetOwnerDistributionWithResponse Owner distribution
+//
+// File count and bytes per owner from the source's latest snapshot, largest first; empty when the source has no snapshot. Owner SIDs are resolved to names from the principals cache where known.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/owner-distribution (the `GetOwnerDistribution` operationId).
+func (c *ClientWithResponses) GetOwnerDistributionWithResponse(ctx context.Context, params *GetOwnerDistributionParams, reqEditors ...RequestEditorFn) (*GetOwnerDistributionReply, error) {
+	rsp, err := c.GetOwnerDistribution(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetOwnerDistributionReply(rsp)
+}
+
+// GetStorageByLinkRoleWithResponse Storage by mirror-link role
+//
+// File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/storage-by-link-role (the `GetStorageByLinkRole` operationId).
+func (c *ClientWithResponses) GetStorageByLinkRoleWithResponse(ctx context.Context, params *GetStorageByLinkRoleParams, reqEditors ...RequestEditorFn) (*GetStorageByLinkRoleReply, error) {
+	rsp, err := c.GetStorageByLinkRole(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStorageByLinkRoleReply(rsp)
+}
+
+// GetStorageBySourceWithResponse Storage by source
+//
+// File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/storage-by-source (the `GetStorageBySource` operationId).
+func (c *ClientWithResponses) GetStorageBySourceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStorageBySourceReply, error) {
+	rsp, err := c.GetStorageBySource(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStorageBySourceReply(rsp)
+}
+
+// GetStorageByTypeWithResponse Storage by file type
+//
+// File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/storage-by-type (the `GetStorageByType` operationId).
+func (c *ClientWithResponses) GetStorageByTypeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStorageByTypeReply, error) {
+	rsp, err := c.GetStorageByType(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStorageByTypeReply(rsp)
+}
+
+// GetTimeseriesWithResponse Size or file-count history
+//
+// History of one source's total size or file count, oldest first, one point per scan snapshot in the window.
+// Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources; 422 for an invalid parameter.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/analytics/timeseries (the `GetTimeseries` operationId).
+func (c *ClientWithResponses) GetTimeseriesWithResponse(ctx context.Context, params *GetTimeseriesParams, reqEditors ...RequestEditorFn) (*GetTimeseriesReply, error) {
+	rsp, err := c.GetTimeseries(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTimeseriesReply(rsp)
+}
+
 // ListDuplicatesWithResponse List duplicate groups
 //
 // Groups of non-deleted files that share a content hash (two or more copies), largest combined size first. `wasted_bytes` is what keeping a single copy would reclaim. Files hidden by per-user ACL filtering are not counted.
@@ -9244,6 +10825,403 @@ func (c *ClientWithResponses) UpdateUserRoleWithResponse(ctx context.Context, us
 		return nil, err
 	}
 	return ParseUpdateUserRoleReply(rsp)
+}
+
+// ParseGetExtensionTrendReply parses an HTTP response from a GetExtensionTrendWithResponse call
+func ParseGetExtensionTrendReply(rsp *http.Response) (*GetExtensionTrendReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetExtensionTrendReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string][]ExtensionTrendPoint
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetForecastReply parses an HTTP response from a GetForecastWithResponse call
+func ParseGetForecastReply(rsp *http.Response) (*GetForecastReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetForecastReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ForecastResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetLargestFilesReply parses an HTTP response from a GetLargestFilesWithResponse call
+func ParseGetLargestFilesReply(rsp *http.Response) (*GetLargestFilesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetLargestFilesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []LargestFile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetOwnerDistributionReply parses an HTTP response from a GetOwnerDistributionWithResponse call
+func ParseGetOwnerDistributionReply(rsp *http.Response) (*GetOwnerDistributionReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetOwnerDistributionReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OwnerDistribution
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetStorageByLinkRoleReply parses an HTTP response from a GetStorageByLinkRoleWithResponse call
+func ParseGetStorageByLinkRoleReply(rsp *http.Response) (*GetStorageByLinkRoleReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStorageByLinkRoleReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []StorageByLinkRole
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetStorageBySourceReply parses an HTTP response from a GetStorageBySourceWithResponse call
+func ParseGetStorageBySourceReply(rsp *http.Response) (*GetStorageBySourceReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStorageBySourceReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []StorageBySource
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetStorageByTypeReply parses an HTTP response from a GetStorageByTypeWithResponse call
+func ParseGetStorageByTypeReply(rsp *http.Response) (*GetStorageByTypeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStorageByTypeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []StorageByType
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTimeseriesReply parses an HTTP response from a GetTimeseriesWithResponse call
+func ParseGetTimeseriesReply(rsp *http.Response) (*GetTimeseriesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTimeseriesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []SeriesPoint
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListDuplicatesReply parses an HTTP response from a ListDuplicatesWithResponse call

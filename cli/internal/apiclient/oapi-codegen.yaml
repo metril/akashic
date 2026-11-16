@@ -13,4 +13,5 @@ output-options:
     - tags
     - purge
     - users
+    - analytics
   response-type-suffix: Reply

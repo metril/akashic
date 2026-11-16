@@ -297,3 +297,67 @@ func (c *Client) SetUserRole(ctx context.Context, userID uuid.UUID, role string,
 	}
 	return resp.JSON200, nil
 }
+
+// GetSource returns one source with its (secret-masked) connection config.
+func (c *Client) GetSource(ctx context.Context, id uuid.UUID) (*apiclient.SourceResponse, error) {
+	resp, err := c.api.GetSourceWithResponse(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
+// UpdateSourceConfig merges cfg into the source's connection_config.
+func (c *Client) UpdateSourceConfig(ctx context.Context, id uuid.UUID, cfg map[string]any) (*apiclient.SourceResponse, error) {
+	resp, err := c.api.UpdateSourceWithResponse(ctx, id, apiclient.UpdateSourceJSONRequestBody{ConnectionConfig: &cfg})
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
+// StorageByLinkRole returns the per-link-role file count and bytes of a source.
+func (c *Client) StorageByLinkRole(ctx context.Context, id uuid.UUID) ([]apiclient.StorageByLinkRole, error) {
+	resp, err := c.api.GetStorageByLinkRoleWithResponse(ctx, &apiclient.GetStorageByLinkRoleParams{SourceId: id})
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return *resp.JSON200, nil
+}
+
+// ResolveSource finds a source by id, else by exact name.
+func (c *Client) ResolveSource(ctx context.Context, nameOrID string) (*apiclient.SourceListResponse, error) {
+	sources, err := c.ListSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range sources {
+		if sources[i].Id.String() == nameOrID {
+			return &sources[i], nil
+		}
+	}
+	for i := range sources {
+		if sources[i].Name == nameOrID {
+			return &sources[i], nil
+		}
+	}
+	return nil, fmt.Errorf("source %q not found", nameOrID)
+}
