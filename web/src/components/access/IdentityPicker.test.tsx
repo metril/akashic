@@ -6,7 +6,7 @@ vi.mock("../../api/client", () => ({
   ok: (x: unknown) => x,
 }));
 
-import { BackendStatusChips, IdentityResultRow } from "./IdentityPicker";
+import { BackendStatusChips, IdentityResultRow, searchStatus } from "./IdentityPicker";
 
 const result = (over: Record<string, unknown> = {}) =>
   ({
@@ -51,5 +51,29 @@ describe("BackendStatusChips", () => {
     );
     expect(html).toContain("not configured");
     expect(html).toContain("timeout after 3s");
+  });
+});
+
+describe("searchStatus", () => {
+  const base = { typed: "al", debounced: "al", fetching: false, failed: false, count: 2 };
+  it("is empty without input", () => {
+    expect(searchStatus({ ...base, typed: "", debounced: "" })).toBe("");
+  });
+  it("shows Searching while the debounce is pending or fetching", () => {
+    expect(searchStatus({ ...base, typed: "ali" })).toBe("Searching…");
+    expect(searchStatus({ ...base, fetching: true })).toBe("Searching…");
+  });
+  it("reports failure, empty and count", () => {
+    expect(searchStatus({ ...base, failed: true, count: null })).toBe("Search failed");
+    expect(searchStatus({ ...base, count: 0 })).toBe("No people or groups match");
+    expect(searchStatus(base)).toBe("2 results");
+  });
+});
+
+describe("selected row", () => {
+  it("marks the picked row aria-current", () => {
+    const html = renderToStaticMarkup(<IdentityResultRow result={result()} onPick={() => {}} selected />);
+    expect(html).toContain('aria-current="true"');
+    expect(row(result())).not.toContain("aria-current");
   });
 });

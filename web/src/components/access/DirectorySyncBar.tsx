@@ -1,10 +1,20 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { client, ok } from "../../api/client";
 import { useScopes } from "../../hooks/useScopes";
+import { formatDateTime, formatRelative } from "../../lib/format";
 import { Badge, Button } from "../ui";
+import type { components } from "../../api/schema";
 
 const LABEL: Record<string, string> = { ad: "AD", authentik: "Authentik" };
+
+/** Poll every 2 s while any backend is syncing, otherwise not at all. */
+export function pollInterval(
+  data: components["schemas"]["DirectoryStatusResponse"] | undefined,
+): number | false {
+  return data?.backends.some((b) => b.running) ? 2000 : false;
+}
 
 /** Directory sync state per backend plus a "Sync now" trigger. */
 export function DirectorySyncBar() {
@@ -13,7 +23,7 @@ export function DirectorySyncBar() {
   const status = useQuery({
     queryKey: ["access", "directory-status"],
     queryFn: async () => ok(await client.GET("/api/v1/access/directory/status")),
-    refetchInterval: (q) => (q.state.data?.backends.some((b) => b.running) ? 2000 : false),
+    refetchInterval: (q) => pollInterval(q.state.data),
   });
   const sync = useMutation({
     mutationFn: async () => ok(await client.POST("/api/v1/access/directory/sync")),
@@ -22,6 +32,15 @@ export function DirectorySyncBar() {
 
   const backends = status.data?.backends ?? [];
   const running = backends.some((b) => b.running);
+  // A finished sync changes group data: drop open lookups and searches.
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) {
+      qc.invalidateQueries({ queryKey: ["access", "identity"] });
+      qc.invalidateQueries({ queryKey: ["access", "identities"] });
+    }
+    wasRunning.current = running;
+  }, [running, qc]);
   const canSync = has("maintenance:write");
 
   return (
@@ -43,7 +62,7 @@ export function DirectorySyncBar() {
               : b.running
                 ? "syncing…"
                 : b.last_success_at
-                  ? `synced ${b.last_success_at}`
+                  ? `synced ${formatRelative(b.last_success_at)}`
                   : "never synced"}
             {b.configured && !b.running && b.last_run?.error && (
               <span className="text-rose-700 dark:text-rose-300">last run failed: {b.last_run.error}</span>
@@ -51,7 +70,7 @@ export function DirectorySyncBar() {
           </span>
         ))}
         {status.data?.next_run_at && (
-          <span className="text-fg-subtle">next run {status.data.next_run_at}</span>
+          <span className="text-fg-subtle">next run {formatDateTime(status.data.next_run_at)}</span>
         )}
         <div className="flex-1" />
         {canSync && (

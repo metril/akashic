@@ -20,16 +20,22 @@ const KIND_OPTIONS = [
 export function IdentityResultRow({
   result,
   onPick,
+  selected,
 }: {
   result: IdentityResult;
   onPick: (id: string) => void;
+  selected?: boolean;
 }) {
   const label = result.display_name ?? result.username ?? result.id;
   return (
     <button
       type="button"
       onClick={() => onPick(result.id)}
-      className="w-full text-left px-3 py-2 flex flex-wrap items-center gap-2 text-sm hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-accent-500"
+      aria-current={selected ? "true" : undefined}
+      className={
+        "w-full text-left px-3 py-2 flex flex-wrap items-center gap-2 text-sm hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-accent-500 " +
+        (selected ? "bg-accent-50 dark:bg-accent-500/15" : "")
+      }
     >
       <span className="font-medium text-fg">{label}</span>
       {result.username && result.username !== label && (
@@ -73,6 +79,22 @@ export function BackendStatusChips({ statuses }: { statuses: BackendStatus[] }) 
   );
 }
 
+/** Text for the search status line. `typed` is the input, `debounced` the
+ * query the results belong to; while they differ a new search is pending. */
+export function searchStatus(s: {
+  typed: string;
+  debounced: string;
+  fetching: boolean;
+  failed: boolean;
+  count: number | null;
+}): string {
+  if (!s.typed) return "";
+  if (s.typed !== s.debounced || s.fetching) return "Searching…";
+  if (s.failed) return "Search failed";
+  if (s.count === null) return "";
+  return s.count ? `${s.count} results` : "No people or groups match";
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -86,7 +108,9 @@ function useDebounced<T>(value: T, ms: number): T {
 export function IdentityPicker({ onPick }: { onPick: (id: string) => void }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState("");
-  const q = useDebounced(text.trim(), 250);
+  const [picked, setPicked] = useState<string | null>(null);
+  const typed = text.trim();
+  const q = useDebounced(typed, 250);
 
   const search = useQuery({
     queryKey: ["access", "identities", q, kind],
@@ -100,12 +124,13 @@ export function IdentityPicker({ onPick }: { onPick: (id: string) => void }) {
   });
 
   const results = search.data?.results ?? [];
-  let status = "";
-  if (q) {
-    if (search.isFetching) status = "Searching…";
-    else if (search.error) status = "Search failed";
-    else if (search.data) status = results.length ? `${results.length} results` : "No people or groups match";
-  }
+  const status = searchStatus({
+    typed,
+    debounced: q,
+    fetching: search.isFetching,
+    failed: Boolean(search.error),
+    count: search.data ? results.length : null,
+  });
 
   return (
     <div className="space-y-3">
@@ -128,7 +153,7 @@ export function IdentityPicker({ onPick }: { onPick: (id: string) => void }) {
         </div>
       </div>
       <div role="status" aria-live="polite" className="text-xs text-fg-muted flex items-center gap-2">
-        {search.isFetching && <Spinner />}
+        {status === "Searching…" && <Spinner />}
         {status}
       </div>
       {search.error && (
@@ -143,7 +168,14 @@ export function IdentityPicker({ onPick }: { onPick: (id: string) => void }) {
             <ul className="divide-y divide-line border border-line rounded-lg">
               {results.map((r) => (
                 <li key={r.id}>
-                  <IdentityResultRow result={r} onPick={onPick} />
+                  <IdentityResultRow
+                    result={r}
+                    selected={r.id === picked}
+                    onPick={(id) => {
+                      setPicked(id);
+                      onPick(id);
+                    }}
+                  />
                 </li>
               ))}
             </ul>

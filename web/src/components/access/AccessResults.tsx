@@ -127,7 +127,7 @@ export function PrincipalToFilesResults({
   return (
     <div className="space-y-5">
       {data.warnings && data.warnings.length > 0 && (
-        <div role="alert" className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-4 text-sm text-amber-800 dark:text-amber-200 space-y-1">
+        <div role="note" className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-4 text-sm text-amber-800 dark:text-amber-200 space-y-1">
           {data.warnings.map((w) => (
             <p key={w}>{w}</p>
           ))}

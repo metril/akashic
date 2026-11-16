@@ -73,9 +73,12 @@ export default function AdminAccess() {
   // The response's identity id is canonical (it can differ from the one asked for).
   const refreshId = identityQ.data?.identity?.id ?? identityId;
   const refresh = useMutation({
-    mutationFn: async () =>
-      ok(await client.POST("/api/v1/access/identities/refresh", { body: { id: refreshId! } })),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["access", "identity", identityId] }),
+    mutationFn: async (v: { id: string; viewId: string }) =>
+      ok(await client.POST("/api/v1/access/identities/refresh", { body: { id: v.id } })),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["access", "identity", v.viewId] });
+      qc.invalidateQueries({ queryKey: ["access", "identities"] });
+    },
   });
 
   const fileQ = useQuery<FileResult>({
@@ -104,14 +107,19 @@ export default function AdminAccess() {
 
       {mode === "principal" ? (
         <Card padding="md" className="mb-5 space-y-4">
-          <DirectorySyncBar />
+          {!advanced && <DirectorySyncBar />}
           {advanced ? (
             <PrincipalLookup
               onLookup={setToken}
               pending={principalQ.isFetching && Boolean(token)}
             />
           ) : (
-            <IdentityPicker onPick={setIdentityId} />
+            <IdentityPicker
+              onPick={(id) => {
+                refresh.reset();
+                setIdentityId(id);
+              }}
+            />
           )}
           <button
             type="button"
@@ -146,7 +154,7 @@ export default function AdminAccess() {
           <PrincipalToFilesResults
             data={identityQ.data}
             onSelectEntry={setOpenEntryId}
-            onRefresh={() => refresh.mutate()}
+            onRefresh={() => refresh.mutate({ id: refreshId!, viewId: identityId! })}
             refreshing={refresh.isPending}
             refreshError={refresh.error ? refresh.error.message : null}
           />

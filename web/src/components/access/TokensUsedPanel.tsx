@@ -1,4 +1,5 @@
 import { Badge, Button, Card, CardHeader } from "../ui";
+import { formatDateTime } from "../../lib/format";
 import type { components } from "../../api/schema";
 
 type S = components["schemas"];
@@ -12,6 +13,16 @@ const ORIGIN_LABEL: Record<string, string> = {
 };
 
 const MISSING_LABEL: Record<string, string> = { sid: "No SID", posix: "No POSIX id" };
+
+/** The API refreshes only people with an AD or Authentik record; anything
+ * else answers 400, so the button is not offered. */
+export function canRefresh(identity: S["IdentityResult"] | null): boolean {
+  return (
+    identity !== null &&
+    identity.kind === "person" &&
+    identity.backends.some((b) => b.backend === "ad" || b.backend === "authentik")
+  );
+}
 
 export function TokensUsedPanel({
   tokens,
@@ -34,7 +45,7 @@ export function TokensUsedPanel({
         title="Tokens used"
         description="Every principal token this lookup evaluated, and where it came from."
         action={
-          identity && onRefresh ? (
+          canRefresh(identity) && onRefresh ? (
             <Button variant="secondary" size="sm" onClick={onRefresh} loading={refreshing}>
               Refresh
             </Button>
@@ -49,7 +60,7 @@ export function TokensUsedPanel({
       )}
       {expansion?.status === "cached" && (
         <p className="mb-3 text-sm text-fg-muted">
-          Group membership as of {expansion.cached_at ?? "an unknown time"}.
+          Group membership as of {expansion.cached_at ? formatDateTime(expansion.cached_at) : "an unknown time"}.
           {expansion.detail && <span> {expansion.detail}</span>}
         </p>
       )}

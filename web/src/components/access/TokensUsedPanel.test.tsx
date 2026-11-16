@@ -7,7 +7,8 @@ vi.mock("../../api/client", () => ({
 }));
 
 import { PrincipalToFilesResults } from "./AccessResults";
-import { TokensUsedPanel } from "./TokensUsedPanel";
+import { formatDateTime } from "../../lib/format";
+import { canRefresh, TokensUsedPanel } from "./TokensUsedPanel";
 
 const tokens = [
   { token: "sid:S-1-5-21-1", name: "Alice", origin: "ad" },
@@ -16,7 +17,7 @@ const tokens = [
 ] as never;
 const exp = (over: Record<string, unknown> = {}) =>
   ({ status: "ok", cached_at: null, detail: null, missing_identity_kinds: [], ...over }) as never;
-const identity = { id: "sid:S-1-5-21-1" } as never;
+const identity = { id: "sid:S-1-5-21-1", kind: "person", backends: [{ backend: "ad", ref: "g" }] } as never;
 const panel = (e: never, id: never = null as never) =>
   renderToStaticMarkup(
     <TokensUsedPanel tokens={tokens} expansion={e} identity={id} onRefresh={() => {}} refreshing={false} />,
@@ -36,7 +37,7 @@ describe("TokensUsedPanel", () => {
   it("shows cached as-of time", () => {
     const html = panel(exp({ status: "cached", cached_at: "2026-11-16T10:00:00Z" }));
     expect(html).toContain("as of");
-    expect(html).toContain("2026-11-16T10:00:00Z");
+    expect(html).toContain(formatDateTime("2026-11-16T10:00:00Z"));
   });
   it("renders missing identity kinds", () => {
     const html = panel(exp({ missing_identity_kinds: ["sid", "posix"] }));
@@ -46,6 +47,16 @@ describe("TokensUsedPanel", () => {
   it("shows Refresh only when an identity is given", () => {
     expect(panel(exp(), identity)).toContain("Refresh");
     expect(panel(exp())).not.toContain("Refresh");
+  });
+  it("hides Refresh for groups and identities without a directory record", () => {
+    const group = { id: "g", kind: "group", backends: [{ backend: "ad", ref: "g" }] } as never;
+    const akashicOnly = { id: "a", kind: "person", backends: [{ backend: "akashic", ref: "u" }] } as never;
+    expect(panel(exp(), group)).not.toContain("Refresh");
+    expect(panel(exp(), akashicOnly)).not.toContain("Refresh");
+    expect(canRefresh(group)).toBe(false);
+    expect(canRefresh(akashicOnly)).toBe(false);
+    expect(canRefresh(null)).toBe(false);
+    expect(canRefresh(identity)).toBe(true);
   });
   it("shows the refresh error inline", () => {
     const html = renderToStaticMarkup(
