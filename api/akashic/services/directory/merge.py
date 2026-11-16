@@ -59,9 +59,13 @@ class MergedIdentity:
         return sorted({r.backend for r in self.records})
 
     @property
+    def akashic_user_ids(self) -> list[uuid.UUID]:
+        return sorted(uuid.UUID(r.ref) for r in self.records if r.backend == "akashic")
+
+    @property
     def akashic_user_id(self) -> uuid.UUID | None:
-        ref = next((r.ref for r in self.records if r.backend == "akashic"), None)
-        return uuid.UUID(ref) if ref else None
+        """Lowest akashic user id of the cluster (a cluster may hold several)."""
+        return min(self.akashic_user_ids, default=None)
 
     @property
     def groups_synced_at(self) -> datetime | None:

@@ -280,3 +280,52 @@ async def test_user_merges_through_second_sid_binding(db_session):
     await db_session.commit()
     ident = await lookup.load_identity(db_session, "sid:S-1-B")
     assert ident.backends == ["ad", "akashic"] and ident.id == "sid:S-1-A"
+
+
+@pytest.mark.asyncio
+async def test_load_truncates_when_seed_query_exceeds_cap(db_session):
+    db_session.add_all([entry(f"x{i}", email="e@x.io", sid=f"S-{i:03}", groups_status="ok",
+                              groups_synced_at=now())
+                        for i in range(lookup.LOAD_MAX_RECORDS + 11)])
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "email:e@x.io")
+    assert ident.truncated and len(ident.records) <= lookup.LOAD_MAX_RECORDS
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert r.status == "partial"
+
+
+@pytest.mark.asyncio
+async def test_search_query_count_is_bounded(db_session):
+    db_session.add_all([entry(f"n{i}", display_name=f"needle {i}", sid=f"S-{i}", email=f"n{i}@x.io")
+                        for i in range(12)])
+    await db_session.commit()
+    stmts = []
+    from sqlalchemy import event
+    bind = db_session.get_bind()
+    eng = getattr(bind, "sync_engine", bind)
+    hook = lambda *a: stmts.append(a[2])  # noqa: E731
+    event.listen(eng, "before_cursor_execute", hook)
+    try:
+        out = await lookup.search_identities(db_session, "needle", "any", 20)
+    finally:
+        event.remove(eng, "before_cursor_execute", hook)
+    assert len(out) == 12 and len(stmts) <= 15
+    assert await lookup.load_identity(db_session, out[0].id) is not None
+
+
+@pytest.mark.asyncio
+async def test_load_prefers_person_for_shared_email(db_session):
+    db_session.add_all([entry("p", email="s@x.io"), entry("g", kind="group", email="s@x.io")])
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "email:s@x.io")
+    assert ident.kind == "person"
+
+
+@pytest.mark.asyncio
+async def test_akashic_user_ids_deterministic(db_session):
+    u1 = await add_user(db_session, "ua", email="m@x.io")
+    u2 = await add_user(db_session, "ub", email="m@x.io")
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "email:m@x.io")
+    assert ident.akashic_user_ids == sorted([u1.id, u2.id])
+    assert ident.akashic_user_id == min(u1.id, u2.id)

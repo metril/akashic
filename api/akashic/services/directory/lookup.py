@@ -115,7 +115,7 @@ async def _entries(
     stmt = select(DirectoryEntry).where(or_(*conds))
     if kind != "any":
         stmt = stmt.where(DirectoryEntry.kind == kind)
-    stmt = stmt.order_by(DirectoryEntry.display_name, DirectoryEntry.ref)
+    stmt = stmt.order_by(DirectoryEntry.display_name, DirectoryEntry.backend, DirectoryEntry.ref)
     if limit:
         stmt = stmt.limit(limit)
     return list((await db.execute(stmt)).scalars().all())
@@ -185,34 +185,35 @@ def _gather(
 
 async def _closure(
     db: AsyncSession, fresh: _Fresh, records: dict[tuple[str, str], DirRecord],
+    max_records: int = LOAD_MAX_RECORDS,
 ) -> bool:
     """Grow ``records`` with rows sharing a strong key, same kind, to a fixed
-    point within LOAD_MAX_ROUNDS rounds / LOAD_MAX_RECORDS records. Returns
-    True when it stopped before the fixed point (the cluster is truncated)."""
+    point within LOAD_MAX_ROUNDS rounds / ``max_records`` records. Returns
+    True when it stopped before the fixed point (the result is truncated)."""
     for rnd in range(LOAD_MAX_ROUNDS + 1):
         found: dict[tuple[str, str], DirRecord] = {}
         found_fresh: _Fresh = {}
+        full = False
         for kind in sorted({r.kind for r in records.values()}):
             keys = KeySet.of([r for r in records.values() if r.kind == kind])
             if not keys:
                 continue
-            _gather(
-                found_fresh, found,
-                entries=await _entries(db, keys=keys, kind=kind, limit=LOAD_MAX_RECORDS + 1),
-                akashic=(await akashic_user_records(db, keys=keys, limit=LOAD_MAX_RECORDS + 1)
-                         if kind == "person" else []),
-            )
+            entries = await _entries(db, keys=keys, kind=kind, limit=max_records + 1)
+            akashic = (await akashic_user_records(db, keys=keys, limit=max_records + 1)
+                       if kind == "person" else [])
+            full = full or len(entries) + len(akashic) > max_records
+            _gather(found_fresh, found, entries=entries, akashic=akashic)
         new = [k for k in found if k not in records]
         if not new:
-            return False
+            return full
         if rnd == LOAD_MAX_ROUNDS:
             return True
-        room = max(LOAD_MAX_RECORDS - len(records), 0)
+        room = max(max_records - len(records), 0)
         for k in new[:room]:
             records[k] = found[k]
             if k in found_fresh:
                 fresh[k] = found_fresh[k]
-        if len(new) > room:
+        if full or len(new) > room:
             return True
     return True
 
@@ -262,15 +263,11 @@ async def search_identities(
         entries=await _entries(db, q=q, kind=kind, limit=cap),
         akashic=await akashic_user_records(db, q=q, limit=cap) if kind != "group" else [],
     )
-    records: dict[tuple[str, str], DirRecord] = {}
-    truncated: set[tuple[str, str]] = set()
-    for k, hit in hits.items():
-        if k in records:
-            continue
-        cluster = {k: hit}
-        if await _closure(db, fresh, cluster):
-            truncated.update(cluster)
-        records.update(cluster)
+    # One batched closure over all hits; the bound is global, so a hit on the
+    # bound still returns merged results (resolve re-expands per identity).
+    records = dict(hits)
+    capped = await _closure(db, fresh, records, max_records=cap + LOAD_MAX_RECORDS)
+    truncated = set(records) if capped else set()
     idents = [i for i in await _finish(db, fresh, records, truncated)
               if kind == "any" or i.kind == kind]
     idents.sort(key=lambda i: _rank(i, q))
@@ -299,6 +296,14 @@ async def backends_status(db: AsyncSession) -> list[BackendStatus]:
     return out
 
 
+async def _seed_by_keys(
+    db: AsyncSession, keys: KeySet,
+) -> tuple[list[DirectoryEntry], list[DirRecord]]:
+    n = LOAD_MAX_RECORDS + 1
+    return (await _entries(db, keys=keys, limit=n),
+            await akashic_user_records(db, keys=keys, limit=n))
+
+
 async def load_identity(db: AsyncSession, identity_id: str) -> MergedIdentity | None:
     prefix, _, value = identity_id.partition(":")
     if not value:
@@ -307,15 +312,15 @@ async def load_identity(db: AsyncSession, identity_id: str) -> MergedIdentity | 
     records: dict[tuple[str, str], DirRecord] = {}
     if prefix == "sid":
         keys = KeySet(sids={value.upper()})
-        entries, akashic = await _entries(db, keys=keys), await akashic_user_records(db, keys=keys)
+        entries, akashic = await _seed_by_keys(db, keys)
     elif prefix == "dn":
         keys = KeySet(dns={value.lower()})
-        entries, akashic = await _entries(db, keys=keys), await akashic_user_records(db, keys=keys)
+        entries, akashic = await _seed_by_keys(db, keys)
     elif prefix == "email":
         keys = KeySet(emails={value.lower()})
-        entries, akashic = await _entries(db, keys=keys), await akashic_user_records(db, keys=keys)
+        entries, akashic = await _seed_by_keys(db, keys)
     elif prefix in ("ad", "authentik"):
-        entries, akashic = await _entries(db, backend_ref=(prefix, value)), []
+        entries, akashic = await _entries(db, backend_ref=(prefix, value), limit=1), []
     elif prefix == "akashic":
         try:
             uid = uuid.UUID(value)
@@ -327,11 +332,19 @@ async def load_identity(db: AsyncSession, identity_id: str) -> MergedIdentity | 
     _gather(fresh, records, entries=entries, akashic=akashic)
     if not records:
         return None
+    capped = len(records) > LOAD_MAX_RECORDS
+    for k in list(records)[LOAD_MAX_RECORDS:]:
+        del records[k]
+        fresh.pop(k, None)
     seeds = set(records)
-    truncated = set(records) if await _closure(db, fresh, records) else set()
+    capped = (await _closure(db, fresh, records)) or capped
+    truncated = set(records) if capped else set()
     idents = [i for i in await _finish(db, fresh, records, truncated)
               if any((r.backend, r.ref) in seeds for r in i.records)]
-    return next((i for i in idents if i.id == identity_id), idents[0] if idents else None)
+    # Exact id first; otherwise (seed spans clusters that do not merge, e.g. an
+    # email shared by a person and a group) prefer a person, then the lowest id.
+    idents.sort(key=lambda i: (i.id != identity_id, i.kind != "person", i.id))
+    return idents[0] if idents else None
 
 
 async def _sid_names(db: AsyncSession, sids: set[str]) -> dict[str, str]:
@@ -422,7 +435,7 @@ async def resolve_tokens(db: AsyncSession, ident: MergedIdentity) -> ResolvedTok
             if local and domain:
                 add(f"cloud_drive:user:{email}", "email")
                 add(f"cloud_drive:domain:{domain}", "email")
-        user_ids = [uuid.UUID(r.ref) for r in ident.records if r.backend == "akashic"]
+        user_ids = ident.akashic_user_ids
         if user_ids:
             bindings = (await db.execute(
                 select(FsBinding).join(FsPerson, FsBinding.fs_person_id == FsPerson.id)
