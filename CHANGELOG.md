@@ -5,6 +5,29 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.51.0 — 2026-11-16
+
+**Immich and Paperless-ngx files now show up once: an on-disk copy of an app's library is linked to the app entry, hidden from default search, and no longer counted twice in storage.**
+
+### Added
+
+- **Mirror links**: a `local`, `nfs`, `smb` or `s3` source can declare `connection_config.mirror_of`, a list of `{source_id, remote_prefix, local_prefix}` mappings onto Immich or Paperless sources. Invalid mappings are rejected (400/404), never ignored. Several backing sources may mirror one app source (for example Immich external libraries); a backing file links to at most one app entry.
+- **Link pass** sets `linked_entry_id` and `link_role` (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`) on backing entries, and clears stale links. It runs after every completed scan of either side, on mapping change (background) and on app-source delete (the mapping is stripped, then a background relink). Trashed or deleted assets leave their files unlinked and visible.
+- **Search**: linked backing files are hidden from default search, only for viewers who can also see the linked app entry (empty-scope viewers see everything). New `link` filter (`link:any` or `link:<role>`) and a "Linked files only" toggle show them. Browse shows a "linked to …" badge.
+- **Entry detail**: app entries gain `backing_files` and `backing_total_bytes`; backing entries gain `linked_entry`.
+- **`GET /api/v1/analytics/storage-by-link-role`**: per backing source, bytes and files by link role plus `unlinked`.
+- **CLI**: `akashic sources mirror set|clear|show`; the CLI client now includes the analytics endpoints.
+- **Web**: mirror editor on local, nfs, smb and s3 sources (including host-backed shares), linked-file badges, entry footprint and a link-role breakdown.
+- Migration `0047_mirror_links` adds `entries.linked_entry_id`, `link_role`, `link_target_viewable` and `link_target_source_id`, with checks `ck_entries_link_role` and `ck_entries_link_role_when_linked`.
+
+### Changed
+
+- **Storage no longer double-counts**: a mirrored app source ("logical view") counts 0 bytes in storage-by-source, storage-by-type, largest files, dashboard totals, forecast, owners and extensions, and in the storage explorer. Unmirrored app sources count normally.
+- **Immich entries now have a size** (`exifInfo.fileSizeInByte`).
+- **Paperless entries now have a size** (`original_size`) and a content hash: 64-hex becomes `sha256:`, 32-hex becomes `md5:` (older Paperless), anything else gets no hash and a warning. Previously the hash was always empty because the list API has no checksum. Paperless metadata is fetched per document and cached per scanner process keyed on `modified`; a document deleted mid-scan is skipped.
+- Post-scan tasks now run sequentially (rollup, relink, snapshot, webhooks) in the scheduler path instead of concurrently.
+- **Upgrade note**: nothing links until a mapping exists. Set `mirror_of` on the backing source (Sources → edit, or `akashic sources mirror set`); saving it relinks in the background, otherwise rescan either side. Enable `include_archived` on mirrored Immich sources, or archived assets' files stay unlinked. Existing Paperless entries pick up their hash and size on the next scan.
+
 ## v0.50.0 — 2026-11-15
 
 **Admins can now change user roles, and OIDC or LDAP group membership can grant the admin role automatically, so you no longer need raw SQL to make anyone but the first user an admin.**

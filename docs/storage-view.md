@@ -93,6 +93,25 @@ much smaller scale than a single source's tree:
   shows the **real** byte count — only the visual area is
   rescaled.
 
+## Mirrored sources (logical views)
+
+When a `local`, `nfs`, `smb` or `s3` source declares `mirror_of`
+for an Immich or Paperless source (see
+[admin.md](admin.md#mirror-links)), the app source is a *logical
+view* of bytes that already live on the backing source. Its bytes
+count **0** in storage-by-source, storage-by-type, largest files,
+dashboard totals, forecast, owners and extensions, and in the
+storage explorer; the files are still listed. The bytes are
+counted once, on the backing source. An app source with no
+mirror counts its (Immich `exifInfo.fileSizeInByte`, Paperless
+`original_size`) sizes normally.
+
+`GET /api/v1/analytics/storage-by-link-role` breaks a backing
+source down by role (`original`, `thumbnail`, `encoded_video`,
+`sidecar`, `archive`, `version`) plus `unlinked`. The entry
+detail of an app entry lists its `backing_files` and
+`backing_total_bytes`.
+
 ## Hover sidebar
 
 The right-hand panel follows the cursor: it shows the chain from

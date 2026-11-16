@@ -46,12 +46,28 @@ and [`api/akashic/services/filter_grammar.py`](../api/akashic/services/filter_gr
 | size | `{kind:"size", op:"gte"\|"lte"\|"eq", value:<bytes>}` | size comparison |
 | mtime | `{kind:"mtime", op:"gte"\|"lte", value:<epoch>}` | modification time |
 | path | `{kind:"path", value:"/some/prefix"}` | path-prefix match (forces SQL fallback — Meilisearch can't express it) |
+| link | `{kind:"link", value:"any"\|"<role>"}` | linked mirror files only; lifts default hiding |
 | tag | `{kind:"tag", value:"archive"}` | files (or descendants of dirs) tagged `archive`. See [tags.md](tags.md). |
 
 The encoding is `base64url(JSON.stringify([...preds]))`, passed
 as `?filters=` on both Search and Browse. Stale URLs (decoding to
 invalid JSON or unknown predicate kinds) silently drop to
 `filters=[]` rather than 400-ing.
+
+### Linked files (mirror links)
+
+Files on a backing source that are linked to an Immich or Paperless
+entry (see [admin.md](admin.md#mirror-links)) are hidden from
+default search, so each asset shows once. Hiding applies only to
+viewers who can also see the linked app entry; a viewer without
+access to the app entry (including an empty-scope viewer) sees the
+backing file normally, and unlinked files are never hidden.
+
+The `link` filter lifts the hiding and shows only linked files:
+`{kind:"link", value:"any"}` or a role (`original`, `thumbnail`,
+`encoded_video`, `sidecar`, `archive`, `version`). In the UI this
+is the **Linked files only** toggle. Browsing the backing source
+always lists everything, with a "linked to …" badge.
 
 ### Infinite scroll
 

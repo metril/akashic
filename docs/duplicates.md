@@ -41,6 +41,15 @@ failure inline. The keep-copy is never touched.
   noise from empty/near-empty files. There is no default
   minimum; pass `?min_size=1024` to skip files under 1 KB.
 
+## Linked mirror files
+
+A mirror link never makes a duplicate group. App entries hash in
+their own namespace (Immich `sha1:`, Paperless `sha256:`/`md5:`)
+and never collide with a backing source's BLAKE3 hashes, so an app
+entry and its on-disk original are not grouped. Two linked
+originals with equal bytes (the same photo uploaded twice) still
+group, because that is real duplicate disk usage.
+
 ## API
 
 | Method + Path | Body / Query | Notes |

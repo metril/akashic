@@ -148,6 +148,68 @@ The entry-detail drawer (right-side panel) calls this endpoint
 when expanding the **Effective permissions** row, so you usually
 don't need to hit it directly.
 
+## Mirror links
+
+An Immich or Paperless-ngx source indexes the app's API; a
+`local`, `nfs`, `smb` or `s3` source scanning the app's storage
+sees the same bytes again. A **mirror link** maps the backing
+source onto the app source so each file appears once: the app
+entry is primary, the on-disk files are its physical backing.
+
+Set `mirror_of` in the backing source's `connection_config`
+(Sources → edit → Mirror, or the CLI below). It is a list of
+mappings; the app kind comes from the target source's type.
+
+```json
+{"mirror_of": [{"source_id": "<immich-source-uuid>",
+                "remote_prefix": "/data",
+                "local_prefix": "/host/mnt/immich/data"}]}
+```
+
+- **Immich**: `remote_prefix` is where Immich sees its files
+  (`originalPath` is reported as `/data/...`); `local_prefix` is
+  the same directory in the backing source. Originals link by
+  path; `thumbs/` and `encoded-video/` files link by asset id;
+  `<original>.xmp` links as `sidecar`.
+- **Paperless-ngx**: filenames are relative, so `remote_prefix` is
+  empty: `{"source_id": "<paperless-uuid>", "remote_prefix": "",
+  "local_prefix": "/host/mnt/paperless/media/documents"}`.
+  `originals/<media_filename>` links as `original`,
+  `archive/<archive_media_filename>` as `archive`,
+  `thumbnails/<id>.webp|.png` as `thumbnail`; non-root document
+  versions link to the root document as `version`.
+- **s3**: `local_prefix` is a key prefix with no leading slash.
+- Invalid mappings (missing target, wrong target type, malformed
+  prefix, duplicate target) are rejected with 400/404.
+- **Archived assets**: Immich archived assets are only indexed
+  with `include_archived`; enable it on mirrored Immich sources or
+  their files stay unlinked (and visible).
+- **External libraries** outside `/data`: add another mapping, on
+  the same or another backing source, with its own prefixes. A
+  backing file links to at most one app entry.
+
+Files that do not match any rule stay unlinked and fully visible.
+
+### CLI
+
+```
+akashic sources mirror set <backing> --target <app> --remote-prefix /data --local-prefix /host/mnt/immich/data
+akashic sources mirror clear <backing> [--target <app>]
+akashic sources mirror show <backing>
+```
+
+### When links are computed
+
+The link pass runs after every completed scan of either side, when
+a mapping changes (in the background), and when an app source is
+deleted (its mappings are stripped, then a background relink). It
+is idempotent and clears links whose target no longer matches.
+Trashed or deleted assets leave their files unlinked.
+
+Effects elsewhere: [search-and-browse.md](search-and-browse.md)
+(hiding, `link` filter, badge), [storage-view.md](storage-view.md)
+(logical views count 0 bytes), [duplicates.md](duplicates.md).
+
 ## Other admin gates (cross-references)
 
 | Feature | Required role | Where | Doc |
