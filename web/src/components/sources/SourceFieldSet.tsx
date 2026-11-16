@@ -8,7 +8,7 @@ import { ImmichFields } from "./source-fields/ImmichFields";
 import { WebDAVFields } from "./source-fields/WebDAVFields";
 import { GDriveFields } from "./source-fields/GDriveFields";
 import { OneDriveFields } from "./source-fields/OneDriveFields";
-import { MirrorOfFields } from "./source-fields/MirrorOfFields";
+import { MirrorsFields } from "./source-fields/MirrorsFields";
 import { DropboxFields } from "./source-fields/DropboxFields";
 
 interface SourceFieldSetProps {
@@ -29,43 +29,32 @@ interface SourceFieldSetProps {
  */
 export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
   const mirrorProps = {
-    value: (value as { mirror_of?: MirrorMapping[] }).mirror_of ?? [],
-    onChange: (next: MirrorMapping[]) => onChange({ ...value, mirror_of: next } as never),
-    backingType: type,
+    value: (value as { mirrors?: MirrorMapping[] }).mirrors ?? [],
+    onChange: (next: MirrorMapping[]) => onChange({ ...value, mirrors: next } as never),
   };
   switch (type) {
     case "local":
-      return (
-        <>
-          <LocalFields value={value as never} onChange={onChange as never} />
-          <MirrorOfFields {...mirrorProps} />
-        </>
-      );
+      return <LocalFields value={value as never} onChange={onChange as never} />;
     case "nfs":
-      return (
-        <>
-          <NfsFields value={value as never} onChange={onChange as never} />
-          <MirrorOfFields {...mirrorProps} />
-        </>
-      );
+      return <NfsFields value={value as never} onChange={onChange as never} />;
     case "smb":
-      return (
-        <>
-          <SmbFields value={value as never} onChange={onChange as never} />
-          <MirrorOfFields {...mirrorProps} />
-        </>
-      );
+      return <SmbFields value={value as never} onChange={onChange as never} />;
     case "s3":
+      return <S3Fields value={value as never} onChange={onChange as never} />;
+    case "paperless":
       return (
         <>
-          <S3Fields value={value as never} onChange={onChange as never} />
-          <MirrorOfFields {...mirrorProps} />
+          <PaperlessFields value={value as never} onChange={onChange as never} />
+          <MirrorsFields {...mirrorProps} appType="paperless" />
         </>
       );
-    case "paperless":
-      return <PaperlessFields value={value as never} onChange={onChange as never} />;
     case "immich":
-      return <ImmichFields value={value as never} onChange={onChange as never} />;
+      return (
+        <>
+          <ImmichFields value={value as never} onChange={onChange as never} />
+          <MirrorsFields {...mirrorProps} appType="immich" />
+        </>
+      );
     case "webdav":
       return <WebDAVFields value={value as never} onChange={onChange as never} />;
     case "gdrive":

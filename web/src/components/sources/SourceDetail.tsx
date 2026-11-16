@@ -6,7 +6,8 @@ import { client, ok } from "../../api/client";
 import { useScopes } from "../../hooks/useScopes";
 import {
   useDeleteSource,
-  useMirrorTargetTypes,
+  useMirrorBackingTypes,
+  useMirroredBy,
   useUpdateSource,
 } from "../../hooks/useSources";
 import type { Scan } from "../../api/types";
@@ -25,14 +26,12 @@ import type { Source, SourceListItem } from "../../api/types";
 import { formatDateTime } from "../../lib/format";
 import { BucketSecurityCard } from "../acl/BucketSecurityCard";
 import { formatSourceSummary } from "../../lib/sources";
-import { MirrorOfFields } from "./source-fields/MirrorOfFields";
-import type { MirrorMapping } from "../../lib/mirrorConfig";
 import { SourceFieldSet } from "./SourceFieldSet";
 import { ReachabilityHistoryTab } from "./ReachabilityHistoryTab";
 import { SourceAuditTab } from "./SourceAuditTab";
 import { ScanLogPanel } from "../scans/ScanLogPanel";
 import type { AnyConfig, SourceType } from "./sourceTypes";
-import { validateMirrorConfig, validateSourceConfig } from "./sourceTypes";
+import { validateSourceConfig } from "./sourceTypes";
 import {
   ShareFields,
   type ShareConfig,
@@ -318,11 +317,10 @@ const DetailsTab = memo(function DetailsTab({
   // config, only the share-only fields need to validate; otherwise
   // the full legacy SourceFieldSet validator applies.
   const hasHost = source.host_id != null;
-  const mirrorTargetTypes = useMirrorTargetTypes();
+  const mirrorBackingTypes = useMirrorBackingTypes();
   const validationError = hasHost
-    ? (validateShareConfig(source.type as SourceType, draftConfig as ShareConfig) ??
-      validateMirrorConfig(source.type as SourceType, draftConfig, mirrorTargetTypes))
-    : validateSourceConfig(source.type as SourceType, draftConfig, mirrorTargetTypes);
+    ? validateShareConfig(source.type as SourceType, draftConfig as ShareConfig)
+    : validateSourceConfig(source.type as SourceType, draftConfig, mirrorBackingTypes);
 
   // The connection-config validator must only gate saving when the
   // config was actually edited. `draftConfig` is seeded from the API's
@@ -655,6 +653,7 @@ const DisplayRows = memo(function DisplayRows({
   const inaccessibleDirs = lastScan?.inaccessible_dirs ?? 0;
   const inaccessibleFiles = lastScan?.inaccessible_files ?? 0;
   const inaccessibleTotal = inaccessibleDirs + inaccessibleFiles;
+  const mirroredBy = useMirroredBy().get(source.id) ?? [];
   const fieldRows = useMemo<DisplayFieldRow[]>(() => {
     const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
     return Object.entries(cfg).map(([k, v]) => ({
@@ -690,6 +689,21 @@ const DisplayRows = memo(function DisplayRows({
       {source.type !== "local" && (
         <Row label="Credentials">
           <span className="text-fg-muted">{credentialDisplay}</span>
+        </Row>
+      )}
+      {mirroredBy.length > 0 && (
+        <Row label="Mirrored by">
+          <span className="space-x-2">
+            {mirroredBy.map((a) => (
+              <Link
+                key={a.id}
+                to={`/sources?open=${a.id}`}
+                className="text-accent-600 hover:underline font-medium"
+              >
+                {a.name}
+              </Link>
+            ))}
+          </span>
         </Row>
       )}
       <Row label="Reachability">
@@ -825,20 +839,11 @@ function EditRows({
         </p>
       </div>
       {hasHost ? (
-        <>
-          <ShareFields
+        <ShareFields
             type={type}
             value={config as ShareConfig}
             onChange={onConfigChange as (c: ShareConfig) => void}
           />
-          {(type === "nfs" || type === "smb" || type === "s3") && (
-            <MirrorOfFields
-              value={(config as { mirror_of?: MirrorMapping[] }).mirror_of ?? []}
-              onChange={(next) => onConfigChange({ ...config, mirror_of: next } as never)}
-              backingType={type}
-            />
-          )}
-        </>
       ) : (
         <SourceFieldSet type={type} value={config} onChange={onConfigChange} />
       )}

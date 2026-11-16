@@ -1,30 +1,22 @@
 /**
  * Storage by mirror-link role for one backing source. The picker lists
- * backing sources (local/nfs/smb/s3) that have a non-empty `mirror_of`.
+ * backing sources (local/nfs/smb/s3) named in an Immich/Paperless source's `mirrors`.
  */
 import { useMemo, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { client, ok } from "../../api/client";
-import { sourceDetailQueryOptions, useSources } from "../../hooks/useSources";
+import { useMirroredBy, useSources } from "../../hooks/useSources";
 import type { StorageByLinkRole } from "../../api/types";
 import { formatBytes, formatNumber } from "../../lib/format";
 import { Card, CardHeader, EmptyState, Select, Skeleton, Table } from "../ui";
 
-const BACKING_TYPES = new Set(["local", "nfs", "smb", "s3"]);
-
 export function LinkRoleBreakdown() {
   const sourcesQ = useSources();
-  const backing = useMemo(
-    () => (sourcesQ.data ?? []).filter((s) => BACKING_TYPES.has(s.type)),
-    [sourcesQ.data],
+  const mirroredBy = useMirroredBy();
+  const mirrored = useMemo(
+    () => (sourcesQ.data ?? []).filter((s) => mirroredBy.has(s.id)),
+    [sourcesQ.data, mirroredBy],
   );
-  const details = useQueries({
-    queries: backing.map((s) => sourceDetailQueryOptions(s.id)),
-  });
-  const mirrored = backing.filter((_, i) => {
-    const m = (details[i]?.data?.connection_config as { mirror_of?: unknown[] } | undefined)?.mirror_of;
-    return Array.isArray(m) && m.length > 0;
-  });
 
   const [picked, setPicked] = useState("");
   const sourceId = mirrored.some((s) => s.id === picked) ? picked : (mirrored[0]?.id ?? "");

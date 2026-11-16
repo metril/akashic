@@ -1,51 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { validateMirrorOf, type MirrorMapping } from "./mirrorConfig";
+import { validateMirrors, type MirrorMapping } from "./mirrorConfig";
 import type { SourceType } from "../components/sources/sourceTypes";
 
 const types = new Map<string, SourceType>([
-  ["a", "immich"],
-  ["p", "paperless"],
+  ["l", "local"],
+  ["s", "s3"],
 ]);
 
 const m = (o: Partial<MirrorMapping> = {}): MirrorMapping => ({
-  source_id: "a",
+  source_id: "l",
   remote_prefix: "/data",
   local_prefix: "/mnt/immich",
   ...o,
 });
 
-describe("validateMirrorOf", () => {
+describe("validateMirrors", () => {
   it("accepts valid immich and paperless lists", () => {
-    expect(validateMirrorOf([m()], "local")).toBeNull();
-    expect(validateMirrorOf([m()], "local", types)).toBeNull();
+    expect(validateMirrors([m()], "immich")).toBeNull();
+    expect(validateMirrors([m()], "immich", types)).toBeNull();
+    expect(validateMirrors([m({ remote_prefix: "" })], "paperless", types)).toBeNull();
+    expect(validateMirrors([], "immich")).toBeNull();
+  });
+  it("accepts an s3 backing local prefix without a leading slash", () => {
     expect(
-      validateMirrorOf([m({ source_id: "p", remote_prefix: "" })], "nfs", types),
+      validateMirrors([m({ source_id: "s", local_prefix: "photos" })], "immich", types),
     ).toBeNull();
-    expect(validateMirrorOf([], "local")).toBeNull();
   });
-  it("requires a target", () => {
-    expect(validateMirrorOf([m({ source_id: "" })], "local")).toBe("Pick a target source");
+  it("requires a backing source", () => {
+    expect(validateMirrors([m({ source_id: "" })], "immich")).toBe("Pick a backing source");
   });
-  it("requires remote prefix to start with / (when non-empty)", () => {
-    expect(validateMirrorOf([m({ remote_prefix: "data" })], "local")).toBe(
-      "Remote prefix must start with /",
-    );
-    expect(validateMirrorOf([m({ remote_prefix: "" })], "local", types)).toBe(
-      "Remote prefix must start with /",
+  it("requires an empty remote prefix for paperless", () => {
+    expect(validateMirrors([m({ remote_prefix: "/data" })], "paperless")).toBe(
+      "Paperless mappings use an empty remote prefix",
     );
   });
-  it("requires empty remote prefix for paperless", () => {
-    expect(
-      validateMirrorOf([m({ source_id: "p", remote_prefix: "/data" })], "local", types),
-    ).toBe("Paperless mappings use an empty remote prefix");
+  it("requires immich remote prefix to start with /", () => {
+    expect(validateMirrors([m({ remote_prefix: "data" })], "immich")).toBe(
+      "Remote prefix must start with /",
+    );
+    expect(validateMirrors([m({ remote_prefix: "" })], "immich")).toBe(
+      "Remote prefix must start with /",
+    );
   });
-  it("requires local prefix to start with / except s3", () => {
-    expect(validateMirrorOf([m({ local_prefix: "mnt" })], "smb")).toBe(
+  it("requires local prefix to start with / for known non-s3 backing", () => {
+    expect(validateMirrors([m({ local_prefix: "mnt" })], "immich", types)).toBe(
       "Local prefix must start with /",
     );
-    expect(validateMirrorOf([m({ local_prefix: "photos/" })], "s3")).toBeNull();
   });
   it("rejects duplicates", () => {
-    expect(validateMirrorOf([m(), m()], "local")).toBe("Duplicate mapping");
+    expect(validateMirrors([m(), m()], "immich")).toBe("Duplicate mapping");
   });
 });

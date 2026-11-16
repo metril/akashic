@@ -7,29 +7,26 @@ export type MirrorMapping = {
 };
 
 /**
- * Client-side check of a backing source's `mirror_of` list. `targetTypes`
- * maps target source ids to their type; when a target's type is known the
- * paperless (empty remote prefix) and immich (rooted remote prefix) rules
- * apply. The server remains authoritative (400 on invalid, 404 unknown).
+ * Client-side check of an Immich/Paperless source's `mirrors` list.
+ * `backingTypes` maps backing source ids to their type; when a backing
+ * source's type is known, non-s3 backings need a rooted local prefix.
+ * The server remains authoritative (400 on invalid, 404 unknown).
  */
-export function validateMirrorOf(
+export function validateMirrors(
   list: MirrorMapping[],
-  backingType: SourceType,
-  targetTypes?: ReadonlyMap<string, SourceType>,
+  appType: "immich" | "paperless",
+  backingTypes?: ReadonlyMap<string, SourceType>,
 ): string | null {
   const seen = new Set<string>();
   for (const m of list) {
-    if (!m.source_id) return "Pick a target source";
-    const target = targetTypes?.get(m.source_id);
-    if (target === "paperless") {
+    if (!m.source_id) return "Pick a backing source";
+    if (appType === "paperless") {
       if (m.remote_prefix !== "") return "Paperless mappings use an empty remote prefix";
-    } else if (
-      (m.remote_prefix !== "" || target !== undefined) &&
-      !m.remote_prefix.startsWith("/")
-    ) {
+    } else if (!m.remote_prefix.startsWith("/")) {
       return "Remote prefix must start with /";
     }
-    if (backingType !== "s3" && !m.local_prefix.startsWith("/")) {
+    const backing = backingTypes?.get(m.source_id);
+    if (backing !== undefined && backing !== "s3" && !m.local_prefix.startsWith("/")) {
       return "Local prefix must start with /";
     }
     const key = `${m.source_id}\0${m.remote_prefix}\0${m.local_prefix}`;

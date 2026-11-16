@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { SourceType } from "../components/sources/sourceTypes";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { client, ok } from "../api/client";
 import type { components } from "../api/schema";
 import type { Source, SourceListItem } from "../api/types";
@@ -38,18 +38,45 @@ export function useSourceDetail(sourceId: string | null) {
   return useQuery<Source>(sourceDetailQueryOptions(sourceId));
 }
 
-/** Map of immich/paperless source id -> type, for mirror_of validation. */
-export function useMirrorTargetTypes(): Map<string, SourceType> {
+/** Map of backing (local/nfs/smb/s3) source id -> type, for mirrors validation. */
+export function useMirrorBackingTypes(): Map<string, SourceType> {
   const { data } = useSources();
   return useMemo(
     () =>
       new Map(
         (data ?? [])
-          .filter((s) => s.type === "immich" || s.type === "paperless")
+          .filter((s) => MIRROR_BACKING_TYPES.has(s.type))
           .map((s) => [s.id, s.type as SourceType]),
       ),
     [data],
   );
+}
+
+export const MIRROR_BACKING_TYPES: ReadonlySet<string> = new Set(["local", "nfs", "smb", "s3"]);
+
+/**
+ * Backing source id -> app (immich/paperless) sources whose `mirrors`
+ * name it. Reuses the cached per-source detail queries (30s stale).
+ */
+export function useMirroredBy(): Map<string, { id: string; name: string }[]> {
+  const { data } = useSources();
+  const apps = useMemo(
+    () => (data ?? []).filter((s) => s.type === "immich" || s.type === "paperless"),
+    [data],
+  );
+  const details = useQueries({ queries: apps.map((s) => sourceDetailQueryOptions(s.id)) });
+  const key = details.map((d) => d.dataUpdatedAt).join(",");
+  return useMemo(() => {
+    const out = new Map<string, { id: string; name: string }[]>();
+    apps.forEach((app, i) => {
+      const list = (details[i]?.data?.connection_config as { mirrors?: { source_id: string }[] } | undefined)?.mirrors;
+      for (const id of new Set((list ?? []).map((m) => m.source_id))) {
+        out.set(id, [...(out.get(id) ?? []), { id: app.id, name: app.name }]);
+      }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apps, key]);
 }
 
 export function useCreateSource() {
