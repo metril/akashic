@@ -127,6 +127,21 @@ async def test_link_role_check_rejects_unknown(scratch_db):
 
 
 @pytest.mark.asyncio
+async def test_linked_entry_requires_link_role(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    eng = create_async_engine(scratch_db, poolclass=NullPool)
+    target = str(uuid.uuid4())
+    try:
+        async with eng.begin() as conn:
+            await _ins(conn, target)
+        with pytest.raises(IntegrityError):
+            async with eng.begin() as conn:
+                await _ins(conn, str(uuid.uuid4()), role=None, linked=target)
+    finally:
+        await eng.dispose()
+
+
+@pytest.mark.asyncio
 async def test_hard_delete_target_nulls_link(scratch_db):
     await _alembic_upgrade(scratch_db, "0047_mirror_links")
     eng = create_async_engine(scratch_db, poolclass=NullPool)

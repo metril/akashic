@@ -50,6 +50,10 @@ class Entry(Base):
             "link_role IN (" + ",".join(f"'{r}'" for r in LINK_ROLES) + ")",
             name="ck_entries_link_role",
         ),
+        CheckConstraint(
+            "linked_entry_id IS NULL OR link_role IS NOT NULL",
+            name="ck_entries_link_role_when_linked",
+        ),
         Index(
             "ix_entries_linked_entry_id",
             "linked_entry_id",

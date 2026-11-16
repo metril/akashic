@@ -43,6 +43,10 @@ def upgrade() -> None:
         "ck_entries_link_role", "entries",
         "link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')",
     )
+    op.create_check_constraint(
+        "ck_entries_link_role_when_linked", "entries",
+        "linked_entry_id IS NULL OR link_role IS NOT NULL",
+    )
     op.create_index(
         "ix_entries_linked_entry_id", "entries", ["linked_entry_id"],
         postgresql_where=sa.text("linked_entry_id IS NOT NULL"),
@@ -53,6 +57,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_entries_source_link_role", table_name="entries")
     op.drop_index("ix_entries_linked_entry_id", table_name="entries")
+    op.drop_constraint("ck_entries_link_role_when_linked", "entries", type_="check")
     op.drop_constraint("ck_entries_link_role", "entries", type_="check")
     op.drop_constraint("fk_entries_link_target_source_id", "entries", type_="foreignkey")
     op.drop_constraint("fk_entries_linked_entry_id", "entries", type_="foreignkey")

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.auth.source_scope import restrict_sources
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
 from akashic.database import get_db
-from akashic.models.entry import Entry
+from akashic.models.entry import LINK_ROLES, Entry
 from akashic.routers.browse import _should_enforce_perms
 from akashic.services.access_query import user_principal_tokens, viewable_clause
 from akashic.models.scan_snapshot import ScanSnapshot
@@ -21,7 +21,6 @@ from akashic.schemas.analytics import (
     ExtensionTrendPoint, ForecastResponse, LargestFile, OwnerDistribution,
     SeriesPoint, StorageByLinkRole, StorageBySource, StorageByType,
 )
-from akashic.models.entry import LINK_ROLES
 from akashic.services.mirror_links import logical_view_source_ids
 
 router = ApiRouter(prefix="/analytics", tags=["analytics"])

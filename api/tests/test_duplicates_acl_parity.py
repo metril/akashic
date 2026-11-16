@@ -68,7 +68,7 @@ async def test_non_bypass_principal_is_filtered_on_both(rt_set, client: AsyncCli
     assert groups.json()["items"][0]["count"] == 2
 
 
-async def _linked_pair(db: AsyncSession, backing_hash: str, asset_hash: str):
+async def _linked_pair(db: AsyncSession):
     app = Source(id=uuid.uuid4(), name="app", type="immich", connection_config={})
     db.add(app)
     await db.commit()
@@ -95,7 +95,7 @@ async def _linked_pair(db: AsyncSession, backing_hash: str, asset_hash: str):
 async def test_linked_pair_is_not_duplicate_group(client: AsyncClient, db_session: AsyncSession):
     """An Immich asset (sha1:<hex>) and its backing file (raw local hash) never share a hash."""
     headers, _ = await _seed(db_session, "admin", "root2")
-    app, back, mk = await _linked_pair(db_session, "", "")
+    app, back, mk = await _linked_pair(db_session)
     asset = mk(app, "/asset", "sha1:" + "a" * 40)
     db_session.add(asset)
     await db_session.commit()
@@ -109,7 +109,7 @@ async def test_linked_pair_is_not_duplicate_group(client: AsyncClient, db_sessio
 @pytest.mark.asyncio
 async def test_two_linked_originals_with_same_hash_stay_a_group(client: AsyncClient, db_session: AsyncSession):
     headers, _ = await _seed(db_session, "admin", "root3")
-    app, back, mk = await _linked_pair(db_session, "", "")
+    app, back, mk = await _linked_pair(db_session)
     h = "b" * 64
     a1 = mk(app, "/a1", "sha1:" + "b" * 40)
     a2 = mk(app, "/a2", "sha1:" + "c" * 40)
