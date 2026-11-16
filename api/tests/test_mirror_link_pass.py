@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from akashic.models.source import Source
 from akashic.services.mirror_links import (
     backing_sources_for,
     logical_view_source_ids,
+    relink_after_scan,
     relink_backing,
 )
 
@@ -201,9 +203,10 @@ async def test_link_pass_idempotent(db_session):
     b = await _backing(db, [_map(app)])
     await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     r1 = await relink_backing(db, b.id)
-    await relink_backing(db, b.id)
+    r2 = await relink_backing(db, b.id)
     assert r1.linked == 1
     assert len(r1.changed_ids) == 1
+    assert r2.linked == 1 and r2.changed_ids == []
 
 
 @pytest.mark.asyncio
@@ -246,3 +249,50 @@ async def test_logical_view_source_ids(db_session):
     app, _ = await _immich(db)
     await _backing(db, [_map(app)])
     assert app.id in await logical_view_source_ids(db)
+
+
+@pytest.mark.asyncio
+async def test_paperless_thumbnail_long_id(db_session):
+    db = db_session
+    app = await _src(db, "paperless", "Paper")
+    doc = await _seed(db, app, f"/doc/{_u()}", domain_metadata={
+        "paperless_id": 12345678, "media_filename": "12345678.pdf"})
+    root = "/host/mnt/paperless/media/documents"
+    b = await _backing(db, [_map(app, remote="", local=root)])
+    p = f"{root}/thumbnails/12345678.webp"
+    await _seed(db, b, p)
+    await relink_backing(db, b.id)
+    e = (await _roles(db, b))[p]
+    assert e.link_role == "thumbnail" and e.linked_entry_id == doc.id
+
+
+@pytest.mark.asyncio
+async def test_relink_after_scan_marks_and_flushes(db_session):
+    db = db_session
+    app, _ = await _immich(db)
+    b = await _backing(db, [_map(app)])
+    e = await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
+    eid, bid, aid = e.id, b.id, app.id
+    await db.commit()
+    with patch("akashic.services.mirror_links.meili_indexer.mark_dirty", new=AsyncMock()) as md, \
+         patch("akashic.services.mirror_links.meili_indexer.flush",
+               new=AsyncMock(side_effect=[1, 1, 0])) as fl:
+        await relink_after_scan(db, aid)
+    md.assert_awaited_once_with(bid, [eid])
+    assert fl.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_relink_after_scan_isolates_bad_backing(db_session):
+    db = db_session
+    app, _ = await _immich(db)
+    good = await _backing(db, [_map(app)])
+    bad = await _backing(db, [_map(app), {
+        "source_id": str(uuid.uuid4()), "remote_prefix": "", "local_prefix": "/x"}])
+    e = await _seed(db, good, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
+    eid, gid, aid = e.id, good.id, app.id
+    await db.commit()
+    with patch("akashic.services.mirror_links.meili_indexer.mark_dirty", new=AsyncMock()) as md, \
+         patch("akashic.services.mirror_links.meili_indexer.flush", new=AsyncMock(return_value=0)):
+        await relink_after_scan(db, aid)
+    md.assert_awaited_once_with(gid, [eid])

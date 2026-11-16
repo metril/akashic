@@ -1,6 +1,7 @@
 """Mirror links: config normalisation/validation (linking half lives below)."""
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from akashic.services import meili_indexer
 
 from akashic.models.source import Source
+
+logger = logging.getLogger(__name__)
 
 MIRROR_APP_TYPES = {"immich", "paperless"}
 MIRROR_BACKING_TYPES = {"local", "smb", "nfs", "s3"}
@@ -161,50 +164,81 @@ def _rule(role: str, frm: str, where: str) -> str:
     )
 
 
+# Each rule: (sql, base params it uses, {param name: role whose priority it carries}).
+_BASE_ALL = ("a", "b", "pfx", "rp")
+_BASE_PAPERLESS = ("a", "b", "pfx")
+
 _IMMICH_RULES = [
-    ("original", "p", _rule(
-        "original", "JOIN entries be ON be.path = " + _IMMICH_PATH, _IMMICH_OK)),
-    ("sidecar", "p", _rule(
-        "sidecar", "JOIN entries be ON be.path = " + _IMMICH_PATH + " || '.xmp'", _IMMICH_OK)),
-    ("thumbnail", "p", (
+    (
+        _rule("original", "JOIN entries be ON be.path = " + _IMMICH_PATH, _IMMICH_OK),
+        _BASE_ALL, {"prio": "original"},
+    ),
+    (
+        _rule("sidecar", "JOIN entries be ON be.path = " + _IMMICH_PATH + " || '.xmp'", _IMMICH_OK),
+        _BASE_ALL, {"prio": "sidecar"},
+    ),
+    # Derivatives are matched by the asset uuid embedded in the file name, so
+    # this rule scans the backing source's thumbs/ and encoded-video/ rows
+    # (no index on the path prefix); it is the costliest rule of the pass.
+    (
         f"{_INS}SELECT be.id, ae.id, "
         f"CASE WHEN starts_with(be.path, {_P} || 'encoded-video/') "
         "THEN 'encoded_video' ELSE 'thumbnail' END, "
-        "CASE WHEN starts_with(be.path, " + _P + " || 'encoded-video/') "
+        f"CASE WHEN starts_with(be.path, {_P} || 'encoded-video/') "
         "THEN CAST(:evprio AS int) ELSE CAST(:thprio AS int) END "
         "FROM entries ae JOIN entries be ON ae.domain_metadata->>'immich_id' = "
         f"substring(be.name from {_UUID_RE}) "
         f"WHERE {_AE} AND {_BE} AND "
         f"(starts_with(be.path, {_P} || 'thumbs/') "
-        f"OR starts_with(be.path, {_P} || 'encoded-video/'))"
-    )),
+        f"OR starts_with(be.path, {_P} || 'encoded-video/'))",
+        ("a", "b", "pfx"), {"evprio": "encoded_video", "thprio": "thumbnail"},
+    ),
 ]
 
+# Paperless pads ids to 7 digits but never truncates longer ones (lpad would).
+_PID = (
+    "CASE WHEN length(ae.domain_metadata->>'paperless_id') < 7 "
+    "THEN lpad(ae.domain_metadata->>'paperless_id', 7, '0') "
+    "ELSE ae.domain_metadata->>'paperless_id' END"
+)
+
 _PAPERLESS_RULES = [
-    _rule("original",
-          f"JOIN entries be ON be.path = {_P} || 'originals/' || (ae.domain_metadata->>'media_filename')",
-          "TRUE"),
-    _rule("archive",
-          f"JOIN entries be ON be.path = {_P} || 'archive/' || (ae.domain_metadata->>'archive_media_filename')",
-          "TRUE"),
-    _rule("thumbnail",
-          "JOIN entries be ON be.path IN ("
-          f"{_P} || 'thumbnails/' || lpad(ae.domain_metadata->>'paperless_id', 7, '0') || '.webp', "
-          f"{_P} || 'thumbnails/' || lpad(ae.domain_metadata->>'paperless_id', 7, '0') || '.png')",
-          "TRUE"),
-    _rule("version",
-          "CROSS JOIN LATERAL jsonb_array_elements("
-          "COALESCE(ae.domain_metadata->'versions', '[]'::jsonb)) v "
-          "JOIN entries be ON be.path IN ("
-          f"{_P} || 'originals/' || (v->>'media_filename'), "
-          f"{_P} || 'archive/' || (v->>'archive_media_filename'))",
-          "TRUE"),
+    (
+        _rule("original",
+              f"JOIN entries be ON be.path = {_P} || 'originals/' || (ae.domain_metadata->>'media_filename')",
+              "TRUE"),
+        _BASE_PAPERLESS, {"prio": "original"},
+    ),
+    (
+        _rule("archive",
+              f"JOIN entries be ON be.path = {_P} || 'archive/' || (ae.domain_metadata->>'archive_media_filename')",
+              "TRUE"),
+        _BASE_PAPERLESS, {"prio": "archive"},
+    ),
+    (
+        _rule("thumbnail",
+              "JOIN entries be ON be.path IN ("
+              f"{_P} || 'thumbnails/' || {_PID} || '.webp', "
+              f"{_P} || 'thumbnails/' || {_PID} || '.png')",
+              "TRUE"),
+        _BASE_PAPERLESS, {"prio": "thumbnail"},
+    ),
+    (
+        _rule("version",
+              "CROSS JOIN LATERAL jsonb_array_elements("
+              "COALESCE(ae.domain_metadata->'versions', '[]'::jsonb)) v "
+              "JOIN entries be ON be.path IN ("
+              f"{_P} || 'originals/' || (v->>'media_filename'), "
+              f"{_P} || 'archive/' || (v->>'archive_media_filename'))",
+              "TRUE"),
+        _BASE_PAPERLESS, {"prio": "version"},
+    ),
 ]
 
 _APPLY = """
 WITH pick AS (
   SELECT DISTINCT ON (backing_id) backing_id, target_id, role
-  FROM _mirror_desired ORDER BY backing_id, prio
+  FROM _mirror_desired ORDER BY backing_id, prio, target_id
 ), cur AS (
   SELECT e.id, p.target_id, p.role, t.viewable_by_read AS viewable, t.source_id AS tsrc
   FROM entries e
@@ -229,14 +263,14 @@ async def relink_backing(db: AsyncSession, backing_id: uuid.UUID) -> LinkPassRes
 
     Does not commit; the caller owns the transaction.
     """
-    backing = await db.get(Source, backing_id)
-    if backing is None:
-        return LinkPassResult([], 0)
-    mappings = await load_mappings(db, backing)
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended('mirror_link:' || CAST(:b AS text), 0))"),
         {"b": str(backing_id)},
     )
+    backing = await db.get(Source, backing_id, populate_existing=True)
+    if backing is None:
+        return LinkPassResult([], 0)
+    mappings = await load_mappings(db, backing)
     await db.execute(text("DROP TABLE IF EXISTS _mirror_desired"))
     await db.execute(text(
         "CREATE TEMP TABLE _mirror_desired "
@@ -247,23 +281,12 @@ async def relink_backing(db: AsyncSession, backing_id: uuid.UUID) -> LinkPassRes
             "a": m.source_id, "b": backing_id,
             "pfx": prefix_with_sep(m.local_prefix, backing.type), "rp": m.remote_prefix,
         }
-        if m.kind == "immich":
-            for role, _, sql in _IMMICH_RULES:
-                params = dict(base)
-                if role == "thumbnail":
-                    params["evprio"] = i * 10 + ROLE_PRIORITY["encoded_video"]
-                    params["thprio"] = i * 10 + ROLE_PRIORITY["thumbnail"]
-                else:
-                    params["prio"] = i * 10 + ROLE_PRIORITY[role]
-                params = {k: v for k, v in params.items() if f":{k}" in sql}
-                await db.execute(text(sql), params)
-        else:
-            for sql, role in zip(
-                _PAPERLESS_RULES, ("original", "archive", "thumbnail", "version"), strict=True
-            ):
-                params = {k: v for k, v in base.items() if f":{k}" in sql}
-                params["prio"] = i * 10 + ROLE_PRIORITY[role]
-                await db.execute(text(sql), params)
+        rules = _IMMICH_RULES if m.kind == "immich" else _PAPERLESS_RULES
+        for sql, keys, prios in rules:
+            params = {k: base[k] for k in keys}
+            for name, role in prios.items():
+                params[name] = i * 10 + ROLE_PRIORITY[role]
+            await db.execute(text(sql), params)
     res = await db.execute(text(_APPLY), {"b": backing_id})
     changed = [r[0] for r in res.all()]
     linked = await db.scalar(
@@ -286,12 +309,23 @@ async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uu
     return [r[0] for r in res.all()]
 
 
+_MAX_FLUSH_ROUNDS = 1000
+
+
 async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
     for backing_id in await backing_sources_for(db, source_id):
-        result = await relink_backing(db, backing_id)
-        await db.commit()
+        try:
+            result = await relink_backing(db, backing_id)
+            await db.commit()
+        except MirrorConfigError:
+            await db.rollback()
+            logger.exception("mirror relink failed for backing_id=%s", backing_id)
+            continue
         await meili_indexer.mark_dirty(backing_id, result.changed_ids)
-        await meili_indexer.flush(backing_id)
+        # flush() caps work per call; drain this backing's dirty set.
+        for _ in range(_MAX_FLUSH_ROUNDS):
+            if not await meili_indexer.flush(backing_id):
+                break
 
 
 async def logical_view_source_ids(db: AsyncSession) -> set[uuid.UUID]:
