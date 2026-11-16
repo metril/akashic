@@ -69,16 +69,16 @@ async def test_non_bypass_principal_is_filtered_on_both(rt_set, client: AsyncCli
 
 
 async def _linked_pair(db: AsyncSession):
-    app = Source(id=uuid.uuid4(), name="app", type="immich", connection_config={})
-    db.add(app)
+    back = Source(id=uuid.uuid4(), name="back", type="local", connection_config={})
+    db.add(back)
     await db.commit()
-    back = Source(
-        id=uuid.uuid4(), name="back", type="local",
-        connection_config={"mirror_of": [
-            {"source_id": str(app.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
+    app = Source(
+        id=uuid.uuid4(), name="app", type="immich",
+        connection_config={"mirrors": [
+            {"source_id": str(back.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
         ]},
     )
-    db.add(back)
+    db.add(app)
     await db.commit()
 
     def mk(src, path, h, **kw):

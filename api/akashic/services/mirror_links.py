@@ -38,37 +38,75 @@ class MirrorConfigError(Exception):
 
 def _clean(p: Any, field: str) -> str:
     if not isinstance(p, str):
-        raise MirrorConfigError(400, f"mirror_of.{field} must be a string")
+        raise MirrorConfigError(400, f"mirrors.{field} must be a string")
     return re.sub(r"/+", "/", p.strip()).rstrip("/")
 
 
 def normalize_mapping(raw: dict, backing_type: str) -> dict:
     if not isinstance(raw, dict):
-        raise MirrorConfigError(400, "mirror_of entries must be objects")
+        raise MirrorConfigError(400, "mirrors entries must be objects")
     unknown = set(raw) - _KEYS
     if unknown:
-        raise MirrorConfigError(400, f"mirror_of: unknown keys {sorted(unknown)}")
+        raise MirrorConfigError(400, f"mirrors: unknown keys {sorted(unknown)}")
     missing = _KEYS - set(raw)
     if missing:
-        raise MirrorConfigError(400, f"mirror_of: missing keys {sorted(missing)}")
+        raise MirrorConfigError(400, f"mirrors: missing keys {sorted(missing)}")
     sid = raw["source_id"]
     if not isinstance(sid, str):
-        raise MirrorConfigError(400, "mirror_of.source_id must be a string")
+        raise MirrorConfigError(400, "mirrors.source_id must be a string")
     try:
         sid = str(uuid.UUID(sid))
     except ValueError:
-        raise MirrorConfigError(400, "mirror_of.source_id must be a UUID") from None
+        raise MirrorConfigError(400, "mirrors.source_id must be a UUID") from None
     remote = _clean(raw["remote_prefix"], "remote_prefix")
     if remote and not remote.startswith("/"):
-        raise MirrorConfigError(400, "mirror_of.remote_prefix must start with '/'")
+        raise MirrorConfigError(400, "mirrors.remote_prefix must start with '/'")
     local = _clean(raw["local_prefix"], "local_prefix")
     if backing_type == "s3":
         local = local.lstrip("/")
     elif local and not local.startswith("/"):
-        raise MirrorConfigError(400, "mirror_of.local_prefix must start with '/'")
+        raise MirrorConfigError(400, "mirrors.local_prefix must start with '/'")
     return {"source_id": sid, "remote_prefix": remote, "local_prefix": local}
 
 
+async def validate_mirrors(
+    db: AsyncSession, *, app_id: uuid.UUID | None, app_type: str, raw: Any
+) -> list[dict]:
+    if raw is None or raw == []:
+        return []
+    if not isinstance(raw, list):
+        raise MirrorConfigError(400, "mirrors must be a list")
+    if app_type not in MIRROR_APP_TYPES:
+        raise MirrorConfigError(400, f"mirrors is not supported for source type '{app_type}'")
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise MirrorConfigError(400, "mirrors entries must be objects")
+        try:
+            backing_id = uuid.UUID(str(item.get("source_id")))
+        except ValueError:
+            raise MirrorConfigError(400, "mirrors.source_id must be a UUID") from None
+        if app_id is not None and backing_id == app_id:
+            raise MirrorConfigError(400, "a source cannot mirror itself")
+        backing = await db.get(Source, backing_id)
+        if backing is None:
+            raise MirrorConfigError(404, f"mirrors source {backing_id} not found")
+        if backing.type not in MIRROR_BACKING_TYPES:
+            raise MirrorConfigError(
+                400,
+                "mirrors source must be a local, smb, nfs or s3 source, "
+                f"not '{backing.type}'",
+            )
+        m = normalize_mapping(item, backing.type)
+        if app_type == "paperless" and m["remote_prefix"]:
+            raise MirrorConfigError(400, "paperless mappings must have an empty remote_prefix")
+        if m in out:
+            raise MirrorConfigError(400, "duplicate mirrors mapping")
+        out.append(m)
+    return out
+
+
+# Removed in Task 2 together with the sources router's mirror_of handling.
 async def validate_mirror_of(
     db: AsyncSession, *, backing_id: uuid.UUID | None, backing_type: str, raw: Any
 ) -> list[dict]:
@@ -107,21 +145,30 @@ def prefix_with_sep(local_prefix: str, backing_type: str) -> str:
     return "" if backing_type == "s3" else "/"
 
 
+_MIRRORS = (
+    "CASE WHEN jsonb_typeof(s.connection_config->'mirrors') = 'array' "
+    "THEN s.connection_config->'mirrors' ELSE '[]'::jsonb END"
+)
+
+
 async def load_mappings(db: AsyncSession, backing: Source) -> list[MirrorMapping]:
+    """Mappings naming this backing source, from every app source (name, then list order)."""
+    res = await db.execute(
+        text(
+            "SELECT s.id, s.type, m FROM sources s "
+            f"CROSS JOIN LATERAL jsonb_array_elements({_MIRRORS}) WITH ORDINALITY AS t(m, ord) "
+            "WHERE s.type IN ('immich', 'paperless') AND m->>'source_id' = :b "
+            "ORDER BY s.name, s.id, t.ord"
+        ),
+        {"b": str(backing.id)},
+    )
     out: list[MirrorMapping] = []
-    for m in (backing.connection_config or {}).get("mirror_of") or []:
-        try:
-            target_id = uuid.UUID(m["source_id"])
-            remote, local = m["remote_prefix"], m["local_prefix"]
-        except (KeyError, ValueError, TypeError) as exc:
-            raise MirrorConfigError(409, f"corrupt mirror_of mapping: {exc!r}") from exc
-        target = await db.get(Source, target_id)
-        if target is None or target.type not in MIRROR_APP_TYPES:
-            raise MirrorConfigError(409, f"mirror_of target {target_id} is missing or invalid")
+    for app_id, app_type, m in res.all():
+        remote, local = m.get("remote_prefix"), m.get("local_prefix")
+        if not isinstance(remote, str) or not isinstance(local, str):
+            raise MirrorConfigError(409, f"corrupt mirrors mapping on source {app_id}: {m!r}")
         out.append(
-            MirrorMapping(
-                target_id, remote, local, cast(Literal["immich", "paperless"], target.type)
-            )
+            MirrorMapping(app_id, remote, local, cast(Literal["immich", "paperless"], app_type))
         )
     return out
 
@@ -309,16 +356,44 @@ async def relink_backing(db: AsyncSession, backing_id: uuid.UUID) -> LinkPassRes
 
 
 async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uuid.UUID]:
-    res = await db.execute(
+    """App source: its mirrored backing sources (list order). Backing source: itself if mirrored."""
+    row = (
+        await db.execute(
+            text(
+                "SELECT type, connection_config->'mirrors' FROM sources WHERE id = :sid"
+            ),
+            {"sid": source_id},
+        )
+    ).first()
+    if row is None:
+        return []
+    if row[0] in MIRROR_APP_TYPES:
+        ids: list[uuid.UUID] = []
+        for m in row[1] if isinstance(row[1], list) else []:
+            try:
+                bid = uuid.UUID(m["source_id"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if bid not in ids:
+                ids.append(bid)
+        if not ids:
+            return []
+        existing = {
+            r[0]
+            for r in (
+                await db.execute(text("SELECT id FROM sources WHERE id = ANY(:ids)"), {"ids": ids})
+            ).all()
+        }
+        return [i for i in ids if i in existing]
+    named = await db.scalar(
         text(
-            "SELECT id FROM sources WHERE "
-            "jsonb_path_exists(connection_config, '$.mirror_of[*] ? (@.source_id == $id)', "
-            "jsonb_build_object('id', CAST(:sid AS text))) "
-            "OR (id = CAST(:sid AS uuid) AND jsonb_array_length(COALESCE(connection_config->'mirror_of', '[]'::jsonb)) > 0)"
+            "SELECT EXISTS (SELECT 1 FROM sources s "
+            f"CROSS JOIN LATERAL jsonb_array_elements({_MIRRORS}) m "
+            "WHERE s.type IN ('immich', 'paperless') AND m->>'source_id' = :sid)"
         ),
         {"sid": str(source_id)},
     )
-    return [r[0] for r in res.all()]
+    return [source_id] if named else []
 
 
 _MAX_FLUSH_ROUNDS = 1000
@@ -361,8 +436,8 @@ async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
 async def logical_view_source_ids(db: AsyncSession) -> set[uuid.UUID]:
     res = await db.execute(
         text(
-            "SELECT DISTINCT CAST(m->>'source_id' AS uuid) FROM sources, "
-            "jsonb_array_elements(COALESCE(connection_config->'mirror_of', '[]'::jsonb)) m"
+            "SELECT s.id FROM sources s WHERE s.type IN ('immich', 'paperless') "
+            f"AND jsonb_array_length({_MIRRORS}) > 0"
         )
     )
     return {r[0] for r in res.all()}

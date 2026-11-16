@@ -40,9 +40,9 @@ async def _file(db, source, name, size, **cols):
 
 
 async def _mirrored(db):
-    app = await _src(db, "immich", "Iris")
-    back = await _src(db, "local", "back", {"mirror_of": [
-        {"source_id": str(app.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
+    back = await _src(db, "local", "back")
+    app = await _src(db, "immich", "Iris", {"mirrors": [
+        {"source_id": str(back.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
     ]})
     return app, back
 

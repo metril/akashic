@@ -312,16 +312,16 @@ async def test_summary_total_bytes_counts_mirrored_bytes_once(
     client: AsyncClient, db_session: AsyncSession,
 ):
     _, token = await _admin_token(db_session)
-    app = Source(id=uuid.uuid4(), name="Iris", type="immich", connection_config={})
-    db_session.add(app)
+    back = Source(id=uuid.uuid4(), name="back", type="local", connection_config={})
+    db_session.add(back)
     await db_session.commit()
-    back = Source(
-        id=uuid.uuid4(), name="back", type="local",
-        connection_config={"mirror_of": [
-            {"source_id": str(app.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
+    app = Source(
+        id=uuid.uuid4(), name="Iris", type="immich",
+        connection_config={"mirrors": [
+            {"source_id": str(back.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
         ]},
     )
-    db_session.add(back)
+    db_session.add(app)
     await db_session.commit()
     now = datetime.now(timezone.utc)
     old = now - timedelta(days=40)

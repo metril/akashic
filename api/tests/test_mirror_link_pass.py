@@ -38,12 +38,17 @@ async def _seed(db, source, path, **cols):
     return e
 
 
-def _map(app, remote="/data", local=BASE):
-    return {"source_id": str(app.id), "remote_prefix": remote, "local_prefix": local}
+async def _mirror(db, app, backing, remote="/data", local=BASE):
+    m = {"source_id": str(backing.id), "remote_prefix": remote, "local_prefix": local}
+    cfg = dict(app.connection_config or {})
+    app.connection_config = {**cfg, "mirrors": [*cfg.get("mirrors", []), m]}
+    await db.flush()
 
 
-async def _backing(db, mappings, type_="local"):
-    return await _src(db, type_, "back", {"mirror_of": mappings})
+async def _backing(db, app, remote="/data", local=BASE, type_="local"):
+    b = await _src(db, type_, "back")
+    await _mirror(db, app, b, remote, local)
+    return b
 
 
 async def _immich(db, original="/data/upload/u1/ab/cd/IMG_1.jpg"):
@@ -66,7 +71,7 @@ async def _roles(db, backing):
 async def test_immich_original_linked(db_session):
     db = db_session
     app, asset = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     await relink_backing(db, b.id)
     e = (await _roles(db, b))[f"{BASE}/upload/u1/ab/cd/IMG_1.jpg"]
@@ -80,7 +85,7 @@ async def test_immich_original_linked(db_session):
 async def test_immich_derivatives_linked(db_session):
     db = db_session
     app, asset = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     paths = {
         f"{BASE}/thumbs/u1/0b/6c/{IMM_ID}-preview.jpeg": "thumbnail",
         f"{BASE}/thumbs/u1/0b/6c/{IMM_ID}-thumbnail.webp": "thumbnail",
@@ -100,7 +105,7 @@ async def test_immich_derivatives_linked(db_session):
 async def test_immich_sidecar_linked(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     p = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg.xmp"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -111,7 +116,7 @@ async def test_immich_sidecar_linked(db_session):
 async def test_original_outside_remote_prefix_stays_unlinked(db_session):
     db = db_session
     app, _ = await _immich(db, original="/mnt/external/x.jpg")
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     p = f"{BASE}/external/x.jpg"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -122,7 +127,7 @@ async def test_original_outside_remote_prefix_stays_unlinked(db_session):
 async def test_s3_backing_key_prefix(db_session):
     db = db_session
     app, asset = await _immich(db)
-    b = await _backing(db, [_map(app, local="immich")], type_="s3")
+    b = await _backing(db, app, local="immich", type_="s3")
     p = "immich/upload/u1/ab/cd/IMG_1.jpg"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -149,7 +154,7 @@ async def test_paperless_rules(db_session):
     db = db_session
     app, doc = await _paperless(db)
     root = "/host/mnt/paperless/media/documents"
-    b = await _backing(db, [_map(app, remote="", local=root)])
+    b = await _backing(db, app, remote="", local=root)
     exp = {
         f"{root}/originals/0000219.eml": "original",
         f"{root}/archive/0000219.pdf": "archive",
@@ -169,7 +174,7 @@ async def test_paperless_rules(db_session):
 async def test_deleted_target_unlinks(db_session):
     db = db_session
     app, asset = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     p = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -185,11 +190,11 @@ async def test_deleted_target_unlinks(db_session):
 async def test_mapping_removed_clears_links(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     p = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
-    b.connection_config = {"mirror_of": []}
+    app.connection_config = {"mirrors": []}
     await db.flush()
     r = await relink_backing(db, b.id)
     assert len(r.changed_ids) == 1
@@ -200,7 +205,7 @@ async def test_mapping_removed_clears_links(db_session):
 async def test_link_pass_idempotent(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     r1 = await relink_backing(db, b.id)
     r2 = await relink_backing(db, b.id)
@@ -213,7 +218,7 @@ async def test_link_pass_idempotent(db_session):
 async def test_second_pass_returns_no_changed_ids(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     await relink_backing(db, b.id)
     r = await relink_backing(db, b.id)
@@ -225,7 +230,9 @@ async def test_first_mapping_wins(db_session):
     db = db_session
     app1, a1 = await _immich(db)
     app2, a2 = await _immich(db)
-    b = await _backing(db, [_map(app1), _map(app2)])
+    app1.name, app2.name = f"a-{_u()}", f"b-{_u()}"
+    b = await _backing(db, app2)  # app order, not insertion order, sets priority
+    await _mirror(db, app1, b)
     p = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -236,7 +243,7 @@ async def test_first_mapping_wins(db_session):
 async def test_backing_sources_for_app_and_backing(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     other = await _src(db, "local", "plain")
     assert await backing_sources_for(db, app.id) == [b.id]
     assert await backing_sources_for(db, b.id) == [b.id]
@@ -247,8 +254,10 @@ async def test_backing_sources_for_app_and_backing(db_session):
 async def test_logical_view_source_ids(db_session):
     db = db_session
     app, _ = await _immich(db)
-    await _backing(db, [_map(app)])
-    assert app.id in await logical_view_source_ids(db)
+    await _backing(db, app)
+    empty = await _src(db, "paperless", "Empty", {"mirrors": []})
+    ids = await logical_view_source_ids(db)
+    assert app.id in ids and empty.id not in ids
 
 
 @pytest.mark.asyncio
@@ -258,7 +267,7 @@ async def test_paperless_thumbnail_long_id(db_session):
     doc = await _seed(db, app, f"/doc/{_u()}", domain_metadata={
         "paperless_id": 12345678, "media_filename": "12345678.pdf"})
     root = "/host/mnt/paperless/media/documents"
-    b = await _backing(db, [_map(app, remote="", local=root)])
+    b = await _backing(db, app, remote="", local=root)
     p = f"{root}/thumbnails/12345678.webp"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -270,7 +279,7 @@ async def test_paperless_thumbnail_long_id(db_session):
 async def test_immich_sidecar_without_original_extension(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     p = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
     await _seed(db, b, p)
     await relink_backing(db, b.id)
@@ -281,7 +290,7 @@ async def test_immich_sidecar_without_original_extension(db_session):
 async def test_immich_sidecar_ext_form_wins_over_stem_form(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     both = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg.xmp"
     stem = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
     await _seed(db, b, both)
@@ -296,7 +305,7 @@ async def test_immich_sidecar_ext_form_wins_over_stem_form(db_session):
 async def test_immich_deleted_ext_sidecar_does_not_block_stem_form(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     gone = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg.xmp"
     stem = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
     await _seed(db, b, gone, is_deleted=True)
@@ -331,7 +340,7 @@ async def test_relink_and_flush_chunks_mark_dirty(db_session, monkeypatch):
 async def test_relink_after_scan_marks_and_flushes(db_session):
     db = db_session
     app, _ = await _immich(db)
-    b = await _backing(db, [_map(app)])
+    b = await _backing(db, app)
     e = await _seed(db, b, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     eid, bid, aid = e.id, b.id, app.id
     await db.commit()
@@ -347,9 +356,11 @@ async def test_relink_after_scan_marks_and_flushes(db_session):
 async def test_relink_after_scan_isolates_bad_backing(db_session):
     db = db_session
     app, _ = await _immich(db)
-    good = await _backing(db, [_map(app)])
-    bad = await _backing(db, [_map(app), {
-        "source_id": str(uuid.uuid4()), "remote_prefix": "", "local_prefix": "/x"}])
+    good = await _backing(db, app)
+    bad = await _src(db, "local", "bad")
+    app.connection_config = {"mirrors": [
+        *app.connection_config["mirrors"], {"source_id": str(bad.id)}]}
+    await db.flush()
     e = await _seed(db, good, f"{BASE}/upload/u1/ab/cd/IMG_1.jpg")
     eid, gid, aid = e.id, good.id, app.id
     await db.commit()
@@ -365,8 +376,8 @@ async def test_relink_after_scan_survives_generic_error(db_session, monkeypatch)
 
     db = db_session
     app, _ = await _immich(db)
-    first = await _backing(db, [_map(app)])
-    second = await _backing(db, [_map(app)])
+    first = await _backing(db, app)
+    second = await _backing(db, app)
     await db.commit()
     done = []
     async def fake(_db, bid):
