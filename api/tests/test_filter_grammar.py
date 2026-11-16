@@ -16,7 +16,9 @@ from akashic.services.filter_grammar import (
     PrincipalPred,
     SizePred,
     SourcePred,
+    LinkPred,
     TagPred,
+    has_link_predicate,
     has_meili_inexpressible_predicate,
     has_principal_predicate,
     parse,
@@ -255,3 +257,21 @@ def test_tag_predicate_to_sqlalchemy_emits_exists_subquery():
 def test_tag_predicate_escapes_quotes_in_meili():
     out = to_meili([TagPred(kind="tag", value='legal "hold"')])
     assert out == 'tags = "legal \\"hold\\""'
+
+
+def test_link_pred_round_trip():
+    preds = [LinkPred(kind="link", value="thumbnail")]
+    decoded = parse(serialize(preds))
+    assert decoded[0].value == "thumbnail"
+    assert has_link_predicate(decoded) is True
+    assert has_link_predicate([]) is False
+
+
+def test_link_pred_to_meili():
+    assert to_meili([LinkPred(kind="link", value="any")]) == "link_role IS NOT NULL"
+    assert to_meili([LinkPred(kind="link", value="thumbnail")]) == 'link_role = "thumbnail"'
+
+
+def test_link_pred_rejects_unknown_role():
+    with pytest.raises(ValidationError):
+        LinkPred(kind="link", value="bogus")

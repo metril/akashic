@@ -100,6 +100,7 @@ async def ensure_index():
         "source_id", "extension", "mime_type", "size_bytes",
         "fs_modified_at", "tags", "owner_name", "group_name",
         "viewable_by_read", "viewable_by_write", "viewable_by_delete",
+        "link_role", "link_target_viewable", "link_target_source_id",
     ]
     filterable.extend(_domain_metadata_doc_field(k) for k in DOMAIN_METADATA_FACET_KEYS)
     await index.update_filterable_attributes(filterable)
@@ -156,6 +157,16 @@ def build_entry_doc(
         "viewable_by_read":   read,
         "viewable_by_write":  write,
         "viewable_by_delete": delete,
+        # Mirror links. No bulk reindex: docs lacking these count as
+        # unlinked; the link pass marks every changed row dirty.
+        "link_role": entry.link_role if entry.linked_entry_id is not None else None,
+        "linked_entry_id": (
+            str(entry.linked_entry_id) if entry.linked_entry_id is not None else None
+        ),
+        "link_target_viewable": list(entry.link_target_viewable or []),
+        "link_target_source_id": (
+            str(entry.link_target_source_id) if entry.link_target_source_id else None
+        ),
     }
     if content_text is not None:
         doc["content_text"] = content_text

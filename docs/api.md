@@ -1923,7 +1923,7 @@ Requires scope `files:read`. Source-limited API tokens only search their permitt
 | `max_size` | query | `integer` \| `null` | no | Only files at most this many bytes. |
 | `permission_filter` | query | `"all"` \| `"readable"` \| `"writable"` \| `null` | no | `all`, `readable` or `writable`. Defaults to `readable` for callers with bound filesystem identities, otherwise `all`. |
 | `search_as` | query | `string` \| `null` | no | Callers allowed to bypass ACL filtering only: a JSON object `{"type": ..., "identifier": ..., "groups": [...]}` (type one of `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical`) to search as that identity. |
-| `filters` | query | `string` \| `null` | no | Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters. |
+| `filters` | query | `string` \| `null` | no | Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters. |
 | `sort` | query | `"relevance"` \| `"name"` \| `"size"` \| `"mtime"` | no | Sort key; `relevance` (default) uses the full-text ranking. |
 | `order` | query | `"asc"` \| `"desc"` | no | Sort direction; ignored for `relevance`. |
 | `cursor` | query | `string` \| `null` | no | Opaque cursor from a previous `next_cursor`. |
@@ -6273,6 +6273,8 @@ response.
 | `filename` | `string` | yes | Base name. |
 | `fs_modified_at` | `integer` \| `null` | yes | Modification time as Unix seconds. |
 | `id` | `string` (`uuid`) | yes | Entry id. |
+| `link_role` | `string` \| `null` | yes | Role of this file relative to the Immich/Paperless entry it is linked to (original, thumbnail, encoded_video, sidecar, archive or version); null when unlinked. |
+| `linked_entry_id` | `string` (`uuid`) \| `null` | yes | Id of the Immich/Paperless entry this file is linked to; null when unlinked. |
 | `mime_type` | `string` \| `null` | yes | Detected MIME type. |
 | `path` | `string` | yes | Full path within the source. |
 | `size_bytes` | `integer` \| `null` | yes | Size in bytes. |

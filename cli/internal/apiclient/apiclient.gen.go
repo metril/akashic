@@ -820,6 +820,12 @@ type SearchHit struct {
 	// Id Entry id.
 	Id openapi_types.UUID `json:"id"`
 
+	// LinkRole Role of this file relative to the Immich/Paperless entry it is linked to (original, thumbnail, encoded_video, sidecar, archive or version); null when unlinked.
+	LinkRole *string `json:"link_role"`
+
+	// LinkedEntryId Id of the Immich/Paperless entry this file is linked to; null when unlinked.
+	LinkedEntryId *openapi_types.UUID `json:"linked_entry_id"`
+
 	// MimeType Detected MIME type.
 	MimeType *string `json:"mime_type"`
 
@@ -1415,7 +1421,7 @@ type SearchParams struct {
 	// SearchAs Callers allowed to bypass ACL filtering only: a JSON object `{"type": ..., "identifier": ..., "groups": [...]}` (type one of `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical`) to search as that identity.
 	SearchAs *string `form:"search_as,omitempty" json:"search_as,omitempty"`
 
-	// Filters Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters.
+	// Filters Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters.
 	Filters *string `form:"filters,omitempty" json:"filters,omitempty"`
 
 	// Sort Sort key; `relevance` (default) uses the full-text ranking.

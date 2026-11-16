@@ -25,7 +25,9 @@ from akashic.services.access_query import (
     viewable_clause,
 )
 from akashic.services.audit import record_event
+from akashic.services.link_visibility import hide_linked_meili, hide_linked_sql
 from akashic.services.filter_grammar import (
+    has_link_predicate,
     has_meili_inexpressible_predicate,
     parse as parse_filters,
     to_meili,
@@ -169,7 +171,7 @@ async def search(
     max_size: Annotated[int | None, Query(description="Only files at most this many bytes.")] = None,
     permission_filter: Annotated[PermissionFilter | None, Query(description="`all`, `readable` or `writable`. Defaults to `readable` for callers with bound filesystem identities, otherwise `all`.")] = None,
     search_as: str | None = Query(default=None, description="Callers allowed to bypass ACL filtering only: a JSON object `{\"type\": ..., \"identifier\": ..., \"groups\": [...]}` (type one of `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical`) to search as that identity.", examples=['{"type": "posix_uid", "identifier": "1000", "groups": ["100"]}']),
-    filters: str | None = Query(default=None, description="Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters.", examples=['W3sia2luZCI6ImV4dGVuc2lvbiIsInZhbHVlIjoicGRmIn1d']),
+    filters: str | None = Query(default=None, description="Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters.", examples=['W3sia2luZCI6ImV4dGVuc2lvbiIsInZhbHVlIjoicGRmIn1d']),
     sort: SortField = Query(default="relevance", description="Sort key; `relevance` (default) uses the full-text ranking."),
     order: SortOrder = Query(default="desc", description="Sort direction; ignored for `relevance`."),
     # v0.4.14 — Search page is now infinite-scroll, so the page size
@@ -266,14 +268,25 @@ async def search(
         if max_size is not None:
             filters.append(f"size_bytes <= {max_size}")
 
+        # None = caller not ACL-filtered (permission_filter `all`).
+        link_tokens: list[str] | None = None
         if permission_filter in ("readable", "writable"):
             if override is not None:
                 tokens = override_tokens(override)
             else:
                 tokens = await user_principal_tokens(user, db)
+            link_tokens = list(tokens)
             field = "viewable_by_read" if permission_filter == "readable" else "viewable_by_write"
             tok_clause = " OR ".join(f'{field} = "{_escape_meili_value(t)}"' for t in tokens)
             filters.append(f"({tok_clause})")
+
+        if not has_link_predicate(grammar_preds):
+            filters.append(
+                hide_linked_meili(
+                    link_tokens,
+                    None if allowed_source_ids is None else list(allowed_source_ids),
+                )
+            )
 
         if grammar_preds:
             grammar_str = to_meili(grammar_preds)
@@ -421,14 +434,24 @@ async def search(
             conditions.append(Entry.size_bytes >= min_size)
         if max_size is not None:
             conditions.append(Entry.size_bytes <= max_size)
+        sql_tokens: list[str] | None = None
         if permission_filter in ("readable", "writable"):
             tokens = (
                 override_tokens(override)
                 if override is not None
                 else await user_principal_tokens(user, db)
             )
+            sql_tokens = list(tokens)
             right = "read" if permission_filter == "readable" else "write"
             conditions.append(viewable_clause(tokens, right))
+
+        if not has_link_predicate(grammar_preds):
+            conditions.append(
+                hide_linked_sql(
+                    sql_tokens,
+                    None if allowed_source_ids is None else list(allowed_source_ids),
+                )
+            )
 
         if grammar_preds:
             conditions.extend(filters_to_sqlalchemy(grammar_preds))
@@ -471,6 +494,8 @@ async def search(
                 filename=e.name, extension=e.extension,
                 mime_type=e.mime_type, size_bytes=e.size_bytes,
                 fs_modified_at=int(e.fs_modified_at.timestamp()) if e.fs_modified_at else None,
+                link_role=e.link_role if e.linked_entry_id is not None else None,
+                linked_entry_id=e.linked_entry_id,
             )
             for e in entries
         ]

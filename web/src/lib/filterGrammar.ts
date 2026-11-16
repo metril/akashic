@@ -38,6 +38,25 @@ export const DOMAIN_METADATA_FIELDS: ReadonlyArray<DomainMetadataField> = [
   "camera_model",
 ];
 
+export type LinkValue =
+  | "any"
+  | "original"
+  | "thumbnail"
+  | "encoded_video"
+  | "sidecar"
+  | "archive"
+  | "version";
+
+export const LINK_VALUES: ReadonlyArray<LinkValue> = [
+  "any",
+  "original",
+  "thumbnail",
+  "encoded_video",
+  "sidecar",
+  "archive",
+  "version",
+];
+
 export type Predicate =
   | { kind: "extension"; value: string }
   | { kind: "source"; value: string }
@@ -48,6 +67,7 @@ export type Predicate =
   | { kind: "mtime"; op: "gte" | "lte"; value: string }
   | { kind: "path"; value: string }
   | { kind: "tag"; value: string }
+  | { kind: "link"; value: LinkValue }
   | { kind: "domain_metadata"; field: DomainMetadataField; value: string };
 
 // ── Encoding ──────────────────────────────────────────────────────────────
@@ -74,6 +94,7 @@ function base64UrlToUtf8(s: string): string {
 const RIGHTS: ReadonlySet<Right> = new Set(["read", "write", "delete"]);
 const SIZE_OPS = new Set(["gte", "lte", "eq"]);
 const MTIME_OPS = new Set(["gte", "lte"]);
+const LINK_VALUE_SET: ReadonlySet<string> = new Set(LINK_VALUES);
 const DOMAIN_METADATA_FIELD_SET: ReadonlySet<DomainMetadataField> = new Set(
   DOMAIN_METADATA_FIELDS,
 );
@@ -89,6 +110,8 @@ function isPredicate(p: unknown): p is Predicate {
     case "path":
     case "tag":
       return typeof o.value === "string";
+    case "link":
+      return typeof o.value === "string" && LINK_VALUE_SET.has(o.value);
     case "principal":
       return (
         typeof o.value === "string"

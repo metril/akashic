@@ -34,6 +34,10 @@ class _FakeEntry:
         self.viewable_by_read = viewable_read
         self.viewable_by_write = viewable_write
         self.viewable_by_delete = viewable_delete
+        self.linked_entry_id = None
+        self.link_role = None
+        self.link_target_viewable = None
+        self.link_target_source_id = None
         # v0.6.0 — domain_metadata absent on filesystem-source rows.
         self.domain_metadata = None
 
@@ -67,3 +71,24 @@ def test_build_entry_doc_uses_pre_computed_columns():
 def test_build_entry_doc_with_content_text():
     doc = build_entry_doc(_FakeEntry(), content_text="hello world")
     assert doc["content_text"] == "hello world"
+
+
+def test_build_entry_doc_link_fields_unlinked():
+    doc = build_entry_doc(_FakeEntry())
+    assert doc["link_role"] is None
+    assert doc["linked_entry_id"] is None
+    assert doc["link_target_viewable"] == []
+    assert doc["link_target_source_id"] is None
+
+
+def test_build_entry_doc_link_fields_linked():
+    e = _FakeEntry()
+    e.linked_entry_id = uuid.uuid4()
+    e.link_role = "thumbnail"
+    e.link_target_viewable = ["posix:uid:1"]
+    e.link_target_source_id = uuid.uuid4()
+    doc = build_entry_doc(e)
+    assert doc["link_role"] == "thumbnail"
+    assert doc["linked_entry_id"] == str(e.linked_entry_id)
+    assert doc["link_target_viewable"] == ["posix:uid:1"]
+    assert doc["link_target_source_id"] == str(e.link_target_source_id)

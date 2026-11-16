@@ -10168,6 +10168,31 @@
             "title": "Id",
             "type": "string"
           },
+          "link_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Role of this file relative to the Immich/Paperless entry it is linked to (original, thumbnail, encoded_video, sidecar, archive or version); null when unlinked.",
+            "title": "Link Role"
+          },
+          "linked_entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the Immich/Paperless entry this file is linked to; null when unlinked.",
+            "title": "Linked Entry Id"
+          },
           "mime_type": {
             "anyOf": [
               {
@@ -10232,7 +10257,9 @@
           "content_text",
           "tags",
           "content_hash",
-          "dup_count"
+          "dup_count",
+          "link_role",
+          "linked_entry_id"
         ],
         "title": "SearchHit",
         "type": "object"
@@ -25897,7 +25924,7 @@
             }
           },
           {
-            "description": "Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters.",
+            "description": "Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters.",
             "in": "query",
             "name": "filters",
             "required": false,
@@ -25910,7 +25937,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters.",
+              "description": "Predicate list as base64url-encoded JSON, for example `[{\"kind\": \"extension\", \"value\": \"pdf\"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters.",
               "examples": [
                 "W3sia2luZCI6ImV4dGVuc2lvbiIsInZhbHVlIjoicGRmIn1d"
               ],

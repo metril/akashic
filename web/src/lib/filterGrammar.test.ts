@@ -147,4 +147,14 @@ describe("sameTarget", () => {
       ),
     ).toBe(false);
   });
+
+  it("link predicate round-trips", () => {
+    const preds: Predicate[] = [{ kind: "link", value: "thumbnail" }];
+    expect(deserialize(serialize(preds))).toEqual(preds);
+  });
+
+  it("drops unknown link value", () => {
+    const enc = serialize([{ kind: "link", value: "bogus" } as unknown as Predicate]);
+    expect(deserialize(enc)).toEqual([]);
+  });
 });

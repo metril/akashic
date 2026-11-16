@@ -95,6 +95,17 @@ class TagPred(BaseModel):
     value: str
 
 
+class LinkPred(BaseModel):
+    """Mirror-link filter: `any` matches every linked backing file, a role
+    matches only that link role. Presence of this predicate disables the
+    default hiding of linked backing files."""
+
+    kind: Literal["link"]
+    value: Literal[
+        "any", "original", "thumbnail", "encoded_video", "sidecar", "archive", "version"
+    ]
+
+
 # v0.6.0 — must mirror DOMAIN_METADATA_FACET_KEYS in services/search.py
 # AND the DomainMetadataField union in web/src/lib/filterGrammar.ts.
 # Keep all three lists in lockstep; an unknown field on any side is
@@ -131,6 +142,7 @@ Predicate = Annotated[
         MtimePred,
         PathPred,
         TagPred,
+        LinkPred,
         DomainMetadataPred,
     ],
     Field(discriminator="kind"),
@@ -228,6 +240,11 @@ def to_meili(preds: list[Predicate]) -> str:
             # the filter behaves identically whether the tag was direct
             # or inherited.
             parts.append(f'tags = "{_meili_escape(p.value)}"')
+        elif isinstance(p, LinkPred):
+            parts.append(
+                "link_role IS NOT NULL" if p.value == "any"
+                else f'link_role = "{p.value}"'
+            )
         elif isinstance(p, DomainMetadataPred):
             # Indexed as flat field `domain_metadata__<key>` so each
             # key is individually filterable. The connector emits the
@@ -310,6 +327,10 @@ def to_sqlalchemy(preds: list[Predicate]) -> list:
                 .where(EntryTag.tag == p.value)
                 .exists()
             )
+        elif isinstance(p, LinkPred):
+            clauses.append(Entry.linked_entry_id.is_not(None))
+            if p.value != "any":
+                clauses.append(Entry.link_role == p.value)
         elif isinstance(p, DomainMetadataPred):
             # JSONB key-equality — `entries.domain_metadata @> '{"k": "v"}'`
             # uses the GIN partial index from migration 0028 when the
@@ -318,6 +339,12 @@ def to_sqlalchemy(preds: list[Predicate]) -> list:
             # connector outputs uniformly.
             clauses.append(Entry.domain_metadata[p.field].astext == p.value)
     return clauses
+
+
+def has_link_predicate(preds: list[Predicate]) -> bool:
+    """True when the caller asked about links explicitly, which lifts the
+    default hiding of linked backing files."""
+    return any(isinstance(p, LinkPred) for p in preds)
 
 
 def has_principal_predicate(preds: list[Predicate]) -> bool:

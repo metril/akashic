@@ -8902,6 +8902,16 @@ export interface components {
              */
             id: string;
             /**
+             * Link Role
+             * @description Role of this file relative to the Immich/Paperless entry it is linked to (original, thumbnail, encoded_video, sidecar, archive or version); null when unlinked.
+             */
+            link_role: string | null;
+            /**
+             * Linked Entry Id
+             * @description Id of the Immich/Paperless entry this file is linked to; null when unlinked.
+             */
+            linked_entry_id: string | null;
+            /**
              * Mime Type
              * @description Detected MIME type.
              */
@@ -18917,7 +18927,7 @@ export interface operations {
                 permission_filter?: ("all" | "readable" | "writable") | null;
                 /** @description Callers allowed to bypass ACL filtering only: a JSON object `{"type": ..., "identifier": ..., "groups": [...]}` (type one of `posix_uid`, `sid`, `nfsv4_principal`, `s3_canonical`) to search as that identity. */
                 search_as?: string | null;
-                /** @description Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag` and `domain_metadata`. All predicates are ANDed with the other parameters. */
+                /** @description Predicate list as base64url-encoded JSON, for example `[{"kind": "extension", "value": "pdf"}]`. Kinds: `extension`, `source`, `owner`, `principal`, `mime`, `size`, `mtime`, `path`, `tag`, `link` and `domain_metadata`. Without a `link` predicate, files linked to an Immich or Paperless entry the caller can also see are hidden; `link` (`any` or a role) returns linked files. All predicates are ANDed with the other parameters. */
                 filters?: string | null;
                 /** @description Sort key; `relevance` (default) uses the full-text ranking. */
                 sort?: "relevance" | "name" | "size" | "mtime";
