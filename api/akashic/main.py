@@ -245,6 +245,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         logger.warning("maintenance job reconcile failed: %s", exc)
 
+    try:
+        from akashic.services.directory.sync import reconcile_directory_runs
+        await reconcile_directory_runs()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("directory sync reconcile failed: %s", exc)
+
     # v0.4.11 Phase 8e — streaming top_children worker. No-op when
     # the feature flag (streaming_topchildren) is False.
     from akashic.services import top_children_worker

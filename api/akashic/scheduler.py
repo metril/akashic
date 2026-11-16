@@ -31,6 +31,7 @@ _unit_cleanup_task: asyncio.Task | None = None
 _snapshot_task: asyncio.Task | None = None
 _discovery_expiry_task: asyncio.Task | None = None
 _settings_invalidator_task: asyncio.Task | None = None
+_directory_sync_task: asyncio.Task | None = None
 _reachability_enqueue_task: asyncio.Task | None = None  # holds the prune loop now
 _reachability_self_worker_task: asyncio.Task | None = None  # retained name for compat; unused
 
@@ -808,12 +809,31 @@ async def _reachability_results_prune_loop():
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def _directory_sync_loop():
+    """Start a directory sync when the configured interval has elapsed.
+    Checked every minute; a racing manual trigger just wins the lock."""
+    from akashic.services.directory import sync
+    while True:
+        try:
+            async with async_session() as db:
+                due = await sync.sync_due(db, datetime.now(timezone.utc))
+            if due:
+                await sync.start_sync(trigger="scheduled", triggered_by=None)
+        except asyncio.CancelledError:
+            raise
+        except (sync.SyncAlreadyRunning, sync.NoBackendConfigured):
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("directory sync schedule pass failed: %s", type(exc).__name__)
+        await asyncio.sleep(60)
+
+
 def start_scheduler():
     """Start the background scheduler tasks."""
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     global _discovery_expiry_task, _settings_invalidator_task
     global _reachability_enqueue_task, _reachability_self_worker_task
-    global _unit_cleanup_task
+    global _unit_cleanup_task, _directory_sync_task
     if _scheduler_task is None or _scheduler_task.done():
         _scheduler_task = asyncio.create_task(_scheduler_loop())
         logger.info("Scan scheduler started")
@@ -829,6 +849,9 @@ def start_scheduler():
     if _snapshot_task is None or _snapshot_task.done():
         _snapshot_task = asyncio.create_task(_snapshot_fallback_loop())
         logger.info("Snapshot fallback scheduler started")
+    if _directory_sync_task is None or _directory_sync_task.done():
+        _directory_sync_task = asyncio.create_task(_directory_sync_loop())
+
     if _discovery_expiry_task is None or _discovery_expiry_task.done():
         _discovery_expiry_task = asyncio.create_task(_discovery_expiry_loop())
         logger.info("Discovery expiry scheduler started")
@@ -854,7 +877,7 @@ def stop_scheduler():
     global _scheduler_task, _retention_task, _log_cleanup_task, _snapshot_task
     global _discovery_expiry_task, _settings_invalidator_task
     global _reachability_enqueue_task, _reachability_self_worker_task
-    global _unit_cleanup_task
+    global _unit_cleanup_task, _directory_sync_task
     if _scheduler_task and not _scheduler_task.done():
         _scheduler_task.cancel()
     if _retention_task and not _retention_task.done():
@@ -865,6 +888,8 @@ def stop_scheduler():
         _unit_cleanup_task.cancel()
     if _snapshot_task and not _snapshot_task.done():
         _snapshot_task.cancel()
+    if _directory_sync_task and not _directory_sync_task.done():
+        _directory_sync_task.cancel()
     if _discovery_expiry_task and not _discovery_expiry_task.done():
         _discovery_expiry_task.cancel()
     if _settings_invalidator_task and not _settings_invalidator_task.done():
