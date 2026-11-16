@@ -16,6 +16,7 @@ from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.audit_event import AuditEvent
 from akashic.models.principal_groups_cache import PrincipalGroupsCache
 from akashic.models.principals_cache import PrincipalsCache
+from akashic.models.directory import DirectoryEntry, DirectorySyncRun
 from akashic.models.refresh_token import RefreshToken
 from akashic.models.api_token import ApiToken
 from akashic.models.scanner import Scanner
@@ -50,6 +51,8 @@ __all__ = [
     "AuditEvent",
     "PrincipalGroupsCache",
     "PrincipalsCache",
+    "DirectoryEntry",
+    "DirectorySyncRun",
     "RefreshToken",
     "ApiToken",
     "Scanner",

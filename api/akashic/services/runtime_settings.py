@@ -81,6 +81,11 @@ _S = [
     _s("ldap_user_base", str, "", "ldap", "User search base DN.", "str"),
     _s("ldap_user_filter", str, "(uid={username})", "ldap", "User search filter ({username} placeholder).", "str"),
     _s("ldap_admin_groups", list[str], [], "ldap", "Group DNs (memberOf values) whose members get the admin role at every login. Empty = no group mapping.", "list[str]"),
+    # Directory (people & group picker)
+    _s("ldap_group_base", str, "", "directory", "AD group/user search base DN for the directory sync. Empty = use the LDAP user base.", "str"),
+    _s("authentik_url", str, "", "directory", "Authentik base URL, e.g. https://auth.example.com.", "str"),
+    _s("authentik_api_token", str, "", "directory", "Authentik API token (read access to users and groups).", "str", secret=True),
+    _s("directory_sync_interval_minutes", int, 60, "directory", "Directory sync interval in minutes (0 = manual only).", "int"),
     # Search & content
     _s("tika_url", str, "http://tika:9998", "search", "Apache Tika server URL.", "str"),
     _s("fetch_concurrency", int, 10, "search", "Max simultaneous content-fetch subprocesses per API process.", "int", legacy_env="AKASHIC_FETCH_CONCURRENCY"),
@@ -99,7 +104,7 @@ _S = [
 
 REGISTRY: dict[str, Spec] = {s.key: s for s in _S}
 GROUPS: list[tuple[str, str]] = [
-    ("auth", "Auth & sessions"), ("oidc", "OIDC"), ("ldap", "LDAP"),
+    ("auth", "Auth & sessions"), ("oidc", "OIDC"), ("ldap", "LDAP"), ("directory", "Directory"),
     ("search", "Search & content"), ("maintenance", "Maintenance"),
     ("performance", "Performance"), ("features", "Feature flags"),
 ]
