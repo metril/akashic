@@ -59,6 +59,8 @@ async def make_client(setup_db):
 
 # Added after the pre-scope matrix: a viewer manages their own API tokens.
 _TOKEN_ROUTES_FOR_VIEWER = frozenset(k for k, sc in _SCOPED if sc in ("tokens:read", "tokens:write"))
+# Routes added after the pre-scope matrix that viewers may call (analytics:read is in the viewer bundle).
+_POST_3A_VIEWER_ROUTES = frozenset({"GET /api/v1/analytics/storage-by-link-role"})
 
 
 def test_scoped_routes_are_discovered():
@@ -96,7 +98,7 @@ async def test_viewer_access_matches_pre_scope_behaviour(make_client, key, scope
     method, path = key.split(" ", 1)
     resp = await client.request(method, _fill(path))
     denied = resp.status_code == 403 and resp.json().get("code") == "insufficient_scope"
-    assert denied == (key not in PRE_3A_VIEWER_ALLOWED | _TOKEN_ROUTES_FOR_VIEWER), (
+    assert denied == (key not in PRE_3A_VIEWER_ALLOWED | _TOKEN_ROUTES_FOR_VIEWER | _POST_3A_VIEWER_ROUTES), (
         key, resp.status_code, resp.text[:200],
     )
 

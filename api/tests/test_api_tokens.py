@@ -318,6 +318,7 @@ def _cases(w: dict):
         ("GET /api/v1/search", "GET", f"/api/v1/search?q=needle&{q}", None),
         ("GET /api/v1/browse", "GET", f"/api/v1/browse?{q}&path=/", None),
         ("GET /api/v1/browse/effective-counts", "GET", f"/api/v1/browse/effective-counts?{q}", None),
+        ("GET /api/v1/analytics/storage-by-link-role", "GET", f"/api/v1/analytics/storage-by-link-role?{q}", None),
         ("GET /api/v1/entries/{entry_id}", "GET", f"/api/v1/entries/{eb}", None),
         ("GET /api/v1/entries/{entry_id}/versions", "GET", f"/api/v1/entries/{eb}/versions", None),
         ("GET /api/v1/entries/{entry_id}/content", "GET", f"/api/v1/entries/{eb}/content", None),
