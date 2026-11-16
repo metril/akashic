@@ -103,6 +103,7 @@ export function predicateLabel(p: Predicate): string {
     case "mtime":     return `modified ${p.op === "gte" ? "≥" : "≤"} ${p.value}`;
     case "path":      return `under ${p.value}`;
     case "tag":       return `tag: ${p.value}`;
+    case "link":      return `link: ${p.value}`;
     case "domain_metadata": return `${p.field.replace("_", " ")}: ${p.value}`;
   }
 }

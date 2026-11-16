@@ -10,7 +10,7 @@ from akashic.models.fs_person import FsBinding  # noqa: F401
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.services.filter_grammar import LinkPred, serialize
-from akashic.services.link_visibility import hide_linked_meili
+from akashic.services.link_visibility import hide_linked_meili, hide_linked_sql
 
 
 def test_hide_linked_meili_variants():
@@ -22,6 +22,29 @@ def test_hide_linked_meili_variants():
     assert hide_linked_meili(None, [sid]) == (
         f'NOT (link_role IS NOT NULL AND link_target_source_id IN ["{sid}"])'
     )
+
+
+def test_hide_linked_empty_scope_hides_nothing():
+    sid = uuid.uuid4()
+    for toks, srcs in (([], None), (None, []), ([], [sid])):
+        assert hide_linked_meili(toks, srcs) == ""
+        assert str(hide_linked_sql(toks, srcs)) == "true"
+
+
+@pytest.mark.asyncio
+async def test_ensure_index_filterable_includes_link_fields(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from akashic.services import search as svc
+    index = MagicMock()
+    for m in ("update_searchable_attributes", "update_filterable_attributes",
+              "update_sortable_attributes", "update_pagination"):
+        setattr(index, m, AsyncMock())
+    client = MagicMock()
+    client.get_index = AsyncMock(return_value=index)
+    monkeypatch.setattr(svc, "get_meili_client", AsyncMock(return_value=client))
+    await svc.ensure_index()
+    attrs = index.update_filterable_attributes.call_args.args[0]
+    assert {"link_role", "link_target_viewable", "link_target_source_id"} <= set(attrs)
 
 
 @pytest.fixture

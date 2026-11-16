@@ -281,12 +281,12 @@ async def search(
             filters.append(f"({tok_clause})")
 
         if not has_link_predicate(grammar_preds):
-            filters.append(
-                hide_linked_meili(
-                    link_tokens,
-                    None if allowed_source_ids is None else list(allowed_source_ids),
-                )
+            hide = hide_linked_meili(
+                link_tokens,
+                None if allowed_source_ids is None else list(allowed_source_ids),
             )
+            if hide:
+                filters.append(hide)
 
         if grammar_preds:
             grammar_str = to_meili(grammar_preds)

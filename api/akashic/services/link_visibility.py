@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Text, and_, cast, not_
+from sqlalchemy import Text, and_, cast, not_, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -26,8 +26,15 @@ def hide_linked_meili(
     """Meili filter excluding linked files whose target the caller can see.
 
     ``tokens=None``: caller is not ACL-filtered. ``allowed_source_ids=None``:
-    caller is not source-limited.
+    caller is not source-limited. An empty list means the caller can see no
+    target, so nothing is hidden and the empty string is returned (callers
+    skip it).
+
+    Meili ``link_role`` is non-null exactly when the entry is linked:
+    ``build_entry_doc`` emits it only when ``linked_entry_id`` is set.
     """
+    if tokens == [] or allowed_source_ids == []:
+        return ""
     parts = ["link_role IS NOT NULL"]
     if allowed_source_ids is not None:
         ids = ",".join(_q(str(s)) for s in sorted(str(s) for s in allowed_source_ids))
@@ -40,7 +47,9 @@ def hide_linked_meili(
 def hide_linked_sql(
     tokens: list[str] | None, allowed_source_ids: "list[uuid.UUID] | None",
 ) -> ColumnElement[bool]:
-    """SQL twin of :func:`hide_linked_meili`."""
+    """SQL twin of :func:`hide_linked_meili` (empty list: nothing hidden)."""
+    if tokens == [] or allowed_source_ids == []:
+        return true()
     conds: list[ColumnElement[bool]] = [Entry.linked_entry_id.is_not(None)]
     if allowed_source_ids is not None:
         conds.append(Entry.link_target_source_id.in_(list(allowed_source_ids)))
