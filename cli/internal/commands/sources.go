@@ -133,11 +133,15 @@ func newMirrorCmd(c *client.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rp, lp := remotePrefix, localPrefix
+			var rp, lp string
+			found := false
 			for _, m := range mirrorMappings(updated.ConnectionConfig) {
 				if str(m, "source_id") == tid {
-					rp, lp = str(m, "remote_prefix"), str(m, "local_prefix")
+					rp, lp, found = str(m, "remote_prefix"), str(m, "local_prefix"), true
 				}
+			}
+			if !found {
+				return fmt.Errorf("server response has no mirror mapping for %s", tgt.Name)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Mirror set: %s → %s (remote %q → local %q)\n", backing.Name, tgt.Name, rp, lp)
 			return nil
@@ -162,6 +166,7 @@ func newMirrorCmd(c *client.Client) *cobra.Command {
 				return err
 			}
 			list := []any{}
+			var tgtName string
 			if clearTarget != "" {
 				tgt, err := c.ResolveSource(ctx, clearTarget)
 				if err != nil {
@@ -171,17 +176,24 @@ func newMirrorCmd(c *client.Client) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				tgtName = tgt.Name
+				removed := false
 				for _, m := range mirrorMappings(full.ConnectionConfig) {
 					if str(m, "source_id") != tgt.Id.String() {
 						list = append(list, m)
+					} else {
+						removed = true
 					}
+				}
+				if !removed {
+					return fmt.Errorf("%s has no mirror mapping for %s", backing.Name, tgt.Name)
 				}
 			}
 			if _, err := c.UpdateSourceConfig(ctx, backing.Id, map[string]any{"mirror_of": list}); err != nil {
 				return err
 			}
 			if clearTarget != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s → %s\n", backing.Name, clearTarget)
+				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s → %s\n", backing.Name, tgtName)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s (all targets)\n", backing.Name)
 			}

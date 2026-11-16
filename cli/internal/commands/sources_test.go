@@ -68,7 +68,11 @@ func runSources(t *testing.T, m *mirrorSrv, args ...string) string {
 func TestMirrorSetReplacesTargetMapping(t *testing.T) {
 	m := newMirrorSrv(t)
 	out := runSources(t, m, "mirror", "set", "nas", "--target", "photos", "--remote-prefix", "/new", "--local-prefix", "/mnt/new")
-	list := m.patch["connection_config"].(map[string]any)["mirror_of"].([]any)
+	cc := m.patch["connection_config"].(map[string]any)
+	if len(cc) != 1 {
+		t.Fatalf("connection_config keys != {mirror_of}: %v", cc)
+	}
+	list := cc["mirror_of"].([]any)
 	if len(list) != 2 {
 		t.Fatalf("want 2 mappings, got %v", list)
 	}
@@ -104,5 +108,32 @@ func TestMirrorShowPrintsRoles(t *testing.T) {
 		if !strings.Contains(out, w) {
 			t.Fatalf("output missing %q:\n%s", w, out)
 		}
+	}
+}
+
+func TestMirrorClearTargetKeepsOthers(t *testing.T) {
+	m := newMirrorSrv(t)
+	out := runSources(t, m, "mirror", "clear", "nas", "--target", "photos")
+	list := m.patch["connection_config"].(map[string]any)["mirror_of"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["source_id"] != paperID {
+		t.Fatalf("want only paperless mapping, got %v", list)
+	}
+	if !strings.Contains(out, "nas → photos") {
+		t.Fatalf("output %q", out)
+	}
+}
+
+func TestMirrorClearTargetMissingErrors(t *testing.T) {
+	m := newMirrorSrv(t)
+	c, _ := client.New(m.srv.URL, "key")
+	cmd := NewSourcesCmd(c)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"mirror", "clear", "nas", "--target", "nas"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for missing mapping")
+	}
+	if m.patch != nil {
+		t.Fatalf("unexpected PATCH %v", m.patch)
 	}
 }
