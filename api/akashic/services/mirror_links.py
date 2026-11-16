@@ -372,8 +372,10 @@ async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uu
         for m in row[1] if isinstance(row[1], list) else []:
             try:
                 bid = uuid.UUID(m["source_id"])
-            except (KeyError, ValueError, TypeError):
-                continue
+            except (KeyError, ValueError, TypeError, AttributeError) as exc:
+                raise MirrorConfigError(
+                    409, f"corrupt mirrors mapping on source {source_id}: {m!r}"
+                ) from exc
             if bid not in ids:
                 ids.append(bid)
         if not ids:
@@ -425,7 +427,12 @@ async def relink_and_flush(db: AsyncSession, backing_id: uuid.UUID) -> bool:
 
 
 async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
-    for backing_id in await backing_sources_for(db, source_id):
+    try:
+        backing_ids = await backing_sources_for(db, source_id)
+    except MirrorConfigError:
+        logger.exception("mirror relink skipped, corrupt mirrors on source_id=%s", source_id)
+        return
+    for backing_id in backing_ids:
         try:
             await relink_and_flush(db, backing_id)
         except Exception:  # noqa: BLE001 - one backing must not skip the rest

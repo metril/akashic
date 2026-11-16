@@ -83,9 +83,6 @@ async def _alembic_downgrade(url: str, target: str) -> None:
     await _asyncio.to_thread(_run)
 
 
-
-
-
 async def _put(conn, name, type_, cfg):
     sid = uuid.uuid4()
     await conn.execute(
@@ -156,3 +153,77 @@ async def test_downgrade_restores_mirror_of(scratch_db):
     await _alembic_downgrade(scratch_db, "0047_mirror_links")
     assert (await _cfg(scratch_db, back))["mirror_of"] == orig(app)
     assert "mirrors" not in await _cfg(scratch_db, app)
+
+
+async def _two(url, specs):
+    """specs: list of (name, type, cfg-fn(ids)) inserted in order; returns ids by name."""
+    ids: dict[str, str] = {}
+    eng = create_async_engine(url, poolclass=NullPool)
+    try:
+        async with eng.begin() as conn:
+            for name, type_, fn in specs:
+                ids[name] = await _put(conn, name, type_, fn(ids))
+    finally:
+        await eng.dispose()
+    return ids
+
+
+ITEM = {"remote_prefix": "/data", "local_prefix": "/m"}
+
+
+@pytest.mark.asyncio
+async def test_upgrade_drops_non_app_target(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    ids = await _two(scratch_db, [
+        ("t", "local", lambda i: {"path": "/t"}),
+        ("b", "local", lambda i: {"path": "/b", "mirror_of": [{"source_id": i["t"], **ITEM}]}),
+    ])
+    await _alembic_upgrade(scratch_db, "0048_mirrors_on_app")
+    assert await _cfg(scratch_db, ids["t"]) == {"path": "/t"}
+    assert await _cfg(scratch_db, ids["b"]) == {"path": "/b"}
+
+
+@pytest.mark.asyncio
+async def test_upgrade_multi_app_and_paperless(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    pitem = {"remote_prefix": "", "local_prefix": "/p"}
+    ids = await _two(scratch_db, [
+        ("app1", "immich", lambda i: {}),
+        ("app2", "paperless", lambda i: {}),
+        ("b", "local", lambda i: {"mirror_of": [
+            {"source_id": i["app2"], **pitem}, {"source_id": i["app1"], **ITEM}]}),
+    ])
+    await _alembic_upgrade(scratch_db, "0048_mirrors_on_app")
+    assert (await _cfg(scratch_db, ids["app1"]))["mirrors"] == [{"source_id": ids["b"], **ITEM}]
+    assert (await _cfg(scratch_db, ids["app2"]))["mirrors"] == [{"source_id": ids["b"], **pitem}]
+
+
+@pytest.mark.asyncio
+async def test_multi_app_round_trip_orders_by_app_name(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    ids = await _two(scratch_db, [
+        ("a-app", "immich", lambda i: {}),
+        ("z-app", "immich", lambda i: {}),
+        ("b", "local", lambda i: {"mirror_of": [
+            {"source_id": i["z-app"], **ITEM}, {"source_id": i["a-app"], **ITEM}]}),
+    ])
+    await _alembic_upgrade(scratch_db, "0048_mirrors_on_app")
+    await _alembic_downgrade(scratch_db, "0047_mirror_links")
+    got = [m["source_id"] for m in (await _cfg(scratch_db, ids["b"]))["mirror_of"]]
+    assert got == [ids["a-app"], ids["z-app"]]  # original order not recoverable (accepted)
+
+
+@pytest.mark.asyncio
+async def test_upgrade_copies_missing_prefix_unchanged(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    ids = await _two(scratch_db, [
+        ("app", "immich", lambda i: {}),
+        ("b", "local", lambda i: {"mirror_of": [
+            {"source_id": i["app"], "local_prefix": "/m"},
+            {"source_id": i["app"], "remote_prefix": 5, "local_prefix": "/m"}]}),
+    ])
+    await _alembic_upgrade(scratch_db, "0048_mirrors_on_app")
+    assert (await _cfg(scratch_db, ids["app"]))["mirrors"] == [
+        {"source_id": ids["b"], "local_prefix": "/m"},
+        {"source_id": ids["b"], "remote_prefix": 5, "local_prefix": "/m"},
+    ]

@@ -1,6 +1,10 @@
 """mirror config moves from backing sources (mirror_of) to app sources (mirrors)
 
-Data-only migration.
+Data-only migration. Entries with missing or non-string prefixes are copied
+unchanged (never defaulted to "", which would map the whole tree), so the link
+pass still reports them as corrupt (409). Downgrade orders a backing's
+mirror_of by app name then list index; the original backing-side order across
+several apps cannot be recovered after upgrade (accepted).
 
 Revision ID: 0048_mirrors_on_app
 Revises: 0047_mirror_links
@@ -46,11 +50,9 @@ def _move(conn, src_key: str, dst_key: str, dst_ok) -> None:
             dst = srcs.get(tid)
             if dst is None or not dst_ok(dst):
                 continue
-            moved = {
-                "source_id": sid,
-                "remote_prefix": item.get("remote_prefix", ""),
-                "local_prefix": item.get("local_prefix", ""),
-            }
+            moved = {"source_id": sid, **{
+                k: item[k] for k in ("remote_prefix", "local_prefix") if k in item
+            }}
             cur = dst["cfg"].get(dst_key)
             cur = cur if isinstance(cur, list) else []
             if moved not in cur:

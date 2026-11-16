@@ -7,6 +7,7 @@ from sqlalchemy import select
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.services.mirror_links import (
+    MirrorConfigError,
     backing_sources_for,
     logical_view_source_ids,
     relink_after_scan,
@@ -389,3 +390,19 @@ async def test_relink_after_scan_survives_generic_error(db_session, monkeypatch)
     monkeypatch.setattr(ml, "relink_and_flush", fake)
     await ml.relink_after_scan(db, app.id)
     assert done == [second.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [{}, {"source_id": "nope"}, "x"])
+async def test_backing_sources_for_corrupt_app_element_raises(db_session, bad):
+    app = await _src(db_session, "immich", "Iris", {"mirrors": [bad]})
+    with pytest.raises(MirrorConfigError) as e:
+        await backing_sources_for(db_session, app.id)
+    assert e.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_relink_after_scan_corrupt_app_is_isolated(db_session):
+    app = await _src(db_session, "immich", "Iris", {"mirrors": [{}]})
+    await db_session.commit()
+    await relink_after_scan(db_session, app.id)
