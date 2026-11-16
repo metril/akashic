@@ -5,6 +5,14 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.51.1 — 2026-11-16
+
+**The Admin → Access page now shows the real total size instead of always 0.**
+
+### Fixed
+
+- **Access page "Total size" was always 0**: Meilisearch facet stats return only min and max, never a sum. File count, total size and the per-source rollup are now computed in Postgres (files only, non-deleted, same principal, right, source and token-scope filters as the search sample); Meilisearch still supplies the paginated sample.
+
 ## v0.51.0 — 2026-11-16
 
 **Immich and Paperless-ngx files now show up once: an on-disk copy of an app's library is linked to the app entry, hidden from default search, and no longer counted twice in storage.**

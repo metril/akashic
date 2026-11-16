@@ -22,11 +22,11 @@ import uuid
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
 from pydantic import TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
-from akashic.auth.source_scope import ensure_source_allowed, meili_source_filter
+from akashic.auth.source_scope import ensure_source_allowed, meili_source_filter, restrict_sources
 from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.principals_cache import PrincipalsCache
@@ -211,11 +211,32 @@ async def _principal_to_files(
     client = await get_meili_client()
     index = await client.get_index("files")
 
-    # Three queries: aggregate counts (size+count+source_count) via a
-    # facet-distribution call, per-source rollup via the same call's
-    # by_source map, and the paginated sample. Meili can't sum
-    # size_bytes via facets alone, so we use search.facet_stats to get
-    # min/max/sum on a numeric field.
+    # Aggregates come from Postgres: Meili facetStats only returns
+    # min/max (no sum). Same semantics as the Meili filter: files only
+    # (the index holds files), non-deleted, token in viewable_by_<right>
+    # (GIN-backed `@>`), optional source, caller's source restriction.
+    column = getattr(Entry, field)
+    agg = (
+        select(
+            Entry.source_id,
+            func.count().label("n"),
+            func.coalesce(func.sum(Entry.size_bytes), 0).label("bytes"),
+        )
+        .where(
+            Entry.kind == "file",
+            Entry.is_deleted.is_(False),
+            column.contains([principal]),
+        )
+        .group_by(Entry.source_id)
+    )
+    if source_id is not None:
+        agg = agg.where(Entry.source_id == source_id)
+    agg = restrict_sources(agg, caller)
+    agg_rows = [r for r in (await db.execute(agg)).all() if r.source_id is not None]
+    by_source_dist: dict[str, int] = {str(r.source_id): int(r.n) for r in agg_rows}
+    file_count = sum(by_source_dist.values())
+    total_size_bytes = sum(int(r.bytes) for r in agg_rows)
+
     sample = await index.search(
         "",
         filter=filterstr,
@@ -227,45 +248,12 @@ async def _principal_to_files(
         ],
     )
 
-    facet_resp = await index.search(
-        "",
-        filter=filterstr,
-        limit=0,
-        facets=["source_id", "size_bytes"],
-    )
-
-    # facet_distribution → {source_id: {<id>: count}}; facet_stats →
-    # {size_bytes: {min, max, sum, ...}}. Both are present even when
-    # the result set is empty (count just zeroes out).
-    distribution = (
-        getattr(facet_resp, "facet_distribution", None)
-        or facet_resp.__dict__.get("facetDistribution")
-        or {}
-    )
-    facet_stats = (
-        getattr(facet_resp, "facet_stats", None)
-        or facet_resp.__dict__.get("facetStats")
-        or {}
-    )
-    by_source_dist: dict[str, int] = distribution.get("source_id") or {}
-    size_stats = facet_stats.get("size_bytes") or {}
-
-    total_size_bytes = int(size_stats.get("sum") or 0)
-    file_count = int(getattr(facet_resp, "estimated_total_hits", 0)
-                     or facet_resp.__dict__.get("estimatedTotalHits", 0)
-                     or len(by_source_dist))
-    # estimated_total_hits is a hit count not always tagged; fall back
-    # to summing the per-source distribution which is exact for
-    # non-paginated facet calls.
-    if not file_count:
-        file_count = sum(int(v) for v in by_source_dist.values())
-
     # Hydrate source names for the rollup.
-    src_ids = [uuid.UUID(s) for s in by_source_dist.keys() if s]
+    src_ids = list(by_source_dist.keys())
     source_names: dict[str, str] = {}
     if src_ids:
         rows = (await db.execute(
-            select(Source.id, Source.name).where(Source.id.in_(src_ids))
+            select(Source.id, Source.name).where(Source.id.in_([uuid.UUID(x) for x in src_ids]))
         )).all()
         for sid_, name in rows:
             source_names[str(sid_)] = name
