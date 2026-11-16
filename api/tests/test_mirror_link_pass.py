@@ -293,6 +293,19 @@ async def test_immich_sidecar_ext_form_wins_over_stem_form(db_session):
 
 
 @pytest.mark.asyncio
+async def test_immich_deleted_ext_sidecar_does_not_block_stem_form(db_session):
+    db = db_session
+    app, _ = await _immich(db)
+    b = await _backing(db, [_map(app)])
+    gone = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg.xmp"
+    stem = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
+    await _seed(db, b, gone, is_deleted=True)
+    await _seed(db, b, stem)
+    await relink_backing(db, b.id)
+    assert (await _roles(db, b))[stem].link_role == "sidecar"
+
+
+@pytest.mark.asyncio
 async def test_relink_and_flush_chunks_mark_dirty(db_session, monkeypatch):
     from akashic.services import mirror_links as ml
 

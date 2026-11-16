@@ -185,7 +185,7 @@ _IMMICH_RULES = [
             "JOIN entries be ON be.path = regexp_replace(" + _IMMICH_PATH
             + ", '\\.[^./]*$', '') || '.xmp'",
             _IMMICH_OK + " AND NOT EXISTS (SELECT 1 FROM entries bx WHERE bx.source_id = :b "
-            "AND bx.path = " + _IMMICH_PATH + " || '.xmp')",
+            "AND bx.kind = 'file' AND NOT bx.is_deleted AND bx.path = " + _IMMICH_PATH + " || '.xmp')",
         ),
         _BASE_ALL, {"prio": "sidecar"},
     ),

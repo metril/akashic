@@ -31,16 +31,16 @@ def upgrade() -> None:
         "entries",
         sa.Column("link_target_source_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
-    op.create_foreign_key(
-        "fk_entries_linked_entry_id", "entries", "entries",
-        ["linked_entry_id"], ["id"], ondelete="SET NULL",
+    # Transactional part is metadata-only: constraints go in NOT VALID (no
+    # table scan under the ACCESS EXCLUSIVE lock).
+    op.execute(
+        "ALTER TABLE entries ADD CONSTRAINT fk_entries_linked_entry_id "
+        "FOREIGN KEY (linked_entry_id) REFERENCES entries (id) ON DELETE SET NULL NOT VALID"
     )
-    op.create_foreign_key(
-        "fk_entries_link_target_source_id", "entries", "sources",
-        ["link_target_source_id"], ["id"], ondelete="SET NULL",
+    op.execute(
+        "ALTER TABLE entries ADD CONSTRAINT fk_entries_link_target_source_id "
+        "FOREIGN KEY (link_target_source_id) REFERENCES sources (id) ON DELETE SET NULL NOT VALID"
     )
-    # Checks are added NOT VALID (no table scan under the ACCESS EXCLUSIVE
-    # lock) and validated afterwards (SHARE UPDATE EXCLUSIVE only).
     op.execute(
         "ALTER TABLE entries ADD CONSTRAINT ck_entries_link_role CHECK "
         "(link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')) NOT VALID"
@@ -49,20 +49,36 @@ def upgrade() -> None:
         "ALTER TABLE entries ADD CONSTRAINT ck_entries_link_role_when_linked CHECK "
         "(linked_entry_id IS NULL OR link_role IS NOT NULL) NOT VALID"
     )
-    op.execute("ALTER TABLE entries VALIDATE CONSTRAINT ck_entries_link_role")
-    op.execute("ALTER TABLE entries VALIDATE CONSTRAINT ck_entries_link_role_when_linked")
-    # CREATE INDEX CONCURRENTLY cannot run inside a transaction.
+    # Validation (SHARE UPDATE EXCLUSIVE) and CREATE INDEX CONCURRENTLY run
+    # outside the migration transaction, each statement on its own.
     with op.get_context().autocommit_block():
-        op.create_index(
-            "ix_entries_linked_entry_id", "entries", ["linked_entry_id"],
-            postgresql_where=sa.text("linked_entry_id IS NOT NULL"),
-            postgresql_concurrently=True,
-        )
-        op.create_index(
-            "ix_entries_source_link_role", "entries", ["source_id", "link_role"],
-            postgresql_where=sa.text("link_role IS NOT NULL"),
-            postgresql_concurrently=True,
-        )
+        for name in (
+            "fk_entries_linked_entry_id",
+            "fk_entries_link_target_source_id",
+            "ck_entries_link_role",
+            "ck_entries_link_role_when_linked",
+        ):
+            op.execute(f"ALTER TABLE entries VALIDATE CONSTRAINT {name}")
+        for name, cols, where in (
+            ("ix_entries_linked_entry_id", ["linked_entry_id"], "linked_entry_id IS NOT NULL"),
+            ("ix_entries_source_link_role", ["source_id", "link_role"], "link_role IS NOT NULL"),
+        ):
+            # A failed CONCURRENTLY build leaves an invalid index behind; drop
+            # it so a re-run recovers.
+            invalid = op.get_bind().execute(
+                sa.text(
+                    "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+                    "WHERE c.relname = :n AND NOT i.indisvalid"
+                ),
+                {"n": name},
+            ).first()
+            if invalid:
+                op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
+            op.create_index(
+                name, "entries", cols,
+                postgresql_where=sa.text(where),
+                postgresql_concurrently=True,
+            )
 
 
 def downgrade() -> None:
