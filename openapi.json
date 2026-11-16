@@ -79,6 +79,63 @@
           }
         ]
       },
+      "AccessExpansion": {
+        "description": "How completely the identity's tokens were expanded.",
+        "properties": {
+          "cached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Oldest successful directory read behind the tokens, when any.",
+            "title": "Cached At"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the expansion is not `ok`, when it is not.",
+            "title": "Detail"
+          },
+          "missing_identity_kinds": {
+            "description": "Token kinds the identity lacks: `sid`, `posix`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Identity Kinds",
+            "type": "array"
+          },
+          "status": {
+            "description": "`ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.",
+            "enum": [
+              "ok",
+              "cached",
+              "partial",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "cached_at",
+          "detail",
+          "missing_identity_kinds"
+        ],
+        "title": "AccessExpansion",
+        "type": "object"
+      },
       "AccessPrincipal": {
         "description": "The principal that was looked up.",
         "properties": {
@@ -196,6 +253,18 @@
             "description": "Modified time, epoch seconds.",
             "title": "Fs Modified At"
           },
+          "has_deny_ace": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the file's stored ACL contains any deny ACE (NT and NFSv4 ACLs only). Present on principal and identity lookups.",
+            "title": "Has Deny Ace"
+          },
           "id": {
             "description": "Entry id.",
             "title": "Id",
@@ -243,7 +312,8 @@
           "filename",
           "size_bytes",
           "owner_name",
-          "fs_modified_at"
+          "fs_modified_at",
+          "has_deny_ace"
         ],
         "title": "AccessSampleHit",
         "type": "object"
@@ -8612,6 +8682,28 @@
             "title": "By Source",
             "type": "array"
           },
+          "expansion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessExpansion"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Token expansion state (`?identity=` only)."
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The merged identity looked up (`?identity=` only)."
+          },
           "limit": {
             "description": "Page size requested.",
             "title": "Limit",
@@ -8649,6 +8741,29 @@
           "summary": {
             "$ref": "#/components/schemas/AccessSummary",
             "description": "Totals."
+          },
+          "tokens_used": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TokenUsed"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every token evaluated, with its origin (`?identity=` only).",
+            "title": "Tokens Used"
+          },
+          "warnings": {
+            "description": "Caveats about the results, e.g. deny ACEs not evaluated across an identity's tokens.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -8658,7 +8773,11 @@
           "by_source",
           "sample",
           "next_cursor",
-          "limit"
+          "limit",
+          "identity",
+          "tokens_used",
+          "expansion",
+          "warnings"
         ],
         "title": "PrincipalAccessResponse",
         "type": "object"
@@ -13719,6 +13838,47 @@
         "title": "TokenResponse",
         "type": "object"
       },
+      "TokenUsed": {
+        "description": "One token an identity lookup evaluated.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolved name (SIDs only).",
+            "title": "Name"
+          },
+          "origin": {
+            "description": "Where the token came from.",
+            "enum": [
+              "ad",
+              "authentik",
+              "akashic_binding",
+              "email",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "token": {
+            "description": "Canonical principal token.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "origin",
+          "name"
+        ],
+        "title": "TokenUsed",
+        "type": "object"
+      },
       "TreeNode": {
         "description": "A node of the nested treemap.",
         "properties": {
@@ -15650,11 +15810,11 @@
   "paths": {
     "/api/v1/access": {
       "get": {
-        "description": "Answers one of two questions, selected by which parameter is given.\n`principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.\n`file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.\nRequires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.\nErrors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.",
+        "description": "Answers one of two questions, selected by which parameter is given.\n`principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.\n`identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.\n`file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.\nRequires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.\nErrors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.",
         "operationId": "access_query",
         "parameters": [
           {
-            "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.",
+            "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`.",
             "in": "query",
             "name": "principal",
             "required": false,
@@ -15667,7 +15827,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.",
+              "description": "Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`.",
               "examples": [
                 "sid:S-1-5-21-1-2-3-1001"
               ],
@@ -15675,7 +15835,29 @@
             }
           },
           {
-            "description": "Entry id to list principals for. Mutually exclusive with `principal`.",
+            "description": "Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`.",
+            "in": "query",
+            "name": "identity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`.",
+              "examples": [
+                "sid:S-1-5-21-1-2-3-1001"
+              ],
+              "title": "Identity"
+            }
+          },
+          {
+            "description": "Entry id to list principals for. Mutually exclusive with `principal` and `identity`.",
             "in": "query",
             "name": "file",
             "required": false,
@@ -15689,7 +15871,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Entry id to list principals for. Mutually exclusive with `principal`.",
+              "description": "Entry id to list principals for. Mutually exclusive with `principal` and `identity`.",
               "title": "File"
             }
           },

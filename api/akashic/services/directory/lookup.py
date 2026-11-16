@@ -13,6 +13,7 @@ from akashic.models.directory import DirectoryEntry, DirectorySyncRun
 from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.user import User
+from akashic.schemas.directory import IdentityBackendRef, IdentityResult
 from akashic.services.access_query import binding_to_tokens
 from akashic.services.acl_denorm import ANYONE, AUTH, sid as sid_token
 from akashic.services.directory.ad import ad_configured
@@ -345,6 +346,24 @@ async def load_identity(db: AsyncSession, identity_id: str) -> MergedIdentity | 
     # email shared by a person and a group) prefer a person, then the lowest id.
     idents.sort(key=lambda i: (i.id != identity_id, i.kind != "person", i.id))
     return idents[0] if idents else None
+
+
+def identity_result(ident: MergedIdentity) -> IdentityResult:
+    return IdentityResult(
+        id=ident.id,
+        kind=ident.kind,
+        display_name=ident.display_name,
+        username=ident.username,
+        email=ident.email,
+        sid=ident.sid,
+        dn=ident.dn,
+        backends=[IdentityBackendRef(backend=r.backend, ref=r.ref) for r in ident.records],
+        match_quality=ident.match_quality,
+        possible_match_of=ident.possible_match_of,
+        akashic_user_id=ident.akashic_user_id,
+        groups_synced_at=ident.groups_synced_at,
+        has_fs_identity=ident.has_fs_identity,
+    )
 
 
 async def _sid_names(db: AsyncSession, sids: set[str]) -> dict[str, str]:

@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from typing import Literal
 
 from akashic.schemas.base import ApiModel
 from pydantic import ConfigDict, Field
+
+from akashic.schemas.directory import IdentityResult
 
 
 class AccessPrincipal(ApiModel):
@@ -44,6 +48,28 @@ class AccessSampleHit(ApiModel):
     size_bytes: int | None = Field(default=None, description="Size in bytes.")
     owner_name: str | None = Field(default=None, description="Owner name.")
     fs_modified_at: int | None = Field(default=None, description="Modified time, epoch seconds.")
+    has_deny_ace: bool | None = Field(
+        default=None,
+        description="Whether the file's stored ACL contains any deny ACE (NT and NFSv4 ACLs only). Present on principal and identity lookups.")
+
+
+class TokenUsed(ApiModel):
+    """One token an identity lookup evaluated."""
+
+    token: str = Field(description="Canonical principal token.")
+    origin: Literal["ad", "authentik", "akashic_binding", "email", "builtin"] = Field(
+        description="Where the token came from.")
+    name: str | None = Field(default=None, description="Resolved name (SIDs only).")
+
+
+class AccessExpansion(ApiModel):
+    """How completely the identity's tokens were expanded."""
+
+    status: Literal["ok", "cached", "partial", "failed"] = Field(
+        description="`ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.")
+    cached_at: datetime | None = Field(description="Oldest successful directory read behind the tokens, when any.")
+    detail: str | None = Field(description="Why the expansion is not `ok`, when it is not.")
+    missing_identity_kinds: list[str] = Field(description="Token kinds the identity lacks: `sid`, `posix`.")
 
 
 class PrincipalAccessResponse(ApiModel):
@@ -56,6 +82,10 @@ class PrincipalAccessResponse(ApiModel):
     sample: list[AccessSampleHit] = Field(description="One page of reachable files.")
     next_cursor: str | None = Field(description="Opaque cursor for the next page of `sample`; null at the end.")
     limit: int = Field(description="Page size requested.")
+    identity: IdentityResult | None = Field(default=None, description="The merged identity looked up (`?identity=` only).")
+    tokens_used: list[TokenUsed] | None = Field(default=None, description="Every token evaluated, with its origin (`?identity=` only).")
+    expansion: AccessExpansion | None = Field(default=None, description="Token expansion state (`?identity=` only).")
+    warnings: list[str] = Field(default_factory=list, description="Caveats about the results, e.g. deny ACEs not evaluated across an identity's tokens.")
 
 
 class FilePrincipal(ApiModel):

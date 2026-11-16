@@ -22,7 +22,7 @@ import uuid
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query, Request
 from pydantic import TypeAdapter
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
@@ -36,13 +36,21 @@ from akashic.schemas.access import FileAccessResponse, PrincipalAccessResponse
 from akashic.schemas.acl import ACL
 from akashic.schemas.common import encode_offset_cursor, offset_from_cursor
 from akashic.services.acl_denorm import denormalize_acl
+from akashic.services.access_query import viewable_clause
 from akashic.services.audit import record_event
+from akashic.services.directory.lookup import identity_result, load_identity, resolve_tokens
 from akashic.services.search import get_meili_client
 
 logger = logging.getLogger(__name__)
 
 router = ApiRouter(prefix="/access", tags=["access"])
 
+
+DENY_WARNING = (
+    "Deny ACEs are not evaluated across this identity's groups: results are the union of what each "
+    "listed token can reach. A file shown here may still be denied by a deny ACE on another of the "
+    "person's identities. Sample rows with any deny ACE are flagged."
+)
 
 _RIGHT_FIELDS = {
     "read": "viewable_by_read",
@@ -119,20 +127,26 @@ def _token_kind(token: str) -> str:
         "Answers one of two questions, selected by which parameter is given.\n"
         "`principal`: what can this principal reach? Returns a summary, a per-source rollup and a "
         "paginated sample of files the principal holds `right` on, from the search index.\n"
+        "`identity`: what can this person or group reach? `identity` is a merge id from "
+        "`GET /access/identities`. Returns the same shape for the union of every token of the "
+        "identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the "
+        "resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each "
+        "sample row carries `has_deny_ace`.\n"
         "`file`: who can reach this file? Returns the principals holding `right` on the entry, "
         "computed from its stored ACL, mode, uid and gid.\n"
         "Requires scope `access:read`. Source-limited API tokens only see their permitted "
         "sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.\n"
-        "Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does "
-        "not exist or is outside the token's sources, or if `source_id` names a source outside the "
+        "Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, "
+        "if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the "
         "token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed "
         "`cursor` or invalid parameter."
     ),
 )
 async def access_query(
     request: Request,
-    principal: str | None = Query(default=None, description="Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`.", examples=['sid:S-1-5-21-1-2-3-1001']),
-    file: uuid.UUID | None = Query(default=None, description="Entry id to list principals for. Mutually exclusive with `principal`."),
+    principal: str | None = Query(default=None, description="Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`.", examples=['sid:S-1-5-21-1-2-3-1001']),
+    identity: str | None = Query(default=None, max_length=1000, description="Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`.", examples=['sid:S-1-5-21-1-2-3-1001']),
+    file: uuid.UUID | None = Query(default=None, description="Entry id to list principals for. Mutually exclusive with `principal` and `identity`."),
     right: str = Query(default="read", pattern="^(read|write|delete)$", description="Right to evaluate: `read`, `write` or `delete`."),
     source_id: Annotated[uuid.UUID | None, Query(description="Restrict a `principal` lookup to this source.")] = None,
     cursor: str | None = Query(default=None, description="Opaque cursor from a previous `next_cursor` (principal mode only)."),
@@ -140,7 +154,7 @@ async def access_query(
     db: AsyncSession = Depends(get_db),
     caller: Principal = require_scope("access:read", source_scoped=True),
 ):
-    """Single endpoint, two modes.
+    """Single endpoint, three modes.
 
     - `?principal=<token>` (and optional source_id/right): returns
       summary + per-source rollup + paginated sample of files this
@@ -150,12 +164,15 @@ async def access_query(
       principals that have the requested right against the file,
       computed from the entry's stored ACL.
 
-    Exactly one of `principal` / `file` is required. Both at once or
-    neither produces a 400."""
-    if (principal is None) == (file is None):
+    - `?identity=<merge id>`: the same as `principal`, over the union of
+      every token of a merged directory identity.
+
+    Exactly one of `principal` / `identity` / `file` is required;
+    anything else produces a 400."""
+    if sum(p is not None for p in (principal, identity, file)) != 1:
         raise HTTPException(
             status_code=400,
-            detail="Pass exactly one of `principal` or `file`",
+            detail="Pass exactly one of `principal`, `identity` or `file`",
         )
 
     # Audit every blast-radius lookup. The values here (a wildcard
@@ -166,6 +183,8 @@ async def access_query(
     audit_payload: dict = {"right": right, "offset": offset, "limit": limit}
     if principal is not None:
         audit_payload["principal"] = principal
+    if identity is not None:
+        audit_payload["identity"] = identity
     if file is not None:
         audit_payload["file_id"] = str(file)
     if source_id is not None:
@@ -175,9 +194,40 @@ async def access_query(
         await check_source_access(source_id, caller, db)
     if file is not None:
         result = await _file_to_principals(file, right, caller, db)
+    elif identity is not None:
+        ident = await load_identity(db, identity)
+        if ident is None:
+            raise HTTPException(status_code=404, detail="Identity not found")
+        resolved = await resolve_tokens(db, ident)
+        result = await _principal_to_files(resolved.tokens, right, source_id, offset, limit, caller, db)
+        result["principal"] = {
+            "token": ident.id,
+            "name": ident.display_name,
+            "domain": None,
+            "kind": "group" if ident.kind == "group" else "user",
+        }
+        result["identity"] = identity_result(ident)
+        result["tokens_used"] = [
+            {"token": u.token, "origin": u.origin, "name": u.name} for u in resolved.used
+        ]
+        result["expansion"] = {
+            "status": resolved.status,
+            "cached_at": resolved.cached_at,
+            "detail": resolved.detail,
+            "missing_identity_kinds": resolved.missing_identity_kinds,
+        }
+        result["warnings"] = [DENY_WARNING]
+        audit_payload["identity"] = ident.id
+        audit_payload["identity_name"] = ident.display_name
+        audit_payload["token_count"] = len(resolved.tokens)
+        audit_payload["expansion"] = resolved.status
     else:
         assert principal is not None
-        result = await _principal_to_files(principal, right, source_id, offset, limit, caller, db)
+        result = await _principal_to_files([principal], right, source_id, offset, limit, caller, db)
+        name, domain = await _resolve_sid_name(db, principal)
+        result["principal"] = {
+            "token": principal, "name": name, "domain": domain, "kind": _token_kind(principal),
+        }
 
     await record_event(
         db=db, user=caller.user,
@@ -190,8 +240,24 @@ async def access_query(
     return result
 
 
+_DENY_ACE = literal_column("""'$.entries[*] ? (@.ace_type == "deny")'::jsonpath""")
+
+
+async def _flag_deny_aces(db: AsyncSession, hits: list[dict]) -> None:
+    """Set `has_deny_ace` on each sample hit from the entry's stored ACL."""
+    ids = [uuid.UUID(h["id"]) for h in hits]
+    flagged: dict[uuid.UUID, bool] = {}
+    if ids:
+        rows = await db.execute(
+            select(Entry.id, func.jsonb_path_exists(Entry.acl, _DENY_ACE)).where(Entry.id.in_(ids))
+        )
+        flagged = {eid: bool(has) for eid, has in rows.all()}
+    for h in hits:
+        h["has_deny_ace"] = flagged.get(uuid.UUID(h["id"]), False)
+
+
 async def _principal_to_files(
-    principal: str,
+    tokens: list[str],
     right: str,
     source_id: uuid.UUID | None,
     offset: int,
@@ -200,7 +266,8 @@ async def _principal_to_files(
     db: AsyncSession,
 ):
     field = _RIGHT_FIELDS[right]
-    parts = [f'{field} = "{_meili_quote(principal)}"']
+    quoted = ", ".join(f'"{_meili_quote(t)}"' for t in tokens)
+    parts = [f"{field} IN [{quoted}]"]
     if source_id is not None:
         parts.append(f'source_id = "{source_id}"')
     limit_clause = meili_source_filter(caller)
@@ -214,8 +281,7 @@ async def _principal_to_files(
     # Aggregates come from Postgres: Meili facetStats only returns
     # min/max (no sum). Same semantics as the Meili filter: files only
     # (the index holds files), non-deleted, token in viewable_by_<right>
-    # (GIN-backed `@>`), optional source, caller's source restriction.
-    column = getattr(Entry, field)
+    # (GIN-backed `&&`), optional source, caller's source restriction.
     agg = (
         select(
             Entry.source_id,
@@ -225,7 +291,7 @@ async def _principal_to_files(
         .where(
             Entry.kind == "file",
             Entry.is_deleted.is_(False),
-            column.contains([principal]),
+            viewable_clause(tokens, right),
         )
         .group_by(Entry.source_id)
     )
@@ -237,16 +303,25 @@ async def _principal_to_files(
     file_count = sum(by_source_dist.values())
     total_size_bytes = sum(int(r.bytes) for r in agg_rows)
 
-    sample = await index.search(
-        "",
-        filter=filterstr,
-        offset=offset,
-        limit=limit,
-        attributes_to_retrieve=[
-            "id", "source_id", "path", "filename", "size_bytes",
-            "owner_name", "fs_modified_at",
-        ],
-    )
+    if tokens:
+        sample = await index.search(
+            "",
+            filter=filterstr,
+            offset=offset,
+            limit=limit,
+            attributes_to_retrieve=[
+                "id", "source_id", "path", "filename", "size_bytes",
+                "owner_name", "fs_modified_at",
+            ],
+        )
+        sample_hits = (
+            getattr(sample, "hits", None)
+            or sample.__dict__.get("hits", [])
+            or []
+        )
+    else:
+        sample_hits = []  # no tokens: nothing is reachable, and `IN []` is not valid Meili
+    await _flag_deny_aces(db, sample_hits)
 
     # Hydrate source names for the rollup.
     src_ids = list(by_source_dist.keys())
@@ -271,22 +346,9 @@ async def _principal_to_files(
         reverse=True,
     )
 
-    name, domain = await _resolve_sid_name(db, principal)
-    sample_hits = (
-        getattr(sample, "hits", None)
-        or sample.__dict__.get("hits", [])
-        or []
-    )
-
     next_cursor = encode_offset_cursor(offset + limit) if len(sample_hits) >= limit else None
 
     return {
-        "principal": {
-            "token": principal,
-            "name": name,
-            "domain": domain,
-            "kind": _token_kind(principal),
-        },
         "right": right,
         "summary": {
             "file_count": file_count,

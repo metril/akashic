@@ -25,29 +25,13 @@ from akashic.services.audit import record_event
 from akashic.services.directory import sync
 from akashic.services.directory.ad import ad_configured
 from akashic.services.directory.authentik import authentik_configured
-from akashic.services.directory.lookup import backends_status, load_identity, search_identities
+from akashic.services.directory.lookup import (
+    backends_status, identity_result, load_identity, search_identities,
+)
 from akashic.services.directory.merge import MergedIdentity
 from akashic.services.runtime_settings import rt
 
 router = ApiRouter(prefix="/access", tags=["access"])
-
-
-def _identity_out(ident: MergedIdentity) -> IdentityResult:
-    return IdentityResult(
-        id=ident.id,
-        kind=ident.kind,
-        display_name=ident.display_name,
-        username=ident.username,
-        email=ident.email,
-        sid=ident.sid,
-        dn=ident.dn,
-        backends=[IdentityBackendRef(backend=r.backend, ref=r.ref) for r in ident.records],
-        match_quality=ident.match_quality,
-        possible_match_of=ident.possible_match_of,
-        akashic_user_id=ident.akashic_user_id,
-        groups_synced_at=ident.groups_synced_at,
-        has_fs_identity=ident.has_fs_identity,
-    )
 
 
 @router.get(
@@ -72,7 +56,7 @@ async def search_identities_route(
 ) -> IdentitySearchResponse:
     idents = await search_identities(db, q, kind, limit)
     return IdentitySearchResponse(
-        results=[_identity_out(i) for i in idents],
+        results=[identity_result(i) for i in idents],
         backends_status=[BackendStatus(**s) for s in await backends_status(db)],
     )
 
@@ -109,7 +93,7 @@ async def refresh_identity(
     refreshed = await load_identity(db, body.id)
     if refreshed is None:
         raise HTTPException(status_code=404, detail="Identity not found")
-    return _identity_out(refreshed)
+    return identity_result(refreshed)
 
 
 @router.post(

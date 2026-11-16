@@ -15,9 +15,10 @@ export interface paths {
          * Look up access (blast radius)
          * @description Answers one of two questions, selected by which parameter is given.
          *     `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+         *     `identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
          *     `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
          *     Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
-         *     Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+         *     Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
          */
         get: operations["access_query"];
         put?: never;
@@ -3171,6 +3172,33 @@ export interface components {
         "ACL-Input": components["schemas"]["PosixACL-Input"] | components["schemas"]["NfsV4ACL-Input"] | components["schemas"]["NtACL-Input"] | components["schemas"]["S3ACL-Input"] | components["schemas"]["CloudDriveACL-Input"];
         "ACL-Output": components["schemas"]["PosixACL-Output"] | components["schemas"]["NfsV4ACL-Output"] | components["schemas"]["NtACL-Output"] | components["schemas"]["S3ACL-Output"] | components["schemas"]["CloudDriveACL-Output"];
         /**
+         * AccessExpansion
+         * @description How completely the identity's tokens were expanded.
+         */
+        AccessExpansion: {
+            /**
+             * Cached At
+             * @description Oldest successful directory read behind the tokens, when any.
+             */
+            cached_at: string | null;
+            /**
+             * Detail
+             * @description Why the expansion is not `ok`, when it is not.
+             */
+            detail: string | null;
+            /**
+             * Missing Identity Kinds
+             * @description Token kinds the identity lacks: `sid`, `posix`.
+             */
+            missing_identity_kinds: string[];
+            /**
+             * Status
+             * @description `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.
+             * @enum {string}
+             */
+            status: "ok" | "cached" | "partial" | "failed";
+        };
+        /**
          * AccessPrincipal
          * @description The principal that was looked up.
          */
@@ -3235,6 +3263,11 @@ export interface components {
              * @description Modified time, epoch seconds.
              */
             fs_modified_at: number | null;
+            /**
+             * Has Deny Ace
+             * @description Whether the file's stored ACL contains any deny ACE (NT and NFSv4 ACLs only). Present on principal and identity lookups.
+             */
+            has_deny_ace: boolean | null;
             /**
              * Id
              * @description Entry id.
@@ -8019,6 +8052,10 @@ export interface components {
              * @description Per-source rollup, largest first.
              */
             by_source: components["schemas"]["AccessSourceRollup"][];
+            /** @description Token expansion state (`?identity=` only). */
+            expansion: components["schemas"]["AccessExpansion"] | null;
+            /** @description The merged identity looked up (`?identity=` only). */
+            identity: components["schemas"]["IdentityResult"] | null;
             /**
              * Limit
              * @description Page size requested.
@@ -8043,6 +8080,16 @@ export interface components {
             sample: components["schemas"]["AccessSampleHit"][];
             /** @description Totals. */
             summary: components["schemas"]["AccessSummary"];
+            /**
+             * Tokens Used
+             * @description Every token evaluated, with its origin (`?identity=` only).
+             */
+            tokens_used: components["schemas"]["TokenUsed"][] | null;
+            /**
+             * Warnings
+             * @description Caveats about the results, e.g. deny ACEs not evaluated across an identity's tokens.
+             */
+            warnings: string[];
         };
         /** PrincipalRef */
         "PrincipalRef-Input": {
@@ -10982,6 +11029,28 @@ export interface components {
             token_type: string;
         };
         /**
+         * TokenUsed
+         * @description One token an identity lookup evaluated.
+         */
+        TokenUsed: {
+            /**
+             * Name
+             * @description Resolved name (SIDs only).
+             */
+            name: string | null;
+            /**
+             * Origin
+             * @description Where the token came from.
+             * @enum {string}
+             */
+            origin: "ad" | "authentik" | "akashic_binding" | "email" | "builtin";
+            /**
+             * Token
+             * @description Canonical principal token.
+             */
+            token: string;
+        };
+        /**
          * TreeNode
          * @description A node of the nested treemap.
          */
@@ -12201,9 +12270,11 @@ export interface operations {
     access_query: {
         parameters: {
             query?: {
-                /** @description Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`. */
+                /** @description Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`. */
                 principal?: string | null;
-                /** @description Entry id to list principals for. Mutually exclusive with `principal`. */
+                /** @description Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`. */
+                identity?: string | null;
+                /** @description Entry id to list principals for. Mutually exclusive with `principal` and `identity`. */
                 file?: string | null;
                 /** @description Right to evaluate: `read`, `write` or `delete`. */
                 right?: string;

@@ -12,6 +12,8 @@ once and skip duplicating it on every assertion.
 from unittest.mock import AsyncMock, patch
 
 from akashic.schemas.common import decode_offset_cursor
+import uuid
+
 import pytest
 
 from akashic.models.entry import Entry
@@ -124,8 +126,8 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
     await db_session.commit()
 
     sample = _stub_sample([
-        {"id": "e1", "source_id": str(src_a.id), "path": "/x/a", "filename": "a", "size_bytes": 100},
-        {"id": "e2", "source_id": str(src_b.id), "path": "/x/b", "filename": "b", "size_bytes": 200},
+        {"id": str(uuid.uuid4()), "source_id": str(src_a.id), "path": "/x/a", "filename": "a", "size_bytes": 100},
+        {"id": str(uuid.uuid4()), "source_id": str(src_b.id), "path": "/x/b", "filename": "b", "size_bytes": 200},
     ])
 
     fake_index = AsyncMock()
@@ -162,6 +164,8 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
     # next_cursor is None when sample size < limit (default limit=20).
     assert body["next_cursor"] is None
     assert body["limit"] == 20
+    assert body["identity"] is None and body["warnings"] == []
+    assert all(h["has_deny_ace"] is False for h in body["sample"])
 
 
 @pytest.mark.asyncio
@@ -173,7 +177,7 @@ async def test_principal_to_files_pagination_signals_next_cursor(client, db_sess
     await _seed(db_session, src, 50, 10, tok="sid:S-1-5-X")
     await db_session.commit()
     hits = [
-        {"id": f"e{i}", "source_id": str(src.id), "path": f"/p/{i}",
+        {"id": str(uuid.uuid4()), "source_id": str(src.id), "path": f"/p/{i}",
          "filename": f"f{i}", "size_bytes": 10}
         for i in range(5)
     ]

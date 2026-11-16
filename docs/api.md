@@ -3012,14 +3012,16 @@ Auth: `userJWT`, scope `access:read`
 
 Answers one of two questions, selected by which parameter is given.
 `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+`identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
 `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
 Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
-Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
-| `principal` | query | `string` \| `null` | no | Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `file`. |
-| `file` | query | `string` (`uuid`) \| `null` | no | Entry id to list principals for. Mutually exclusive with `principal`. |
+| `principal` | query | `string` \| `null` | no | Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`. |
+| `identity` | query | `string` \| `null` | no | Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`. |
+| `file` | query | `string` (`uuid`) \| `null` | no | Entry id to list principals for. Mutually exclusive with `principal` and `identity`. |
 | `right` | query | `string` | no | Right to evaluate: `read`, `write` or `delete`. |
 | `source_id` | query | `string` (`uuid`) \| `null` | no | Restrict a `principal` lookup to this source. |
 | `cursor` | query | `string` \| `null` | no | Opaque cursor from a previous `next_cursor` (principal mode only). |
@@ -4166,6 +4168,18 @@ Discriminator: `type`
 Type: [`PosixACL-Output`](#schema-posixacl-output) \| [`NfsV4ACL-Output`](#schema-nfsv4acl-output) \| [`NtACL-Output`](#schema-ntacl-output) \| [`S3ACL-Output`](#schema-s3acl-output) \| [`CloudDriveACL-Output`](#schema-clouddriveacl-output)
 Discriminator: `type`
 
+<a id="schema-accessexpansion"></a>
+### AccessExpansion
+
+How completely the identity's tokens were expanded.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cached_at` | `string` (`date-time`) \| `null` | yes | Oldest successful directory read behind the tokens, when any. |
+| `detail` | `string` \| `null` | yes | Why the expansion is not `ok`, when it is not. |
+| `missing_identity_kinds` | array of `string` | yes | Token kinds the identity lacks: `sid`, `posix`. |
+| `status` | `"ok"` \| `"cached"` \| `"partial"` \| `"failed"` | yes | `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity. |
+
 <a id="schema-accessprincipal"></a>
 ### AccessPrincipal
 
@@ -4206,6 +4220,7 @@ One reachable file from the search index.
 | --- | --- | --- | --- |
 | `filename` | `string` | yes | Base name. |
 | `fs_modified_at` | `integer` \| `null` | yes | Modified time, epoch seconds. |
+| `has_deny_ace` | `boolean` \| `null` | yes | Whether the file's stored ACL contains any deny ACE (NT and NFSv4 ACLs only). Present on principal and identity lookups. |
 | `id` | `string` | yes | Entry id. |
 | `owner_name` | `string` \| `null` | yes | Owner name. |
 | `path` | `string` | yes | Full path. |
@@ -6032,12 +6047,16 @@ Principal-to-files lookup (`?principal=`).
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `by_source` | array of [`AccessSourceRollup`](#schema-accesssourcerollup) | yes | Per-source rollup, largest first. |
+| `expansion` | [`AccessExpansion`](#schema-accessexpansion) \| `null` | yes | Token expansion state (`?identity=` only). |
+| `identity` | [`IdentityResult`](#schema-identityresult) \| `null` | yes | The merged identity looked up (`?identity=` only). |
 | `limit` | `integer` | yes | Page size requested. |
 | `next_cursor` | `string` \| `null` | yes | Opaque cursor for the next page of `sample`; null at the end. |
 | `principal` | [`AccessPrincipal`](#schema-accessprincipal) | yes | The looked-up principal. |
 | `right` | `string` | yes | `read`, `write` or `delete`. |
 | `sample` | array of [`AccessSampleHit`](#schema-accesssamplehit) | yes | One page of reachable files. |
 | `summary` | [`AccessSummary`](#schema-accesssummary) | yes | Totals. |
+| `tokens_used` | array of [`TokenUsed`](#schema-tokenused) \| `null` | yes | Every token evaluated, with its origin (`?identity=` only). |
+| `warnings` | array of `string` | yes | Caveats about the results, e.g. deny ACEs not evaluated across an identity's tokens. |
 
 <a id="schema-principalref-input"></a>
 ### PrincipalRef-Input
@@ -7119,6 +7138,17 @@ Omit → test every source the scanner is currently allowed to claim.
 | --- | --- | --- | --- |
 | `access_token` | `string` | yes | Short-lived JWT access token; send it as a bearer token. |
 | `token_type` | `string` | yes | Always `bearer`. |
+
+<a id="schema-tokenused"></a>
+### TokenUsed
+
+One token an identity lookup evaluated.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` \| `null` | yes | Resolved name (SIDs only). |
+| `origin` | `"ad"` \| `"authentik"` \| `"akashic_binding"` \| `"email"` \| `"builtin"` | yes | Where the token came from. |
+| `token` | `string` | yes | Canonical principal token. |
 
 <a id="schema-treenode"></a>
 ### TreeNode
