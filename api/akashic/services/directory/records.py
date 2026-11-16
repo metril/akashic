@@ -19,6 +19,8 @@ class DirRecord:
     groups_status: Literal["ok", "failed", "none"] = "none"
     uid_number: int | None = None
     gid_number: int | None = None
+    # Further SIDs that also identify this record (extra akashic SID bindings).
+    alt_sids: tuple[str, ...] = ()
 
 
 class DirectoryError(Exception):

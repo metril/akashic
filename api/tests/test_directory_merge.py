@@ -60,3 +60,15 @@ def test_merge_id_fallbacks():
     assert merge_id([rec(email="A@x.io")]) == "email:a@x.io"
     assert merge_id([rec("authentik", "42")]) == "authentik:42"
     assert merge_id([rec(sid="S2"), rec(sid="S1")]) == "sid:S1"
+
+
+def test_alt_sids_are_merge_keys():
+    out = merge_identities([
+        rec("ad", "a", sid="S2"), rec("akashic", "u", sid="S1", alt_sids=("S2",)),
+    ])
+    assert len(out) == 1 and out[0].id == "sid:S1"
+
+
+def test_has_fs_identity_counts_gid_only():
+    (i,) = merge_identities([rec("ad", "a", gid_number=100)])
+    assert i.has_fs_identity is True

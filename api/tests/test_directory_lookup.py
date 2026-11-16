@@ -139,7 +139,7 @@ async def test_resolve_person_tokens_ok(db_session):
         "cloud_drive:domain:x.io", "nfsv4:alice", "*", "auth"}
     assert r.tokens == sorted(r.tokens)
     origin = {u.token: u.origin for u in r.used}
-    assert origin["sid:G1"] == "ad" and origin["posix:uid:1000"] == "ad"
+    assert origin["sid:S1"] == "ad" and origin["sid:G1"] == "ad" and origin["posix:uid:1000"] == "ad"
     assert origin["cloud_drive:user:a@x.io"] == "email"
     assert origin["nfsv4:alice"] == "akashic_binding"
     assert origin["*"] == origin["auth"] == "builtin"
@@ -200,3 +200,83 @@ async def test_resolve_no_sid_identity(db_session):
     assert r.tokens == ["*", "auth", "cloud_drive:domain:x.io", "cloud_drive:user:b@x.io"]
     assert r.missing_identity_kinds == ["posix", "sid"]
     assert ident.has_fs_identity is False and r.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_search_and_load_see_same_cluster(db_session):
+    db_session.add_all([
+        entry("h", display_name="Hxq", dn="CN=H,DC=x"),
+        entry("1", backend="authentik", dn="cn=h,dc=x", email="e@x.io"),
+        entry("2", backend="authentik", email="E@x.io", sid="S-1-2"),
+    ])
+    await db_session.commit()
+    (found,) = await lookup.search_identities(db_session, "Hxq", "any", 10)
+    assert found.id == "sid:S-1-2" and len(found.records) == 3
+    loaded = await lookup.load_identity(db_session, found.id)
+    assert loaded.id == found.id and {r.ref for r in loaded.records} == {"h", "1", "2"}
+    by_seed = await lookup.load_identity(db_session, "dn:cn=h,dc=x")
+    assert by_seed.id == found.id
+
+
+@pytest.mark.asyncio
+async def test_resolve_counts_every_akashic_user_binding(db_session):
+    db_session.add(entry("g1", sid="S1", email="a@x.io", groups_status="ok",
+                         groups_synced_at=now()))
+    u1 = await add_user(db_session, "u1", email="a@x.io")
+    u2 = await add_user(db_session, "u2", email="A@x.io")
+    await add_binding(db_session, u1, "nfsv4_principal", "one")
+    await add_binding(db_session, u2, "nfsv4_principal", "two")
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "sid:S1")
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert {"nfsv4:one", "nfsv4:two"} <= set(r.tokens)
+
+
+@pytest.mark.asyncio
+async def test_resolve_partial_for_akashic_sid_without_ad_row(db_session):
+    u = await add_user(db_session, "solo")
+    await add_binding(db_session, u, "sid", "S-1-9")
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, f"akashic:{u.id}")
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert "sid:S-1-9" in r.tokens and r.status == "partial"
+
+
+@pytest.mark.asyncio
+async def test_resolve_truncated_cluster_is_partial(db_session):
+    db_session.add(entry("seed", sid="S1", email="e@x.io", groups_status="ok",
+                         groups_synced_at=now()))
+    db_session.add_all([entry(f"x{i}", email="e@x.io") for i in range(lookup.LOAD_MAX_RECORDS + 10)])
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "sid:S1")
+    assert ident.truncated and len(ident.records) == lookup.LOAD_MAX_RECORDS
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert r.status == "partial" and "cap" in r.detail
+
+
+@pytest.mark.asyncio
+async def test_resolve_row_without_freshness_is_not_ok(db_session):
+    ident = await _person_with_binding(db_session)
+    ident.freshness = {}
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert r.status == "cached"
+
+
+@pytest.mark.asyncio
+async def test_resolve_ignores_malformed_email(db_session):
+    db_session.add(entry("g1", sid="S1", email="nodomain", groups_status="ok",
+                         groups_synced_at=now()))
+    await db_session.commit()
+    r = await lookup.resolve_tokens(db_session, await lookup.load_identity(db_session, "sid:S1"))
+    assert not any(t.startswith("cloud_drive:") for t in r.tokens)
+
+
+@pytest.mark.asyncio
+async def test_user_merges_through_second_sid_binding(db_session):
+    db_session.add(entry("g1", sid="S-1-B", groups_status="ok", groups_synced_at=now()))
+    u = await add_user(db_session, "multi")
+    await add_binding(db_session, u, "sid", "S-1-A")
+    await add_binding(db_session, u, "sid", "S-1-B")
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "sid:S-1-B")
+    assert ident.backends == ["ad", "akashic"] and ident.id == "sid:S-1-A"

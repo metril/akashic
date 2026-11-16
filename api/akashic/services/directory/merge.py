@@ -31,6 +31,8 @@ class MergedIdentity:
         default_factory=dict, repr=False)
     # An akashic user of this identity has at least one file-system binding.
     has_binding: bool = False
+    # Expansion stopped at the record cap before reaching a fixed point.
+    truncated: bool = False
 
     @property
     def display_name(self) -> str | None:
@@ -46,7 +48,7 @@ class MergedIdentity:
 
     @property
     def sid(self) -> str | None:
-        return min((r.sid for r in self.records if r.sid), default=None)
+        return min((s for r in self.records for s in _sids(r)), default=None)
 
     @property
     def dn(self) -> str | None:
@@ -71,12 +73,19 @@ class MergedIdentity:
     def has_fs_identity(self) -> bool:
         return bool(
             self.has_binding
-            or any(r.sid or r.uid_number is not None for r in self.records)
+            or any(
+                r.sid or r.uid_number is not None or r.gid_number is not None
+                for r in self.records
+            )
         )
 
 
+def _sids(r: DirRecord) -> list[str]:
+    return ([r.sid] if r.sid else []) + list(r.alt_sids)
+
+
 def merge_id(records: list[DirRecord]) -> str:
-    sids = [r.sid for r in records if r.sid]
+    sids = [s for r in records for s in _sids(r)]
     if sids:
         return f"sid:{min(sids)}"
     dns = [r.dn.lower() for r in records if r.dn]
@@ -101,7 +110,7 @@ def merge_identities(records: list[DirRecord]) -> list[MergedIdentity]:
     seen: dict[tuple, int] = {}
     for i, r in enumerate(records):
         for key in (
-            ("sid", r.sid or None),
+            *(("sid", s) for s in _sids(r)),
             ("dn", (r.dn or "").lower() or None),
             ("email", (r.email or "").lower() or None),
         ):

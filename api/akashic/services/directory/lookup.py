@@ -38,7 +38,7 @@ class KeySet:
     @classmethod
     def of(cls, records: list[DirRecord]) -> "KeySet":
         return cls(
-            sids={r.sid for r in records if r.sid},
+            sids={s for r in records for s in ([r.sid] if r.sid else []) + list(r.alt_sids)},
             dns={r.dn.lower() for r in records if r.dn},
             emails={r.email.lower() for r in records if r.email},
         )
@@ -150,7 +150,7 @@ async def akashic_user_records(
     users = list((await db.execute(stmt)).scalars().all())
     if not users:
         return []
-    first_sid: dict[uuid.UUID, str] = {}
+    sids_of: dict[uuid.UUID, list[str]] = {}
     rows = (await db.execute(
         select(FsPerson.user_id, FsBinding.identifier)
         .join(FsBinding, FsBinding.fs_person_id == FsPerson.id)
@@ -158,11 +158,13 @@ async def akashic_user_records(
         .order_by(FsBinding.created_at, FsBinding.identifier)
     )).all()
     for uid, ident in rows:
-        first_sid.setdefault(uid, ident.upper())
+        if ident.upper() not in sids_of.setdefault(uid, []):
+            sids_of[uid].append(ident.upper())
     return [
         DirRecord(
             backend="akashic", ref=str(u.id), kind="person", display_name=u.username,
-            username=u.username, email=u.email, sid=first_sid.get(u.id),
+            username=u.username, email=u.email,
+            sid=(sids_of.get(u.id) or [None])[0], alt_sids=tuple(sids_of.get(u.id, [])[1:]),
             dn=u.external_id if u.auth_provider == "ldap" else None,
         )
         for u in users
@@ -181,25 +183,43 @@ def _gather(
         records[(r.backend, r.ref)] = r
 
 
-async def _expand(
+async def _closure(
     db: AsyncSession, fresh: _Fresh, records: dict[tuple[str, str], DirRecord],
-    *, max_rounds: int, max_records: int,
-) -> None:
-    """Pull rows sharing a strong key with ``records`` until a fixed point."""
-    for _ in range(max_rounds):
-        keys = KeySet.of(list(records.values()))
-        before = len(records)
-        _gather(
-            fresh, records,
-            entries=await _entries(db, keys=keys),
-            akashic=await akashic_user_records(db, keys=keys),
-        )
-        if len(records) == before or len(records) >= max_records:
-            break
+) -> bool:
+    """Grow ``records`` with rows sharing a strong key, same kind, to a fixed
+    point within LOAD_MAX_ROUNDS rounds / LOAD_MAX_RECORDS records. Returns
+    True when it stopped before the fixed point (the cluster is truncated)."""
+    for rnd in range(LOAD_MAX_ROUNDS + 1):
+        found: dict[tuple[str, str], DirRecord] = {}
+        found_fresh: _Fresh = {}
+        for kind in sorted({r.kind for r in records.values()}):
+            keys = KeySet.of([r for r in records.values() if r.kind == kind])
+            if not keys:
+                continue
+            _gather(
+                found_fresh, found,
+                entries=await _entries(db, keys=keys, kind=kind, limit=LOAD_MAX_RECORDS + 1),
+                akashic=(await akashic_user_records(db, keys=keys, limit=LOAD_MAX_RECORDS + 1)
+                         if kind == "person" else []),
+            )
+        new = [k for k in found if k not in records]
+        if not new:
+            return False
+        if rnd == LOAD_MAX_ROUNDS:
+            return True
+        room = max(LOAD_MAX_RECORDS - len(records), 0)
+        for k in new[:room]:
+            records[k] = found[k]
+            if k in found_fresh:
+                fresh[k] = found_fresh[k]
+        if len(new) > room:
+            return True
+    return True
 
 
 async def _finish(
     db: AsyncSession, fresh: _Fresh, records: dict[tuple[str, str], DirRecord],
+    truncated: set[tuple[str, str]],
 ) -> list[MergedIdentity]:
     idents = merge_identities(list(records.values()))
     user_ids = [uuid.UUID(r.ref) for i in idents for r in i.records if r.backend == "akashic"]
@@ -213,6 +233,7 @@ async def _finish(
     for i in idents:
         i.freshness = {(r.backend, r.ref): fresh[(r.backend, r.ref)]
                        for r in i.records if (r.backend, r.ref) in fresh}
+        i.truncated = any((r.backend, r.ref) in truncated for r in i.records)
         i.has_binding = any(
             r.backend == "akashic" and uuid.UUID(r.ref) in bound for r in i.records)
     return idents
@@ -235,14 +256,23 @@ async def search_identities(
 ) -> list[MergedIdentity]:
     cap = limit * 3
     fresh: _Fresh = {}
-    records: dict[tuple[str, str], DirRecord] = {}
+    hits: dict[tuple[str, str], DirRecord] = {}
     _gather(
-        fresh, records,
+        fresh, hits,
         entries=await _entries(db, q=q, kind=kind, limit=cap),
         akashic=await akashic_user_records(db, q=q, limit=cap) if kind != "group" else [],
     )
-    await _expand(db, fresh, records, max_rounds=1, max_records=10**9)
-    idents = [i for i in await _finish(db, fresh, records) if kind == "any" or i.kind == kind]
+    records: dict[tuple[str, str], DirRecord] = {}
+    truncated: set[tuple[str, str]] = set()
+    for k, hit in hits.items():
+        if k in records:
+            continue
+        cluster = {k: hit}
+        if await _closure(db, fresh, cluster):
+            truncated.update(cluster)
+        records.update(cluster)
+    idents = [i for i in await _finish(db, fresh, records, truncated)
+              if kind == "any" or i.kind == kind]
     idents.sort(key=lambda i: _rank(i, q))
     return idents[:limit]
 
@@ -297,8 +327,11 @@ async def load_identity(db: AsyncSession, identity_id: str) -> MergedIdentity | 
     _gather(fresh, records, entries=entries, akashic=akashic)
     if not records:
         return None
-    await _expand(db, fresh, records, max_rounds=LOAD_MAX_ROUNDS, max_records=LOAD_MAX_RECORDS)
-    return next((i for i in await _finish(db, fresh, records) if i.id == identity_id), None)
+    seeds = set(records)
+    truncated = set(records) if await _closure(db, fresh, records) else set()
+    idents = [i for i in await _finish(db, fresh, records, truncated)
+              if any((r.backend, r.ref) in seeds for r in i.records)]
+    return next((i for i in idents if i.id == identity_id), idents[0] if idents else None)
 
 
 async def _sid_names(db: AsyncSession, sids: set[str]) -> dict[str, str]:
@@ -344,12 +377,14 @@ def _expansion(ident: MergedIdentity, has_ad_row: bool) -> tuple[Status, str | N
                 bump("partial", f"group membership could not be read from {r.backend}")
             else:
                 bump("cached", f"latest {r.backend} group read failed; showing earlier groups")
-        elif synced_at is not None and synced_at < fresh_after:
-            bump("cached", f"{r.backend} data is older than {DIRECTORY_FRESH_SECONDS} seconds")
+        elif synced_at is None or synced_at < fresh_after:
+            bump("cached", f"{r.backend} data is not fresh (older than {DIRECTORY_FRESH_SECONDS} seconds)")
     if ident.kind == "person" and not has_ad_row and any(
-        r.backend == "authentik" and r.sid for r in ident.records
+        r.sid or r.alt_sids for r in ident.records
     ):
-        bump("partial", "SID known only from Authentik; group membership not expanded")
+        bump("partial", "SID known without an AD row; group membership not expanded")
+    if ident.truncated:
+        bump("partial", f"identity has more linked records than the {LOAD_MAX_RECORDS}-record cap")
     return worst, detail
 
 
@@ -383,13 +418,15 @@ async def resolve_tokens(db: AsyncSession, ident: MergedIdentity) -> ResolvedTok
                 if r.backend == "authentik" and r.sid:
                     add(sid_token(r.sid), "authentik")
         for email in {r.email.lower() for r in ident.records if r.email}:
-            add(f"cloud_drive:user:{email}", "email")
-            add(f"cloud_drive:domain:{email.rpartition('@')[2]}", "email")
-        user_id = ident.akashic_user_id
-        if user_id is not None:
+            local, _, domain = email.rpartition("@")
+            if local and domain:
+                add(f"cloud_drive:user:{email}", "email")
+                add(f"cloud_drive:domain:{domain}", "email")
+        user_ids = [uuid.UUID(r.ref) for r in ident.records if r.backend == "akashic"]
+        if user_ids:
             bindings = (await db.execute(
                 select(FsBinding).join(FsPerson, FsBinding.fs_person_id == FsPerson.id)
-                .where(FsPerson.user_id == user_id)
+                .where(FsPerson.user_id.in_(user_ids))
             )).scalars().all()
             for b in bindings:
                 for t in binding_to_tokens(b):
