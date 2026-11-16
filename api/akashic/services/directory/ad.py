@@ -14,9 +14,13 @@ from ldap.filter import escape_filter_chars
 
 from akashic.services.directory.records import DirectoryError, DirRecord, NotConfigured
 from akashic.services.runtime_settings import rt
+from akashic.services.sid import decode_binary_sid
 
 logger = logging.getLogger(__name__)
 
+# Connection-level failures abort the whole fetch; other LDAP errors on one
+# object only mark that row's groups as failed.
+_FATAL = (ldap.SERVER_DOWN, ldap.TIMEOUT, ldap.CONNECT_ERROR, ldap.UNAVAILABLE)
 PAGE_SIZE = 500
 USER_FILTER = "(&(objectCategory=person)(objectClass=user))"
 GROUP_FILTER = "(objectClass=group)"
@@ -27,10 +31,10 @@ ATTRS = [
 
 
 def sid_to_str(raw: bytes) -> str:
-    rev, n = raw[0], raw[1]
-    auth = int.from_bytes(raw[2:8], "big")
-    subs = [int.from_bytes(raw[8 + 4 * i: 12 + 4 * i], "little") for i in range(n)]
-    return "S-" + "-".join(map(str, [rev, auth, *subs]))
+    sid = decode_binary_sid(raw)
+    if sid is None:
+        raise ValueError("malformed binary SID")
+    return sid
 
 
 def ad_configured() -> bool:
@@ -95,7 +99,9 @@ def _token_groups(conn, dn: str, own_sid: str | None) -> tuple[str, ...]:
         if rdn is None:
             continue
         for raw in attrs.get("tokenGroups") or []:
-            sid = sid_to_str(raw)
+            sid = decode_binary_sid(raw)
+            if sid is None:
+                raise DirectoryError("AD: malformed tokenGroups SID")
             if sid != own_sid and sid not in sids:
                 sids.append(sid)
     return tuple(sids)
@@ -106,10 +112,16 @@ def _record(conn, dn: str, attrs: dict, kind: str) -> DirRecord | None:
     if not guid:
         return None
     raw_sid = attrs.get("objectSid")
-    sid = sid_to_str(raw_sid[0]) if raw_sid else None
+    sid = None
+    if raw_sid:
+        sid = decode_binary_sid(raw_sid[0])
+        if sid is None:
+            raise DirectoryError("AD: malformed objectSid")
     try:
         group_sids = _token_groups(conn, dn, sid)
         status = "ok"
+    except _FATAL:
+        raise
     except ldap.LDAPError as exc:
         logger.warning("%s (tokenGroups)", _redact(exc))
         group_sids, status = (), "failed"

@@ -17,8 +17,6 @@ See docs/oidc-authentik.md for the deployment guide.
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import logging
 import time
 from dataclasses import dataclass
@@ -36,6 +34,10 @@ from akashic.models.fs_person import FsBinding, FsPerson
 from akashic.models.fs_unbound_identity import FsUnboundIdentity
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.services.sid import (
+    decode_binary_sid as _decode_binary_sid,
+    decode_object_sid as _decode_object_sid,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,47 +72,7 @@ class ExtractedIdentity:
 # ── objectSid decoding ──────────────────────────────────────────────────────
 
 
-def _decode_object_sid(value: Any) -> str | None:
-    """Normalize an `objectSid`-shaped claim into the canonical
-    `S-1-5-21-…` string. Authentik's AD federation can emit either:
-      - The string form already (when the property mapper converts on the
-        Authentik side, recommended).
-      - A base64-encoded 28-byte binary blob (the LDAP wire format).
 
-    Returns None if the input doesn't look like either."""
-    if value is None:
-        return None
-    if isinstance(value, list):
-        # `groups` may pack a single objectSid into a list of one. Take
-        # the first non-empty entry.
-        value = next((v for v in value if v), None)
-        if value is None:
-            return None
-    if not isinstance(value, str):
-        return None
-    s = value.strip()
-    if s.startswith("S-1-") or s.startswith("s-1-"):
-        return s.upper()
-    # Try base64 binary-SID. SIDs are 8 + 4*sub_authority_count bytes.
-    try:
-        raw = base64.b64decode(s, validate=False)
-    except (binascii.Error, ValueError):
-        return None
-    if len(raw) < 8:
-        return None
-    revision = raw[0]
-    sub_auth_count = raw[1]
-    expected_len = 8 + 4 * sub_auth_count
-    if len(raw) != expected_len or sub_auth_count > 15:
-        return None
-    # Identifier authority is a 6-byte big-endian integer.
-    ident_auth = int.from_bytes(raw[2:8], "big")
-    parts = [str(revision), str(ident_auth)]
-    for i in range(sub_auth_count):
-        offset = 8 + 4 * i
-        sa = int.from_bytes(raw[offset:offset + 4], "little")
-        parts.append(str(sa))
-    return "S-" + "-".join(parts)
 
 
 # ── Strategy: claim ─────────────────────────────────────────────────────────
@@ -246,24 +208,6 @@ def reset_ldap_breaker() -> None:
     _breaker.failures.clear()
     _breaker.open_until = 0.0
 
-
-def _decode_binary_sid(raw: bytes) -> str | None:
-    """Decode a 28-byte LDAP wire-format objectSid into S-1-5-… form.
-    Distinct from `_decode_object_sid` which accepts string/base64 inputs;
-    LDAP returns raw bytes."""
-    if not isinstance(raw, (bytes, bytearray)) or len(raw) < 8:
-        return None
-    revision = raw[0]
-    sub_auth_count = raw[1]
-    expected_len = 8 + 4 * sub_auth_count
-    if len(raw) != expected_len or sub_auth_count > 15:
-        return None
-    ident_auth = int.from_bytes(raw[2:8], "big")
-    parts = [str(revision), str(ident_auth)]
-    for i in range(sub_auth_count):
-        offset = 8 + 4 * i
-        parts.append(str(int.from_bytes(raw[offset:offset + 4], "little")))
-    return "S-" + "-".join(parts)
 
 
 def _lookup_user_in_ad(

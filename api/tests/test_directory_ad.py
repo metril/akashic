@@ -5,7 +5,6 @@ import pytest
 
 from akashic.services.directory import ad
 from akashic.services.directory.records import DirectoryError
-from akashic.services import runtime_settings as rs
 from tests.directory_fakes import FakeLdapConn
 
 PASSWORD = "s3cret-bind-pw"
@@ -42,12 +41,9 @@ PARENT = sid_bytes(f"{DOM}-600")
 
 
 @pytest.fixture
-def cfg(monkeypatch):
-    monkeypatch.setitem(rs._values, "ldap_server", "ldap://dc")
-    monkeypatch.setitem(rs._values, "ldap_bind_dn", "cn=svc,dc=x")
-    monkeypatch.setitem(rs._values, "ldap_bind_password", PASSWORD)
-    monkeypatch.setitem(rs._values, "ldap_user_base", "OU=U,DC=x")
-    monkeypatch.setitem(rs._values, "ldap_group_base", "OU=G,DC=x")
+def cfg(rt_set):
+    rt_set(ldap_server="ldap://dc", ldap_bind_dn="cn=svc,dc=x", ldap_bind_password=PASSWORD,
+           ldap_user_base="OU=U,DC=x", ldap_group_base="OU=G,DC=x")
 
 
 def install(monkeypatch, conn):
@@ -88,8 +84,8 @@ def test_fetch_all_ad_users_groups_and_token_groups(cfg, monkeypatch):
     assert conn.unbound
 
 
-def test_group_base_falls_back_to_user_base(cfg, monkeypatch):
-    rs._values["ldap_group_base"] = ""
+def test_group_base_falls_back_to_user_base(cfg, rt_set, monkeypatch):
+    rt_set(ldap_group_base="")
     conn = install(monkeypatch, FakeLdapConn(users=[[]], groups=[[]]))
     ad.fetch_all_ad()
     assert {b for b, _ in conn.searches} == {"OU=U,DC=x"}
@@ -99,7 +95,7 @@ def test_fetch_all_ad_token_groups_failure_marks_row(cfg, monkeypatch):
     u1, u2 = user(1), user(2)
     install(monkeypatch, FakeLdapConn(
         users=[[u1, u2]], groups=[[]],
-        token_groups={u1[0]: [PARENT], u2[0]: ldap.SERVER_DOWN({"desc": "down"})},
+        token_groups={u1[0]: [PARENT], u2[0]: ldap.INSUFFICIENT_ACCESS({"desc": "denied"})},
     ))
     recs = {r.username: r for r in ad.fetch_all_ad()}
     assert recs["u2"].groups_status == "failed" and recs["u2"].group_sids == ()
@@ -114,7 +110,8 @@ def test_fetch_all_ad_pages(cfg, monkeypatch):
 
 def test_ad_bind_failure_redacts_password(cfg, monkeypatch, caplog):
     install(monkeypatch, FakeLdapConn(
-        bind_error=ldap.INVALID_CREDENTIALS({"desc": "Invalid credentials", "info": "80090308"}),
+        bind_error=ldap.INVALID_CREDENTIALS(
+            {"desc": "Invalid credentials", "info": "80090308", "matched": PASSWORD}),
     ))
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(DirectoryError) as ei:
@@ -127,6 +124,41 @@ def test_fetch_ad_person_not_found_returns_none(cfg, monkeypatch):
     install(monkeypatch, FakeLdapConn(person_results=[]))
     assert ad.fetch_ad_person(sid=f"{DOM}-1", dn=None) is None
     assert ad.fetch_ad_person(sid=None, dn="CN=x,DC=x") is None
+
+
+def test_fetch_ad_person_no_such_object_returns_none(cfg, monkeypatch):
+    install(monkeypatch, FakeLdapConn(person_results=ldap.NO_SUCH_OBJECT({"desc": "gone"})))
+    assert ad.fetch_ad_person(sid=None, dn="CN=x,DC=x") is None
+
+
+def test_fetch_all_ad_connection_loss_aborts(cfg, monkeypatch, caplog):
+    u1, u2 = user(1), user(2)
+    install(monkeypatch, FakeLdapConn(
+        users=[[u1, u2]], groups=[[]],
+        token_groups={u1[0]: ldap.SERVER_DOWN({"desc": "Can't contact LDAP server"})},
+    ))
+    with pytest.raises(DirectoryError, match="SERVER_DOWN"):
+        ad.fetch_all_ad()
+
+
+def test_fetch_all_ad_malformed_sid_is_directory_error(cfg, monkeypatch):
+    bad = user(1, objectSid=[b"\x01\x05"])
+    install(monkeypatch, FakeLdapConn(users=[[bad]], groups=[[]]))
+    with pytest.raises(DirectoryError, match="malformed objectSid"):
+        ad.fetch_all_ad()
+
+
+def test_fetch_all_ad_malformed_token_group_is_directory_error(cfg, monkeypatch):
+    u1 = user(1)
+    install(monkeypatch, FakeLdapConn(users=[[u1]], groups=[[]], token_groups={u1[0]: [b"\x01"]}))
+    with pytest.raises(DirectoryError, match="tokenGroups"):
+        ad.fetch_all_ad()
+
+
+def test_sid_to_str_rejects_malformed():
+    for raw in (b"", b"\x01\x05", bytes.fromhex("0102000000000005") + b"\x00" * 7):
+        with pytest.raises(ValueError):
+            ad.sid_to_str(raw)
 
 
 def test_fetch_ad_person_by_sid_escapes_filter(cfg, monkeypatch):
@@ -143,7 +175,7 @@ def test_fetch_ad_person_found(cfg, monkeypatch):
     assert rec.username == "u1" and rec.group_sids == (f"{DOM}-600",)
 
 
-def test_ad_configured(cfg):
+def test_ad_configured(cfg, rt_set):
     assert ad.ad_configured()
-    rs._values["ldap_user_base"] = ""
+    rt_set(ldap_user_base="")
     assert not ad.ad_configured()

@@ -18,7 +18,8 @@ class FakeLdapConn:
         self.groups = list(groups)
         self.token_groups = token_groups or {}
         self.bind_error = bind_error
-        self.person_results = list(person_results)
+        self.person_results = (
+            person_results if isinstance(person_results, Exception) else list(person_results))
         self.options: dict = {}
         self.searches: list[tuple[str, str]] = []  # (base, filter)
         self.bound_as: tuple | None = None

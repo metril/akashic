@@ -56,6 +56,12 @@ def test_authentik_keys():
     assert authentik_keys({"ldap_uniq": "S-1-5-21-9"}) == ("S-1-5-21-9", None)
     assert authentik_keys({"ldap_uniq": "abc-guid"}) == (None, None)
     assert authentik_keys({}) == (None, None)
+    # shared normaliser: lowercase and base64 forms yield the same SID
+    assert authentik_keys({"objectSid": "s-1-5-21-1-2-3-1001"})[0] == "S-1-5-21-1-2-3-1001"
+    import base64
+    raw = bytes([1, 4, 0, 0, 0, 0, 0, 5]) + b"".join(i.to_bytes(4, "little") for i in (1, 2, 3, 4))
+    b64 = base64.b64encode(raw).decode()
+    assert authentik_keys({"objectSid": b64})[0] == "S-1-5-1-2-3-4"
 
 
 @pytest.mark.asyncio
@@ -96,3 +102,26 @@ def test_authentik_configured(rt_set):
     assert not authentik_configured()
     rt_set(authentik_url=URL, authentik_api_token=TOKEN)
     assert authentik_configured()
+
+
+@pytest.mark.asyncio
+async def test_non_json_200_is_directory_error(cfg, httpx_mock):
+    httpx_mock.add_response(text="<html>proxy</html>")
+    with pytest.raises(DirectoryError, match="invalid response"):
+        await fetch_all_authentik()
+
+
+@pytest.mark.asyncio
+async def test_missing_pk_is_directory_error(cfg, httpx_mock):
+    httpx_mock.add_response(json=page([{"username": "nopk"}]))
+    with pytest.raises(DirectoryError, match="invalid response"):
+        await fetch_all_authentik()
+
+
+@pytest.mark.asyncio
+async def test_person_pk_is_url_quoted(cfg, httpx_mock):
+    httpx_mock.add_response(status_code=404)
+    assert await fetch_authentik_person("../groups") is None
+    path = httpx_mock.get_requests()[0].url.raw_path.decode()
+    assert path.startswith("/api/v3/core/users/") and "/groups" not in path.replace("%2F", "")
+    assert "%2F" in path

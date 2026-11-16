@@ -6,11 +6,13 @@ never the token (httpx messages and response bodies can echo it).
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote
 
 import httpx
 
 from akashic.services.directory.records import DirectoryError, DirRecord, NotConfigured
 from akashic.services.runtime_settings import rt
+from akashic.services.sid import decode_object_sid
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +27,8 @@ def authentik_configured() -> bool:
 def authentik_keys(attributes: dict) -> tuple[str | None, str | None]:
     """(sid, dn) from the attributes Authentik's LDAP source stores."""
     attributes = attributes or {}
-    sid = attributes.get("objectSid")
-    if not (isinstance(sid, str) and sid.startswith("S-1-")):
-        uniq = attributes.get("ldap_uniq")
-        sid = uniq if isinstance(uniq, str) and uniq.startswith("S-1-") else None
+    sid = decode_object_sid(attributes.get("objectSid")) or decode_object_sid(
+        attributes.get("ldap_uniq"))
     dn = attributes.get("distinguishedName")
     return sid, dn if isinstance(dn, str) and dn else None
 
@@ -58,6 +58,23 @@ async def _get(client: httpx.AsyncClient, path: str, params: dict | None = None)
     return resp
 
 
+def _build(fn, d, path: str):
+    try:
+        return fn(d)
+    except (KeyError, TypeError, AttributeError):
+        raise _fail(f"Authentik: invalid response on {path}") from None
+
+
+def _json(resp: httpx.Response, path: str) -> dict:
+    try:
+        body = resp.json()
+    except ValueError:
+        raise _fail(f"Authentik: invalid response on {path}") from None
+    if not isinstance(body, dict):
+        raise _fail(f"Authentik: invalid response on {path}")
+    return body
+
+
 def _person(d: dict) -> DirRecord | None:
     if d.get("type") in SERVICE_TYPES:
         return None
@@ -84,8 +101,11 @@ async def _pages(client: httpx.AsyncClient, path: str, extra: dict):
         resp = await _get(client, path, {"page": page, "page_size": PAGE_SIZE, **extra})
         if resp.status_code == 404:
             raise _fail(f"Authentik: HTTP 404 on {path}")
-        body = resp.json()
-        for item in body.get("results", []):
+        body = _json(resp, path)
+        results = body.get("results")
+        if not isinstance(results, list):
+            raise _fail(f"Authentik: invalid response on {path}")
+        for item in results:
             yield item
         page = (body.get("pagination") or {}).get("next") or 0
 
@@ -94,18 +114,19 @@ async def fetch_all_authentik(timeout: float = 30.0) -> list[DirRecord]:
     out: list[DirRecord] = []
     async with _client(timeout) as client:
         async for d in _pages(client, "/api/v3/core/users/", {}):
-            rec = _person(d)
+            rec = _build(_person, d, "/api/v3/core/users/")
             if rec is not None:
                 out.append(rec)
         async for d in _pages(client, "/api/v3/core/groups/", {"include_users": "false"}):
-            out.append(_group(d))
+            out.append(_build(_group, d, "/api/v3/core/groups/"))
     return out
 
 
 async def fetch_authentik_person(pk: str, timeout: float = 3.0) -> DirRecord | None:
     """One user by pk. ``None`` means authoritatively not found."""
     async with _client(timeout) as client:
-        resp = await _get(client, f"/api/v3/core/users/{pk}/")
+        path = f"/api/v3/core/users/{quote(pk, safe='')}/"
+        resp = await _get(client, path)
     if resp.status_code == 404:
         return None
-    return _person(resp.json())
+    return _build(_person, _json(resp, path), path)
