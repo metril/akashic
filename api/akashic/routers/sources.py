@@ -34,6 +34,7 @@ from akashic.services import post_scan
 from akashic.services.audit import record_event
 from akashic.services.mirror_links import (
     MIRROR_APP_TYPES,
+    MIRROR_BACKING_TYPES,
     MirrorConfigError,
     backing_sources_for,
     changed_backings,
@@ -622,9 +623,14 @@ async def update_source(
         )
     if "name" in incoming and incoming["name"] != before["name"]:
         # Priority is name-ordered, so a rename can reorder every backing's links.
-        relink_ids += [
-            i for i in _cfg_backing_ids(source.connection_config) if i not in relink_ids
-        ]
+        try:
+            relink_ids += [
+                i for i in _cfg_backing_ids(source.connection_config) if i not in relink_ids
+            ]
+        except (KeyError, ValueError, TypeError, AttributeError):
+            logger.warning(
+                "update_source: corrupt mirrors on %s; rename relink skipped", source.id
+            )
 
     await db.commit()
     await db.refresh(source)
@@ -735,9 +741,10 @@ async def delete_source(
                     Entry.link_target_source_id == source_id, Entry.source_id.is_not(None),
                 ).distinct()
             )).scalars().all())
-    else:
+    elif source.type in MIRROR_BACKING_TYPES:
         apps = (await db.execute(
-            select(Source).where(Source.type.in_(MIRROR_APP_TYPES)).order_by(Source.name, Source.id)
+            select(Source).where(Source.type.in_(MIRROR_APP_TYPES))
+            .order_by(Source.name, Source.id).with_for_update(of=Source)
         )).scalars().all()
         for app in apps:
             before_cfg = dict(app.connection_config or {})

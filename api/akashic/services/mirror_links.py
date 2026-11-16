@@ -72,12 +72,12 @@ def normalize_mapping(raw: dict, backing_type: str) -> dict:
 async def validate_mirrors(
     db: AsyncSession, *, app_id: uuid.UUID | None, app_type: str, raw: Any
 ) -> list[dict]:
+    if app_type not in MIRROR_APP_TYPES:
+        raise MirrorConfigError(400, f"mirrors is not supported for source type '{app_type}'")
     if raw is None or raw == []:
         return []
     if not isinstance(raw, list):
         raise MirrorConfigError(400, "mirrors must be a list")
-    if app_type not in MIRROR_APP_TYPES:
-        raise MirrorConfigError(400, f"mirrors is not supported for source type '{app_type}'")
     out: list[dict] = []
     for item in raw:
         if not isinstance(item, dict):

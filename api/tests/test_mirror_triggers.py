@@ -308,3 +308,23 @@ async def test_delete_backing_strips_from_apps(client, setup_db):
             and x.link_target_viewable is None and x.link_target_source_id is None
             for x in e
         )
+
+
+@pytest.mark.asyncio
+async def test_empty_mirrors_rejected_on_backing_types(client, setup_db):
+    r = await client.post("/api/v1/sources", json={
+        "name": f"l-{_u()}", "type": "local",
+        "connection_config": {"path": "/tmp", "mirrors": []},
+    })
+    assert r.status_code == 400
+    b = await _mk(setup_db, "local", {"path": "/tmp"})
+    r = await client.patch(f"/api/v1/sources/{b}", json={"connection_config": {"mirrors": []}})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rename_app_with_corrupt_mirrors_succeeds(client, setup_db):
+    app = await _app(setup_db, mirrors=[{"source_id": "not-a-uuid"}])
+    r = await client.patch(f"/api/v1/sources/{app}", json={"name": f"renamed-{_u()}"})
+    assert r.status_code == 200, r.text
+    post_scan.relink_source_bg.assert_not_called()
