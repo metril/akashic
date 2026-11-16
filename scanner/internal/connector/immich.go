@@ -395,6 +395,9 @@ func (c *ImmichConnector) buildEntry(asset immichAsset, albumNames []string) *ap
 		t := asset.FileCreatedAt
 		entry.FsCreatedAt = &t
 	}
+	if asset.ExifInfo != nil && asset.ExifInfo.FileSizeInByte != nil && *asset.ExifInfo.FileSizeInByte >= 0 {
+		entry.SizeBytes = wire.To(int(*asset.ExifInfo.FileSizeInByte))
+	}
 	if asset.Checksum != "" {
 		// Immich stores SHA1 of the file. Prefix to match the
 		// namespace convention used elsewhere (sha1:, md5:, sha256:,
@@ -607,6 +610,7 @@ type immichExifInfo struct {
 	Longitude        *float64  `json:"longitude"`
 	ImageWidth       int       `json:"exifImageWidth"`
 	ImageHeight      int       `json:"exifImageHeight"`
+	FileSizeInByte   *int64    `json:"fileSizeInByte"`
 }
 
 type immichPersonRef struct {

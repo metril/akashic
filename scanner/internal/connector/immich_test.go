@@ -32,6 +32,7 @@ func TestStripExt(t *testing.T) {
 func TestImmichBuildEntry(t *testing.T) {
 	c := &ImmichConnector{}
 	lat, lng := 37.7749, -122.4194
+	size := int64(3048576)
 	created := time.Date(2024, 9, 16, 14, 30, 0, 0, time.UTC)
 	asset := immichAsset{
 		ID:               "abc12345-uuid-here",
@@ -47,11 +48,15 @@ func TestImmichBuildEntry(t *testing.T) {
 			Longitude:        &lng,
 			ImageWidth:       8192,
 			ImageHeight:      5464,
+			FileSizeInByte:   &size,
 		},
 		People: []immichPersonRef{{ID: "p1", Name: "Mom"}, {ID: "p2", Name: "Dad"}},
 	}
 	entry := c.buildEntry(asset, []string{"Vacation", "Family"})
 
+	if entry.SizeBytes == nil || *entry.SizeBytes != 3048576 {
+		t.Errorf("SizeBytes = %v, want 3048576", entry.SizeBytes)
+	}
 	if entry.Path != "/All Photos/2024/09/IMG_1234-abc12345.jpg" {
 		t.Errorf("Path = %q, want /All Photos/2024/09/IMG_1234-abc12345.jpg", entry.Path)
 	}
@@ -91,6 +96,9 @@ func TestImmichBuildEntryNoExif(t *testing.T) {
 		OriginalFileName: "file.heic",
 	}
 	entry := c.buildEntry(asset, nil)
+	if entry.SizeBytes != nil {
+		t.Errorf("SizeBytes = %v, want nil without exif", *entry.SizeBytes)
+	}
 	if !strings.HasPrefix(entry.Path, "/All Photos/Undated/00/") {
 		t.Errorf("expected /All Photos/Undated/00/ prefix, got %q", entry.Path)
 	}
@@ -155,6 +163,7 @@ func TestImmichWalkAgainstFakeServer(t *testing.T) {
 							"originalFileName": "vacation.jpg",
 							"fileCreatedAt":    "2024-07-01T10:00:00Z",
 							"checksum":         "hash-A",
+							"exifInfo":         map[string]any{"fileSizeInByte": 2048},
 						},
 					},
 				},
@@ -214,6 +223,13 @@ func TestImmichWalkAgainstFakeServer(t *testing.T) {
 			dirs++
 		} else {
 			files++
+			if strings.Contains(e.Path, "vacation") {
+				if e.SizeBytes == nil || *e.SizeBytes != 2048 {
+					t.Errorf("vacation SizeBytes = %v, want 2048", e.SizeBytes)
+				}
+			} else if e.SizeBytes != nil {
+				t.Errorf("%s SizeBytes = %d, want nil", e.Path, *e.SizeBytes)
+			}
 		}
 	}
 	if dirs != 4 || files != 2 {
