@@ -35,7 +35,6 @@ from akashic.services.mirror_links import (
     MIRROR_APP_TYPES,
     MirrorConfigError,
     backing_sources_for,
-    relink_and_flush,
     validate_mirror_of,
 )
 from akashic.services.source_config import (
@@ -62,6 +61,18 @@ HOSTLESS_SOURCE_TYPES = {
     "local", "paperless", "immich", "webdav",
     "gdrive", "onedrive", "dropbox",
 }
+
+
+@raises(400, 404)  # MirrorConfigError carries its own status
+async def _validated_mirror_of(
+    db: AsyncSession, *, backing_id: uuid.UUID | None, backing_type: str, raw: object,
+) -> list[dict]:
+    try:
+        return await validate_mirror_of(
+            db, backing_id=backing_id, backing_type=backing_type, raw=raw,
+        )
+    except MirrorConfigError as e:
+        raise HTTPException(e.status_code, e.detail)
 
 
 def _config_safe_summary(cfg: dict | None) -> dict:
@@ -237,13 +248,10 @@ async def create_source(
 
     payload = data.model_dump()
     if isinstance(payload.get("connection_config"), dict) and "mirror_of" in payload["connection_config"]:
-        try:
-            payload["connection_config"]["mirror_of"] = await validate_mirror_of(
-                db, backing_id=None, backing_type=data.type,
-                raw=payload["connection_config"]["mirror_of"],
-            )
-        except MirrorConfigError as e:
-            raise HTTPException(e.status_code, e.detail)
+        payload["connection_config"]["mirror_of"] = await _validated_mirror_of(
+            db, backing_id=None, backing_type=data.type,
+            raw=payload["connection_config"]["mirror_of"],
+        )
     # v0.35.0 — a NULL max_parallel_scanners / scan_chunk_size now means
     # "inherit from the host" (or the built-in default), so it is kept
     # as NULL rather than forced to a concrete value here.
@@ -582,13 +590,10 @@ async def update_source(
 
     mirror_changed = False
     if "mirror_of" in (incoming.get("connection_config") or {}):
-        try:
-            normalized = await validate_mirror_of(
-                db, backing_id=source.id, backing_type=source.type,
-                raw=(source.connection_config or {}).get("mirror_of"),
-            )
-        except MirrorConfigError as e:
-            raise HTTPException(e.status_code, e.detail)
+        normalized = await _validated_mirror_of(
+            db, backing_id=source.id, backing_type=source.type,
+            raw=(source.connection_config or {}).get("mirror_of"),
+        )
         source.connection_config = {**source.connection_config, "mirror_of": normalized}
         mirror_changed = normalized != (before["connection_config"].get("mirror_of") or [])
 
@@ -661,6 +666,7 @@ async def update_source(
 async def delete_source(
     source_id: Annotated[uuid.UUID, Path(description="Source to delete.")],
     request: Request,
+    background_tasks: BackgroundTasks,
     purge_entries: bool = Query(
         False,
         description=(
@@ -726,7 +732,9 @@ async def delete_source(
     await db.delete(source)
     await db.commit()
     for backing_id in stripped_backings:
-        await relink_and_flush(db, backing_id)
+        background_tasks.add_task(
+            post_scan.relink_source_bg, str(backing_id), settings.database_url,
+        )
 
     # Sync Meilisearch. Failures here are logged but don't break the
     # delete — search index drift is recoverable, a half-deleted

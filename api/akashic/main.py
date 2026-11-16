@@ -281,7 +281,7 @@ async def lifespan(app: FastAPI):
     from akashic.auth import oidc as _oidc
     await _oidc.aclose()
     # Background-task engines + shared webhook HTTP client.
-    from akashic.routers.ingest import dispose_bg_engines
+    from akashic.services.post_scan import dispose_bg_engines
     from akashic.services import webhooks as _webhooks
     await meili_indexer.dispose_bg_engine()
     await dispose_bg_engines()

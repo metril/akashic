@@ -15,7 +15,7 @@ from akashic.main import create_app
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
-from akashic.services import post_scan
+from akashic.services import mirror_links, post_scan
 from akashic.services.mirror_links import relink_backing
 from tests.principals import as_principal
 
@@ -149,7 +149,6 @@ async def test_clearing_last_mapping_unlinks(client, setup_db):
     r = await client.patch(f"/api/v1/sources/{bid}", json={"connection_config": {"mirror_of": []}})
     assert r.status_code == 200, r.text
     # real background relink, run against the test DB
-    from akashic.services import mirror_links
     async with setup_db() as db:
         await mirror_links.relink_and_flush(db, bid)
     async with setup_db() as db:
@@ -200,9 +199,13 @@ async def test_delete_app_source_strips_mapping_and_unlinks(client, setup_db):
     bid = await _backing_with_link(setup_db, app)
     r = await client.delete(f"/api/v1/sources/{app}")
     assert r.status_code == 204, r.text
+    post_scan.relink_source_bg.assert_called_once()
+    assert post_scan.relink_source_bg.call_args.args[0] == str(bid)
     async with setup_db() as db:
         b = await db.get(Source, bid)
         assert b.connection_config["mirror_of"] == []
+        await mirror_links.relink_and_flush(db, bid)
+    async with setup_db() as db:
         e = (await db.execute(select(Entry).where(Entry.source_id == bid))).scalar_one()
         assert e.linked_entry_id is None and e.link_role is None
         assert e.link_target_viewable is None and e.link_target_source_id is None

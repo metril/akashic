@@ -61,10 +61,10 @@ async def _reindex_entries(entry_ids: list[str], db_url: str) -> None:
     # Reuse the ingest router's process-cached engine pool
     # (review D-I2). Pre-fix this created + disposed an engine per
     # bulk-tag operation, churning DB connections.
-    from akashic.routers.ingest import _bg_session
+    from akashic.services.post_scan import bg_session
     from akashic.services.search import build_entry_doc, update_files_partial
 
-    session = _bg_session(db_url)
+    session = bg_session(db_url)
     try:
         async with session() as db:
             res = await db.execute(
