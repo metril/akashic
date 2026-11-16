@@ -95,8 +95,8 @@ much smaller scale than a single source's tree:
 
 ## Mirrored sources (logical views)
 
-When a `local`, `nfs`, `smb` or `s3` source declares `mirror_of`
-for an Immich or Paperless source (see
+When an Immich or Paperless source has a non-empty `mirrors` list
+naming on-disk `local`, `nfs`, `smb` or `s3` sources (see
 [admin.md](admin.md#mirror-links)), the app source is a *logical
 view* of bytes that already live on the backing source. Its bytes
 count **0** in storage-by-source, storage-by-type, largest files,

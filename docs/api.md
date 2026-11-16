@@ -1,7 +1,7 @@
 <!-- Generated from openapi.json by api/scripts/render_api_md.py. Do not edit; run `make openapi`. -->
 # Akashic API reference
 
-Version 0.51.1. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
+Version 0.52.0. Generated from [`openapi.json`](../openapi.json); the live, interactive version is served at `/api/docs`.
 
 Universal file index: sources, scans, search, permissions and administration.
 

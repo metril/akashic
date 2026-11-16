@@ -5,9 +5,15 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
-## v0.51.1 — 2026-11-16
+## v0.52.0 — 2026-11-16
 
-**The Admin → Access page now shows the real total size instead of always 0.**
+**Mirror settings now live on the Immich/Paperless source, where the library is defined, and the Access page shows the real total size.**
+
+### Changed
+
+- **Breaking: `mirror_of` on backing sources is replaced by `mirrors` on Immich/Paperless sources.** The API returns 400 for `mirror_of`, and for `mirrors` on any other source type (including an empty list). Saving relinks only changed backings; renaming an app with mirrors relinks its backings; deleting a backing strips it from apps (audited). Migration `0048_mirrors_on_app` converts existing mappings (dangling targets dropped; corrupt prefixes copied unchanged, so the source returns 409 until fixed).
+- **CLI**: `akashic sources mirror set <app> --backing <src> [--remote-prefix p] --local-prefix p`, `clear <app> [--backing]`, `show <app>` now take the app source.
+- **Web**: "Files on disk" editor on the Immich/Paperless form (add and edit); disk sources show a read-only "Mirrored by" list.
 
 ### Fixed
 
