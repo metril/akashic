@@ -82,7 +82,7 @@ func TestDocExtension(t *testing.T) {
 	}
 }
 
-const testSum = "ac0086b6e5f1c2d3a4b5c6d7e8f9011223344556677889900aabbccddeeff3e" + "3d"
+const testSum = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
 
 func TestBuildEntryNoArchive(t *testing.T) {
 	c := &PaperlessConnector{}
@@ -231,6 +231,10 @@ func TestPaperlessWalkAgainstFakeServer(t *testing.T) {
 	})
 	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/metadata/") {
+			if r.Header.Get("Authorization") != "Token secret" {
+				http.Error(w, "bad auth", http.StatusUnauthorized)
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{"original_checksum": testSum, "original_size": 1, "media_filename": "x.pdf"})
 			return
 		}
@@ -349,8 +353,17 @@ func entriesForLog(entries []*apiclient.EntryIn) []string {
 
 // paperlessFake serves lookups, a one-page document list and per-doc
 // metadata. metaHits counts metadata requests.
-func paperlessFake(t *testing.T, docs []map[string]any, metaStatus int, metaHits *int32) *httptest.Server {
+type fakeCfg struct {
+	checksum string       // original_checksum override (default upper-case testSum)
+	missing  map[int]bool // ids whose metadata 404s
+}
+
+func paperlessFake(t *testing.T, docs []map[string]any, metaStatus int, metaHits *int32, opts ...func(*fakeCfg)) *httptest.Server {
 	t.Helper()
+	cfg := &fakeCfg{checksum: strings.ToUpper(testSum), missing: map[int]bool{}}
+	for _, o := range opts {
+		o(cfg)
+	}
 	mux := http.NewServeMux()
 	empty := func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": []any{}})
@@ -368,8 +381,12 @@ func paperlessFake(t *testing.T, docs []map[string]any, metaStatus int, metaHits
 			}
 			id := strings.TrimSuffix(p, "/metadata/")
 			n, _ := strconv.Atoi(id)
+			if cfg.missing[n] {
+				http.NotFound(w, r)
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{
-				"original_checksum":      strings.ToUpper(testSum),
+				"original_checksum":      cfg.checksum,
 				"original_size":          1000 + n,
 				"media_filename":         fmt.Sprintf("%07d.pdf", n),
 				"has_archive_version":    true,
@@ -463,6 +480,9 @@ func TestPaperlessWalkSkipsNonRootVersions(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("files = %d, want 1 (version doc skipped)", len(files))
 	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("metadata fetches = %d, want 2 (root + version only)", got)
+	}
 	dm := wire.Deref(files[0].DomainMetadata)
 	vs, ok := dm["versions"].([]map[string]any)
 	if !ok || len(vs) != 1 {
@@ -493,5 +513,138 @@ func TestPaperlessMetadataErrorFailsWalk(t *testing.T) {
 	srv := paperlessFake(t, fakeDocs(3, 7000, "2024-05-04T00:00:00Z"), http.StatusInternalServerError, &hits)
 	if _, err := walkPaperless(t, srv.URL); err == nil {
 		t.Fatal("Walk should fail when metadata fetch errors")
+	}
+}
+
+func TestPaperlessContentHashLabelling(t *testing.T) {
+	md5sum := strings.Repeat("ab", 16)
+	cases := []struct {
+		name, sum, want string
+	}{
+		{"sha256", strings.ToUpper(testSum), "sha256:" + testSum},
+		{"md5", strings.ToUpper(md5sum), "md5:" + md5sum},
+		{"bad length", "abc123", ""},
+		{"non-hex", strings.Repeat("z", 64), ""},
+	}
+	for i, tc := range cases {
+		var hits int32
+		sum := tc.sum
+		srv := paperlessFake(t, fakeDocs(1, 8000+i, "2024-05-05T00:00:00Z"), 0, &hits, func(c *fakeCfg) { c.checksum = sum })
+		files, err := walkPaperless(t, srv.URL)
+		if err != nil || len(files) != 1 {
+			t.Fatalf("%s: err=%v files=%d", tc.name, err, len(files))
+		}
+		if got := wire.Deref(files[0].ContentHash); got != tc.want {
+			t.Errorf("%s: ContentHash = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestPaperlessDeletedDocSkipped(t *testing.T) {
+	var hits int32
+	docs := fakeDocs(3, 9000, "2024-05-06T00:00:00Z")
+	srv := paperlessFake(t, docs, 0, &hits, func(c *fakeCfg) { c.missing[9001] = true })
+	files, err := walkPaperless(t, srv.URL)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %d, want 2 (404 doc skipped)", len(files))
+	}
+}
+
+func TestPaperlessMissingVersionSkipped(t *testing.T) {
+	docs := []map[string]any{{
+		"id": 9100, "title": "r", "created": "2024-04-14T10:00:00Z", "modified": "2024-05-07T00:00:00Z",
+		"root_document": nil,
+		"versions": []map[string]any{
+			{"id": 9100, "checksum": "a", "is_root": true},
+			{"id": 9101, "checksum": "b", "is_root": false},
+			{"id": 9102, "checksum": "c", "is_root": false},
+		},
+	}}
+	var hits int32
+	srv := paperlessFake(t, docs, 0, &hits, func(c *fakeCfg) { c.missing[9101] = true })
+	files, err := walkPaperless(t, srv.URL)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("err=%v files=%d", err, len(files))
+	}
+	vs := wire.Deref(files[0].DomainMetadata)["versions"].([]map[string]any)
+	if len(vs) != 1 || vs[0]["id"] != 9102 {
+		t.Errorf("versions = %v, want only 9102", vs)
+	}
+}
+
+func TestPaperlessVersionMetadataCached(t *testing.T) {
+	docs := []map[string]any{{
+		"id": 9200, "title": "r", "created": "2024-04-14T10:00:00Z", "modified": "2024-05-08T00:00:00Z",
+		"root_document": nil,
+		"versions": []map[string]any{
+			{"id": 9200, "checksum": "a", "is_root": true},
+			{"id": 9201, "checksum": "b", "is_root": false},
+		},
+	}}
+	var hits int32
+	srv := paperlessFake(t, docs, 0, &hits)
+	for i := 0; i < 2; i++ {
+		if _, err := walkPaperless(t, srv.URL); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("fetches = %d, want 2 (root+version once)", got)
+	}
+	// version checksum change invalidates only the version entry
+	docs[0]["versions"].([]map[string]any)[1]["checksum"] = "changed"
+	if _, err := walkPaperless(t, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 3 {
+		t.Errorf("fetches = %d, want 3 after version checksum change", got)
+	}
+}
+
+func TestPaperlessCacheEvictsUnseen(t *testing.T) {
+	var cur atomic.Value
+	cur.Store(fakeDocs(3, 9400, "2024-05-09T00:00:00Z"))
+	mux := http.NewServeMux()
+	empty := func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": []any{}})
+	}
+	mux.HandleFunc("/api/correspondents/", empty)
+	mux.HandleFunc("/api/document_types/", empty)
+	mux.HandleFunc("/api/tags/", empty)
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/metadata/") {
+			json.NewEncoder(w).Encode(map[string]any{"original_checksum": testSum, "media_filename": "m.pdf"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": cur.Load()})
+	})
+	srv3 := httptest.NewServer(mux)
+	defer srv3.Close()
+	if _, err := walkPaperless(t, srv3.URL); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		paperlessMetaCache.Lock()
+		defer paperlessMetaCache.Unlock()
+		n := 0
+		for k := range paperlessMetaCache.m {
+			if strings.HasPrefix(k, srv3.URL+"|") {
+				n++
+			}
+		}
+		return n
+	}
+	if count() != 3 {
+		t.Fatalf("cache = %d, want 3", count())
+	}
+	cur.Store(fakeDocs(1, 9400, "2024-05-09T00:00:00Z"))
+	if _, err := walkPaperless(t, srv3.URL); err != nil {
+		t.Fatal(err)
+	}
+	if count() != 1 {
+		t.Errorf("cache = %d after docs removed, want 1", count())
 	}
 }

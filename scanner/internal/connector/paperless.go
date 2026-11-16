@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -168,6 +170,7 @@ func (c *PaperlessConnector) Walk(
 
 	// Paperless paginates with `?page=N&page_size=K`. The response carries
 	// `next` as a fully-qualified URL or null; we follow it until null.
+	seen := &metaSeen{keys: map[string]bool{}}
 	next := fmt.Sprintf("/api/documents/?page=1&page_size=%d", c.pageSize)
 	for next != "" {
 		if err := ctx.Err(); err != nil {
@@ -192,13 +195,16 @@ func (c *PaperlessConnector) Walk(
 			}
 			docs = append(docs, doc)
 		}
-		built, err := c.fetchPageMetadata(ctx, docs)
+		built, err := c.fetchPageMetadata(ctx, docs, seen)
 		if err != nil {
 			return stats, err
 		}
 		for i, doc := range docs {
 			if err := ctx.Err(); err != nil {
 				return stats, err
+			}
+			if built[i].skip {
+				continue // deleted between list and metadata fetch
 			}
 			entry := c.buildEntry(doc, c.resolveTags(doc.Tags), built[i].meta, built[i].versions)
 			// Emit each parent path component (correspondent, then
@@ -217,6 +223,7 @@ func (c *PaperlessConnector) Walk(
 		}
 		next = nextPath(page.Next, c.baseURL)
 	}
+	evictPaperlessCache(c.baseURL, seen)
 	_ = root // accepted for interface; paperless walk always covers the whole library
 	return stats, nil
 }
@@ -246,19 +253,51 @@ const paperlessMetaWorkers = 4
 
 type paperlessMetaCacheEntry struct {
 	modified time.Time
+	checksum string // version rows: the version checksum from the root's list row
 	meta     paperlessMetadata
 }
 
 // paperlessMetaCache is process-wide: metadata is immutable for a given
-// (instance, document, modified) so later scans skip the fetch.
+// (instance, document, modified[, version checksum]) so later scans skip
+// the fetch. Keys are baseURL + "|" + id.
 var paperlessMetaCache = struct {
 	sync.Mutex
 	m map[string]paperlessMetaCacheEntry
 }{m: map[string]paperlessMetaCacheEntry{}}
 
+// errPaperlessNotFound marks a 404 (document deleted mid-scan).
+var errPaperlessNotFound = errors.New("paperless: not found")
+
 type paperlessBuilt struct {
+	skip     bool // document vanished between list and metadata fetch
 	meta     paperlessMetadata
 	versions []map[string]any
+}
+
+// metaSeen records the cache keys a walk touched, for eviction.
+type metaSeen struct {
+	sync.Mutex
+	keys map[string]bool
+}
+
+func (s *metaSeen) add(k string) {
+	s.Lock()
+	s.keys[k] = true
+	s.Unlock()
+}
+
+// evictPaperlessCache drops cache entries of baseURL not touched by a walk.
+func evictPaperlessCache(baseURL string, seen *metaSeen) {
+	prefix := baseURL + "|"
+	seen.Lock()
+	defer seen.Unlock()
+	paperlessMetaCache.Lock()
+	defer paperlessMetaCache.Unlock()
+	for k := range paperlessMetaCache.m {
+		if strings.HasPrefix(k, prefix) && !seen.keys[k] {
+			delete(paperlessMetaCache.m, k)
+		}
+	}
 }
 
 // fetchMetadata calls GET /api/documents/<id>/metadata/.
@@ -274,15 +313,17 @@ func (c *PaperlessConnector) fetchMetadata(ctx context.Context, id int) (paperle
 	return meta, nil
 }
 
-// cachedMetadata returns the metadata for doc, reusing the cache when
-// modified is unchanged. A zero modified never caches.
-func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modified *time.Time) (paperlessMetadata, error) {
+// cachedMetadata returns the metadata for id, reusing the cache when
+// modified (and, for versions, checksum) is unchanged. A nil modified
+// never caches.
+func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modified *time.Time, checksum string, seen *metaSeen) (paperlessMetadata, error) {
 	key := c.baseURL + "|" + strconv.Itoa(id)
+	seen.add(key)
 	if modified != nil {
 		paperlessMetaCache.Lock()
 		e, ok := paperlessMetaCache.m[key]
 		paperlessMetaCache.Unlock()
-		if ok && e.modified.Equal(*modified) {
+		if ok && e.modified.Equal(*modified) && e.checksum == checksum {
 			return e.meta, nil
 		}
 	}
@@ -292,7 +333,7 @@ func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modifie
 	}
 	if modified != nil {
 		paperlessMetaCache.Lock()
-		paperlessMetaCache.m[key] = paperlessMetaCacheEntry{modified: *modified, meta: meta}
+		paperlessMetaCache.m[key] = paperlessMetaCacheEntry{modified: *modified, checksum: checksum, meta: meta}
 		paperlessMetaCache.Unlock()
 	}
 	return meta, nil
@@ -300,22 +341,42 @@ func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modifie
 
 // fetchPageMetadata resolves metadata (and non-root version metadata) for
 // every doc with paperlessMetaWorkers concurrency. Results are index-aligned
-// with docs. Any fetch error fails the whole page.
-func (c *PaperlessConnector) fetchPageMetadata(ctx context.Context, docs []paperlessDocument) ([]paperlessBuilt, error) {
+// with docs. A 404 skips the doc (or just the version); any other error
+// fails the page and cancels in-flight fetches.
+func (c *PaperlessConnector) fetchPageMetadata(ctx context.Context, docs []paperlessDocument, seen *metaSeen) ([]paperlessBuilt, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	out := make([]paperlessBuilt, len(docs))
-	errs := make([]error, len(docs))
 	sem := make(chan struct{}, paperlessMetaWorkers)
 	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+	fail := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
 	for i := range docs {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			doc := docs[i]
-			meta, err := c.cachedMetadata(ctx, doc.ID, doc.Modified)
+			meta, err := c.cachedMetadata(ctx, doc.ID, doc.Modified, "", seen)
+			if errors.Is(err, errPaperlessNotFound) {
+				out[i].skip = true
+				return
+			}
 			if err != nil {
-				errs[i] = err
+				fail(err)
 				return
 			}
 			out[i].meta = meta
@@ -323,11 +384,12 @@ func (c *PaperlessConnector) fetchPageMetadata(ctx context.Context, docs []paper
 				if v.IsRoot {
 					continue
 				}
-				// A version's own modified time isn't in the root's list
-				// row, so version metadata is always fetched.
-				vm, err := c.cachedMetadata(ctx, v.ID, nil)
+				vm, err := c.cachedMetadata(ctx, v.ID, doc.Modified, v.Checksum, seen)
+				if errors.Is(err, errPaperlessNotFound) {
+					continue
+				}
 				if err != nil {
-					errs[i] = err
+					fail(err)
 					return
 				}
 				ver := map[string]any{"id": v.ID, "media_filename": vm.MediaFilename}
@@ -339,12 +401,31 @@ func (c *PaperlessConnector) fetchPageMetadata(ctx context.Context, docs []paper
 		}(i)
 	}
 	wg.Wait()
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+// contentHash labels an original checksum by length: 64 hex -> sha256,
+// 32 hex -> md5 (older Paperless). Anything else yields "".
+func contentHash(sum string) string {
+	sum = strings.ToLower(strings.TrimSpace(sum))
+	for _, r := range sum {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return ""
+		}
+	}
+	switch len(sum) {
+	case 64:
+		return "sha256:" + sum
+	case 32:
+		return "md5:" + sum
+	}
+	return ""
 }
 
 func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string, meta paperlessMetadata, versions []map[string]any) *apiclient.EntryIn {
@@ -382,7 +463,11 @@ func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string
 		entry.FsCreatedAt = &t
 	}
 	if meta.OriginalChecksum != "" {
-		entry.ContentHash = wire.Str("sha256:" + strings.ToLower(meta.OriginalChecksum))
+		if h := contentHash(meta.OriginalChecksum); h != "" {
+			entry.ContentHash = wire.Str(h)
+		} else {
+			log.Printf("paperless: document %d: unrecognised original_checksum %q; no content hash", doc.ID, meta.OriginalChecksum)
+		}
 	}
 	if meta.OriginalSize != nil {
 		sz := int(*meta.OriginalSize)
@@ -484,6 +569,9 @@ func (c *PaperlessConnector) fetchJSON(ctx context.Context, pathOrAbs string) ([
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, fmt.Errorf("paperless: auth rejected (%d): %s", resp.StatusCode, snippet(body))
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("paperless: GET %s: %w", target, errPaperlessNotFound)
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("paperless: GET %s: %d %s", target, resp.StatusCode, snippet(body))
