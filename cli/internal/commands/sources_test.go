@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/akashic-project/akashic/cli/internal/client"
@@ -19,12 +21,20 @@ const (
 )
 
 type mirrorSrv struct {
-	patch map[string]any
-	srv   *httptest.Server
+	mu      sync.Mutex
+	patch   map[string]any
+	roleIDs []string
+	srv     *httptest.Server
 }
 
-func newMirrorSrv(t *testing.T) *mirrorSrv {
+// newMirrorSrv starts the fake API; a non-nil override replaces the default handler.
+func newMirrorSrv(t *testing.T, override ...http.HandlerFunc) *mirrorSrv {
 	m := &mirrorSrv{}
+	if len(override) > 0 {
+		m.srv = httptest.NewServer(override[0])
+		t.Cleanup(m.srv.Close)
+		return m
+	}
 	existing := `[{"source_id":"` + nasID + `","remote_prefix":"/old","local_prefix":"/old"},{"source_id":"` + arcID + `","remote_prefix":"/a","local_prefix":"/arch"}]`
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -35,11 +45,16 @@ func newMirrorSrv(t *testing.T) *mirrorSrv {
 			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"photos","type":"immich","connection_config":{"url":"http://x","mirrors":` + existing + `}}`))
 		case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/sources/"+appID:
 			b, _ := io.ReadAll(r.Body)
+			m.mu.Lock()
 			_ = json.Unmarshal(b, &m.patch)
 			cc := m.patch["connection_config"].(map[string]any)
+			m.mu.Unlock()
 			out, _ := json.Marshal(map[string]any{"id": appID, "name": "photos", "type": "immich", "connection_config": cc})
 			_, _ = w.Write(out)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/analytics/storage-by-link-role":
+			m.mu.Lock()
+			m.roleIDs = append(m.roleIDs, r.URL.Query().Get("source_id"))
+			m.mu.Unlock()
 			_, _ = w.Write([]byte(`[{"link_role":"original","count":3,"total_size":300},{"link_role":"thumbnail","count":0,"total_size":0},{"link_role":"unlinked","count":2,"total_size":20}]`))
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -89,8 +104,7 @@ func TestMirrorSetReplacesBackingMapping(t *testing.T) {
 }
 
 func TestMirrorSetMissingMappingInResponseErrors(t *testing.T) {
-	m := newMirrorSrv(t)
-	m.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	m := newMirrorSrv(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sources":
@@ -114,6 +128,16 @@ func TestMirrorSetMissingMappingInResponseErrors(t *testing.T) {
 	}
 }
 
+func TestMirrorSetOmittedRemotePrefixSendsEmpty(t *testing.T) {
+	m := newMirrorSrv(t)
+	runSources(t, m, "mirror", "set", "photos", "--backing", "archive", "--local-prefix", "/mnt/p")
+	list := m.patch["connection_config"].(map[string]any)["mirrors"].([]any)
+	got, ok := list[1].(map[string]any)["remote_prefix"]
+	if !ok || got != "" {
+		t.Fatalf("remote_prefix = %#v (present=%v), want empty string: %v", got, ok, list)
+	}
+}
+
 func TestMirrorClearAll(t *testing.T) {
 	m := newMirrorSrv(t)
 	runSources(t, m, "mirror", "clear", "photos")
@@ -126,6 +150,12 @@ func TestMirrorClearAll(t *testing.T) {
 func TestMirrorShowPrintsRolesPerBacking(t *testing.T) {
 	m := newMirrorSrv(t)
 	out := runSources(t, m, "mirror", "show", "photos")
+	sort.Strings(m.roleIDs)
+	want := []string{arcID, nasID}
+	sort.Strings(want)
+	if strings.Join(m.roleIDs, ",") != strings.Join(want, ",") {
+		t.Fatalf("storage-by-link-role source_ids %v, want %v", m.roleIDs, want)
+	}
 	for _, w := range []string{"BACKING", "nas:", "archive:", "local", "/old", "ROLE", "original", "unlinked"} {
 		if !strings.Contains(out, w) {
 			t.Fatalf("output missing %q:\n%s", w, out)
