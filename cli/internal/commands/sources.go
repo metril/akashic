@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/akashic-project/akashic/cli/internal/client"
@@ -79,9 +80,9 @@ func NewSourcesCmd(c *client.Client) *cobra.Command {
 	return cmd
 }
 
-// mirrorMappings reads connection_config.mirror_of as generic maps.
+// mirrorMappings reads connection_config.mirrors as generic maps.
 func mirrorMappings(cfg map[string]any) []map[string]any {
-	raw, _ := cfg["mirror_of"].([]any)
+	raw, _ := cfg["mirrors"].([]any)
 	out := make([]map[string]any, 0, len(raw))
 	for _, e := range raw {
 		if m, ok := e.(map[string]any); ok {
@@ -99,120 +100,126 @@ func str(m map[string]any, k string) string {
 func newMirrorCmd(c *client.Client) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mirror",
-		Short: "Link a backing source's files to Immich/Paperless entries",
+		Short: "Link backing-source files to an Immich/Paperless app source's entries",
 	}
 
-	var target, remotePrefix, localPrefix string
+	var backingFlag, remotePrefix, localPrefix string
 	setCmd := &cobra.Command{
-		Use:   "set <backing>",
-		Short: "Map a target's remote path prefix onto the backing source",
+		Use:   "set <app>",
+		Short: "Map the app's remote path prefix onto a backing source",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			backing, err := c.ResolveSource(ctx, args[0])
+			app, err := c.ResolveSource(ctx, args[0])
 			if err != nil {
 				return err
 			}
-			tgt, err := c.ResolveSource(ctx, target)
+			backing, err := c.ResolveSource(ctx, backingFlag)
 			if err != nil {
 				return err
 			}
-			full, err := c.GetSource(ctx, backing.Id)
+			full, err := c.GetSource(ctx, app.Id)
 			if err != nil {
 				return err
 			}
-			tid := tgt.Id.String()
+			bid := backing.Id.String()
+			entry := map[string]any{"source_id": bid, "remote_prefix": remotePrefix, "local_prefix": localPrefix}
 			list := []any{}
+			placed := false
 			for _, m := range mirrorMappings(full.ConnectionConfig) {
-				if str(m, "source_id") != tid {
+				if str(m, "source_id") != bid {
 					list = append(list, m)
+				} else if !placed {
+					list = append(list, entry)
+					placed = true
 				}
 			}
-			list = append(list, map[string]any{"source_id": tid, "remote_prefix": remotePrefix, "local_prefix": localPrefix})
-			updated, err := c.UpdateSourceConfig(ctx, backing.Id, map[string]any{"mirror_of": list})
+			if !placed {
+				list = append(list, entry)
+			}
+			updated, err := c.UpdateSourceConfig(ctx, app.Id, map[string]any{"mirrors": list})
 			if err != nil {
 				return err
 			}
 			var rp, lp string
 			found := false
 			for _, m := range mirrorMappings(updated.ConnectionConfig) {
-				if str(m, "source_id") == tid {
+				if str(m, "source_id") == bid {
 					rp, lp, found = str(m, "remote_prefix"), str(m, "local_prefix"), true
 				}
 			}
 			if !found {
-				return fmt.Errorf("server response has no mirror mapping for %s", tgt.Name)
+				return fmt.Errorf("server response has no mirror mapping for %s", backing.Name)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Mirror set: %s → %s (remote %q → local %q)\n", backing.Name, tgt.Name, rp, lp)
+			fmt.Fprintf(cmd.OutOrStdout(), "Mirror set: %s → %s (remote %q → local %q)\n", app.Name, backing.Name, rp, lp)
 			return nil
 		},
 	}
-	setCmd.Flags().StringVar(&target, "target", "", "Immich/Paperless source to link to (name or id, required)")
-	setCmd.Flags().StringVar(&remotePrefix, "remote-prefix", "", "Path prefix as the target app sees it (required)")
+	setCmd.Flags().StringVar(&backingFlag, "backing", "", "Backing source holding the files (name or id, required)")
+	setCmd.Flags().StringVar(&remotePrefix, "remote-prefix", "", "Path prefix as the app sees it (default: empty)")
 	setCmd.Flags().StringVar(&localPrefix, "local-prefix", "", "Matching path prefix in the backing source (required)")
-	_ = setCmd.MarkFlagRequired("target")
-	_ = setCmd.MarkFlagRequired("remote-prefix")
+	_ = setCmd.MarkFlagRequired("backing")
 	_ = setCmd.MarkFlagRequired("local-prefix")
 
-	var clearTarget string
+	var clearBacking string
 	clearCmd := &cobra.Command{
-		Use:   "clear <backing>",
-		Short: "Remove one target's mapping, or all mappings without --target",
+		Use:   "clear <app>",
+		Short: "Remove one backing's mapping, or all mappings without --backing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			backing, err := c.ResolveSource(ctx, args[0])
+			app, err := c.ResolveSource(ctx, args[0])
 			if err != nil {
 				return err
 			}
 			list := []any{}
-			var tgtName string
-			if clearTarget != "" {
-				tgt, err := c.ResolveSource(ctx, clearTarget)
+			var backingName string
+			if clearBacking != "" {
+				backing, err := c.ResolveSource(ctx, clearBacking)
 				if err != nil {
 					return err
 				}
-				full, err := c.GetSource(ctx, backing.Id)
+				full, err := c.GetSource(ctx, app.Id)
 				if err != nil {
 					return err
 				}
-				tgtName = tgt.Name
+				backingName = backing.Name
 				removed := false
 				for _, m := range mirrorMappings(full.ConnectionConfig) {
-					if str(m, "source_id") != tgt.Id.String() {
+					if str(m, "source_id") != backing.Id.String() {
 						list = append(list, m)
 					} else {
 						removed = true
 					}
 				}
 				if !removed {
-					return fmt.Errorf("%s has no mirror mapping for %s", backing.Name, tgt.Name)
+					return fmt.Errorf("%s has no mirror mapping for %s", app.Name, backing.Name)
 				}
 			}
-			if _, err := c.UpdateSourceConfig(ctx, backing.Id, map[string]any{"mirror_of": list}); err != nil {
+			if _, err := c.UpdateSourceConfig(ctx, app.Id, map[string]any{"mirrors": list}); err != nil {
 				return err
 			}
-			if clearTarget != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s → %s\n", backing.Name, tgtName)
+			if clearBacking != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s → %s\n", app.Name, backingName)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s (all targets)\n", backing.Name)
+				fmt.Fprintf(cmd.OutOrStdout(), "Mirror cleared: %s (all backings)\n", app.Name)
 			}
 			return nil
 		},
 	}
-	clearCmd.Flags().StringVar(&clearTarget, "target", "", "Only clear this target (name or id)")
+	clearCmd.Flags().StringVar(&clearBacking, "backing", "", "Only clear this backing (name or id)")
 
 	showCmd := &cobra.Command{
-		Use:   "show <backing>",
-		Short: "Show mirror mappings and the per-role storage breakdown",
+		Use:   "show <app>",
+		Short: "Show mirror mappings and the per-role storage breakdown per backing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			backing, err := c.ResolveSource(ctx, args[0])
+			app, err := c.ResolveSource(ctx, args[0])
 			if err != nil {
 				return err
 			}
-			full, err := c.GetSource(ctx, backing.Id)
+			full, err := c.GetSource(ctx, app.Id)
 			if err != nil {
 				return err
 			}
@@ -226,26 +233,49 @@ func newMirrorCmd(c *client.Client) *cobra.Command {
 				byID[s.Id.String()] = s.Name
 				kindByID[s.Id.String()] = s.Type
 			}
-			roles, err := c.StorageByLinkRole(ctx, backing.Id)
-			if err != nil {
+			name := func(id string) string {
+				if n := byID[id]; n != "" {
+					return n
+				}
+				return id
+			}
+			maps := mirrorMappings(full.ConnectionConfig)
+			out := cmd.OutOrStdout()
+			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "BACKING\tTYPE\tREMOTE\tLOCAL")
+			for _, m := range maps {
+				id := str(m, "source_id")
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name(id), kindByID[id], str(m, "remote_prefix"), str(m, "local_prefix"))
+			}
+			if err := tw.Flush(); err != nil {
 				return err
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "TARGET\tKIND\tREMOTE\tLOCAL")
-			for _, m := range mirrorMappings(full.ConnectionConfig) {
+			seen := map[string]bool{}
+			for _, m := range maps {
 				id := str(m, "source_id")
-				name := byID[id]
-				if name == "" {
-					name = id
+				if seen[id] {
+					continue
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, kindByID[id], str(m, "remote_prefix"), str(m, "local_prefix"))
+				seen[id] = true
+				bid, err := uuid.Parse(id)
+				if err != nil {
+					return fmt.Errorf("invalid backing id %q in mirrors: %w", id, err)
+				}
+				roles, err := c.StorageByLinkRole(ctx, bid)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "\n%s:\n", name(id))
+				rw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+				fmt.Fprintln(rw, "ROLE\tFILES\tBYTES")
+				for _, r := range roles {
+					fmt.Fprintf(rw, "%s\t%d\t%d\n", r.LinkRole, r.Count, r.TotalSize)
+				}
+				if err := rw.Flush(); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintln(tw)
-			fmt.Fprintln(tw, "ROLE\tFILES\tBYTES")
-			for _, r := range roles {
-				fmt.Fprintf(tw, "%s\t%d\t%d\n", r.LinkRole, r.Count, r.TotalSize)
-			}
-			return tw.Flush()
+			return nil
 		},
 	}
 

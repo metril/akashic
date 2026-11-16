@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	backID  = "11111111-1111-1111-1111-111111111111"
-	immID   = "22222222-2222-2222-2222-222222222222"
-	paperID = "33333333-3333-3333-3333-333333333333"
+	appID = "11111111-1111-1111-1111-111111111111"
+	nasID = "22222222-2222-2222-2222-222222222222"
+	arcID = "33333333-3333-3333-3333-333333333333"
 )
 
 type mirrorSrv struct {
@@ -25,19 +25,19 @@ type mirrorSrv struct {
 
 func newMirrorSrv(t *testing.T) *mirrorSrv {
 	m := &mirrorSrv{}
-	existing := `[{"source_id":"` + paperID + `","remote_prefix":"/p","local_prefix":"/docs"},{"source_id":"` + immID + `","remote_prefix":"/old","local_prefix":"/old"}]`
+	existing := `[{"source_id":"` + nasID + `","remote_prefix":"/old","local_prefix":"/old"},{"source_id":"` + arcID + `","remote_prefix":"/a","local_prefix":"/arch"}]`
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sources":
-			_, _ = w.Write([]byte(`[{"id":"` + backID + `","name":"nas","type":"local"},{"id":"` + immID + `","name":"photos","type":"immich"},{"id":"` + paperID + `","name":"docs","type":"paperless"}]`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sources/"+backID:
-			_, _ = w.Write([]byte(`{"id":"` + backID + `","name":"nas","type":"local","connection_config":{"path":"/x","mirror_of":` + existing + `}}`))
-		case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/sources/"+backID:
+			_, _ = w.Write([]byte(`[{"id":"` + appID + `","name":"photos","type":"immich"},{"id":"` + nasID + `","name":"nas","type":"local"},{"id":"` + arcID + `","name":"archive","type":"local"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sources/"+appID:
+			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"photos","type":"immich","connection_config":{"url":"http://x","mirrors":` + existing + `}}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/sources/"+appID:
 			b, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(b, &m.patch)
 			cc := m.patch["connection_config"].(map[string]any)
-			out, _ := json.Marshal(map[string]any{"id": backID, "name": "nas", "type": "local", "connection_config": cc})
+			out, _ := json.Marshal(map[string]any{"id": appID, "name": "photos", "type": "immich", "connection_config": cc})
 			_, _ = w.Write(out)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/analytics/storage-by-link-role":
 			_, _ = w.Write([]byte(`[{"link_role":"original","count":3,"total_size":300},{"link_role":"thumbnail","count":0,"total_size":0},{"link_role":"unlinked","count":2,"total_size":20}]`))
@@ -65,65 +65,87 @@ func runSources(t *testing.T, m *mirrorSrv, args ...string) string {
 	return out.String()
 }
 
-func TestMirrorSetReplacesTargetMapping(t *testing.T) {
+func TestMirrorSetReplacesBackingMapping(t *testing.T) {
 	m := newMirrorSrv(t)
-	out := runSources(t, m, "mirror", "set", "nas", "--target", "photos", "--remote-prefix", "/new", "--local-prefix", "/mnt/new")
+	out := runSources(t, m, "mirror", "set", "photos", "--backing", "nas", "--remote-prefix", "/new", "--local-prefix", "/mnt/new")
 	cc := m.patch["connection_config"].(map[string]any)
 	if len(cc) != 1 {
-		t.Fatalf("connection_config keys != {mirror_of}: %v", cc)
+		t.Fatalf("connection_config keys != {mirrors}: %v", cc)
 	}
-	list := cc["mirror_of"].([]any)
+	list := cc["mirrors"].([]any)
 	if len(list) != 2 {
 		t.Fatalf("want 2 mappings, got %v", list)
 	}
-	got := map[string]map[string]any{}
-	for _, e := range list {
-		em := e.(map[string]any)
-		got[em["source_id"].(string)] = em
+	first := list[0].(map[string]any)
+	if first["source_id"] != nasID || first["remote_prefix"] != "/new" || first["local_prefix"] != "/mnt/new" {
+		t.Fatalf("mapping not replaced in place: %v", first)
 	}
-	if got[immID]["remote_prefix"] != "/new" || got[immID]["local_prefix"] != "/mnt/new" {
-		t.Fatalf("target mapping not replaced: %v", got[immID])
+	if list[1].(map[string]any)["local_prefix"] != "/arch" {
+		t.Fatalf("other backing lost: %v", list[1])
 	}
-	if got[paperID]["local_prefix"] != "/docs" {
-		t.Fatalf("other mapping lost: %v", got[paperID])
-	}
-	if !strings.Contains(out, `Mirror set: nas → photos (remote "/new" → local "/mnt/new")`) {
+	if !strings.Contains(out, `Mirror set: photos → nas (remote "/new" → local "/mnt/new")`) {
 		t.Fatalf("output %q", out)
+	}
+}
+
+func TestMirrorSetMissingMappingInResponseErrors(t *testing.T) {
+	m := newMirrorSrv(t)
+	m.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sources":
+			_, _ = w.Write([]byte(`[{"id":"` + appID + `","name":"photos","type":"immich"},{"id":"` + nasID + `","name":"nas","type":"local"}]`))
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"photos","type":"immich","connection_config":{}}`))
+		default:
+			_, _ = w.Write([]byte(`{"id":"` + appID + `","name":"photos","type":"immich","connection_config":{"mirrors":[]}}`))
+		}
+	})
+	c, err := client.New(m.srv.URL, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := NewSourcesCmd(c)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"mirror", "set", "photos", "--backing", "nas", "--local-prefix", "/x"})
+	if err = cmd.Execute(); err == nil {
+		t.Fatal("expected error when response lacks mapping")
 	}
 }
 
 func TestMirrorClearAll(t *testing.T) {
 	m := newMirrorSrv(t)
-	runSources(t, m, "mirror", "clear", "nas")
+	runSources(t, m, "mirror", "clear", "photos")
 	b, _ := json.Marshal(m.patch)
-	if string(b) != `{"connection_config":{"mirror_of":[]}}` {
+	if string(b) != `{"connection_config":{"mirrors":[]}}` {
 		t.Fatalf("body %s", b)
 	}
 }
 
-func TestMirrorShowPrintsRoles(t *testing.T) {
+func TestMirrorShowPrintsRolesPerBacking(t *testing.T) {
 	m := newMirrorSrv(t)
-	out := runSources(t, m, "mirror", "show", "nas")
-	for _, w := range []string{"TARGET", "photos", "immich", "/old", "ROLE", "original", "unlinked"} {
+	out := runSources(t, m, "mirror", "show", "photos")
+	for _, w := range []string{"BACKING", "nas:", "archive:", "local", "/old", "ROLE", "original", "unlinked"} {
 		if !strings.Contains(out, w) {
 			t.Fatalf("output missing %q:\n%s", w, out)
 		}
 	}
 }
 
-func TestMirrorClearTargetKeepsOthers(t *testing.T) {
+func TestMirrorClearOneBacking(t *testing.T) {
 	m := newMirrorSrv(t)
-	out := runSources(t, m, "mirror", "clear", "nas", "--target", "photos")
-	list := m.patch["connection_config"].(map[string]any)["mirror_of"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["source_id"] != paperID {
-		t.Fatalf("want only paperless mapping, got %v", list)
+	out := runSources(t, m, "mirror", "clear", "photos", "--backing", "nas")
+	list := m.patch["connection_config"].(map[string]any)["mirrors"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["source_id"] != arcID {
+		t.Fatalf("want only archive mapping, got %v", list)
 	}
-	if !strings.Contains(out, "nas → photos") {
+	if !strings.Contains(out, "photos → nas") {
 		t.Fatalf("output %q", out)
 	}
 }
 
-func TestMirrorClearTargetMissingErrors(t *testing.T) {
+func TestMirrorClearBackingMissingErrors(t *testing.T) {
 	m := newMirrorSrv(t)
 	c, err := client.New(m.srv.URL, "key")
 	if err != nil {
@@ -132,7 +154,7 @@ func TestMirrorClearTargetMissingErrors(t *testing.T) {
 	cmd := NewSourcesCmd(c)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"mirror", "clear", "nas", "--target", "nas"})
+	cmd.SetArgs([]string{"mirror", "clear", "photos", "--backing", "photos"})
 	if err = cmd.Execute(); err == nil {
 		t.Fatal("expected error for missing mapping")
 	}
