@@ -100,6 +100,55 @@ async def test_entry_detail_linked_entry_null_for_limited_token(client, db_sessi
         "/api/v1/me/tokens", headers=_h(admin),
         json={"name": "t", "scopes": ["files:read"], "source_ids": [str(disk.id)]},
     )
+    assert r.status_code == 201, r.text
     tok = {"Authorization": f"Bearer {r.json()['token']}"}
     j = (await client.get(f"/api/v1/entries/{orig.id}", headers=tok)).json()
     assert j["linked_entry"] is None
+
+
+@pytest.mark.asyncio
+async def test_browse_hides_link_name_for_deleted_target(client, db_session):
+    admin, app, disk, asset, *_ = await _seed(db_session)
+    asset.is_deleted = True
+    await db_session.commit()
+    r = await client.get(f"/api/v1/browse?source_id={disk.id}", headers=_h(admin))
+    by = {i["name"]: i for i in r.json()["items"]}
+    assert by["z-orig.jpg"]["linked_entry_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_enforced_perms_hide_inaccessible_sides(client, db_session, rt_set):
+    from akashic.models.fs_person import FsBinding, FsPerson
+    rt_set(browse_enforce_perms=True)
+    admin, app, disk, asset, orig, thumb, plain = await _seed(db_session)
+    viewer = User(id=uuid.uuid4(), username=f"v{uuid.uuid4().hex[:6]}", email="v@e", password_hash="x", role="viewer")
+    db_session.add(viewer)
+    await db_session.commit()
+    person = FsPerson(id=uuid.uuid4(), user_id=viewer.id, label="p")
+    db_session.add(person)
+    await db_session.commit()
+    db_session.add(FsBinding(id=uuid.uuid4(), fs_person_id=person.id, source_id=disk.id,
+                             identity_type="posix_uid", identifier="1000", groups=[],
+                             groups_source="manual"))
+    await db_session.commit()
+    me, other = ["posix:uid:1000"], ["posix:uid:999"]
+
+    # Target not viewable: linked_entry and browse name are hidden.
+    orig.viewable_by_read = me
+    asset.viewable_by_read = other
+    await db_session.commit()
+    j = (await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))).json()
+    assert j["linked_entry"] is None
+    items = (await client.get(f"/api/v1/browse?source_id={disk.id}", headers=_h(viewer))).json()["items"]
+    row = next(i for i in items if i["name"] == "z-orig.jpg")
+    assert row["link_role"] == "original" and row["linked_entry_name"] is None
+
+    # Target viewable, one backing file not: only the viewable one is listed.
+    asset.viewable_by_read = me
+    thumb.viewable_by_read = other
+    await db_session.commit()
+    j = (await client.get(f"/api/v1/entries/{asset.id}", headers=_h(viewer))).json()
+    assert [b["id"] for b in j["backing_files"]] == [str(orig.id)]
+    assert j["backing_total_bytes"] == 3_000_000
+    j = (await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))).json()
+    assert j["linked_entry"]["id"] == str(asset.id)

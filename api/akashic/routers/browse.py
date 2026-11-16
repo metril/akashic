@@ -184,6 +184,7 @@ async def browse(
 
     enforce = await _should_enforce_perms(principal, show_all, db)
     perm_filter = None
+    tokens = None
     if enforce:
         tokens = await user_principal_tokens(user, db)
         perm_filter = viewable_clause(tokens, "read")
@@ -362,10 +363,13 @@ async def browse(
     target_ids = {r.linked_entry_id for r in rows if r.linked_entry_id is not None}
     if target_ids:
         t_stmt = restrict_sources(
-            select(Entry.id, Entry.name).where(Entry.id.in_(target_ids)), principal,
+            select(Entry.id, Entry.name).where(
+                Entry.id.in_(target_ids), Entry.is_deleted == False,  # noqa: E712
+            ),
+            principal,
         )
         if enforce:
-            t_stmt = t_stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
+            t_stmt = t_stmt.where(viewable_clause(tokens, "read"))
         link_names = {i: n for i, n in (await db.execute(t_stmt)).all()}
 
     return BrowsePage(

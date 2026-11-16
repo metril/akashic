@@ -13,10 +13,10 @@ from akashic.models.entry import Entry, EntryVersion
 from akashic.models.source import Source
 from akashic.models.user import User
 from akashic.schemas.entry import (
+    BackingFileRef,
     EntryDetailResponse,
     EntryResponse,
     EntryTagAssignment,
-    BackingFileRef,
     EntryVersionResponse,
     LinkedEntryRef,
     _EntrySourceRef,
