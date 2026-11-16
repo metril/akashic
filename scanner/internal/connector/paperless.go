@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akashic-project/akashic/scanner/internal/apiclient"
@@ -128,8 +129,9 @@ func (c *PaperlessConnector) Connect(ctx context.Context) error {
 // hierarchy. excludePatterns and computeHash are accepted for
 // interface compatibility but ignored — paperless has no path
 // segments to exclude (the synthesis is fully derived from server-
-// side metadata) and Paperless already provides per-document checksums
-// via the API.
+// side metadata). Per-document SHA-256 checksums and sizes come from
+// GET /api/documents/<id>/metadata/ (the list endpoint carries neither),
+// cached process-wide by (baseURL, id, modified).
 func (c *PaperlessConnector) Walk(
 	ctx context.Context, root string, _ []string, _ bool, _ bool,
 	fn func(*apiclient.EntryIn) error,
@@ -179,15 +181,26 @@ func (c *PaperlessConnector) Walk(
 		if err := json.Unmarshal(body, &page); err != nil {
 			return stats, fmt.Errorf("paperless: decode page: %w", err)
 		}
+		// Select the docs to emit (tag filter, skip non-root versions).
+		var docs []paperlessDocument
 		for _, doc := range page.Results {
+			if doc.RootDocument != nil && *doc.RootDocument != doc.ID {
+				continue // a version of another document; folded into its root's metadata
+			}
+			if tagFilterSet != nil && !tagsIntersect(c.resolveTags(doc.Tags), tagFilterSet) {
+				continue
+			}
+			docs = append(docs, doc)
+		}
+		built, err := c.fetchPageMetadata(ctx, docs)
+		if err != nil {
+			return stats, err
+		}
+		for i, doc := range docs {
 			if err := ctx.Err(); err != nil {
 				return stats, err
 			}
-			tagNames := c.resolveTags(doc.Tags)
-			if tagFilterSet != nil && !tagsIntersect(tagNames, tagFilterSet) {
-				continue
-			}
-			entry := c.buildEntry(doc, tagNames)
+			entry := c.buildEntry(doc, c.resolveTags(doc.Tags), built[i].meta, built[i].versions)
 			// Emit each parent path component (correspondent, then
 			// correspondent/doc_type, then correspondent/doc_type/year)
 			// the first time we see it. The dedup map keeps re-emits
@@ -228,7 +241,113 @@ func (c *PaperlessConnector) Close() error { return nil }
 
 // ----- helpers -----
 
-func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string) *apiclient.EntryIn {
+// paperlessMetaWorkers bounds concurrent /metadata/ requests per page.
+const paperlessMetaWorkers = 4
+
+type paperlessMetaCacheEntry struct {
+	modified time.Time
+	meta     paperlessMetadata
+}
+
+// paperlessMetaCache is process-wide: metadata is immutable for a given
+// (instance, document, modified) so later scans skip the fetch.
+var paperlessMetaCache = struct {
+	sync.Mutex
+	m map[string]paperlessMetaCacheEntry
+}{m: map[string]paperlessMetaCacheEntry{}}
+
+type paperlessBuilt struct {
+	meta     paperlessMetadata
+	versions []map[string]any
+}
+
+// fetchMetadata calls GET /api/documents/<id>/metadata/.
+func (c *PaperlessConnector) fetchMetadata(ctx context.Context, id int) (paperlessMetadata, error) {
+	var meta paperlessMetadata
+	body, err := c.fetchJSON(ctx, fmt.Sprintf("/api/documents/%d/metadata/", id))
+	if err != nil {
+		return meta, err
+	}
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return meta, fmt.Errorf("paperless: decode metadata %d: %w", id, err)
+	}
+	return meta, nil
+}
+
+// cachedMetadata returns the metadata for doc, reusing the cache when
+// modified is unchanged. A zero modified never caches.
+func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modified *time.Time) (paperlessMetadata, error) {
+	key := c.baseURL + "|" + strconv.Itoa(id)
+	if modified != nil {
+		paperlessMetaCache.Lock()
+		e, ok := paperlessMetaCache.m[key]
+		paperlessMetaCache.Unlock()
+		if ok && e.modified.Equal(*modified) {
+			return e.meta, nil
+		}
+	}
+	meta, err := c.fetchMetadata(ctx, id)
+	if err != nil {
+		return meta, err
+	}
+	if modified != nil {
+		paperlessMetaCache.Lock()
+		paperlessMetaCache.m[key] = paperlessMetaCacheEntry{modified: *modified, meta: meta}
+		paperlessMetaCache.Unlock()
+	}
+	return meta, nil
+}
+
+// fetchPageMetadata resolves metadata (and non-root version metadata) for
+// every doc with paperlessMetaWorkers concurrency. Results are index-aligned
+// with docs. Any fetch error fails the whole page.
+func (c *PaperlessConnector) fetchPageMetadata(ctx context.Context, docs []paperlessDocument) ([]paperlessBuilt, error) {
+	out := make([]paperlessBuilt, len(docs))
+	errs := make([]error, len(docs))
+	sem := make(chan struct{}, paperlessMetaWorkers)
+	var wg sync.WaitGroup
+	for i := range docs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			doc := docs[i]
+			meta, err := c.cachedMetadata(ctx, doc.ID, doc.Modified)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			out[i].meta = meta
+			for _, v := range doc.Versions {
+				if v.IsRoot {
+					continue
+				}
+				// A version's own modified time isn't in the root's list
+				// row, so version metadata is always fetched.
+				vm, err := c.cachedMetadata(ctx, v.ID, nil)
+				if err != nil {
+					errs[i] = err
+					return
+				}
+				ver := map[string]any{"id": v.ID, "media_filename": vm.MediaFilename}
+				if vm.ArchiveMediaFilename != nil {
+					ver["archive_media_filename"] = *vm.ArchiveMediaFilename
+				}
+				out[i].versions = append(out[i].versions, ver)
+			}
+		}(i)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string, meta paperlessMetadata, versions []map[string]any) *apiclient.EntryIn {
 	correspondent := lookupOr(c.correspondents, doc.Correspondent, "Unsorted")
 	documentType := lookupOr(c.documentTypes, doc.DocumentType, "Unfiled")
 
@@ -262,8 +381,12 @@ func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string
 		t := doc.Created
 		entry.FsCreatedAt = &t
 	}
-	if doc.ContentChecksum != "" {
-		entry.ContentHash = wire.Str(doc.ContentChecksum)
+	if meta.OriginalChecksum != "" {
+		entry.ContentHash = wire.Str("sha256:" + strings.ToLower(meta.OriginalChecksum))
+	}
+	if meta.OriginalSize != nil {
+		sz := int(*meta.OriginalSize)
+		entry.SizeBytes = &sz
 	}
 
 	dm := map[string]interface{}{
@@ -272,6 +395,21 @@ func (c *PaperlessConnector) buildEntry(doc paperlessDocument, tagNames []string
 		"document_type": documentType,
 		"created":       doc.Created.Format(time.RFC3339),
 		"title":         title,
+	}
+	if meta.MediaFilename != "" {
+		dm["media_filename"] = meta.MediaFilename
+	}
+	if meta.ArchiveMediaFilename != nil {
+		dm["archive_media_filename"] = *meta.ArchiveMediaFilename
+	}
+	if meta.ArchiveChecksum != nil {
+		dm["archive_checksum"] = *meta.ArchiveChecksum
+	}
+	if meta.ArchiveSize != nil {
+		dm["archive_size"] = *meta.ArchiveSize
+	}
+	if len(versions) > 0 {
+		dm["versions"] = versions
 	}
 	if doc.ArchiveSerialNumber != nil {
 		dm["archive_serial_number"] = *doc.ArchiveSerialNumber
@@ -549,11 +687,30 @@ type paperlessDocument struct {
 	Modified            *time.Time                `json:"modified"`
 	ArchiveSerialNumber *string                   `json:"archive_serial_number"`
 	OriginalFileName    string                    `json:"original_file_name"`
-	ContentChecksum     string                    `json:"checksum"`
+	RootDocument        *int                      `json:"root_document"`
+	Versions            []paperlessVersionRef     `json:"versions"`
 	CustomFields        []paperlessCustomFieldVal `json:"custom_fields"`
 }
 
 type paperlessCustomFieldVal struct {
 	Field int         `json:"field"`
 	Value interface{} `json:"value"`
+}
+
+// paperlessVersionRef is one entry of a document's `versions` list.
+type paperlessVersionRef struct {
+	ID       int    `json:"id"`
+	Checksum string `json:"checksum"`
+	IsRoot   bool   `json:"is_root"`
+}
+
+// paperlessMetadata is the subset of GET /api/documents/<id>/metadata/ used.
+type paperlessMetadata struct {
+	MediaFilename        string  `json:"media_filename"`
+	OriginalChecksum     string  `json:"original_checksum"`
+	OriginalSize         *int64  `json:"original_size"`
+	HasArchiveVersion    bool    `json:"has_archive_version"`
+	ArchiveMediaFilename *string `json:"archive_media_filename"`
+	ArchiveChecksum      *string `json:"archive_checksum"`
+	ArchiveSize          *int64  `json:"archive_size"`
 }

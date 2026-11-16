@@ -3,9 +3,12 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +82,24 @@ func TestDocExtension(t *testing.T) {
 	}
 }
 
+const testSum = "ac0086b6e5f1c2d3a4b5c6d7e8f9011223344556677889900aabbccddeeff3e" + "3d"
+
+func TestBuildEntryNoArchive(t *testing.T) {
+	c := &PaperlessConnector{}
+	size := int64(5)
+	meta := paperlessMetadata{MediaFilename: "0000001.pdf", OriginalChecksum: testSum, OriginalSize: &size}
+	entry := c.buildEntry(paperlessDocument{ID: 1, Title: "x"}, nil, meta, nil)
+	dm := wire.Deref(entry.DomainMetadata)
+	if dm["media_filename"] != "0000001.pdf" {
+		t.Errorf("media_filename = %v", dm["media_filename"])
+	}
+	for _, k := range []string{"archive_media_filename", "archive_checksum", "archive_size", "versions"} {
+		if _, ok := dm[k]; ok {
+			t.Errorf("key %q should be absent", k)
+		}
+	}
+}
+
 func TestBuildEntry(t *testing.T) {
 	c := &PaperlessConnector{
 		correspondents: map[int]string{1: "IRS"},
@@ -97,10 +118,22 @@ func TestBuildEntry(t *testing.T) {
 		Created:          created,
 		Modified:         &mod,
 		OriginalFileName: "w2-2024.pdf",
-		ContentChecksum:  "abc123",
 		Content:          "Wages, tips, other compensation: $50,000",
 	}
-	entry := c.buildEntry(doc, c.resolveTags(doc.Tags))
+	size := int64(12345)
+	arc := "0000042.pdf"
+	arcSum := "ffee"
+	arcSize := int64(999)
+	meta := paperlessMetadata{
+		MediaFilename:        "0000042.pdf",
+		OriginalChecksum:     strings.ToUpper(testSum),
+		OriginalSize:         &size,
+		HasArchiveVersion:    true,
+		ArchiveMediaFilename: &arc,
+		ArchiveChecksum:      &arcSum,
+		ArchiveSize:          &arcSize,
+	}
+	entry := c.buildEntry(doc, c.resolveTags(doc.Tags), meta, nil)
 	if entry.Path != "/IRS/Tax form/2024/W-2.pdf" {
 		t.Errorf("Path = %q, want /IRS/Tax form/2024/W-2.pdf", entry.Path)
 	}
@@ -116,13 +149,20 @@ func TestBuildEntry(t *testing.T) {
 	if entry.FsModifiedAt == nil || !entry.FsModifiedAt.Equal(mod) {
 		t.Errorf("ModifiedAt = %v, want %v", entry.FsModifiedAt, mod)
 	}
-	if wire.Deref(entry.ContentHash) != "abc123" {
-		t.Errorf("ContentHash = %q, want abc123", wire.Deref(entry.ContentHash))
+	if wire.Deref(entry.ContentHash) != "sha256:"+testSum {
+		t.Errorf("ContentHash = %q, want sha256:%s", wire.Deref(entry.ContentHash), testSum)
+	}
+	if entry.SizeBytes == nil || *entry.SizeBytes != 12345 {
+		t.Errorf("SizeBytes = %v, want 12345", entry.SizeBytes)
 	}
 	if entry.DomainMetadata == nil {
 		t.Fatalf("DomainMetadata is nil")
 	}
 	dm := wire.Deref(entry.DomainMetadata)
+	if dm["media_filename"] != "0000042.pdf" || dm["archive_media_filename"] != "0000042.pdf" ||
+		dm["archive_checksum"] != "ffee" || dm["archive_size"] != int64(999) {
+		t.Errorf("media/archive keys wrong: %+v", dm)
+	}
 	if dm["correspondent"] != "IRS" || dm["document_type"] != "Tax form" {
 		t.Errorf("metadata correspondent/document_type wrong: %+v", dm)
 	}
@@ -149,7 +189,7 @@ func TestBuildEntryFallbacks(t *testing.T) {
 		tags:           map[int]string{},
 	}
 	doc := paperlessDocument{ID: 7, Title: ""}
-	entry := c.buildEntry(doc, nil)
+	entry := c.buildEntry(doc, nil, paperlessMetadata{}, nil)
 	if !strings.HasPrefix(entry.Path, "/Unsorted/Unfiled/Undated/") {
 		t.Errorf("expected /Unsorted/Unfiled/Undated/* path, got %q", entry.Path)
 	}
@@ -190,6 +230,10 @@ func TestPaperlessWalkAgainstFakeServer(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/metadata/") {
+			json.NewEncoder(w).Encode(map[string]any{"original_checksum": testSum, "original_size": 1, "media_filename": "x.pdf"})
+			return
+		}
 		// Auth header check: token "secret".
 		if got := r.Header.Get("Authorization"); got != "Token secret" {
 			http.Error(w, "bad auth", http.StatusUnauthorized)
@@ -301,4 +345,153 @@ func entriesForLog(entries []*apiclient.EntryIn) []string {
 		out[i] = string(wire.Deref(e.Kind)) + ":" + e.Path
 	}
 	return out
+}
+
+// paperlessFake serves lookups, a one-page document list and per-doc
+// metadata. metaHits counts metadata requests.
+func paperlessFake(t *testing.T, docs []map[string]any, metaStatus int, metaHits *int32) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	empty := func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": []any{}})
+	}
+	mux.HandleFunc("/api/correspondents/", empty)
+	mux.HandleFunc("/api/document_types/", empty)
+	mux.HandleFunc("/api/tags/", empty)
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/api/documents/")
+		if strings.HasSuffix(p, "/metadata/") {
+			atomic.AddInt32(metaHits, 1)
+			if metaStatus != 0 {
+				http.Error(w, "boom", metaStatus)
+				return
+			}
+			id := strings.TrimSuffix(p, "/metadata/")
+			n, _ := strconv.Atoi(id)
+			json.NewEncoder(w).Encode(map[string]any{
+				"original_checksum":      strings.ToUpper(testSum),
+				"original_size":          1000 + n,
+				"media_filename":         fmt.Sprintf("%07d.pdf", n),
+				"has_archive_version":    true,
+				"archive_media_filename": fmt.Sprintf("%07d.pdf", n),
+				"archive_checksum":       "aa",
+				"archive_size":           77,
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"count": len(docs), "next": "", "results": docs})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func walkPaperless(t *testing.T, url string) ([]*apiclient.EntryIn, error) {
+	t.Helper()
+	c := NewPaperlessConnector(url, "secret", nil, true)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	var files []*apiclient.EntryIn
+	_, err := c.Walk(context.Background(), "/", nil, false, false, func(e *apiclient.EntryIn) error {
+		if wire.Deref(e.Kind) == apiclient.File {
+			files = append(files, e)
+		}
+		return nil
+	})
+	return files, err
+}
+
+func fakeDocs(n int, base int, mod string) []map[string]any {
+	out := []map[string]any{}
+	for i := 0; i < n; i++ {
+		out = append(out, map[string]any{
+			"id": base + i, "title": fmt.Sprintf("doc%d", base+i),
+			"created": "2024-04-14T10:00:00Z", "modified": mod,
+			"root_document": nil,
+			"versions":      []map[string]any{{"id": base + i, "checksum": "x", "is_root": true}},
+		})
+	}
+	return out
+}
+
+func TestPaperlessWalkFetchesMetadata(t *testing.T) {
+	var hits int32
+	srv := paperlessFake(t, fakeDocs(9, 100, "2024-05-01T00:00:00Z"), 0, &hits)
+	files, err := walkPaperless(t, srv.URL)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(files) != 9 {
+		t.Fatalf("files = %d, want 9", len(files))
+	}
+	for i, e := range files {
+		dm := wire.Deref(e.DomainMetadata)
+		if dm["paperless_id"] != 100+i {
+			t.Errorf("order: entry %d has id %v", i, dm["paperless_id"])
+		}
+		if wire.Deref(e.ContentHash) != "sha256:"+testSum {
+			t.Errorf("hash = %q", wire.Deref(e.ContentHash))
+		}
+		if e.SizeBytes == nil || *e.SizeBytes != 1100+i {
+			t.Errorf("size = %v, want %d", e.SizeBytes, 1100+i)
+		}
+	}
+}
+
+func TestPaperlessWalkSkipsNonRootVersions(t *testing.T) {
+	docs := []map[string]any{
+		{
+			"id": 219, "title": "root", "created": "2024-04-14T10:00:00Z", "modified": "2024-05-02T00:00:00Z",
+			"root_document": nil,
+			"versions": []map[string]any{
+				{"id": 219, "checksum": "a", "is_root": true},
+				{"id": 300, "checksum": "b", "is_root": false},
+			},
+		},
+		{
+			"id": 300, "title": "root", "created": "2024-04-14T10:00:00Z", "modified": "2024-05-02T00:00:00Z",
+			"root_document": 219, "versions": []any{},
+		},
+	}
+	var hits int32
+	srv := paperlessFake(t, docs, 0, &hits)
+	files, err := walkPaperless(t, srv.URL)
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files = %d, want 1 (version doc skipped)", len(files))
+	}
+	dm := wire.Deref(files[0].DomainMetadata)
+	vs, ok := dm["versions"].([]map[string]any)
+	if !ok || len(vs) != 1 {
+		t.Fatalf("versions = %v", dm["versions"])
+	}
+	if vs[0]["media_filename"] != "0000300.pdf" || vs[0]["id"] != 300 {
+		t.Errorf("version = %v", vs[0])
+	}
+}
+
+func TestPaperlessMetadataCacheSkipsUnchanged(t *testing.T) {
+	var hits int32
+	// unique base so the process-wide cache is not shared with other tests
+	srv := paperlessFake(t, fakeDocs(5, 5000, "2024-05-03T00:00:00Z"), 0, &hits)
+	if _, err := walkPaperless(t, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := walkPaperless(t, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 5 {
+		t.Errorf("metadata fetches = %d, want 5 (second walk cached)", got)
+	}
+}
+
+func TestPaperlessMetadataErrorFailsWalk(t *testing.T) {
+	var hits int32
+	srv := paperlessFake(t, fakeDocs(3, 7000, "2024-05-04T00:00:00Z"), http.StatusInternalServerError, &hits)
+	if _, err := walkPaperless(t, srv.URL); err == nil {
+		t.Fatal("Walk should fail when metadata fetch errors")
+	}
 }
