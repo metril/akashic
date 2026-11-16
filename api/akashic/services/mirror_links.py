@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.services import meili_indexer
@@ -88,7 +88,16 @@ async def validate_mirrors(
             raise MirrorConfigError(400, "mirrors.source_id must be a UUID") from None
         if app_id is not None and backing_id == app_id:
             raise MirrorConfigError(400, "a source cannot mirror itself")
-        backing = await db.get(Source, backing_id)
+        # FOR KEY SHARE conflicts with DELETE, so a concurrent backing delete
+        # waits for this transaction (the caller commits the mapping) instead
+        # of leaving a dangling mapping.
+        backing = (
+            await db.execute(
+                select(Source)
+                .where(Source.id == backing_id)
+                .with_for_update(read=True, key_share=True, of=Source)
+            )
+        ).scalar_one_or_none()
         if backing is None:
             raise MirrorConfigError(404, f"mirrors source {backing_id} not found")
         if backing.type not in MIRROR_BACKING_TYPES:

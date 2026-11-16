@@ -183,3 +183,23 @@ async def test_load_mappings_corrupt_raises(db_session, bad):
     with pytest.raises(MirrorConfigError) as e:
         await load_mappings(db_session, b)
     assert e.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_validate_locks_backing_for_key_share(db_session):
+    from sqlalchemy import event
+
+    b = await _src(db_session, "local")
+    bind = db_session.get_bind()
+    sync_engine = bind.sync_engine if hasattr(bind, "sync_engine") else bind
+    seen: list[str] = []
+
+    def _on_exec(conn, cursor, statement, parameters, context, executemany):
+        seen.append(" ".join(statement.split()))
+
+    event.listen(sync_engine, "before_cursor_execute", _on_exec)
+    try:
+        await _call(db_session, b.id)
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _on_exec)
+    assert any("FROM sources" in s and "FOR KEY SHARE" in s for s in seen), seen
