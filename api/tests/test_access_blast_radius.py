@@ -333,3 +333,66 @@ async def test_file_to_principals_hydrates_sid_names(client, db_session):
     by_token = {p["token"]: p for p in sid_principals}
     assert "sid:S-1-5-21-X-1001" in by_token
     assert by_token["sid:S-1-5-21-X-1001"]["name"] == "alice"
+
+
+# ── source limits ────────────────────────────────────────────────────────
+
+
+async def _limited_lookup(client, db_session, allowed, query):
+    from sqlalchemy import select
+    from akashic.auth.dependencies import get_principal
+    from akashic.models.user import User
+    from tests.principals import as_principal
+
+    token = await _register_login(client)
+    user = (await db_session.execute(select(User))).scalars().first()
+    app = client._transport.app
+    app.dependency_overrides[get_principal] = as_principal(
+        user, allowed_source_ids=allowed,
+    )
+    fake_index = AsyncMock()
+    fake_index.search = AsyncMock(return_value=_stub_sample([]))
+    fake_client = AsyncMock()
+    fake_client.get_index = AsyncMock(return_value=fake_index)
+    with patch(
+        "akashic.routers.access.get_meili_client", AsyncMock(return_value=fake_client),
+    ):
+        return await client.get(
+            f"/api/v1/access?principal=sid:S-1-5-21-X-1001&{query}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_totals_respect_token_source_limit(client, db_session):
+    src_a = await _make_source(db_session, "share-a")
+    src_b = await _make_source(db_session, "share-b")
+    await _seed(db_session, src_a, 2, 100)
+    await _seed(db_session, src_b, 3, 1000)
+    await db_session.commit()
+
+    r = await _limited_lookup(client, db_session, {src_a.id}, "right=read")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"] == {"file_count": 2, "total_size_bytes": 200, "source_count": 1}
+    assert [(x["source_id"], x["file_count"]) for x in body["by_source"]] == [(str(src_a.id), 2)]
+
+
+@pytest.mark.asyncio
+async def test_totals_with_source_id_param(client, db_session):
+    src_a = await _make_source(db_session, "share-a")
+    src_b = await _make_source(db_session, "share-b")
+    await _seed(db_session, src_a, 2, 100)
+    await _seed(db_session, src_b, 3, 1000)
+    await db_session.commit()
+
+    # Unlimited admin, narrowed by source_id.
+    r = await _limited_lookup(client, db_session, None, f"source_id={src_b.id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"] == {"file_count": 3, "total_size_bytes": 3000, "source_count": 1}
+    assert [x["source_id"] for x in body["by_source"]] == [str(src_b.id)]
+
+    # Limited token asking for a source outside its limit -> 404.
+    r = await _limited_lookup(client, db_session, {src_a.id}, f"source_id={src_b.id}")
+    assert r.status_code == 404
