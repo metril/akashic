@@ -250,12 +250,13 @@ export interface FieldsProps<C> {
 export function validateSourceConfig(
   type: SourceType,
   cfg: Partial<AnyConfig>,
+  targetTypes?: ReadonlyMap<string, SourceType>,
 ): string | null {
   const c = cfg as Record<string, unknown>;
   const isStr = (k: string) => typeof c[k] === "string" && (c[k] as string).trim() !== "";
 
   const mirrorErr = (): string | null =>
-    validateMirrorOf((c["mirror_of"] as MirrorMapping[] | undefined) ?? [], type);
+    validateMirrorOf((c["mirror_of"] as MirrorMapping[] | undefined) ?? [], type, targetTypes);
 
   switch (type) {
     case "local":
@@ -362,4 +363,14 @@ export function validateSourceConfig(
       return null;
     }
   }
+}
+
+/** Mirror-of validation for a (possibly host-backed) backing source. */
+export function validateMirrorConfig(
+  type: SourceType,
+  cfg: Partial<AnyConfig>,
+  targetTypes?: ReadonlyMap<string, SourceType>,
+): string | null {
+  const list = (cfg as { mirror_of?: MirrorMapping[] }).mirror_of ?? [];
+  return validateMirrorOf(list, type, targetTypes);
 }

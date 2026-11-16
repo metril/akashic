@@ -373,7 +373,7 @@ export default function Search() {
             e.target.checked ? addFilter(linkPredicate) : removeFilter(linkPredicate)
           }
         />
-        <span>Include linked files</span>
+        <span>Linked files only</span>
       </label>
 
       <ResultFacets

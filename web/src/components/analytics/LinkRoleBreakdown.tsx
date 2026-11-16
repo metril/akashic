@@ -5,8 +5,8 @@
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { client, ok } from "../../api/client";
-import { useSources } from "../../hooks/useSources";
-import type { Source, StorageByLinkRole } from "../../api/types";
+import { sourceDetailQueryOptions, useSources } from "../../hooks/useSources";
+import type { StorageByLinkRole } from "../../api/types";
 import { formatBytes, formatNumber } from "../../lib/format";
 import { Card, CardHeader, EmptyState, Select, Skeleton, Table } from "../ui";
 
@@ -19,11 +19,7 @@ export function LinkRoleBreakdown() {
     [sourcesQ.data],
   );
   const details = useQueries({
-    queries: backing.map((s) => ({
-      queryKey: ["sources", s.id, "detail"],
-      queryFn: async (): Promise<Source> =>
-        ok(await client.GET("/api/v1/sources/{source_id}", { params: { path: { source_id: s.id } } })),
-    })),
+    queries: backing.map((s) => sourceDetailQueryOptions(s.id)),
   });
   const mirrored = backing.filter((_, i) => {
     const m = (details[i]?.data?.connection_config as { mirror_of?: unknown[] } | undefined)?.mirror_of;
@@ -54,6 +50,7 @@ export function LinkRoleBreakdown() {
       />
       <div className="w-56 mb-3">
         <Select
+          label="Backing source"
           value={sourceId}
           onChange={(e) => setPicked(e.target.value)}
           options={mirrored.map((s) => ({ value: s.id, label: s.name }))}

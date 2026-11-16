@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import type { SourceType } from "../components/sources/sourceTypes";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { client, ok } from "../api/client";
 import type { components } from "../api/schema";
@@ -22,14 +24,32 @@ export function useSources() {
  * the broad ["sources"] key, which sympathetically refreshes this
  * key too because react-query matches on prefix.
  */
-export function useSourceDetail(sourceId: string | null) {
-  return useQuery<Source>({
-    queryKey: ["sources", sourceId, "detail"],
-    queryFn: async () =>
+export function sourceDetailQueryOptions(sourceId: string | null) {
+  return {
+    queryKey: ["sources", sourceId, "detail"] as const,
+    queryFn: async (): Promise<Source> =>
       ok(await client.GET("/api/v1/sources/{source_id}", { params: { path: { source_id: sourceId! } } })),
     enabled: sourceId != null,
     staleTime: 30_000,
-  });
+  };
+}
+
+export function useSourceDetail(sourceId: string | null) {
+  return useQuery<Source>(sourceDetailQueryOptions(sourceId));
+}
+
+/** Map of immich/paperless source id -> type, for mirror_of validation. */
+export function useMirrorTargetTypes(): Map<string, SourceType> {
+  const { data } = useSources();
+  return useMemo(
+    () =>
+      new Map(
+        (data ?? [])
+          .filter((s) => s.type === "immich" || s.type === "paperless")
+          .map((s) => [s.id, s.type as SourceType]),
+      ),
+    [data],
+  );
 }
 
 export function useCreateSource() {
