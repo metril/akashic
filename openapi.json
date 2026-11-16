@@ -15808,7 +15808,7 @@
   "info": {
     "description": "Universal file index: sources, scans, search, permissions and administration.",
     "title": "Akashic",
-    "version": "0.53.0"
+    "version": "0.53.1"
   },
   "openapi": "3.1.0",
   "paths": {

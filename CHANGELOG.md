@@ -5,6 +5,14 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.53.1 — 2026-11-16
+
+**A directory sync started after an in-process shutdown no longer races with the previous run's AD read.**
+
+### Fixed
+
+- **Directory sync after shutdown**: each sync run now has its own stop signal. Shutdown stops every in-flight run; a stopped run writes nothing and its row is marked "interrupted" by startup reconcile. Previously a new sync re-armed the shared signal, so an old AD read could run to completion.
+
 ## v0.53.0 — 2026-11-16
 
 **Admin → Access finds people and groups by name across AD, Authentik and akashic users and shows everything they can reach through all their groups.**
