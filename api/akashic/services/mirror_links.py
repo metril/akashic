@@ -6,7 +6,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from akashic.services import meili_indexer
 
 from akashic.models.source import Source
 
@@ -118,3 +121,184 @@ async def load_mappings(db: AsyncSession, backing: Source) -> list[MirrorMapping
             )
         )
     return out
+
+
+# --- Link pass ---------------------------------------------------------------
+
+ROLE_PRIORITY = {
+    "original": 0, "archive": 1, "version": 2,
+    "sidecar": 3, "thumbnail": 4, "encoded_video": 5,
+}
+
+
+@dataclass
+class LinkPassResult:
+    changed_ids: list[uuid.UUID]
+    linked: int
+
+
+_AE = "ae.source_id = :a AND ae.kind = 'file' AND NOT ae.is_deleted"
+_BE = "be.source_id = :b AND be.kind = 'file' AND NOT be.is_deleted"
+_INS = "INSERT INTO _mirror_desired (backing_id, target_id, role, prio) "
+_IMMICH_PATH = (
+    "CAST(:pfx AS text) || substr(ae.domain_metadata->>'original_path', "
+    "length(CAST(:rp AS text)) + 2)"
+)
+_IMMICH_OK = (
+    "starts_with(ae.domain_metadata->>'original_path', CAST(:rp AS text) || '/')"
+)
+_UUID_RE = (
+    "'^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    "(-preview|-thumbnail|-fullsize)?\\.[A-Za-z0-9]+$'"
+)
+_P = "CAST(:pfx AS text)"
+
+
+def _rule(role: str, frm: str, where: str) -> str:
+    return (
+        f"{_INS}SELECT be.id, ae.id, '{role}', CAST(:prio AS int) FROM entries ae {frm} "
+        f"WHERE {_AE} AND {_BE} AND {where}"
+    )
+
+
+_IMMICH_RULES = [
+    ("original", "p", _rule(
+        "original", "JOIN entries be ON be.path = " + _IMMICH_PATH, _IMMICH_OK)),
+    ("sidecar", "p", _rule(
+        "sidecar", "JOIN entries be ON be.path = " + _IMMICH_PATH + " || '.xmp'", _IMMICH_OK)),
+    ("thumbnail", "p", (
+        f"{_INS}SELECT be.id, ae.id, "
+        f"CASE WHEN starts_with(be.path, {_P} || 'encoded-video/') "
+        "THEN 'encoded_video' ELSE 'thumbnail' END, "
+        "CASE WHEN starts_with(be.path, " + _P + " || 'encoded-video/') "
+        "THEN CAST(:evprio AS int) ELSE CAST(:thprio AS int) END "
+        "FROM entries ae JOIN entries be ON ae.domain_metadata->>'immich_id' = "
+        f"substring(be.name from {_UUID_RE}) "
+        f"WHERE {_AE} AND {_BE} AND "
+        f"(starts_with(be.path, {_P} || 'thumbs/') "
+        f"OR starts_with(be.path, {_P} || 'encoded-video/'))"
+    )),
+]
+
+_PAPERLESS_RULES = [
+    _rule("original",
+          f"JOIN entries be ON be.path = {_P} || 'originals/' || (ae.domain_metadata->>'media_filename')",
+          "TRUE"),
+    _rule("archive",
+          f"JOIN entries be ON be.path = {_P} || 'archive/' || (ae.domain_metadata->>'archive_media_filename')",
+          "TRUE"),
+    _rule("thumbnail",
+          "JOIN entries be ON be.path IN ("
+          f"{_P} || 'thumbnails/' || lpad(ae.domain_metadata->>'paperless_id', 7, '0') || '.webp', "
+          f"{_P} || 'thumbnails/' || lpad(ae.domain_metadata->>'paperless_id', 7, '0') || '.png')",
+          "TRUE"),
+    _rule("version",
+          "CROSS JOIN LATERAL jsonb_array_elements("
+          "COALESCE(ae.domain_metadata->'versions', '[]'::jsonb)) v "
+          "JOIN entries be ON be.path IN ("
+          f"{_P} || 'originals/' || (v->>'media_filename'), "
+          f"{_P} || 'archive/' || (v->>'archive_media_filename'))",
+          "TRUE"),
+]
+
+_APPLY = """
+WITH pick AS (
+  SELECT DISTINCT ON (backing_id) backing_id, target_id, role
+  FROM _mirror_desired ORDER BY backing_id, prio
+), cur AS (
+  SELECT e.id, p.target_id, p.role, t.viewable_by_read AS viewable, t.source_id AS tsrc
+  FROM entries e
+  LEFT JOIN pick p ON p.backing_id = e.id
+  LEFT JOIN entries t ON t.id = p.target_id
+  WHERE e.source_id = :b
+    AND (p.backing_id IS NOT NULL OR e.link_role IS NOT NULL OR e.linked_entry_id IS NOT NULL)
+)
+UPDATE entries e SET linked_entry_id = cur.target_id, link_role = cur.role,
+       link_target_viewable = cur.viewable, link_target_source_id = cur.tsrc
+FROM cur
+WHERE e.id = cur.id AND (e.linked_entry_id IS DISTINCT FROM cur.target_id
+   OR e.link_role IS DISTINCT FROM cur.role
+   OR e.link_target_viewable IS DISTINCT FROM cur.viewable
+   OR e.link_target_source_id IS DISTINCT FROM cur.tsrc)
+RETURNING e.id
+"""
+
+
+async def relink_backing(db: AsyncSession, backing_id: uuid.UUID) -> LinkPassResult:
+    """Recompute link columns for every entry of one backing source.
+
+    Does not commit; the caller owns the transaction.
+    """
+    backing = await db.get(Source, backing_id)
+    if backing is None:
+        return LinkPassResult([], 0)
+    mappings = await load_mappings(db, backing)
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended('mirror_link:' || CAST(:b AS text), 0))"),
+        {"b": str(backing_id)},
+    )
+    await db.execute(text("DROP TABLE IF EXISTS _mirror_desired"))
+    await db.execute(text(
+        "CREATE TEMP TABLE _mirror_desired "
+        "(backing_id uuid, target_id uuid, role text, prio int) ON COMMIT DROP"
+    ))
+    for i, m in enumerate(mappings):
+        base = {
+            "a": m.source_id, "b": backing_id,
+            "pfx": prefix_with_sep(m.local_prefix, backing.type), "rp": m.remote_prefix,
+        }
+        if m.kind == "immich":
+            for role, _, sql in _IMMICH_RULES:
+                params = dict(base)
+                if role == "thumbnail":
+                    params["evprio"] = i * 10 + ROLE_PRIORITY["encoded_video"]
+                    params["thprio"] = i * 10 + ROLE_PRIORITY["thumbnail"]
+                else:
+                    params["prio"] = i * 10 + ROLE_PRIORITY[role]
+                params = {k: v for k, v in params.items() if f":{k}" in sql}
+                await db.execute(text(sql), params)
+        else:
+            for sql, role in zip(
+                _PAPERLESS_RULES, ("original", "archive", "thumbnail", "version"), strict=True
+            ):
+                params = {k: v for k, v in base.items() if f":{k}" in sql}
+                params["prio"] = i * 10 + ROLE_PRIORITY[role]
+                await db.execute(text(sql), params)
+    res = await db.execute(text(_APPLY), {"b": backing_id})
+    changed = [r[0] for r in res.all()]
+    linked = await db.scalar(
+        text("SELECT count(*) FROM entries WHERE source_id = :b AND linked_entry_id IS NOT NULL"),
+        {"b": backing_id},
+    )
+    return LinkPassResult(changed, int(linked or 0))
+
+
+async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uuid.UUID]:
+    res = await db.execute(
+        text(
+            "SELECT id FROM sources WHERE "
+            "jsonb_path_exists(connection_config, '$.mirror_of[*] ? (@.source_id == $id)', "
+            "jsonb_build_object('id', CAST(:sid AS text))) "
+            "OR (id = CAST(:sid AS uuid) AND jsonb_array_length(COALESCE(connection_config->'mirror_of', '[]'::jsonb)) > 0)"
+        ),
+        {"sid": str(source_id)},
+    )
+    return [r[0] for r in res.all()]
+
+
+async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
+    for backing_id in await backing_sources_for(db, source_id):
+        result = await relink_backing(db, backing_id)
+        await db.commit()
+        await meili_indexer.mark_dirty(backing_id, result.changed_ids)
+        await meili_indexer.flush(backing_id)
+
+
+async def logical_view_source_ids(db: AsyncSession) -> set[uuid.UUID]:
+    res = await db.execute(
+        text(
+            "SELECT DISTINCT CAST(m->>'source_id' AS uuid) FROM sources, "
+            "jsonb_array_elements(COALESCE(connection_config->'mirror_of', '[]'::jsonb)) m"
+        )
+    )
+    return {r[0] for r in res.all()}
