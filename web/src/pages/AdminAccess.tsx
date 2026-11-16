@@ -6,6 +6,7 @@ import { Button, Card, Drawer, EmptyState, Page, Spinner } from "../components/u
 import { EntryDetail } from "../components/EntryDetail";
 import { IdentityPicker } from "../components/access/IdentityPicker";
 import { DirectorySyncBar } from "../components/access/DirectorySyncBar";
+import { useDirectorySyncStatus } from "../hooks/useDirectorySyncStatus";
 import { PrincipalLookup } from "../components/access/PrincipalLookup";
 import {
   FileToPrincipalsResults,
@@ -56,6 +57,8 @@ export default function AdminAccess() {
   });
 
   const qc = useQueryClient();
+  // Above the (Advanced-hidden) bar so a finished sync always refreshes lookups.
+  const syncStatus = useDirectorySyncStatus();
   const identityQ = useQuery<PrincipalResult>({
     queryKey: ["access", "identity", identityId, right],
     queryFn: async () => {
@@ -107,7 +110,7 @@ export default function AdminAccess() {
 
       {mode === "principal" ? (
         <Card padding="md" className="mb-5 space-y-4">
-          {!advanced && <DirectorySyncBar />}
+          {!advanced && <DirectorySyncBar status={syncStatus} />}
           {advanced ? (
             <PrincipalLookup
               onLookup={setToken}

@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
 
 import { client, ok } from "../../api/client";
+import { DIRECTORY_STATUS_KEY } from "../../hooks/useDirectorySyncStatus";
 import { useScopes } from "../../hooks/useScopes";
 import { formatDateTime, formatRelative } from "../../lib/format";
 import { Badge, Button } from "../ui";
@@ -9,38 +10,21 @@ import type { components } from "../../api/schema";
 
 const LABEL: Record<string, string> = { ad: "AD", authentik: "Authentik" };
 
-/** Poll every 2 s while any backend is syncing, otherwise not at all. */
-export function pollInterval(
-  data: components["schemas"]["DirectoryStatusResponse"] | undefined,
-): number | false {
-  return data?.backends.some((b) => b.running) ? 2000 : false;
-}
-
 /** Directory sync state per backend plus a "Sync now" trigger. */
-export function DirectorySyncBar() {
+export function DirectorySyncBar({
+  status,
+}: {
+  status: UseQueryResult<components["schemas"]["DirectoryStatusResponse"]>;
+}) {
   const qc = useQueryClient();
   const { has } = useScopes();
-  const status = useQuery({
-    queryKey: ["access", "directory-status"],
-    queryFn: async () => ok(await client.GET("/api/v1/access/directory/status")),
-    refetchInterval: (q) => pollInterval(q.state.data),
-  });
   const sync = useMutation({
     mutationFn: async () => ok(await client.POST("/api/v1/access/directory/sync")),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["access", "directory-status"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DIRECTORY_STATUS_KEY }),
   });
 
   const backends = status.data?.backends ?? [];
   const running = backends.some((b) => b.running);
-  // A finished sync changes group data: drop open lookups and searches.
-  const wasRunning = useRef(false);
-  useEffect(() => {
-    if (wasRunning.current && !running) {
-      qc.invalidateQueries({ queryKey: ["access", "identity"] });
-      qc.invalidateQueries({ queryKey: ["access", "identities"] });
-    }
-    wasRunning.current = running;
-  }, [running, qc]);
   const canSync = has("maintenance:write");
 
   return (

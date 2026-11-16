@@ -34,6 +34,13 @@ describe("TokensUsedPanel", () => {
     expect(html).toContain("Group expansion incomplete");
     expect(html).toContain("tokenGroups read failed");
   });
+  it("shows failed expansion as an amber warning with the built-in-only message", () => {
+    const html = panel(exp({ status: "failed", detail: "no file-system identity" }));
+    expect(html).toContain("border-amber-300");
+    expect(html).toContain(
+      "No file-system identity; results show only what everyone, authenticated users and email shares reach.",
+    );
+  });
   it("shows cached as-of time", () => {
     const html = panel(exp({ status: "cached", cached_at: "2026-11-16T10:00:00Z" }));
     expect(html).toContain("as of");

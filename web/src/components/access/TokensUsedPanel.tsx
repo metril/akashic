@@ -64,8 +64,10 @@ export function TokensUsedPanel({
           {expansion.detail && <span> {expansion.detail}</span>}
         </p>
       )}
-      {expansion?.status === "failed" && expansion.detail && (
-        <p className="mb-3 text-sm text-fg-muted">{expansion.detail}</p>
+      {expansion?.status === "failed" && (
+        <div className="mb-3 border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-3 text-sm text-amber-800 dark:text-amber-200">
+          No file-system identity; results show only what everyone, authenticated users and email shares reach.
+        </div>
       )}
       {expansion && expansion.missing_identity_kinds.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">
