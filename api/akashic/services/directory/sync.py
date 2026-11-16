@@ -96,6 +96,7 @@ async def start_sync(
             raise SyncAlreadyRunning() from None
         for r in runs:
             await db.refresh(r)
+    _stop.clear()  # a previous shutdown (e.g. an app restart in-process) must not cancel this sync
     for r in runs:
         task = asyncio.create_task(run_backend(r.id, r.backend))
         _tasks.add(task)

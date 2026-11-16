@@ -483,3 +483,15 @@ async def test_scheduler_tick(svc, monkeypatch):
     due["v"] = False
     await scheduler._directory_sync_tick()
     assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_start_sync_rearms_stop_event(svc, rt_set, noop_runner, monkeypatch):
+    import threading
+    stop = threading.Event()
+    stop.set()
+    monkeypatch.setattr(sync, "_stop", stop)
+    rt_set(**AD_CFG)
+    await sync.start_sync(trigger="manual", triggered_by=None)
+    await asyncio.gather(*sync._tasks)
+    assert not stop.is_set()
