@@ -58,11 +58,12 @@ export const MIRROR_BACKING_TYPES: ReadonlySet<string> = new Set(["local", "nfs"
  * Backing source id -> app (immich/paperless) sources whose `mirrors`
  * name it. Reuses the cached per-source detail queries (30s stale).
  */
-export function useMirroredBy(): Map<string, { id: string; name: string }[]> {
+export function useMirroredBy(enabled = true): Map<string, { id: string; name: string }[]> {
   const { data } = useSources();
   const apps = useMemo(
-    () => (data ?? []).filter((s) => s.type === "immich" || s.type === "paperless"),
-    [data],
+    () =>
+      enabled ? (data ?? []).filter((s) => s.type === "immich" || s.type === "paperless") : [],
+    [data, enabled],
   );
   const details = useQueries({ queries: apps.map((s) => sourceDetailQueryOptions(s.id)) });
   const key = details.map((d) => d.dataUpdatedAt).join(",");

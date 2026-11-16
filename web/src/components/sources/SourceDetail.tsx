@@ -7,6 +7,7 @@ import { useScopes } from "../../hooks/useScopes";
 import {
   useDeleteSource,
   useMirrorBackingTypes,
+  MIRROR_BACKING_TYPES,
   useMirroredBy,
   useUpdateSource,
 } from "../../hooks/useSources";
@@ -653,7 +654,7 @@ const DisplayRows = memo(function DisplayRows({
   const inaccessibleDirs = lastScan?.inaccessible_dirs ?? 0;
   const inaccessibleFiles = lastScan?.inaccessible_files ?? 0;
   const inaccessibleTotal = inaccessibleDirs + inaccessibleFiles;
-  const mirroredBy = useMirroredBy().get(source.id) ?? [];
+  const mirroredBy = useMirroredBy(MIRROR_BACKING_TYPES.has(source.type)).get(source.id) ?? [];
   const fieldRows = useMemo<DisplayFieldRow[]>(() => {
     const cfg = (source.connection_config ?? {}) as Record<string, unknown>;
     return Object.entries(cfg).map(([k, v]) => ({

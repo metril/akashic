@@ -23,3 +23,12 @@ describe("validateSourceConfig mirrors gate", () => {
     expect(validateSourceConfig("local", { path: "/x" }, types)).toBeNull();
   });
 });
+
+describe("add-source gate", () => {
+  it("validateMirrors blocks an unknown-type-safe invalid immich mapping", async () => {
+    const { validateMirrors } = await import("../../lib/mirrorConfig");
+    expect(
+      validateMirrors([{ source_id: "lo", remote_prefix: "", local_prefix: "/m" }], "immich", types),
+    ).toBe("Remote prefix must start with /");
+  });
+});

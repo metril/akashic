@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, Card, CardHeader, Input, Select } from "../ui";
-import { useCreateSource } from "../../hooks/useSources";
+import { useCreateSource, useMirrorBackingTypes } from "../../hooks/useSources";
 import { useCreateHost, useHosts } from "../../hooks/useHosts";
 import { useTestSource, type TestSourceResult } from "../../hooks/useTestSource";
+import { validateMirrors, type MirrorMapping } from "../../lib/mirrorConfig";
+import { MirrorsFields } from "./source-fields/MirrorsFields";
 import { inferIsRemovable } from "../../lib/sources";
 import { ProfilePicker } from "../credentials/ProfilePicker";
 import {
@@ -118,7 +120,16 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
     isCreatingHost && !isHostless
       ? validateHostConfig(type as Exclude<SourceType, "local" | "paperless" | "immich" | "webdav" | "gdrive" | "onedrive" | "dropbox">, hostConfig)
       : null;
-  const validationError = shareError ?? hostError;
+  const mirrorBackingTypes = useMirrorBackingTypes();
+  const mirrorsError =
+    type === "immich" || type === "paperless"
+      ? validateMirrors(
+          (shareConfig as { mirrors?: MirrorMapping[] }).mirrors ?? [],
+          type,
+          mirrorBackingTypes,
+        )
+      : null;
+  const validationError = shareError ?? hostError ?? mirrorsError;
   const canSubmit =
     name.trim() !== "" &&
     validationError === null &&
@@ -280,6 +291,13 @@ export function AddSourceForm({ onCreated }: AddSourceFormProps) {
             errors={fieldValidation.errors}
             onFieldBlur={fieldValidation.markTouched}
           />
+          {(type === "immich" || type === "paperless") && (
+            <MirrorsFields
+              value={(shareConfig as { mirrors?: MirrorMapping[] }).mirrors ?? []}
+              onChange={(next) => setShareConfig({ ...shareConfig, mirrors: next } as never)}
+              appType={type}
+            />
+          )}
         </div>
 
         {!isHostless && hostChoice && hostChoice !== NEW_HOST && (

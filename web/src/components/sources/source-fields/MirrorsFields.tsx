@@ -46,6 +46,9 @@ export function MirrorsFields({ value, onChange, appType }: Props) {
               onChange={(e) => update(i, { source_id: e.target.value })}
               options={[
                 { value: "", label: "Select a source…" },
+                ...(m.source_id && !backingTypes.has(m.source_id)
+                  ? [{ value: m.source_id, label: `${m.source_id} (missing source)` }]
+                  : []),
                 ...backing.map((s) => ({ value: s.id, label: `${s.name} (${s.type})` })),
               ]}
             />
