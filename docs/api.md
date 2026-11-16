@@ -4263,6 +4263,20 @@ One row in an /add-shares batch.
 | `user_agent` | `string` | yes | Client user agent; empty when not available. |
 | `user_id` | `string` (`uuid`) \| `null` | yes | User who performed the action; null when the event is not attributable to a user. |
 
+<a id="schema-backingfileref"></a>
+### BackingFileRef
+
+An on-disk backing file linked to an app entry.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` (`uuid`) | yes | Backing file entry id. |
+| `link_role` | `string` | yes | Role of the backing file. |
+| `path` | `string` | yes | Full path of the backing file within its source. |
+| `size_bytes` | `integer` \| `null` | yes | Size in bytes; null when unknown. |
+| `source_id` | `string` (`uuid`) | yes | Source holding the backing file. |
+| `source_name` | `string` | yes | Name of that source. |
+
 <a id="schema-browseentry"></a>
 ### BrowseEntry
 
@@ -4275,6 +4289,9 @@ One row in an /add-shares batch.
 | `group_name` | `string` \| `null` | yes | Group name or SID as reported by the storage system. |
 | `id` | `string` (`uuid`) | yes | Entry id. |
 | `kind` | `string` | yes | `file` or `directory`. |
+| `link_role` | `string` \| `null` | yes | For a backing file linked to an Immich/Paperless entry: its role; null when not linked. |
+| `linked_entry_id` | `string` (`uuid`) \| `null` | yes | Id of the app entry this file is linked to; null when not linked. |
+| `linked_entry_name` | `string` \| `null` | yes | Name of the linked app entry; null when not linked or not accessible to the caller. |
 | `mime_type` | `string` \| `null` | yes | Detected MIME type; null when not detected. |
 | `mode` | `integer` \| `null` | yes | POSIX mode bits (file type and permissions) as an integer; null where the connector reports none. |
 | `name` | `string` | yes | Base name. |
@@ -4817,6 +4834,8 @@ Full entry detail; includes ACL, xattrs, version history.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `acl` | [`ACL-Output`](#schema-acl-output) \| `null` | yes | Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none. |
+| `backing_files` | array of [`BackingFileRef`](#schema-backingfileref) | yes | For an app entry, the backing files linked to it that the caller can access, ordered by role then path. |
+| `backing_total_bytes` | `integer` \| `null` | yes | Total size of the listed backing files; null when there are none. |
 | `content_hash` | `string` \| `null` | yes | Content hash. Files with identical content share it; null until computed. |
 | `domain_metadata` | `object` \| `null` | yes | Provider-specific metadata for self-hosted libraries (Paperless-ngx, Immich); null for filesystem sources. Free-form: keys depend on the provider. |
 | `extension` | `string` \| `null` | yes | File extension without the dot; null for directories and files without one. |
@@ -4830,6 +4849,9 @@ Full entry detail; includes ACL, xattrs, version history.
 | `is_deleted` | `boolean` | yes | True once a scan no longer finds the entry (soft delete). |
 | `kind` | `string` | yes | `file` or `directory`. |
 | `last_seen_at` | `string` (`date-time`) | yes | When a scan most recently saw the entry. |
+| `link_role` | `string` \| `null` | yes | For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked. |
+| `linked_entry` | [`LinkedEntryRef`](#schema-linkedentryref) \| `null` | yes | For a backing file, the app entry it is linked to; null when not linked or when the caller cannot access that entry. |
+| `linked_entry_id` | `string` (`uuid`) \| `null` | yes | Id of the Immich/Paperless entry this backing file is linked to; null when not linked. |
 | `mime_type` | `string` \| `null` | yes | Detected MIME type; null when not detected. |
 | `mode` | `integer` \| `null` | yes | POSIX mode bits (file type and permissions) as an integer; null where the connector reports none. |
 | `name` | `string` | yes | Base name. |
@@ -4890,6 +4912,8 @@ Inbound from the scanner; one row per file/directory observed in a scan.
 | `is_deleted` | `boolean` | yes | True once a scan no longer finds the entry (soft delete). |
 | `kind` | `string` | yes | `file` or `directory`. |
 | `last_seen_at` | `string` (`date-time`) | yes | When a scan most recently saw the entry. |
+| `link_role` | `string` \| `null` | yes | For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked. |
+| `linked_entry_id` | `string` (`uuid`) \| `null` | yes | Id of the Immich/Paperless entry this backing file is linked to; null when not linked. |
 | `mime_type` | `string` \| `null` | yes | Detected MIME type; null when not detected. |
 | `mode` | `integer` \| `null` | yes | POSIX mode bits (file type and permissions) as an integer; null where the connector reports none. |
 | `name` | `string` | yes | Base name. |
@@ -5332,6 +5356,20 @@ the field stays None and nothing changes.
 | `max_parallel_scanners` | `integer` | yes | Resolved cap on cooperating scanners for this scan. |
 | `scan_chunk_size` | `integer` | yes | Resolved work-unit entry budget. |
 | `type` | `string` | yes | Connector type. |
+
+<a id="schema-linkedentryref"></a>
+### LinkedEntryRef
+
+The app-side entry a backing file is linked to.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` (`uuid`) | yes | Linked entry id. |
+| `link_role` | `string` | yes | Role of this backing file relative to the linked entry. |
+| `name` | `string` | yes | Base name of the linked entry. |
+| `path` | `string` | yes | Full path of the linked entry within its source. |
+| `source_id` | `string` (`uuid`) | yes | Source of the linked entry. |
+| `source_name` | `string` | yes | Name of that source. |
 
 <a id="schema-listsharesresponse"></a>
 ### ListSharesResponse

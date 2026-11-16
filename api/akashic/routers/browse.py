@@ -12,6 +12,7 @@ from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.dependencies import Principal, check_source_access, require_scope
+from akashic.auth.source_scope import restrict_sources
 from akashic.services.runtime_settings import rt
 from akashic.database import get_db
 from akashic.models.entry import Entry
@@ -357,6 +358,16 @@ async def browse(
             )
         ).scalar() or 0
 
+    link_names: dict[uuid.UUID, str] = {}
+    target_ids = {r.linked_entry_id for r in rows if r.linked_entry_id is not None}
+    if target_ids:
+        t_stmt = restrict_sources(
+            select(Entry.id, Entry.name).where(Entry.id.in_(target_ids)), principal,
+        )
+        if enforce:
+            t_stmt = t_stmt.where(viewable_clause(await user_principal_tokens(user, db), "read"))
+        link_names = {i: n for i, n in (await db.execute(t_stmt)).all()}
+
     return BrowsePage(
         source_id=source_id,
         source_name=source.name,
@@ -378,6 +389,9 @@ async def browse(
                 group_name=r.group_name,
                 fs_modified_at=r.fs_modified_at,
                 child_count=child_counts.get(r.path) if r.kind == "directory" else None,
+                link_role=r.link_role,
+                linked_entry_id=r.linked_entry_id,
+                linked_entry_name=link_names.get(r.linked_entry_id),
             )
             for r in rows
         ],

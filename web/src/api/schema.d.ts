@@ -3606,6 +3606,44 @@ export interface components {
              */
             user_id: string | null;
         };
+        /**
+         * BackingFileRef
+         * @description An on-disk backing file linked to an app entry.
+         */
+        BackingFileRef: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Backing file entry id.
+             */
+            id: string;
+            /**
+             * Link Role
+             * @description Role of the backing file.
+             */
+            link_role: string;
+            /**
+             * Path
+             * @description Full path of the backing file within its source.
+             */
+            path: string;
+            /**
+             * Size Bytes
+             * @description Size in bytes; null when unknown.
+             */
+            size_bytes: number | null;
+            /**
+             * Source Id
+             * Format: uuid
+             * @description Source holding the backing file.
+             */
+            source_id: string;
+            /**
+             * Source Name
+             * @description Name of that source.
+             */
+            source_name: string;
+        };
         /** BrowseEntry */
         BrowseEntry: {
             /**
@@ -3644,6 +3682,21 @@ export interface components {
              * @description `file` or `directory`.
              */
             kind: string;
+            /**
+             * Link Role
+             * @description For a backing file linked to an Immich/Paperless entry: its role; null when not linked.
+             */
+            link_role: string | null;
+            /**
+             * Linked Entry Id
+             * @description Id of the app entry this file is linked to; null when not linked.
+             */
+            linked_entry_id: string | null;
+            /**
+             * Linked Entry Name
+             * @description Name of the linked app entry; null when not linked or not accessible to the caller.
+             */
+            linked_entry_name: string | null;
             /**
              * Mime Type
              * @description Detected MIME type; null when not detected.
@@ -4977,6 +5030,7 @@ export interface components {
          * EntryDetailResponse
          * @description Full entry detail; includes ACL, xattrs, version history.
          * @example {
+         *       "backing_files": [],
          *       "content_hash": "9b74c9897bac770ffc029102a200c5de",
          *       "extension": "pdf",
          *       "first_seen_at": "2026-04-03T01:00:12Z",
@@ -5003,6 +5057,16 @@ export interface components {
         EntryDetailResponse: {
             /** @description Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none. */
             acl: components["schemas"]["ACL-Output"] | null;
+            /**
+             * Backing Files
+             * @description For an app entry, the backing files linked to it that the caller can access, ordered by role then path.
+             */
+            backing_files: components["schemas"]["BackingFileRef"][];
+            /**
+             * Backing Total Bytes
+             * @description Total size of the listed backing files; null when there are none.
+             */
+            backing_total_bytes: number | null;
             /**
              * Content Hash
              * @description Content hash. Files with identical content share it; null until computed.
@@ -5073,6 +5137,18 @@ export interface components {
              * @description When a scan most recently saw the entry.
              */
             last_seen_at: string;
+            /**
+             * Link Role
+             * @description For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked.
+             */
+            link_role: string | null;
+            /** @description For a backing file, the app entry it is linked to; null when not linked or when the caller cannot access that entry. */
+            linked_entry: components["schemas"]["LinkedEntryRef"] | null;
+            /**
+             * Linked Entry Id
+             * @description Id of the Immich/Paperless entry this backing file is linked to; null when not linked.
+             */
+            linked_entry_id: string | null;
             /**
              * Mime Type
              * @description Detected MIME type; null when not detected.
@@ -5340,6 +5416,16 @@ export interface components {
              * @description When a scan most recently saw the entry.
              */
             last_seen_at: string;
+            /**
+             * Link Role
+             * @description For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked.
+             */
+            link_role: string | null;
+            /**
+             * Linked Entry Id
+             * @description Id of the Immich/Paperless entry this backing file is linked to; null when not linked.
+             */
+            linked_entry_id: string | null;
             /**
              * Mime Type
              * @description Detected MIME type; null when not detected.
@@ -6528,6 +6614,44 @@ export interface components {
              * @description Connector type.
              */
             type: string;
+        };
+        /**
+         * LinkedEntryRef
+         * @description The app-side entry a backing file is linked to.
+         */
+        LinkedEntryRef: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Linked entry id.
+             */
+            id: string;
+            /**
+             * Link Role
+             * @description Role of this backing file relative to the linked entry.
+             */
+            link_role: string;
+            /**
+             * Name
+             * @description Base name of the linked entry.
+             */
+            name: string;
+            /**
+             * Path
+             * @description Full path of the linked entry within its source.
+             */
+            path: string;
+            /**
+             * Source Id
+             * Format: uuid
+             * @description Source of the linked entry.
+             */
+            source_id: string;
+            /**
+             * Source Name
+             * @description Name of that source.
+             */
+            source_name: string;
         };
         /**
          * ListSharesResponse

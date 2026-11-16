@@ -83,6 +83,8 @@ class EntryResponse(ApiModel):
     first_seen_at: datetime = Field(description="When a scan first saw the entry.")
     last_seen_at: datetime = Field(description="When a scan most recently saw the entry.")
     is_deleted: bool = Field(description="True once a scan no longer finds the entry (soft delete).")
+    link_role: str | None = Field(default=None, description="For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked.")
+    linked_entry_id: uuid.UUID | None = Field(default=None, description="Id of the Immich/Paperless entry this backing file is linked to; null when not linked.")
 
     model_config = {"from_attributes": True, 'json_schema_extra': {'examples': [{'id': '6f1c1a52-3c77-4a4e-9d0e-0f3f4a8f9c11', 'source_id': '0d4a9a0e-2b1c-4c5e-8f6d-1a2b3c4d5e6f', 'kind': 'file', 'parent_path': '/Reports/2026', 'path': '/Reports/2026/q1.pdf', 'name': 'q1.pdf', 'extension': 'pdf', 'size_bytes': 482133, 'mime_type': 'application/pdf', 'content_hash': '9b74c9897bac770ffc029102a200c5de', 'mode': 33188, 'uid': 1000, 'gid': 1000, 'owner_name': 'alice', 'group_name': 'staff', 'fs_modified_at': '2026-04-02T09:15:00Z', 'first_seen_at': '2026-04-03T01:00:12Z', 'last_seen_at': '2026-04-27T01:00:09Z', 'is_deleted': False}]}}
 
@@ -118,6 +120,28 @@ class EntryTagAssignment(ApiModel):
     inherited_from_path: str | None = Field(default=None, description="Path of the ancestor directory the tag is inherited from; null for a direct tag.")
 
 
+class LinkedEntryRef(ApiModel):
+    """The app-side entry a backing file is linked to."""
+
+    id: uuid.UUID = Field(description="Linked entry id.")
+    source_id: uuid.UUID = Field(description="Source of the linked entry.")
+    source_name: str = Field(description="Name of that source.")
+    path: str = Field(description="Full path of the linked entry within its source.")
+    name: str = Field(description="Base name of the linked entry.")
+    link_role: str = Field(description="Role of this backing file relative to the linked entry.")
+
+
+class BackingFileRef(ApiModel):
+    """An on-disk backing file linked to an app entry."""
+
+    id: uuid.UUID = Field(description="Backing file entry id.")
+    source_id: uuid.UUID = Field(description="Source holding the backing file.")
+    source_name: str = Field(description="Name of that source.")
+    path: str = Field(description="Full path of the backing file within its source.")
+    size_bytes: int | None = Field(description="Size in bytes; null when unknown.")
+    link_role: str = Field(description="Role of the backing file.")
+
+
 class EntryDetailResponse(EntryResponse):
     """Full entry detail; includes ACL, xattrs, version history."""
 
@@ -130,6 +154,9 @@ class EntryDetailResponse(EntryResponse):
     versions: list[EntryVersionResponse] = Field(default_factory=list, description="Recorded versions of the entry, newest first.")
     source: _EntrySourceRef | None = Field(default=None, description="The owning source; null for an orphaned entry.")
     tags: list[EntryTagAssignment] = Field(default_factory=list, description="Tags on the entry, direct and inherited.")
+    linked_entry: LinkedEntryRef | None = Field(default=None, description="For a backing file, the app entry it is linked to; null when not linked or when the caller cannot access that entry.")
+    backing_files: list[BackingFileRef] = Field(default_factory=list, description="For an app entry, the backing files linked to it that the caller can access, ordered by role then path.")
+    backing_total_bytes: int | None = Field(default=None, description="Total size of the listed backing files; null when there are none.")
 
     model_config = {
         "from_attributes": True,
@@ -138,6 +165,7 @@ class EntryDetailResponse(EntryResponse):
             "acl": None, "xattrs": None, "domain_metadata": None, "native_id": None,
             "fs_created_at": None, "fs_accessed_at": None,
             "versions": [], "source": None, "tags": [],
+            "linked_entry": None, "backing_files": [], "backing_total_bytes": None,
         }]},
     }
 
@@ -156,6 +184,9 @@ class BrowseEntry(ApiModel):
     group_name: str | None = Field(default=None, description="Group name or SID as reported by the storage system.")
     fs_modified_at: datetime | None = Field(default=None, description="Modification time on the storage system.")
     child_count: int | None = Field(default=None, description="For directories, the number of non-deleted direct children; null for files.")
+    link_role: str | None = Field(default=None, description="For a backing file linked to an Immich/Paperless entry: its role; null when not linked.")
+    linked_entry_id: uuid.UUID | None = Field(default=None, description="Id of the app entry this file is linked to; null when not linked.")
+    linked_entry_name: str | None = Field(default=None, description="Name of the linked app entry; null when not linked or not accessible to the caller.")
 
 
 class BrowsePage(Page[BrowseEntry]):

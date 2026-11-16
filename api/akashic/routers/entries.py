@@ -16,7 +16,9 @@ from akashic.schemas.entry import (
     EntryDetailResponse,
     EntryResponse,
     EntryTagAssignment,
+    BackingFileRef,
     EntryVersionResponse,
+    LinkedEntryRef,
     _EntrySourceRef,
 )
 from akashic.schemas.common import Page, offset_from_cursor, offset_page
@@ -26,6 +28,7 @@ from akashic.services.access_query import (
     user_principal_tokens,
     viewable_clause,
 )
+from akashic.services.mirror_links import ROLE_PRIORITY
 from akashic.services.tag_inheritance import get_tags_for_entry
 
 router = ApiRouter(prefix="/entries", tags=["entries"])
@@ -155,6 +158,48 @@ async def get_entry(
     raw_tags = await get_tags_for_entry(db, entry_id=entry.id)
     tags = [EntryTagAssignment(**t) for t in raw_tags]
 
+    enforce = await _should_enforce_perms(principal, True, db)
+    tokens = await user_principal_tokens(user, db) if enforce else None
+
+    linked_entry = None
+    if entry.linked_entry_id is not None and entry.link_role is not None:
+        t_stmt = restrict_sources(
+            select(Entry, Source.name)
+            .join(Source, Source.id == Entry.source_id)
+            .where(Entry.id == entry.linked_entry_id, Entry.is_deleted == False),  # noqa: E712
+            principal,
+        )
+        if enforce:
+            t_stmt = t_stmt.where(viewable_clause(tokens, "read"))
+        row = (await db.execute(t_stmt)).first()
+        if row:
+            t, t_source_name = row
+            linked_entry = LinkedEntryRef(
+                id=t.id, source_id=t.source_id, source_name=t_source_name,
+                path=t.path, name=t.name, link_role=entry.link_role,
+            )
+
+    b_stmt = restrict_sources(
+        select(Entry, Source.name)
+        .join(Source, Source.id == Entry.source_id)
+        .where(Entry.linked_entry_id == entry.id, Entry.is_deleted == False),  # noqa: E712
+        principal,
+    )
+    if enforce:
+        b_stmt = b_stmt.where(viewable_clause(tokens, "read"))
+    b_rows = sorted(
+        (await db.execute(b_stmt)).all(),
+        key=lambda r: (ROLE_PRIORITY.get(r[0].link_role, len(ROLE_PRIORITY)), r[0].path),
+    )
+    backing_files = [
+        BackingFileRef(
+            id=b.id, source_id=b.source_id, source_name=sname, path=b.path,
+            size_bytes=b.size_bytes, link_role=b.link_role,
+        )
+        for b, sname in b_rows
+    ]
+    backing_total = sum(b.size_bytes or 0 for b in backing_files) if backing_files else None
+
     return EntryDetailResponse(
         id=entry.id,
         source_id=entry.source_id,
@@ -180,6 +225,11 @@ async def get_entry(
         first_seen_at=entry.first_seen_at,
         last_seen_at=entry.last_seen_at,
         is_deleted=entry.is_deleted,
+        link_role=entry.link_role,
+        linked_entry_id=entry.linked_entry_id,
+        linked_entry=linked_entry,
+        backing_files=backing_files,
+        backing_total_bytes=backing_total,
         versions=[EntryVersionResponse.model_validate(v) for v in versions],
         source=_EntrySourceRef.model_validate(source) if source else None,
         tags=tags,

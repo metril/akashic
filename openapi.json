@@ -1068,6 +1068,60 @@
         "title": "AuditEventOut",
         "type": "object"
       },
+      "BackingFileRef": {
+        "description": "An on-disk backing file linked to an app entry.",
+        "properties": {
+          "id": {
+            "description": "Backing file entry id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link_role": {
+            "description": "Role of the backing file.",
+            "title": "Link Role",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full path of the backing file within its source.",
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size in bytes; null when unknown.",
+            "title": "Size Bytes"
+          },
+          "source_id": {
+            "description": "Source holding the backing file.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Name of that source.",
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "source_name",
+          "path",
+          "size_bytes",
+          "link_role"
+        ],
+        "title": "BackingFileRef",
+        "type": "object"
+      },
       "BrowseEntry": {
         "properties": {
           "child_count": {
@@ -1142,6 +1196,43 @@
             "title": "Kind",
             "type": "string"
           },
+          "link_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a backing file linked to an Immich/Paperless entry: its role; null when not linked.",
+            "title": "Link Role"
+          },
+          "linked_entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the app entry this file is linked to; null when not linked.",
+            "title": "Linked Entry Id"
+          },
+          "linked_entry_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the linked app entry; null when not linked or not accessible to the caller.",
+            "title": "Linked Entry Name"
+          },
           "mime_type": {
             "anyOf": [
               {
@@ -1214,7 +1305,10 @@
           "owner_name",
           "group_name",
           "fs_modified_at",
-          "child_count"
+          "child_count",
+          "link_role",
+          "linked_entry_id",
+          "linked_entry_name"
         ],
         "title": "BrowseEntry",
         "type": "object"
@@ -3390,6 +3484,7 @@
         "description": "Full entry detail; includes ACL, xattrs, version history.",
         "examples": [
           {
+            "backing_files": [],
             "content_hash": "9b74c9897bac770ffc029102a200c5de",
             "extension": "pdf",
             "first_seen_at": "2026-04-03T01:00:12Z",
@@ -3424,6 +3519,26 @@
               }
             ],
             "description": "Access control list as scanned, in the model of the source (`posix`, `nfsv4`, `nt`, `s3` or `cloud_drive`); null when none."
+          },
+          "backing_files": {
+            "description": "For an app entry, the backing files linked to it that the caller can access, ordered by role then path.",
+            "items": {
+              "$ref": "#/components/schemas/BackingFileRef"
+            },
+            "title": "Backing Files",
+            "type": "array"
+          },
+          "backing_total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total size of the listed backing files; null when there are none.",
+            "title": "Backing Total Bytes"
           },
           "content_hash": {
             "anyOf": [
@@ -3553,6 +3668,42 @@
             "format": "date-time",
             "title": "Last Seen At",
             "type": "string"
+          },
+          "link_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked.",
+            "title": "Link Role"
+          },
+          "linked_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LinkedEntryRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a backing file, the app entry it is linked to; null when not linked or when the caller cannot access that entry."
+          },
+          "linked_entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the Immich/Paperless entry this backing file is linked to; null when not linked.",
+            "title": "Linked Entry Id"
           },
           "mime_type": {
             "anyOf": [
@@ -3717,6 +3868,8 @@
           "first_seen_at",
           "last_seen_at",
           "is_deleted",
+          "link_role",
+          "linked_entry_id",
           "acl",
           "xattrs",
           "domain_metadata",
@@ -3725,7 +3878,10 @@
           "fs_accessed_at",
           "versions",
           "source",
-          "tags"
+          "tags",
+          "linked_entry",
+          "backing_files",
+          "backing_total_bytes"
         ],
         "title": "EntryDetailResponse",
         "type": "object"
@@ -4110,6 +4266,31 @@
             "title": "Last Seen At",
             "type": "string"
           },
+          "link_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a backing file linked to an Immich/Paperless entry: its role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive` or `version`); null when not linked.",
+            "title": "Link Role"
+          },
+          "linked_entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the Immich/Paperless entry this backing file is linked to; null when not linked.",
+            "title": "Linked Entry Id"
+          },
           "mime_type": {
             "anyOf": [
               {
@@ -4218,7 +4399,9 @@
           "fs_modified_at",
           "first_seen_at",
           "last_seen_at",
-          "is_deleted"
+          "is_deleted",
+          "link_role",
+          "linked_entry_id"
         ],
         "title": "EntryResponse",
         "type": "object"
@@ -6106,6 +6289,53 @@
           "scan_chunk_size"
         ],
         "title": "LeasedSource",
+        "type": "object"
+      },
+      "LinkedEntryRef": {
+        "description": "The app-side entry a backing file is linked to.",
+        "properties": {
+          "id": {
+            "description": "Linked entry id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link_role": {
+            "description": "Role of this backing file relative to the linked entry.",
+            "title": "Link Role",
+            "type": "string"
+          },
+          "name": {
+            "description": "Base name of the linked entry.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full path of the linked entry within its source.",
+            "title": "Path",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Source of the linked entry.",
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "description": "Name of that source.",
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "source_name",
+          "path",
+          "name",
+          "link_role"
+        ],
+        "title": "LinkedEntryRef",
         "type": "object"
       },
       "ListSharesResponse": {
