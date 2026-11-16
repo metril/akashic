@@ -69,7 +69,7 @@ class AccessExpansion(ApiModel):
         description="`ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.")
     cached_at: datetime | None = Field(description="Oldest successful directory read behind the tokens, when any.")
     detail: str | None = Field(description="Why the expansion is not `ok`, when it is not.")
-    missing_identity_kinds: list[str] = Field(description="Token kinds the identity lacks: `sid`, `posix`.")
+    missing_identity_kinds: list[Literal["sid", "posix"]] = Field(description="Token kinds the identity lacks: `sid`, `posix`.")
 
 
 class PrincipalAccessResponse(ApiModel):

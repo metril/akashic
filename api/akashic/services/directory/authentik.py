@@ -27,8 +27,11 @@ def authentik_configured() -> bool:
 def authentik_keys(attributes: dict) -> tuple[str | None, str | None]:
     """(sid, dn) from the attributes Authentik's LDAP source stores."""
     attributes = attributes or {}
-    sid = decode_object_sid(attributes.get("objectSid")) or decode_object_sid(
-        attributes.get("ldap_uniq"))
+    uniq = attributes.get("ldap_uniq")
+    # ldap_uniq is often a GUID, not a SID: only trust it when it is textual.
+    if not (isinstance(uniq, str) and uniq.strip()[:4].upper() == "S-1-"):
+        uniq = None
+    sid = decode_object_sid(attributes.get("objectSid")) or decode_object_sid(uniq)
     dn = attributes.get("distinguishedName")
     return sid, dn if isinstance(dn, str) and dn else None
 

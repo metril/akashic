@@ -3101,7 +3101,7 @@ Requires scope `access:read`; not available to source-limited API tokens. Errors
 Auth: `userJWT`, scope `access:read`
 
 Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 
 **Request body** (required)
 - `application/json`: [`IdentityRefreshRequest`](#schema-identityrefreshrequest)
@@ -4177,7 +4177,7 @@ How completely the identity's tokens were expanded.
 | --- | --- | --- | --- |
 | `cached_at` | `string` (`date-time`) \| `null` | yes | Oldest successful directory read behind the tokens, when any. |
 | `detail` | `string` \| `null` | yes | Why the expansion is not `ok`, when it is not. |
-| `missing_identity_kinds` | array of `string` | yes | Token kinds the identity lacks: `sid`, `posix`. |
+| `missing_identity_kinds` | array of `"sid"` \| `"posix"` | yes | Token kinds the identity lacks: `sid`, `posix`. |
 | `status` | `"ok"` \| `"cached"` \| `"partial"` \| `"failed"` | yes | `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity. |
 
 <a id="schema-accessprincipal"></a>

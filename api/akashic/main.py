@@ -201,6 +201,29 @@ class _DynamicCORSMiddleware:
         return await self._inner(scope, receive, send)
 
 
+async def _recover_orphans_then_start_scheduler() -> None:
+    """Flip rows left `running` by the previous process to `failed` BEFORE the
+    scheduler starts: a tick must not insert fresh `running` rows that the
+    reconcile would then fail while their work is still in flight."""
+    # A maintenance job runs as an in-process task that does not survive
+    # a restart, so a leftover `running` row is a phantom job.
+    try:
+        from akashic.services.maintenance_jobs import reconcile_orphans
+        await reconcile_orphans()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("maintenance job reconcile failed: %s", exc)
+
+    try:
+        from akashic.services.directory.sync import reconcile_directory_runs
+        await reconcile_directory_runs()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("directory sync reconcile failed: %s", exc)
+
+    from akashic.scheduler import start_scheduler
+    start_scheduler()
+    logger.info("Scan scheduler started")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -232,24 +255,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Meilisearch not available at startup: %s", e)
 
-    from akashic.scheduler import start_scheduler
-    start_scheduler()
-    logger.info("Scan scheduler started")
-
-    # A maintenance job runs as an in-process task that does not survive
-    # a restart — flip any row left `running` by the previous process to
-    # `failed` so the Maintenance page doesn't show a phantom job.
-    try:
-        from akashic.services.maintenance_jobs import reconcile_orphans
-        await reconcile_orphans()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("maintenance job reconcile failed: %s", exc)
-
-    try:
-        from akashic.services.directory.sync import reconcile_directory_runs
-        await reconcile_directory_runs()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("directory sync reconcile failed: %s", exc)
+    await _recover_orphans_then_start_scheduler()
 
     # v0.4.11 Phase 8e — streaming top_children worker. No-op when
     # the feature flag (streaming_topchildren) is False.

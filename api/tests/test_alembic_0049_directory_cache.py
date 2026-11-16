@@ -119,11 +119,29 @@ async def test_0049_upgrade_creates_tables_and_lock_index(scratch_db):
 
 
 @pytest.mark.asyncio
-async def test_0049_downgrade_drops_tables(scratch_db):
+async def test_0049_triggered_by_fk_is_set_null(scratch_db):
     await _alembic(scratch_db, command.upgrade, "head")
-    await _alembic(scratch_db, command.downgrade, "0048_mirrors_on_app")
     eng = create_async_engine(scratch_db, poolclass=NullPool)
     try:
+        async with eng.connect() as conn:
+            fks = await conn.run_sync(
+                lambda c: inspect(c).get_foreign_keys("directory_sync_runs"))
+        fk = next(f for f in fks if f["constrained_columns"] == ["triggered_by"])
+        assert fk["referred_table"] == "users"
+        assert fk["options"].get("ondelete", "").upper() == "SET NULL"
+    finally:
+        await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_0049_downgrade_drops_tables(scratch_db):
+    await _alembic(scratch_db, command.upgrade, "head")
+    eng = create_async_engine(scratch_db, poolclass=NullPool)
+    try:
+        async with eng.connect() as conn:
+            before = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
+        assert {"directory_entries", "directory_sync_runs"} <= before
+        await _alembic(scratch_db, command.downgrade, "0048_mirrors_on_app")
         async with eng.connect() as conn:
             tables = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
         assert not tables & {"directory_entries", "directory_sync_runs"}

@@ -18,6 +18,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessExpansionMissingIdentityKinds.
+const (
+	Posix AccessExpansionMissingIdentityKinds = "posix"
+	Sid   AccessExpansionMissingIdentityKinds = "sid"
+)
+
+// Valid indicates whether the value is a known member of the AccessExpansionMissingIdentityKinds enum.
+func (e AccessExpansionMissingIdentityKinds) Valid() bool {
+	switch e {
+	case Posix:
+		return true
+	case Sid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessExpansionStatus.
 const (
 	AccessExpansionStatusCached  AccessExpansionStatus = "cached"
@@ -507,11 +525,14 @@ type AccessExpansion struct {
 	Detail *string `json:"detail"`
 
 	// MissingIdentityKinds Token kinds the identity lacks: `sid`, `posix`.
-	MissingIdentityKinds []string `json:"missing_identity_kinds"`
+	MissingIdentityKinds []AccessExpansionMissingIdentityKinds `json:"missing_identity_kinds"`
 
 	// Status `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.
 	Status AccessExpansionStatus `json:"status"`
 }
+
+// AccessExpansionMissingIdentityKinds defines model for AccessExpansion.MissingIdentityKinds.
+type AccessExpansionMissingIdentityKinds string
 
 // AccessExpansionStatus `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.
 type AccessExpansionStatus string
@@ -2717,7 +2738,7 @@ type ClientInterface interface {
 	// RefreshIdentityWithBody Refresh one person from the directory
 	//
 	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2727,7 +2748,7 @@ type ClientInterface interface {
 	// RefreshIdentity Refresh one person from the directory
 	//
 	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -3379,7 +3400,7 @@ func (c *Client) SearchIdentitiesRoute(ctx context.Context, params *SearchIdenti
 // RefreshIdentityWithBody Refresh one person from the directory
 //
 // Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 //
 // Takes any type of body and a specified content type.
 //
@@ -3399,7 +3420,7 @@ func (c *Client) RefreshIdentityWithBody(ctx context.Context, contentType string
 // RefreshIdentity Refresh one person from the directory
 //
 // Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 //
 // Takes a body of the `application/json` content type.
 //
@@ -7372,7 +7393,7 @@ type ClientWithResponsesInterface interface {
 	// RefreshIdentityWithBodyWithResponse Refresh one person from the directory
 	//
 	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -7382,7 +7403,7 @@ type ClientWithResponsesInterface interface {
 	// RefreshIdentityWithResponse Refresh one person from the directory
 	//
 	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -11616,7 +11637,7 @@ func (c *ClientWithResponses) SearchIdentitiesRouteWithResponse(ctx context.Cont
 // RefreshIdentityWithBodyWithResponse Refresh one person from the directory
 //
 // Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -11632,7 +11653,7 @@ func (c *ClientWithResponses) RefreshIdentityWithBodyWithResponse(ctx context.Co
 // RefreshIdentityWithResponse Refresh one person from the directory
 //
 // Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

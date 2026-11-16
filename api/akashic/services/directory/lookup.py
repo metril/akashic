@@ -100,6 +100,7 @@ async def _entries(
             DirectoryEntry.display_name.ilike(pat, escape="\\"),
             DirectoryEntry.username.ilike(pat, escape="\\"),
             DirectoryEntry.email.ilike(pat, escape="\\"),
+            DirectoryEntry.dn.ilike(pat, escape="\\"),
         ]
     if keys:
         if keys.sids:
@@ -129,7 +130,10 @@ async def akashic_user_records(
     conds = []
     if q is not None:
         pat = f"%{_escape_like(q)}%"
-        conds += [User.username.ilike(pat, escape="\\"), User.email.ilike(pat, escape="\\")]
+        conds += [
+            User.username.ilike(pat, escape="\\"), User.email.ilike(pat, escape="\\"),
+            and_(User.auth_provider == "ldap", User.external_id.ilike(pat, escape="\\")),
+        ]
     if user_ids:
         conds.append(User.id.in_(user_ids))
     if keys:
@@ -411,7 +415,7 @@ def _expansion(ident: MergedIdentity, has_ad_row: bool) -> tuple[Status, str | N
                 bump("cached", f"latest {r.backend} group read failed; showing earlier groups")
         elif synced_at is None or synced_at < fresh_after:
             bump("cached", f"{r.backend} data is not fresh (older than {DIRECTORY_FRESH_SECONDS} seconds)")
-    if ident.kind == "person" and not has_ad_row and any(
+    if not has_ad_row and any(
         r.sid or r.alt_sids for r in ident.records
     ):
         bump("partial", "SID known without an AD row; group membership not expanded")

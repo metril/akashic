@@ -110,6 +110,10 @@
           "missing_identity_kinds": {
             "description": "Token kinds the identity lacks: `sid`, `posix`.",
             "items": {
+              "enum": [
+                "sid",
+                "posix"
+              ],
               "type": "string"
             },
             "title": "Missing Identity Kinds",
@@ -16248,7 +16252,7 @@
     },
     "/api/v1/access/identities/refresh": {
       "post": {
-        "description": "Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).",
+        "description": "Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched).",
         "operationId": "refresh_identity",
         "requestBody": {
           "content": {

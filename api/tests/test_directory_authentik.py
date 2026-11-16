@@ -55,6 +55,11 @@ def test_authentik_keys():
         "S-1-5-21-1-2-3-1001", "CN=A,DC=x")
     assert authentik_keys({"ldap_uniq": "S-1-5-21-9"}) == ("S-1-5-21-9", None)
     assert authentik_keys({"ldap_uniq": "abc-guid"}) == (None, None)
+    # a base64 binary value in ldap_uniq is a GUID-ish blob, not a SID
+    import base64 as _b64
+    blob = bytes([1, 1, 0, 0, 0, 0, 0, 5]) + (21).to_bytes(4, "little")
+    assert authentik_keys({"ldap_uniq": _b64.b64encode(blob).decode()}) == (None, None)
+    assert authentik_keys({"ldap_uniq": "0123456789abcdef0123456789abcdef"}) == (None, None)
     assert authentik_keys({}) == (None, None)
     # shared normaliser: lowercase and base64 forms yield the same SID
     assert authentik_keys({"objectSid": "s-1-5-21-1-2-3-1001"})[0] == "S-1-5-21-1-2-3-1001"

@@ -8,10 +8,12 @@ from typing import Any
 
 def decode_binary_sid(raw: Any) -> str | None:
     """Decode a raw LDAP objectSid (8 + 4n bytes, n <= 15) to ``S-1-...``.
-    Returns None for anything malformed."""
+    Returns None for anything malformed (revision must be 1)."""
     if not isinstance(raw, (bytes, bytearray)) or len(raw) < 8:
         return None
     revision = raw[0]
+    if revision != 1:
+        return None
     sub_auth_count = raw[1]
     if len(raw) != 8 + 4 * sub_auth_count or sub_auth_count > 15:
         return None
@@ -38,7 +40,7 @@ def decode_object_sid(value: Any) -> str | None:
     if s.startswith("S-1-") or s.startswith("s-1-"):
         return s.upper()
     try:
-        raw = base64.b64decode(s, validate=False)
+        raw = base64.b64decode(s, validate=True)
     except (binascii.Error, ValueError):
         return None
     return decode_binary_sid(raw)

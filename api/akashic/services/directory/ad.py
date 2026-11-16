@@ -7,6 +7,7 @@ settings of the LDAP login. Error messages carry only the server's own
 from __future__ import annotations
 
 import logging
+import threading
 
 import ldap  # python-ldap
 from ldap.controls import SimplePagedResultsControl
@@ -141,9 +142,15 @@ def _record(conn, dn: str, attrs: dict, kind: str) -> DirRecord | None:
     )
 
 
-def _paged(conn, base: str, flt: str):
+def _check_stop(stop: threading.Event | None) -> None:
+    if stop is not None and stop.is_set():
+        raise DirectoryError("AD: cancelled")
+
+
+def _paged(conn, base: str, flt: str, stop: threading.Event | None = None):
     ctrl = SimplePagedResultsControl(True, size=PAGE_SIZE, cookie=b"")
     while True:
+        _check_stop(stop)
         msgid = conn.search_ext(base, ldap.SCOPE_SUBTREE, flt, ATTRS, serverctrls=[ctrl])
         _rtype, rdata, _rmsgid, rctrls = conn.result3(msgid)
         for dn, attrs in rdata:
@@ -158,7 +165,12 @@ def _paged(conn, base: str, flt: str):
         ctrl.cookie = paged[0].cookie
 
 
-def fetch_all_ad(timeout: float = 10.0) -> list[DirRecord]:
+def fetch_all_ad(
+    timeout: float = 10.0, stop: threading.Event | None = None,
+) -> list[DirRecord]:
+    """All AD users and groups. ``stop`` (checked per page and object) aborts
+    the fetch with ``DirectoryError`` so a cancelled task's thread ends."""
+    _check_stop(stop)
     conn = _connect(timeout)
     try:
         group_base = rt().ldap_group_base or rt().ldap_user_base
@@ -167,7 +179,8 @@ def fetch_all_ad(timeout: float = 10.0) -> list[DirRecord]:
             (rt().ldap_user_base, USER_FILTER, "person"),
             (group_base, GROUP_FILTER, "group"),
         ):
-            for dn, attrs in _paged(conn, base, flt):
+            for dn, attrs in _paged(conn, base, flt, stop):
+                _check_stop(stop)
                 rec = _record(conn, dn, attrs, kind)
                 if rec is not None:
                     out.append(rec)

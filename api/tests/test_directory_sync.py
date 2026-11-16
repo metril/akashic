@@ -60,7 +60,7 @@ async def test_sync_upserts_and_removes_missing(svc, monkeypatch):
     async with svc() as db:
         db.add_all([entry("A", display_name="old"), entry("B")])
         await db.commit()
-    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout: [
+    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout, stop=None: [
         rec("A", name="new"), rec("C"), rec("G", kind="group", groups=["S-1"], status="ok"),
     ])
     run = await _run(svc)
@@ -81,7 +81,7 @@ async def test_failed_sync_deletes_nothing(svc, monkeypatch):
         db.add_all([entry("A"), entry("B")])
         await db.commit()
 
-    def boom(timeout):
+    def boom(timeout, stop=None):
         raise DirectoryError("AD: SERVER_DOWN")
     monkeypatch.setattr(sync, "fetch_all_ad", boom)
     run = await _run(svc)
@@ -94,7 +94,7 @@ async def test_failed_sync_deletes_nothing(svc, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unexpected_error_records_only_type_name(svc, monkeypatch):
-    def boom(timeout):
+    def boom(timeout, stop=None):
         raise RuntimeError("password=hunter2")
     monkeypatch.setattr(sync, "fetch_all_ad", boom)
     run = await _run(svc)
@@ -163,7 +163,7 @@ async def test_failed_group_read_keeps_cached_groups(svc, monkeypatch):
     async with svc() as db:
         db.add(entry("A", group_sids=["G1"], groups_status="ok", groups_synced_at=t))
         await db.commit()
-    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout: [rec("A", status="failed")])
+    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout, stop=None: [rec("A", status="failed")])
     run = await _run(svc)
     await sync.run_backend(run.id, "ad")
     e = (await _get(svc, DirectoryEntry, ref="A"))[0]
@@ -172,7 +172,7 @@ async def test_failed_group_read_keeps_cached_groups(svc, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ok_group_read_sets_groups_synced_at(svc, monkeypatch):
-    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout: [rec("A", groups=["G2"], status="ok")])
+    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout, stop=None: [rec("A", groups=["G2"], status="ok")])
     run = await _run(svc)
     await sync.run_backend(run.id, "ad")
     e = (await _get(svc, DirectoryEntry, ref="A"))[0]
@@ -291,10 +291,103 @@ async def test_refresh_mixed_applies_successes_keeps_errored(svc, rt_set, monkey
 
 
 @pytest.mark.asyncio
-async def test_refresh_nothing_applicable_is_not_an_error(svc, rt_set):
+async def test_refresh_unconfigured_backend_is_failure(svc, rt_set):
     rt_set()  # nothing configured
     await _seed_two(svc)
-    assert {r.ref for r in await _refresh_all(svc)} == {"U1", "U2"}
+    with pytest.raises(sync.RefreshFailed, match="AD is not configured"):
+        await _refresh_all(svc)
+    rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
+    assert set(rows) == {"U1", "U2"} and rows["U1"].group_sids == ["OLD"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_unconfigured_authentik_is_failure(svc, rt_set):
+    rt_set(**AD_CFG)  # authentik not configured
+    async with svc() as db:
+        db.add(entry("7", backend="authentik"))
+        await db.commit()
+    with pytest.raises(sync.RefreshFailed, match="Authentik is not configured"):
+        await _refresh_all(svc)
+
+
+@pytest.mark.asyncio
+async def test_refresh_groups_and_akashic_are_not_applicable(svc, rt_set):
+    rt_set()
+    async with svc() as db:
+        db.add(entry("G", kind="group"))
+        await db.commit()
+    assert {r.ref for r in await _refresh_all(svc)} == {"G"}
+
+
+@pytest.mark.asyncio
+async def test_refresh_stamps_clock_timestamp(svc, rt_set, monkeypatch):
+    rt_set(**AD_CFG)
+    await _seed_two(svc)
+    monkeypatch.setattr(
+        sync, "fetch_ad_person", lambda *, sid, dn, timeout: rec("U1", sid=sid, status="ok"))
+    seen = []
+    real = sync._upsert
+
+    async def spy(db, records, synced_at):
+        seen.append(str(synced_at))
+        return await real(db, records, synced_at)
+    monkeypatch.setattr(sync, "_upsert", spy)
+    await _refresh_all(svc)
+    assert seen and "clock_timestamp" in seen[0]
+
+
+@pytest.mark.asyncio
+async def test_run_no_longer_running_leaves_cache_untouched(svc, monkeypatch):
+    async with svc() as db:
+        db.add_all([entry("A", display_name="old"), entry("B")])
+        await db.commit()
+    run = await _run(svc)
+
+    async def reconcile_first(backend):
+        # the run is failed (e.g. reconciled) while the fetch is in flight
+        async with svc() as db:
+            r = await db.get(DirectorySyncRun, run.id)
+            r.status = "failed"
+            r.error = "interrupted by API restart"
+            await db.commit()
+        return [rec("A", name="new"), rec("C")]
+    monkeypatch.setattr(sync, "_fetch", reconcile_first)
+    await sync.run_backend(run.id, "ad")
+
+    rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
+    assert set(rows) == {"A", "B"} and rows["A"].display_name == "old"
+    r = (await _get(svc, DirectorySyncRun, id=run.id))[0]
+    assert r.status == "failed" and r.error == "interrupted by API restart"
+
+
+def test_lock_conflict_helper_uses_constraint_name():
+    from types import SimpleNamespace as NS
+    from sqlalchemy.exc import IntegrityError
+
+    def exc(orig):
+        return IntegrityError("stmt", {}, orig)
+    named = NS(__cause__=NS(constraint_name="uq_directory_sync_runs_backend_running"))
+    other = NS(__cause__=NS(constraint_name="directory_sync_runs_triggered_by_fkey"))
+    # a different constraint is not a conflict even if its message mentions the lock index
+    other.args = ("uq_directory_sync_runs_backend_running",)
+    assert sync._is_lock_conflict(exc(named)) is True
+    assert sync._is_lock_conflict(exc(other)) is False
+    assert sync._is_lock_conflict(exc(NS(__cause__=None))) is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_sets_stop_event_for_ad_fetch(svc, monkeypatch):
+    monkeypatch.setattr(sync, "_stop", __import__("threading").Event())
+    seen = {}
+
+    def fetch(timeout, stop):
+        seen["stop"] = stop
+        return []
+    monkeypatch.setattr(sync, "fetch_all_ad", fetch)
+    await sync._fetch("ad")
+    assert seen["stop"] is sync._stop and not sync._stop.is_set()
+    await sync.shutdown_directory_sync()
+    assert sync._stop.is_set()
 
 
 @pytest.mark.asyncio
@@ -345,7 +438,7 @@ async def test_sync_does_not_overwrite_or_delete_newer_refreshed_row(svc, monkey
             entry("B", synced_at=newer),  # absent from the sync result
         ])
         await db.commit()
-    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout: [rec("A", name="stale")])
+    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout, stop=None: [rec("A", name="stale")])
     await sync.run_backend(run.id, "ad")
     rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
     assert set(rows) == {"A", "B"} and rows["A"].display_name == "fresh"

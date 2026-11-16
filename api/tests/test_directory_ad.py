@@ -179,3 +179,33 @@ def test_ad_configured(cfg, rt_set):
     assert ad.ad_configured()
     rt_set(ldap_user_base="")
     assert not ad.ad_configured()
+
+
+def test_fetch_all_ad_stops_when_event_set(cfg, monkeypatch):
+    import threading
+    u1, u2 = user(1), user(2)
+    conn = install(monkeypatch, FakeLdapConn(users=[[u1, u2]], groups=[[]]))
+    stop = threading.Event()
+    stop.set()
+    with pytest.raises(DirectoryError, match="AD: cancelled"):
+        ad.fetch_all_ad(stop=stop)
+    assert conn.searches == [] or all("tokenGroups" not in str(s) for s in conn.searches)
+
+
+def test_fetch_all_ad_stops_mid_fetch(cfg, monkeypatch):
+    import threading
+    u1, u2 = user(1), user(2)
+    stop = threading.Event()
+    conn = FakeLdapConn(users=[[u1, u2]], groups=[[]])
+    real = conn.search_s
+
+    def search_s(base, scope, flt, attrs=None):
+        if attrs == ["tokenGroups"]:
+            stop.set()  # cancelled while the first object is being read
+        return real(base, scope, flt, attrs)
+    conn.search_s = search_s
+    install(monkeypatch, conn)
+    with pytest.raises(DirectoryError, match="AD: cancelled"):
+        ad.fetch_all_ad(stop=stop)
+    assert sum(1 for _b, f in conn.searches if f == "(objectClass=*)") == 1
+    assert conn.unbound

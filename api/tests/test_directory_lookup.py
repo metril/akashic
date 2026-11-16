@@ -329,3 +329,35 @@ async def test_akashic_user_ids_deterministic(db_session):
     ident = await lookup.load_identity(db_session, "email:m@x.io")
     assert ident.akashic_user_ids == sorted([u1.id, u2.id])
     assert ident.akashic_user_id == min(u1.id, u2.id)
+
+
+@pytest.mark.asyncio
+async def test_resolve_partial_for_authentik_only_group_with_sid(db_session):
+    db_session.add(entry("grp", backend="authentik", kind="group", display_name="Staff",
+                         sid="S-1-5-21-77"))
+    await db_session.commit()
+    ident = await lookup.load_identity(db_session, "sid:S-1-5-21-77")
+    r = await lookup.resolve_tokens(db_session, ident)
+    assert "sid:S-1-5-21-77" in r.tokens and r.status == "partial"
+    assert "SID known without an AD row" in r.detail
+
+
+@pytest.mark.asyncio
+async def test_search_matches_dn(db_session):
+    db_session.add_all([
+        entry("a", display_name="Aaa", username="aaa", dn="CN=Aaa,OU=Sales,DC=corp"),
+        entry("b", display_name="Bbb", username="bbb", dn="CN=Bbb,OU=Dev,DC=corp"),
+    ])
+    await db_session.commit()
+    out = await lookup.search_identities(db_session, "ou=sales", "any", 10)
+    assert [i.display_name for i in out] == ["Aaa"]
+
+
+@pytest.mark.asyncio
+async def test_search_matches_ldap_akashic_user_dn(db_session):
+    u = await add_user(db_session, "plain", auth_provider="ldap",
+                       external_id="CN=Plain,OU=Ops,DC=corp")
+    await add_user(db_session, "other", auth_provider="local", external_id="OU=Ops-local")
+    await db_session.commit()
+    out = await lookup.search_identities(db_session, "ou=ops", "any", 10)
+    assert [i.akashic_user_id for i in out] == [u.id]

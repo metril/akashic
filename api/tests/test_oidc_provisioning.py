@@ -872,3 +872,16 @@ async def test_sync_smb_binds_matching_endpoint_and_clears_stale_name_rows(db_se
         select(FsUnboundIdentity).where(FsUnboundIdentity.user_id == user.id)
     )).scalars().all()
     assert left == []
+
+
+def test_decode_binary_sid_requires_revision_1():
+    from akashic.services.sid import decode_binary_sid
+    assert decode_binary_sid(bytes([2, 1, 0, 0, 0, 0, 0, 5]) + (21).to_bytes(4, "little")) is None
+    assert decode_binary_sid(bytes([1, 1, 0, 0, 0, 0, 0, 5]) + (21).to_bytes(4, "little")) == "S-1-5-21"
+
+
+def test_decode_object_sid_rejects_non_strict_base64():
+    from akashic.services.sid import decode_object_sid
+    good = base64.b64encode(bytes([1, 1, 0, 0, 0, 0, 0, 5]) + (21).to_bytes(4, "little")).decode()
+    assert decode_object_sid(good) == "S-1-5-21"
+    assert decode_object_sid(good[:4] + "!!" + good[4:]) is None

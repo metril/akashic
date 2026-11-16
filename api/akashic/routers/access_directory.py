@@ -73,7 +73,7 @@ async def search_identities_route(
         "characters that do not survive a URL path.\n"
         "Requires scope `access:read`; not available to source-limited API tokens. "
         "Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read "
-        "failed, with a redacted reason in `detail` (the cache is left untouched)."
+        "failed (including when the person's directory backend is not configured), with a redacted reason in `detail` (the cache is left untouched)."
     ),
 )
 async def refresh_identity(

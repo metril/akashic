@@ -4,7 +4,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from akashic.auth.dependencies import get_principal
@@ -18,7 +17,7 @@ from tests.principals import as_principal
 _KEYS = ("ldap_group_base", "authentik_url", "authentik_api_token", "directory_sync_interval_minutes")
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest.fixture(autouse=True)
 def _reset_cache():
     invalidate_all()
     yield

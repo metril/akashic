@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -36,6 +37,9 @@ _CHUNK = 1000
 
 # Strong references so in-flight sync tasks are not garbage-collected.
 _tasks: set[asyncio.Task] = set()
+# Set on shutdown so a running AD fetch thread stops instead of stalling exit.
+_stop = threading.Event()
+_LOCK_CONSTRAINT = "uq_directory_sync_runs_backend_running"
 
 
 class SyncAlreadyRunning(Exception):
@@ -59,6 +63,14 @@ def _configured_backends() -> list[str]:
     return out
 
 
+def _is_lock_conflict(exc: IntegrityError) -> bool:
+    cause = getattr(exc.orig, "__cause__", None)
+    name = getattr(cause, "constraint_name", None)
+    if name is not None:
+        return name == _LOCK_CONSTRAINT
+    return _LOCK_CONSTRAINT in str(exc.orig)  # driver without constraint_name
+
+
 async def start_sync(
     *, trigger: Literal["scheduled", "manual"], triggered_by: uuid.UUID | None,
 ) -> list[DirectorySyncRun]:
@@ -79,7 +91,7 @@ async def start_sync(
             await db.rollback()
             # Only the running-lock index is a conflict; anything else
             # (e.g. a triggered_by FK violation) is a real error.
-            if "uq_directory_sync_runs_backend_running" not in str(exc.orig):
+            if not _is_lock_conflict(exc):
                 raise
             raise SyncAlreadyRunning() from None
         for r in runs:
@@ -93,6 +105,7 @@ async def start_sync(
 
 async def shutdown_directory_sync() -> None:
     """Cancel in-flight sync tasks; startup reconcile recovers their run rows."""
+    _stop.set()
     tasks = list(_tasks)
     for t in tasks:
         t.cancel()
@@ -154,7 +167,7 @@ async def _upsert(db: AsyncSession, records: list[DirRecord], synced_at) -> None
 
 async def _fetch(backend: str) -> list[DirRecord]:
     if backend == "ad":
-        return await asyncio.to_thread(fetch_all_ad, AD_SYNC_TIMEOUT)
+        return await asyncio.to_thread(fetch_all_ad, AD_SYNC_TIMEOUT, _stop)
     return await fetch_all_authentik(AUTHENTIK_SYNC_TIMEOUT)
 
 
@@ -190,11 +203,16 @@ async def run_backend(run_id: uuid.UUID, backend: str) -> None:
                 "removed": removed,
                 "groups_failed": sum(1 for r in records if r.groups_status == "failed"),
             }
-            await db.execute(
-                update(DirectorySyncRun).where(DirectorySyncRun.id == run_id).values(
-                    status="succeeded", counts=counts, error=None, finished_at=func.now(),
-                )
+            marked = await db.execute(
+                update(DirectorySyncRun)
+                .where(DirectorySyncRun.id == run_id, DirectorySyncRun.status == "running")
+                .values(status="succeeded", counts=counts, error=None, finished_at=func.now())
             )
+            if not marked.rowcount:
+                # The run was reconciled/failed meanwhile: leave the cache untouched.
+                await db.rollback()
+                logger.warning("directory sync (%s) run no longer running; cache untouched", backend)
+                return
             await db.commit()
     except asyncio.CancelledError:
         raise
@@ -245,25 +263,29 @@ def _to_record(e: DirectoryEntry) -> DirRecord:
     )
 
 
-_KEEP = object()  # record not applicable to a live read (group, akashic, unconfigured)
+_KEEP = object()  # record not applicable to a live read (group, akashic)
 
 
 async def _read_live(rec: DirRecord) -> DirRecord | None | DirectoryError | object:
     """Live re-read of one record: record, ``None`` (not found), a
     ``DirectoryError`` (read failed) or ``_KEEP`` (not applicable)."""
+    if rec.kind != "person" or rec.backend not in ("ad", "authentik"):
+        return _KEEP
     try:
-        if rec.backend == "ad" and rec.kind == "person" and ad_configured():
+        if rec.backend == "ad":
+            if not ad_configured():
+                return DirectoryError("AD is not configured")
             return await asyncio.to_thread(
                 lambda: fetch_ad_person(
                     sid=rec.sid, dn=rec.dn, timeout=PERSON_REFRESH_TIMEOUT)
             )
-        if rec.backend == "authentik" and rec.kind == "person" and authentik_configured():
-            return await fetch_authentik_person(rec.ref, PERSON_REFRESH_TIMEOUT)
+        if not authentik_configured():
+            return DirectoryError("Authentik is not configured")
+        return await fetch_authentik_person(rec.ref, PERSON_REFRESH_TIMEOUT)
     except DirectoryError as exc:
         return exc
-    except NotConfigured:
-        return DirectoryError("directory backend not configured")
-    return _KEEP
+    except NotConfigured as exc:
+        return DirectoryError(str(exc))
 
 
 async def refresh_records(db: AsyncSession, records: list[DirRecord]) -> list[DirRecord]:
@@ -278,7 +300,7 @@ async def refresh_records(db: AsyncSession, records: list[DirRecord]) -> list[Di
     attempted = [l for l in lives if l is not _KEEP]
     if attempted and all(isinstance(l, DirectoryError) for l in attempted):
         raise RefreshFailed("; ".join(dict.fromkeys(str(l) for l in attempted)))
-    now = func.now()
+    now = func.clock_timestamp()
     fresh = [l for l in lives if isinstance(l, DirRecord)]
     gone = [r for r, l in zip(records, lives) if l is None]
     if fresh:
