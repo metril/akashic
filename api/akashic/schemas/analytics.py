@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from akashic.schemas.base import ApiModel
 from pydantic import Field
@@ -21,7 +22,21 @@ class StorageBySource(ApiModel):
     source_id: uuid.UUID = Field(description="Source id.")
     source_name: str = Field(description="Source display name.")
     count: int = Field(description="Number of files in the source.")
-    total_size: int | None = Field(description="Sum of `size_bytes`, in bytes.")
+    total_size: int | None = Field(description="Sum of `size_bytes`, in bytes. Always 0 for a logical-view source.")
+    logical_view: bool = Field(
+        default=False,
+        description="True when the source is the target of a mirror link; its bytes are counted on the backing source instead.",
+    )
+
+
+class StorageByLinkRole(ApiModel):
+    """Files and bytes of one source in one mirror-link bucket."""
+
+    link_role: Literal["original", "thumbnail", "encoded_video", "sidecar", "archive", "version", "unlinked"] = Field(
+        description="Mirror-link role; `unlinked` for files with no link.",
+    )
+    count: int = Field(description="Number of non-deleted files in the bucket.")
+    total_size: int = Field(description="Sum of `size_bytes`, in bytes.")
 
 
 class LargestFile(ApiModel):

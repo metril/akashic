@@ -305,3 +305,42 @@ async def test_summary_recent_scans_includes_source_name(
     s = body["recent_scans"][0]
     assert s["source_name"] == "MyShare"
     assert s["files_new"] == 10
+
+
+@pytest.mark.asyncio
+async def test_summary_total_bytes_counts_mirrored_bytes_once(
+    client: AsyncClient, db_session: AsyncSession,
+):
+    _, token = await _admin_token(db_session)
+    app = Source(id=uuid.uuid4(), name="Iris", type="immich", connection_config={})
+    db_session.add(app)
+    await db_session.commit()
+    back = Source(
+        id=uuid.uuid4(), name="back", type="local",
+        connection_config={"mirror_of": [
+            {"source_id": str(app.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
+        ]},
+    )
+    db_session.add(back)
+    await db_session.commit()
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=40)
+    for src, size, ext_bytes in ((app, 5000, 5000), (back, 4000, 4000)):
+        for ts, sz in ((old, size // 2), (now, size)):
+            db_session.add(ScanSnapshot(
+                id=uuid.uuid4(), source_id=src.id, taken_at=ts, file_count=10,
+                directory_count=0, total_size_bytes=sz,
+                by_owner={"o_" + src.name: {"n": 1, "bytes": sz}},
+                by_extension={"jpg": {"n": 1, "bytes": sz}}, by_kind_and_age={},
+            ))
+    await db_session.commit()
+
+    body = (await client.get(
+        "/api/v1/dashboard/summary", headers={"Authorization": f"Bearer {token}"},
+    )).json()
+    assert body["storage"]["total_bytes"] == 4000
+    assert body["storage"]["total_files"] == 20
+    assert body["storage"]["delta_30d_bytes"] == 2000
+    assert [h["source_id"] for h in body["forecast_hints"]] == [str(back.id)]
+    assert [o["owner"] for o in body["top_owners"]] == ["o_back"]
+    assert body["top_extensions_growth_30d"][0]["current_bytes"] == 4000

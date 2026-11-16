@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from akashic.routing import ApiRouter
 from fastapi import Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akashic.auth.source_scope import restrict_sources
@@ -19,8 +19,10 @@ from akashic.models.user import User
 
 from akashic.schemas.analytics import (
     ExtensionTrendPoint, ForecastResponse, LargestFile, OwnerDistribution,
-    SeriesPoint, StorageBySource, StorageByType,
+    SeriesPoint, StorageByLinkRole, StorageBySource, StorageByType,
 )
+from akashic.models.entry import LINK_ROLES
+from akashic.services.mirror_links import logical_view_source_ids
 
 router = ApiRouter(prefix="/analytics", tags=["analytics"])
 
@@ -34,8 +36,9 @@ _FILE_FILTERS = (Entry.kind == "file", Entry.is_deleted == False)  # noqa: E712
     summary="Storage by file type",
     description=(
         "File count and total bytes per extension over the non-deleted files of every visible "
-        "source, largest first. Computed live from the index. Requires scope `analytics:read`. "
-        "Source-limited API tokens only see their permitted sources."
+        "source, largest first. Computed live from the index. Sources that are the target of a "
+        "mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. "
+        "Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources."
     ),
 )
 async def get_storage_by_type(
@@ -43,6 +46,9 @@ async def get_storage_by_type(
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     filters = list(_FILE_FILTERS)
+    logical = await logical_view_source_ids(db)
+    if logical:
+        filters.append(Entry.source_id.notin_(logical))
 
     stmt = restrict_sources(
         select(
@@ -68,7 +74,9 @@ async def get_storage_by_type(
     summary="Storage by source",
     description=(
         "File count and total bytes per visible source over non-deleted files, largest first. "
-        "Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens "
+        "Computed live from the index. Sources that are the target of a mirror link (logical views) "
+        "report `total_size` 0 and `logical_view` true, since their bytes are counted on the "
+        "backing source. Requires scope `analytics:read`. Source-limited API tokens "
         "only see their permitted sources."
     ),
 )
@@ -77,6 +85,7 @@ async def get_storage_by_source(
     principal: Principal = require_scope("analytics:read", source_scoped=True),
 ):
     filters = list(_FILE_FILTERS)
+    logical = await logical_view_source_ids(db)
 
     stmt = restrict_sources(
         select(
@@ -97,7 +106,8 @@ async def get_storage_by_source(
             "source_id": str(r.source_id),
             "source_name": r.source_name,
             "count": r.count,
-            "total_size": r.total_size,
+            "total_size": 0 if r.source_id in logical else r.total_size,
+            "logical_view": r.source_id in logical,
         }
         for r in result.all()
     ]
@@ -108,7 +118,8 @@ async def get_storage_by_source(
     response_model=list[LargestFile],
     summary="Largest files",
     description=(
-        "The largest non-deleted files across visible sources, biggest first. Files hidden from "
+        "The largest non-deleted files across visible sources, biggest first. Logical-view sources "
+        "(mirror-link targets) are excluded. Files hidden from "
         "the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. "
         "Source-limited API tokens only see their permitted sources."
     ),
@@ -120,6 +131,9 @@ async def get_largest_files(
 ):
     user = principal.user
     filters = [*_FILE_FILTERS, Entry.size_bytes.isnot(None)]
+    logical = await logical_view_source_ids(db)
+    if logical:
+        filters.append(Entry.source_id.notin_(logical))
     if await _should_enforce_perms(principal, True, db):
         filters.append(viewable_clause(await user_principal_tokens(user, db), "read"))
 
@@ -140,6 +154,49 @@ async def get_largest_files(
             "mime_type": e.mime_type,
         }
         for e in entries
+    ]
+
+
+@router.get(
+    "/storage-by-link-role",
+    response_model=list[StorageByLinkRole],
+    summary="Storage by mirror-link role",
+    description=(
+        "File count and bytes of one source's non-deleted files grouped by mirror-link role "
+        "(`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files "
+        "that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets "
+        "in that order, zeros included.\n"
+        "Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources."
+    ),
+)
+async def get_storage_by_link_role(
+    source_id: Annotated[uuid.UUID, Query(description="Source to break down.")],
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = require_scope("analytics:read", source_scoped=True),
+):
+    await check_source_access(source_id, principal, db)
+    bucket = case(
+        (Entry.linked_entry_id.isnot(None), Entry.link_role), else_="unlinked",
+    ).label("bucket")
+    rows = (
+        await db.execute(
+            select(
+                bucket,
+                func.count(Entry.id).label("count"),
+                func.coalesce(func.sum(Entry.size_bytes), 0).label("total_size"),
+            )
+            .where(*_FILE_FILTERS, Entry.source_id == source_id)
+            .group_by(bucket)
+        )
+    ).all()
+    by = {r.bucket: r for r in rows}
+    return [
+        {
+            "link_role": role,
+            "count": int(by[role].count) if role in by else 0,
+            "total_size": int(by[role].total_size) if role in by else 0,
+        }
+        for role in (*LINK_ROLES, "unlinked")
     ]
 
 

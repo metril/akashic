@@ -53,6 +53,7 @@ from akashic.database import get_db
 from akashic.models.entry import Entry
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
+from akashic.services.mirror_links import logical_view_source_ids
 from akashic.models.user import User
 from akashic.services.access_query import (
     user_has_any_bindings,
@@ -143,7 +144,7 @@ def _color_key(entry: Any, mode: ColorMode, now: datetime, sees_all: bool) -> st
     summary="Cross-source treemap",
     description=(
         "One row per visible source, sized by the totals of its most recent scan snapshot (zero when "
-        "never scanned), largest first. Not paginated.\n"
+        "never scanned or when the source is a mirror-link logical view), largest first. Not paginated.\n"
         "Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources."
     ),
 )
@@ -169,6 +170,7 @@ async def list_storage_sources(
         for snap in (await db.execute(snap_stmt)).scalars().all()
     }
 
+    logical = await logical_view_source_ids(db)
     out = []
     for s in sources:
         snap = latest.get(s.id)
@@ -176,7 +178,8 @@ async def list_storage_sources(
             "source_id": str(s.id),
             "source_name": s.name,
             "source_type": s.type,
-            "size_bytes": int(snap.total_size_bytes or 0) if snap else 0,
+            "size_bytes": 0 if s.id in logical else (int(snap.total_size_bytes or 0) if snap else 0),
+            "logical_view": s.id in logical,
             "file_count": int(snap.file_count or 0) if snap else 0,
             "directory_count": int(snap.directory_count or 0) if snap else 0,
             "taken_at": snap.taken_at.isoformat() if snap else None,

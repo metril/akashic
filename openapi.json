@@ -12020,6 +12020,42 @@
         "title": "StorageBucket",
         "type": "object"
       },
+      "StorageByLinkRole": {
+        "description": "Files and bytes of one source in one mirror-link bucket.",
+        "properties": {
+          "count": {
+            "description": "Number of non-deleted files in the bucket.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "link_role": {
+            "description": "Mirror-link role; `unlinked` for files with no link.",
+            "enum": [
+              "original",
+              "thumbnail",
+              "encoded_video",
+              "sidecar",
+              "archive",
+              "version",
+              "unlinked"
+            ],
+            "title": "Link Role",
+            "type": "string"
+          },
+          "total_size": {
+            "description": "Sum of `size_bytes`, in bytes.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "link_role",
+          "count",
+          "total_size"
+        ],
+        "title": "StorageByLinkRole",
+        "type": "object"
+      },
       "StorageBySource": {
         "description": "Aggregate file count and bytes for one source.",
         "properties": {
@@ -12027,6 +12063,12 @@
             "description": "Number of files in the source.",
             "title": "Count",
             "type": "integer"
+          },
+          "logical_view": {
+            "default": false,
+            "description": "True when the source is the target of a mirror link; its bytes are counted on the backing source instead.",
+            "title": "Logical View",
+            "type": "boolean"
           },
           "source_id": {
             "description": "Source id.",
@@ -12048,7 +12090,7 @@
                 "type": "null"
               }
             ],
-            "description": "Sum of `size_bytes`, in bytes.",
+            "description": "Sum of `size_bytes`, in bytes. Always 0 for a logical-view source.",
             "title": "Total Size"
           }
         },
@@ -12056,7 +12098,8 @@
           "source_id",
           "source_name",
           "count",
-          "total_size"
+          "total_size",
+          "logical_view"
         ],
         "title": "StorageBySource",
         "type": "object"
@@ -12234,8 +12277,14 @@
             "title": "File Count",
             "type": "integer"
           },
+          "logical_view": {
+            "default": false,
+            "description": "True when the source is the target of a mirror link; its bytes are counted on the backing source instead.",
+            "title": "Logical View",
+            "type": "boolean"
+          },
           "size_bytes": {
-            "description": "Total bytes.",
+            "description": "Total bytes. Always 0 for a logical-view source.",
             "title": "Size Bytes",
             "type": "integer"
           },
@@ -12273,6 +12322,7 @@
           "source_name",
           "source_type",
           "size_bytes",
+          "logical_view",
           "file_count",
           "directory_count",
           "taken_at"
@@ -16443,7 +16493,7 @@
     },
     "/api/v1/analytics/largest-files": {
       "get": {
-        "description": "The largest non-deleted files across visible sources, biggest first. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
+        "description": "The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_largest_files",
         "parameters": [
           {
@@ -16605,9 +16655,96 @@
         ]
       }
     },
+    "/api/v1/analytics/storage-by-link-role": {
+      "get": {
+        "description": "File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.\nRequires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.",
+        "operationId": "get_storage_by_link_role",
+        "parameters": [
+          {
+            "description": "Source to break down.",
+            "in": "query",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "description": "Source to break down.",
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StorageByLinkRole"
+                  },
+                  "title": "Response Get Storage By Link Role",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "analytics:read"
+            ]
+          }
+        ],
+        "summary": "Storage by mirror-link role",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
     "/api/v1/analytics/storage-by-source": {
       "get": {
-        "description": "File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
+        "description": "File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_storage_by_source",
         "responses": {
           "200": {
@@ -16660,7 +16797,7 @@
     },
     "/api/v1/analytics/storage-by-type": {
       "get": {
-        "description": "File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
+        "description": "File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "get_storage_by_type",
         "responses": {
           "200": {
@@ -28099,7 +28236,7 @@
     },
     "/api/v1/storage/sources": {
       "get": {
-        "description": "One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned), largest first. Not paginated.\nRequires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
+        "description": "One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned or when the source is a mirror-link logical view), largest first. Not paginated.\nRequires scope `analytics:read`. Source-limited API tokens only see their permitted sources.",
         "operationId": "list_storage_sources",
         "responses": {
           "200": {

@@ -30,6 +30,7 @@ from akashic.models.scan import Scan
 from akashic.models.scan_snapshot import ScanSnapshot
 from akashic.models.source import Source
 from akashic.models.user import User
+from akashic.services.mirror_links import logical_view_source_ids
 
 from akashic.schemas.dashboard import AccessRisksResponse, DashboardSummary
 
@@ -122,7 +123,13 @@ async def get_summary(
     latest = await _latest_snapshots(db, principal)
     older = await _snapshots_at_age(db, principal, days=30)
 
-    total_bytes = sum(s.total_size_bytes or 0 for s in latest)
+    # Logical-view sources (mirror-link targets) contribute files but no bytes:
+    # their bytes are already counted on the backing source.
+    logical = await logical_view_source_ids(db)
+    physical = [s for s in latest if s.source_id not in logical]
+    older_physical = [r for r in older.values() if r.source_id not in logical]
+
+    total_bytes = sum(s.total_size_bytes or 0 for s in physical)
     total_files = sum(s.file_count or 0 for s in latest)
 
     delta_bytes = 0
@@ -132,7 +139,8 @@ async def get_summary(
         prev = older.get(str(snap.source_id))
         if prev is not None:
             delta_known = True
-            delta_bytes += (snap.total_size_bytes or 0) - (prev.total_size_bytes or 0)
+            if snap.source_id not in logical:
+                delta_bytes += (snap.total_size_bytes or 0) - (prev.total_size_bytes or 0)
             delta_files += (snap.file_count or 0) - (prev.file_count or 0)
 
     # ── Capacity-forecast hint (per top-3 sources by current bytes) ────
@@ -141,7 +149,7 @@ async def get_summary(
     # 30 days so each source's tile can show "+X GB/day" without a
     # second round-trip per source.
     sources_by_size = sorted(
-        latest, key=lambda s: s.total_size_bytes or 0, reverse=True,
+        physical, key=lambda s: s.total_size_bytes or 0, reverse=True,
     )[:3]
     forecast_hints: list[dict] = []
     for snap in sources_by_size:
@@ -160,15 +168,15 @@ async def get_summary(
         })
 
     # ── Top owners across sources (latest snapshots aggregate) ─────────
-    by_owner_agg = _aggregate_jsonb(latest, "by_owner")
+    by_owner_agg = _aggregate_jsonb(physical, "by_owner")
     top_owners = sorted(
         ({"owner": k, "n": v["n"], "bytes": v["bytes"]} for k, v in by_owner_agg.items()),
         key=lambda o: o["bytes"], reverse=True,
     )[:_TOP_N_OWNERS]
 
     # ── Top extensions by 30d growth ───────────────────────────────────
-    by_ext_now = _aggregate_jsonb(latest, "by_extension")
-    by_ext_then = _aggregate_jsonb(list(older.values()), "by_extension")
+    by_ext_now = _aggregate_jsonb(physical, "by_extension")
+    by_ext_then = _aggregate_jsonb(older_physical, "by_extension")
     growth: list[dict] = []
     for ext, cur in by_ext_now.items():
         prev = by_ext_then.get(ext, {"n": 0, "bytes": 0})

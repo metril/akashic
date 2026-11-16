@@ -14,7 +14,11 @@ class StorageSource(ApiModel):
     source_id: uuid.UUID = Field(description="Source id.")
     source_name: str = Field(description="Source display name.")
     source_type: str = Field(description="Connector type.")
-    size_bytes: int = Field(description="Total bytes.")
+    size_bytes: int = Field(description="Total bytes. Always 0 for a logical-view source.")
+    logical_view: bool = Field(
+        default=False,
+        description="True when the source is the target of a mirror link; its bytes are counted on the backing source instead.",
+    )
     file_count: int = Field(description="Total files.")
     directory_count: int = Field(description="Total directories.")
     taken_at: str | None = Field(description="Snapshot time, ISO 8601; null when never scanned.")

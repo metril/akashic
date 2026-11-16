@@ -2459,6 +2459,7 @@ Aggregated statistics over the index.
 - `GET /api/v1/analytics/forecast`: Capacity forecast
 - `GET /api/v1/analytics/largest-files`: Largest files
 - `GET /api/v1/analytics/owner-distribution`: Owner distribution
+- `GET /api/v1/analytics/storage-by-link-role`: Storage by mirror-link role
 - `GET /api/v1/analytics/storage-by-source`: Storage by source
 - `GET /api/v1/analytics/storage-by-type`: Storage by file type
 - `GET /api/v1/analytics/timeseries`: Size or file-count history
@@ -2518,7 +2519,7 @@ Requires scope `analytics:read`. Errors: 404 if the source is outside the token'
 
 Auth: `userJWT`, scope `analytics:read`
 
-The largest non-deleted files across visible sources, biggest first. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
 
 | Parameter | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
@@ -2553,6 +2554,28 @@ Requires scope `analytics:read`. Errors: 404 if the source is outside the token'
 | 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 
+<a id="op-get-storage-by-link-role"></a>
+#### `GET /api/v1/analytics/storage-by-link-role`
+
+**Storage by mirror-link role** (`get_storage_by_link_role`)
+
+Auth: `userJWT`, scope `analytics:read`
+
+File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `source_id` | query | `string` (`uuid`) | yes | Source to break down. |
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 200 | Successful Response | `application/json`: array of [`StorageByLinkRole`](#schema-storagebylinkrole) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
 <a id="op-get-storage-by-source"></a>
 #### `GET /api/v1/analytics/storage-by-source`
 
@@ -2560,7 +2583,7 @@ Requires scope `analytics:read`. Errors: 404 if the source is outside the token'
 
 Auth: `userJWT`, scope `analytics:read`
 
-File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
 
 | Status | Description | Body |
 | --- | --- | --- |
@@ -2575,7 +2598,7 @@ File count and total bytes per visible source over non-deleted files, largest fi
 
 Auth: `userJWT`, scope `analytics:read`
 
-File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
 
 | Status | Description | Body |
 | --- | --- | --- |
@@ -2648,7 +2671,7 @@ Requires scope `analytics:read`. Source-limited API tokens only see their permit
 
 Auth: `userJWT`, scope `analytics:read`
 
-One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned), largest first. Not paginated.
+One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned or when the source is a mirror-link logical view), largest first. Not paginated.
 Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
 
 | Status | Description | Body |
@@ -6621,6 +6644,17 @@ Synthetic rectangle for the long tail (`other`) or filtered-out entries (`hidden
 | `name` | `string` | yes | `<other>` or `<hidden>`. |
 | `size_bytes` | `integer` | yes | Bytes in the bucket. |
 
+<a id="schema-storagebylinkrole"></a>
+### StorageByLinkRole
+
+Files and bytes of one source in one mirror-link bucket.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `count` | `integer` | yes | Number of non-deleted files in the bucket. |
+| `link_role` | `"original"` \| `"thumbnail"` \| `"encoded_video"` \| `"sidecar"` \| `"archive"` \| `"version"` \| `"unlinked"` | yes | Mirror-link role; `unlinked` for files with no link. |
+| `total_size` | `integer` | yes | Sum of `size_bytes`, in bytes. |
+
 <a id="schema-storagebysource"></a>
 ### StorageBySource
 
@@ -6629,9 +6663,10 @@ Aggregate file count and bytes for one source.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `count` | `integer` | yes | Number of files in the source. |
+| `logical_view` | `boolean` | yes | True when the source is the target of a mirror link; its bytes are counted on the backing source instead. |
 | `source_id` | `string` (`uuid`) | yes | Source id. |
 | `source_name` | `string` | yes | Source display name. |
-| `total_size` | `integer` \| `null` | yes | Sum of `size_bytes`, in bytes. |
+| `total_size` | `integer` \| `null` | yes | Sum of `size_bytes`, in bytes. Always 0 for a logical-view source. |
 
 <a id="schema-storagebytype"></a>
 ### StorageByType
@@ -6683,7 +6718,8 @@ One source's size from its latest snapshot.
 | --- | --- | --- | --- |
 | `directory_count` | `integer` | yes | Total directories. |
 | `file_count` | `integer` | yes | Total files. |
-| `size_bytes` | `integer` | yes | Total bytes. |
+| `logical_view` | `boolean` | yes | True when the source is the target of a mirror link; its bytes are counted on the backing source instead. |
+| `size_bytes` | `integer` | yes | Total bytes. Always 0 for a logical-view source. |
 | `source_id` | `string` (`uuid`) | yes | Source id. |
 | `source_name` | `string` | yes | Source display name. |
 | `source_type` | `string` | yes | Connector type. |

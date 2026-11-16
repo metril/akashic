@@ -293,7 +293,7 @@ export interface paths {
         };
         /**
          * Largest files
-         * @description The largest non-deleted files across visible sources, biggest first. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+         * @description The largest non-deleted files across visible sources, biggest first. Logical-view sources (mirror-link targets) are excluded. Files hidden from the caller by filesystem-ACL filtering are omitted. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
          */
         get: operations["get_largest_files"];
         put?: never;
@@ -325,6 +325,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/storage-by-link-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Storage by mirror-link role
+         * @description File count and bytes of one source's non-deleted files grouped by mirror-link role (`original`, `thumbnail`, `encoded_video`, `sidecar`, `archive`, `version`), with files that are not linked to a mirrored entry in `unlinked`. Always returns all seven buckets in that order, zeros included.
+         *     Requires scope `analytics:read`. Errors: 404 if the source is outside the token's sources.
+         */
+        get: operations["get_storage_by_link_role"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analytics/storage-by-source": {
         parameters: {
             query?: never;
@@ -334,7 +355,7 @@ export interface paths {
         };
         /**
          * Storage by source
-         * @description File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+         * @description File count and total bytes per visible source over non-deleted files, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views) report `total_size` 0 and `logical_view` true, since their bytes are counted on the backing source. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
          */
         get: operations["get_storage_by_source"];
         put?: never;
@@ -354,7 +375,7 @@ export interface paths {
         };
         /**
          * Storage by file type
-         * @description File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
+         * @description File count and total bytes per extension over the non-deleted files of every visible source, largest first. Computed live from the index. Sources that are the target of a mirror link (logical views, e.g. Immich) are excluded so mirrored bytes count once. Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
          */
         get: operations["get_storage_by_type"];
         put?: never;
@@ -2751,7 +2772,7 @@ export interface paths {
         };
         /**
          * Cross-source treemap
-         * @description One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned), largest first. Not paginated.
+         * @description One row per visible source, sized by the totals of its most recent scan snapshot (zero when never scanned or when the source is a mirror-link logical view), largest first. Not paginated.
          *     Requires scope `analytics:read`. Source-limited API tokens only see their permitted sources.
          */
         get: operations["list_storage_sources"];
@@ -9940,6 +9961,28 @@ export interface components {
             size_bytes: number;
         };
         /**
+         * StorageByLinkRole
+         * @description Files and bytes of one source in one mirror-link bucket.
+         */
+        StorageByLinkRole: {
+            /**
+             * Count
+             * @description Number of non-deleted files in the bucket.
+             */
+            count: number;
+            /**
+             * Link Role
+             * @description Mirror-link role; `unlinked` for files with no link.
+             * @enum {string}
+             */
+            link_role: "original" | "thumbnail" | "encoded_video" | "sidecar" | "archive" | "version" | "unlinked";
+            /**
+             * Total Size
+             * @description Sum of `size_bytes`, in bytes.
+             */
+            total_size: number;
+        };
+        /**
          * StorageBySource
          * @description Aggregate file count and bytes for one source.
          */
@@ -9949,6 +9992,12 @@ export interface components {
              * @description Number of files in the source.
              */
             count: number;
+            /**
+             * Logical View
+             * @description True when the source is the target of a mirror link; its bytes are counted on the backing source instead.
+             * @default false
+             */
+            logical_view: boolean;
             /**
              * Source Id
              * Format: uuid
@@ -9962,7 +10011,7 @@ export interface components {
             source_name: string;
             /**
              * Total Size
-             * @description Sum of `size_bytes`, in bytes.
+             * @description Sum of `size_bytes`, in bytes. Always 0 for a logical-view source.
              */
             total_size: number | null;
         };
@@ -10081,8 +10130,14 @@ export interface components {
              */
             file_count: number;
             /**
+             * Logical View
+             * @description True when the source is the target of a mirror link; its bytes are counted on the backing source instead.
+             * @default false
+             */
+            logical_view: boolean;
+            /**
              * Size Bytes
-             * @description Total bytes.
+             * @description Total bytes. Always 0 for a logical-view source.
              */
             size_bytes: number;
             /**
@@ -12648,6 +12703,65 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnerDistribution"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request failed validation. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_storage_by_link_role: {
+        parameters: {
+            query: {
+                /** @description Source to break down. */
+                source_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageByLinkRole"][];
                 };
             };
             /** @description Missing, invalid or expired credentials. */

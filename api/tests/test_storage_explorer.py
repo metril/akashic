@@ -217,3 +217,32 @@ async def test_children_color_by_age_buckets(
     )).json()
     keys = {c["name"]: c["color_key"] for c in body["children"]}
     assert keys == {"h": "hot", "w": "warm", "c": "cold"}
+
+
+@pytest.mark.asyncio
+async def test_sources_logical_view_zero(client: AsyncClient, db_session: AsyncSession):
+    _, token = await _admin_token(db_session)
+    app = Source(id=uuid.uuid4(), name="app", type="immich", connection_config={})
+    db_session.add(app)
+    await db_session.commit()
+    back = Source(
+        id=uuid.uuid4(), name="back", type="local",
+        connection_config={"mirror_of": [
+            {"source_id": str(app.id), "remote_prefix": "/data", "local_prefix": "/host/immich"},
+        ]},
+    )
+    db_session.add(back)
+    await db_session.commit()
+    now = datetime.now(timezone.utc)
+    for src, size in ((app, 9000), (back, 8000)):
+        db_session.add(ScanSnapshot(
+            id=uuid.uuid4(), source_id=src.id, taken_at=now, file_count=5,
+            directory_count=1, total_size_bytes=size,
+            by_owner={}, by_extension={}, by_kind_and_age={},
+        ))
+    await db_session.commit()
+    resp = await client.get("/api/v1/storage/sources", headers={"Authorization": f"Bearer {token}"})
+    rows = {r["source_name"]: r for r in resp.json()["sources"]}
+    assert rows["app"]["size_bytes"] == 0 and rows["app"]["logical_view"] is True
+    assert rows["app"]["file_count"] == 5
+    assert rows["back"]["size_bytes"] == 8000 and rows["back"]["logical_view"] is False
