@@ -86,28 +86,25 @@ def uuid_from_str() -> str:
 # ── principal → files (Meili-backed) ─────────────────────────────────────
 
 
-def _stub_search_response(*, hits, dist, sum_bytes, total):
-    """Build the shape the meili sdk returns from index.search.
-
-    Two calls happen in _principal_to_files: the first retrieves the
-    paginated sample (limit=N, no facets), the second is a count-only
-    pass with limit=0 and facets=['source_id','size_bytes']. The mock
-    needs to return different shapes based on which call it is."""
+def _stub_sample(hits):
+    """Meili is only used for the paginated sample; counts and sizes
+    come from Postgres."""
 
     class _Resp:
-        def __init__(self, hits=None, distribution=None, stats=None, total=0):
-            self.hits = hits or []
-            self.facet_distribution = distribution or {}
-            self.facet_stats = stats or {}
-            self.estimated_total_hits = total
+        def __init__(self, hits):
+            self.hits = hits
 
-    sample = _Resp(hits=hits, total=total)
-    facets = _Resp(
-        distribution={"source_id": dist},
-        stats={"size_bytes": {"sum": sum_bytes, "min": 0, "max": sum_bytes}},
-        total=total,
-    )
-    return sample, facets
+    return _Resp(hits)
+
+
+async def _seed(db, src, n, size, *, tok="sid:S-1-5-21-X-1001", kind="file",
+                deleted=False, right="viewable_by_read", tag="f"):
+    for i in range(n):
+        db.add(Entry(
+            source_id=src.id, kind=kind, parent_path="/", path=f"/{tag}{src.name}{i}",
+            name=f"{tag}{i}", size_bytes=size, is_deleted=deleted,
+            **{right: [tok]},
+        ))
 
 
 @pytest.mark.asyncio
@@ -117,18 +114,22 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
     src_b = await _make_source(db_session, "share-b")
     await db_session.commit()
 
-    sample, facets = _stub_search_response(
-        hits=[
-            {"id": "e1", "source_id": str(src_a.id), "path": "/x/a", "filename": "a", "size_bytes": 100},
-            {"id": "e2", "source_id": str(src_b.id), "path": "/x/b", "filename": "b", "size_bytes": 200},
-        ],
-        dist={str(src_a.id): 1, str(src_b.id): 1},
-        sum_bytes=300,
-        total=2,
-    )
+    await _seed(db_session, src_a, 1, 100)
+    await _seed(db_session, src_b, 1, 200)
+    # Excluded: deleted, directory, other principal, other right.
+    await _seed(db_session, src_a, 1, 999, deleted=True, tag="d")
+    await _seed(db_session, src_a, 1, 999, kind="directory", tag="k")
+    await _seed(db_session, src_a, 1, 999, tok="sid:other", tag="o")
+    await _seed(db_session, src_a, 1, 999, right="viewable_by_write", tag="w")
+    await db_session.commit()
+
+    sample = _stub_sample([
+        {"id": "e1", "source_id": str(src_a.id), "path": "/x/a", "filename": "a", "size_bytes": 100},
+        {"id": "e2", "source_id": str(src_b.id), "path": "/x/b", "filename": "b", "size_bytes": 200},
+    ])
 
     fake_index = AsyncMock()
-    fake_index.search = AsyncMock(side_effect=[sample, facets])
+    fake_index.search = AsyncMock(return_value=sample)
     fake_client = AsyncMock()
     fake_client.get_index = AsyncMock(return_value=fake_index)
 
@@ -169,18 +170,17 @@ async def test_principal_to_files_pagination_signals_next_cursor(client, db_sess
     src = await _make_source(db_session)
     await db_session.commit()
 
-    # 5 hits with limit=5 → next_cursor should advance.
+    await _seed(db_session, src, 50, 10, tok="sid:S-1-5-X")
+    await db_session.commit()
     hits = [
         {"id": f"e{i}", "source_id": str(src.id), "path": f"/p/{i}",
          "filename": f"f{i}", "size_bytes": 10}
         for i in range(5)
     ]
-    sample, facets = _stub_search_response(
-        hits=hits, dist={str(src.id): 50}, sum_bytes=500, total=50,
-    )
+    sample = _stub_sample(hits)
 
     fake_index = AsyncMock()
-    fake_index.search = AsyncMock(side_effect=[sample, facets])
+    fake_index.search = AsyncMock(return_value=sample)
     fake_client = AsyncMock()
     fake_client.get_index = AsyncMock(return_value=fake_index)
 
@@ -194,6 +194,7 @@ async def test_principal_to_files_pagination_signals_next_cursor(client, db_sess
     assert r.status_code == 200
     body = r.json()
     assert body["summary"]["file_count"] == 50
+    assert body["summary"]["total_size_bytes"] == 500
     assert decode_offset_cursor(body["next_cursor"]) == 5  # offset 0 + limit 5
 
 
@@ -212,11 +213,9 @@ async def test_principal_to_files_hydrates_sid_friendly_name(client, db_session)
     ))
     await db_session.commit()
 
-    sample, facets = _stub_search_response(
-        hits=[], dist={}, sum_bytes=0, total=0,
-    )
+    sample = _stub_sample([])
     fake_index = AsyncMock()
-    fake_index.search = AsyncMock(side_effect=[sample, facets])
+    fake_index.search = AsyncMock(return_value=sample)
     fake_client = AsyncMock()
     fake_client.get_index = AsyncMock(return_value=fake_index)
 
@@ -334,3 +333,66 @@ async def test_file_to_principals_hydrates_sid_names(client, db_session):
     by_token = {p["token"]: p for p in sid_principals}
     assert "sid:S-1-5-21-X-1001" in by_token
     assert by_token["sid:S-1-5-21-X-1001"]["name"] == "alice"
+
+
+# ── source limits ────────────────────────────────────────────────────────
+
+
+async def _limited_lookup(client, db_session, allowed, query):
+    from sqlalchemy import select
+    from akashic.auth.dependencies import get_principal
+    from akashic.models.user import User
+    from tests.principals import as_principal
+
+    token = await _register_login(client)
+    user = (await db_session.execute(select(User))).scalars().first()
+    app = client._transport.app
+    app.dependency_overrides[get_principal] = as_principal(
+        user, allowed_source_ids=allowed,
+    )
+    fake_index = AsyncMock()
+    fake_index.search = AsyncMock(return_value=_stub_sample([]))
+    fake_client = AsyncMock()
+    fake_client.get_index = AsyncMock(return_value=fake_index)
+    with patch(
+        "akashic.routers.access.get_meili_client", AsyncMock(return_value=fake_client),
+    ):
+        return await client.get(
+            f"/api/v1/access?principal=sid:S-1-5-21-X-1001&{query}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_totals_respect_token_source_limit(client, db_session):
+    src_a = await _make_source(db_session, "share-a")
+    src_b = await _make_source(db_session, "share-b")
+    await _seed(db_session, src_a, 2, 100)
+    await _seed(db_session, src_b, 3, 1000)
+    await db_session.commit()
+
+    r = await _limited_lookup(client, db_session, {src_a.id}, "right=read")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"] == {"file_count": 2, "total_size_bytes": 200, "source_count": 1}
+    assert [(x["source_id"], x["file_count"]) for x in body["by_source"]] == [(str(src_a.id), 2)]
+
+
+@pytest.mark.asyncio
+async def test_totals_with_source_id_param(client, db_session):
+    src_a = await _make_source(db_session, "share-a")
+    src_b = await _make_source(db_session, "share-b")
+    await _seed(db_session, src_a, 2, 100)
+    await _seed(db_session, src_b, 3, 1000)
+    await db_session.commit()
+
+    # Unlimited admin, narrowed by source_id.
+    r = await _limited_lookup(client, db_session, None, f"source_id={src_b.id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"] == {"file_count": 3, "total_size_bytes": 3000, "source_count": 1}
+    assert [x["source_id"] for x in body["by_source"]] == [str(src_b.id)]
+
+    # Limited token asking for a source outside its limit -> 404.
+    r = await _limited_lookup(client, db_session, {src_a.id}, f"source_id={src_b.id}")
+    assert r.status_code == 404
