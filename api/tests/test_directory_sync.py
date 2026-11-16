@@ -123,7 +123,7 @@ async def test_sync_only_touches_own_backend(svc, monkeypatch):
 def noop_runner(monkeypatch):
     calls = []
 
-    async def fake(run_id, backend):
+    async def fake(run_id, backend, stop=None):
         calls.append(backend)
     monkeypatch.setattr(sync, "run_backend", fake)
     return calls
@@ -343,7 +343,7 @@ async def test_run_no_longer_running_leaves_cache_untouched(svc, monkeypatch):
         await db.commit()
     run = await _run(svc)
 
-    async def reconcile_first(backend):
+    async def reconcile_first(backend, stop=None):
         # the run is failed (e.g. reconciled) while the fetch is in flight
         async with svc() as db:
             r = await db.get(DirectorySyncRun, run.id)
@@ -376,18 +376,17 @@ def test_lock_conflict_helper_uses_constraint_name():
 
 
 @pytest.mark.asyncio
-async def test_shutdown_sets_stop_event_for_ad_fetch(svc, monkeypatch):
-    monkeypatch.setattr(sync, "_stop", __import__("threading").Event())
+async def test_fetch_passes_run_stop_event_to_ad(monkeypatch):
+    import threading
+    stop = threading.Event()
     seen = {}
 
     def fetch(timeout, stop):
         seen["stop"] = stop
         return []
     monkeypatch.setattr(sync, "fetch_all_ad", fetch)
-    await sync._fetch("ad")
-    assert seen["stop"] is sync._stop and not sync._stop.is_set()
-    await sync.shutdown_directory_sync()
-    assert sync._stop.is_set()
+    await sync._fetch("ad", stop)
+    assert seen["stop"] is stop
 
 
 @pytest.mark.asyncio
@@ -450,7 +449,7 @@ async def test_shutdown_cancels_inflight_tasks(svc, rt_set, monkeypatch):
     rt_set(**AD_CFG)
     gate = asyncio.Event()
 
-    async def hang(run_id, backend):
+    async def hang(run_id, backend, stop=None):
         await gate.wait()
     monkeypatch.setattr(sync, "run_backend", hang)
     await sync.start_sync(trigger="manual", triggered_by=None)
@@ -486,12 +485,75 @@ async def test_scheduler_tick(svc, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_sync_rearms_stop_event(svc, rt_set, noop_runner, monkeypatch):
+async def test_old_run_read_aborts_after_shutdown_and_new_run_unaffected(svc, rt_set, monkeypatch):
+    """Shutdown stops the old run's in-flight AD read; a later start must not
+    re-arm that run's event, and the old run never writes results or status."""
     import threading
-    stop = threading.Event()
-    stop.set()
-    monkeypatch.setattr(sync, "_stop", stop)
     rt_set(**AD_CFG)
-    await sync.start_sync(trigger="manual", triggered_by=None)
+    entered, aborted = threading.Event(), threading.Event()
+    stops, outcomes = [], []
+
+    def fetch(timeout, stop):
+        stops.append(stop)
+        if len(stops) == 1:
+            entered.set()
+            assert stop.wait(5), "old run's read was never told to stop"
+            outcomes.append("old-aborted")
+            aborted.set()
+            raise DirectoryError("AD: cancelled")
+        return [rec("NEW")]
+    monkeypatch.setattr(sync, "fetch_all_ad", fetch)
+
+    old = (await sync.start_sync(trigger="manual", triggered_by=None))[0]
+    await asyncio.to_thread(entered.wait, 5)
+    await sync.shutdown_directory_sync()
+    await sync.reconcile_directory_runs()  # startup order: reconcile, then new runs
+    new = (await sync.start_sync(trigger="manual", triggered_by=None))[0]
     await asyncio.gather(*sync._tasks)
-    assert not stop.is_set()
+    assert await asyncio.to_thread(aborted.wait, 5)
+
+    assert stops[0] is not stops[1]
+    assert stops[0].is_set() and not stops[1].is_set()
+    assert outcomes == ["old-aborted"]
+    o = (await _get(svc, DirectorySyncRun, id=old.id))[0]
+    n = (await _get(svc, DirectorySyncRun, id=new.id))[0]
+    assert o.status == "failed" and o.error == "interrupted by API restart"
+    assert n.status == "succeeded"
+    assert {e.ref for e in await _get(svc, DirectoryEntry)} == {"NEW"}
+
+
+@pytest.mark.asyncio
+async def test_stopped_run_discards_completed_fetch(svc, monkeypatch):
+    import threading
+    run = await _run(svc)
+    stop = threading.Event()
+
+    async def fetch_then_stop(backend, stop_ev):
+        stop_ev.set()  # shutdown lands just as the read completes
+        return [rec("X")]
+    monkeypatch.setattr(sync, "_fetch", fetch_then_stop)
+    await sync.run_backend(run.id, "ad", stop)
+    assert await _get(svc, DirectoryEntry) == []
+    assert (await _get(svc, DirectorySyncRun, id=run.id))[0].status == "running"
+
+
+@pytest.mark.asyncio
+async def test_late_failure_does_not_overwrite_interrupted(svc):
+    run = await _run(svc)
+    assert await sync.reconcile_directory_runs() == 1
+    await sync._fail_run(run.id, DirectoryError("late boom"))
+    r = (await _get(svc, DirectorySyncRun, id=run.id))[0]
+    assert r.status == "failed" and r.error == "interrupted by API restart"
+
+
+@pytest.mark.asyncio
+async def test_failure_after_reconcile_in_run_backend_keeps_interrupted(svc, monkeypatch):
+    run = await _run(svc)
+
+    async def reconcile_then_fail(backend, stop=None):
+        await sync.reconcile_directory_runs()
+        raise DirectoryError("late boom")
+    monkeypatch.setattr(sync, "_fetch", reconcile_then_fail)
+    await sync.run_backend(run.id, "ad")
+    r = (await _get(svc, DirectorySyncRun, id=run.id))[0]
+    assert r.error == "interrupted by API restart"

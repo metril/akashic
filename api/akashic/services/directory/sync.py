@@ -37,8 +37,10 @@ _CHUNK = 1000
 
 # Strong references so in-flight sync tasks are not garbage-collected.
 _tasks: set[asyncio.Task] = set()
-# Set on shutdown so a running AD fetch thread stops instead of stalling exit.
-_stop = threading.Event()
+# One stop event per run: shutdown sets every live run's event so its AD fetch
+# thread stops, and a later start gets a fresh event that can never re-arm an
+# old run's.
+_stops: dict[uuid.UUID, threading.Event] = {}
 _LOCK_CONSTRAINT = "uq_directory_sync_runs_backend_running"
 
 
@@ -96,17 +98,19 @@ async def start_sync(
             raise SyncAlreadyRunning() from None
         for r in runs:
             await db.refresh(r)
-    _stop.clear()  # a previous shutdown (e.g. an app restart in-process) must not cancel this sync
     for r in runs:
-        task = asyncio.create_task(run_backend(r.id, r.backend))
+        stop = _stops[r.id] = threading.Event()
+        task = asyncio.create_task(run_backend(r.id, r.backend, stop))
         _tasks.add(task)
         task.add_done_callback(_tasks.discard)
+        task.add_done_callback(lambda _t, rid=r.id: _stops.pop(rid, None))
     return runs
 
 
 async def shutdown_directory_sync() -> None:
     """Cancel in-flight sync tasks; startup reconcile recovers their run rows."""
-    _stop.set()
+    for ev in list(_stops.values()):
+        ev.set()
     tasks = list(_tasks)
     for t in tasks:
         t.cancel()
@@ -166,9 +170,9 @@ async def _upsert(db: AsyncSession, records: list[DirRecord], synced_at) -> None
         await db.execute(stmt)
 
 
-async def _fetch(backend: str) -> list[DirRecord]:
+async def _fetch(backend: str, stop: threading.Event) -> list[DirRecord]:
     if backend == "ad":
-        return await asyncio.to_thread(fetch_all_ad, AD_SYNC_TIMEOUT, _stop)
+        return await asyncio.to_thread(fetch_all_ad, AD_SYNC_TIMEOUT, stop)
     return await fetch_all_authentik(AUTHENTIK_SYNC_TIMEOUT)
 
 
@@ -183,13 +187,20 @@ async def _fail_run(run_id: uuid.UUID, exc: Exception) -> None:
         await db.commit()
 
 
-async def run_backend(run_id: uuid.UUID, backend: str) -> None:
+async def run_backend(
+    run_id: uuid.UUID, backend: str, stop: threading.Event | None = None,
+) -> None:
+    stop = stop if stop is not None else threading.Event()
     try:
         async with async_session() as db:
             started_at = (await db.execute(
                 select(DirectorySyncRun.started_at).where(DirectorySyncRun.id == run_id)
             )).scalar_one()
-        records = await _fetch(backend)
+        records = await _fetch(backend, stop)
+        if stop.is_set():
+            # Shut down mid-read: write nothing; startup reconcile recovers the row.
+            logger.info("directory sync (%s) stopped; result discarded", backend)
+            return
         async with async_session() as db:
             await _upsert(db, records, started_at)
             removed = (await db.execute(
@@ -219,6 +230,8 @@ async def run_backend(run_id: uuid.UUID, backend: str) -> None:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("directory sync (%s) failed: %s", backend, type(exc).__name__)
+        if stop.is_set():
+            return  # stopped run: leave the row for startup reconcile
         try:
             await _fail_run(run_id, exc)
         except Exception as inner:  # noqa: BLE001

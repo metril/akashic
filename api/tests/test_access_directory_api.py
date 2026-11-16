@@ -55,7 +55,7 @@ async def gated_sync(setup_db, monkeypatch):
     monkeypatch.setattr(sync, "async_session", setup_db)
     gate = asyncio.Event()
 
-    async def fetch(backend):
+    async def fetch(backend, stop=None):
         await gate.wait()
         return []
     monkeypatch.setattr(sync, "_fetch", fetch)
