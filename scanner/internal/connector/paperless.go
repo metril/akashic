@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -223,7 +224,7 @@ func (c *PaperlessConnector) Walk(
 		}
 		next = nextPath(page.Next, c.baseURL)
 	}
-	evictPaperlessCache(c.baseURL, seen)
+	evictPaperlessCache(c.cacheScope(), seen)
 	_ = root // accepted for interface; paperless walk always covers the whole library
 	return stats, nil
 }
@@ -259,11 +260,21 @@ type paperlessMetaCacheEntry struct {
 
 // paperlessMetaCache is process-wide: metadata is immutable for a given
 // (instance, document, modified[, version checksum]) so later scans skip
-// the fetch. Keys are baseURL + "|" + id.
+// the fetch. Keys are scope + "|" + id (see cacheScope).
 var paperlessMetaCache = struct {
 	sync.Mutex
 	m map[string]paperlessMetaCacheEntry
 }{m: map[string]paperlessMetaCacheEntry{}}
+
+// cacheScope identifies the walk: instance URL plus the normalized tag filter.
+func (c *PaperlessConnector) cacheScope() string {
+	tags := make([]string, 0, len(c.tagFilter))
+	for _, t := range c.tagFilter {
+		tags = append(tags, strings.ToLower(strings.TrimSpace(t)))
+	}
+	sort.Strings(tags)
+	return c.baseURL + "|" + strings.Join(tags, ",")
+}
 
 // errPaperlessNotFound marks a 404 (document deleted mid-scan).
 var errPaperlessNotFound = errors.New("paperless: not found")
@@ -286,9 +297,11 @@ func (s *metaSeen) add(k string) {
 	s.Unlock()
 }
 
-// evictPaperlessCache drops cache entries of baseURL not touched by a walk.
-func evictPaperlessCache(baseURL string, seen *metaSeen) {
-	prefix := baseURL + "|"
+// evictPaperlessCache drops cache entries of one walk scope (instance + tag
+// filter) not touched by a walk, so two sources on one instance do not evict
+// each other.
+func evictPaperlessCache(scope string, seen *metaSeen) {
+	prefix := scope + "|"
 	seen.Lock()
 	defer seen.Unlock()
 	paperlessMetaCache.Lock()
@@ -317,7 +330,7 @@ func (c *PaperlessConnector) fetchMetadata(ctx context.Context, id int) (paperle
 // modified (and, for versions, checksum) is unchanged. A nil modified
 // never caches.
 func (c *PaperlessConnector) cachedMetadata(ctx context.Context, id int, modified *time.Time, checksum string, seen *metaSeen) (paperlessMetadata, error) {
-	key := c.baseURL + "|" + strconv.Itoa(id)
+	key := c.cacheScope() + "|" + strconv.Itoa(id)
 	seen.add(key)
 	if modified != nil {
 		paperlessMetaCache.Lock()

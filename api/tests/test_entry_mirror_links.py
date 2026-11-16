@@ -102,8 +102,9 @@ async def test_entry_detail_linked_entry_null_for_limited_token(client, db_sessi
     )
     assert r.status_code == 201, r.text
     tok = {"Authorization": f"Bearer {r.json()['token']}"}
-    j = (await client.get(f"/api/v1/entries/{orig.id}", headers=tok)).json()
-    assert j["linked_entry"] is None
+    r = await client.get(f"/api/v1/entries/{orig.id}", headers=tok)
+    assert r.status_code == 200, r.text
+    assert r.json()["linked_entry"] is None
 
 
 @pytest.mark.asyncio
@@ -112,6 +113,7 @@ async def test_browse_hides_link_name_for_deleted_target(client, db_session):
     asset.is_deleted = True
     await db_session.commit()
     r = await client.get(f"/api/v1/browse?source_id={disk.id}", headers=_h(admin))
+    assert r.status_code == 200, r.text
     by = {i["name"]: i for i in r.json()["items"]}
     assert by["z-orig.jpg"]["linked_entry_name"] is None
 
@@ -137,9 +139,13 @@ async def test_enforced_perms_hide_inaccessible_sides(client, db_session, rt_set
     orig.viewable_by_read = me
     asset.viewable_by_read = other
     await db_session.commit()
-    j = (await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))).json()
+    r = await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))
+    assert r.status_code == 200, r.text
+    j = r.json()
     assert j["linked_entry"] is None
-    items = (await client.get(f"/api/v1/browse?source_id={disk.id}", headers=_h(viewer))).json()["items"]
+    r = await client.get(f"/api/v1/browse?source_id={disk.id}", headers=_h(viewer))
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
     row = next(i for i in items if i["name"] == "z-orig.jpg")
     assert row["link_role"] == "original" and row["linked_entry_name"] is None
 
@@ -147,8 +153,12 @@ async def test_enforced_perms_hide_inaccessible_sides(client, db_session, rt_set
     asset.viewable_by_read = me
     thumb.viewable_by_read = other
     await db_session.commit()
-    j = (await client.get(f"/api/v1/entries/{asset.id}", headers=_h(viewer))).json()
+    r = await client.get(f"/api/v1/entries/{asset.id}", headers=_h(viewer))
+    assert r.status_code == 200, r.text
+    j = r.json()
     assert [b["id"] for b in j["backing_files"]] == [str(orig.id)]
     assert j["backing_total_bytes"] == 3_000_000
-    j = (await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))).json()
+    r = await client.get(f"/api/v1/entries/{orig.id}", headers=_h(viewer))
+    assert r.status_code == 200, r.text
+    j = r.json()
     assert j["linked_entry"]["id"] == str(asset.id)

@@ -59,7 +59,12 @@ class Entry(Base):
             "linked_entry_id",
             postgresql_where=text("linked_entry_id IS NOT NULL"),
         ),
-        Index("ix_entries_source_link_role", "source_id", "link_role"),
+        Index(
+            "ix_entries_source_link_role",
+            "source_id",
+            "link_role",
+            postgresql_where=text("link_role IS NOT NULL"),
+        ),
         Index(
             "ix_entries_viewable_read_gin",
             "viewable_by_read",

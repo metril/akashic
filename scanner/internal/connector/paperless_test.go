@@ -648,3 +648,50 @@ func TestPaperlessCacheEvictsUnseen(t *testing.T) {
 		t.Errorf("cache = %d after docs removed, want 1", count())
 	}
 }
+
+func TestPaperlessCacheScopedPerTagFilter(t *testing.T) {
+	mux := http.NewServeMux()
+	empty := func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": []any{}})
+	}
+	mux.HandleFunc("/api/correspondents/", empty)
+	mux.HandleFunc("/api/document_types/", empty)
+	mux.HandleFunc("/api/tags/", empty)
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/metadata/") {
+			json.NewEncoder(w).Encode(map[string]any{"original_checksum": testSum, "media_filename": "m.pdf"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"count": 0, "next": "", "results": fakeDocs(3, 9500, "2024-05-09T00:00:00Z")})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	count := func() int {
+		paperlessMetaCache.Lock()
+		defer paperlessMetaCache.Unlock()
+		n := 0
+		for k := range paperlessMetaCache.m {
+			if strings.HasPrefix(k, srv.URL+"|") {
+				n++
+			}
+		}
+		return n
+	}
+	walk := func(filter []string) {
+		c := NewPaperlessConnector(srv.URL, "secret", filter, true)
+		if err := c.Connect(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Walk(context.Background(), "/", nil, false, false, func(*apiclient.EntryIn) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	walk(nil)
+	if count() != 3 {
+		t.Fatalf("cache = %d, want 3", count())
+	}
+	walk([]string{"no-such-tag"}) // a second source on the same instance
+	if count() != 3 {
+		t.Errorf("cache = %d after a differently filtered walk, want 3 (no cross-eviction)", count())
+	}
+}

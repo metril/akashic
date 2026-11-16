@@ -64,6 +64,10 @@ async def test_storage_by_source_logical_view_zero_bytes(client, db_session):
     assert rows[str(plain.id)]["total_size"] == 50
     assert rows[str(plain.id)]["logical_view"] is False
     assert rows[str(back.id)]["total_size"] == 100
+    # logical view is zeroed before ordering, so it sorts last despite 300 raw bytes
+    order = [r["source_id"] for r in (await client.get("/api/v1/analytics/storage-by-source", headers=h)).json()]
+    assert order.index(str(app.id)) > order.index(str(plain.id))
+    assert order.index(str(app.id)) > order.index(str(back.id))
 
 
 @pytest.mark.asyncio

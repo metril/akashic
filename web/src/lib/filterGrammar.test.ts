@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Predicate, deserialize, sameTarget, serialize } from "./filterGrammar";
+import { Predicate, deserialize, sameTarget, serialize, withoutLinkPredicates } from "./filterGrammar";
 
 describe("filterGrammar serialize/deserialize", () => {
   it("round-trips a single extension predicate", () => {
@@ -156,5 +156,16 @@ describe("sameTarget", () => {
   it("drops unknown link value", () => {
     const enc = serialize([{ kind: "link", value: "bogus" } as unknown as Predicate]);
     expect(deserialize(enc)).toEqual([]);
+  });
+});
+
+describe("withoutLinkPredicates", () => {
+  it("removes every link predicate and keeps the rest", () => {
+    const preds: Predicate[] = [
+      { kind: "extension", value: "jpg" },
+      { kind: "link", value: "thumbnail" },
+      { kind: "link", value: "any" },
+    ];
+    expect(withoutLinkPredicates(preds)).toEqual([{ kind: "extension", value: "jpg" }]);
   });
 });

@@ -125,12 +125,15 @@ func TestMirrorClearTargetKeepsOthers(t *testing.T) {
 
 func TestMirrorClearTargetMissingErrors(t *testing.T) {
 	m := newMirrorSrv(t)
-	c, _ := client.New(m.srv.URL, "key")
+	c, err := client.New(m.srv.URL, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := NewSourcesCmd(c)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"mirror", "clear", "nas", "--target", "nas"})
-	if err := cmd.Execute(); err == nil {
+	if err = cmd.Execute(); err == nil {
 		t.Fatal("expected error for missing mapping")
 	}
 	if m.patch != nil {

@@ -103,11 +103,14 @@ async def test_upgrade_adds_link_columns(scratch_db):
                     {col["name"] for col in i.get_columns("entries")},
                     {ix["name"] for ix in i.get_indexes("entries")},
                     {cc["name"] for cc in i.get_check_constraints("entries")},
+                    {ix["name"]: ix.get("dialect_options", {}).get("postgresql_where") for ix in i.get_indexes("entries")},
                 )
-            cols, idx, checks = await conn.run_sync(_insp)
+            cols, idx, checks, where = await conn.run_sync(_insp)
+        assert "link_role IS NOT NULL" in str(where["ix_entries_source_link_role"])
+        assert "linked_entry_id IS NOT NULL" in str(where["ix_entries_linked_entry_id"])
         assert {"linked_entry_id", "link_role", "link_target_viewable", "link_target_source_id"} <= cols
         assert {"ix_entries_linked_entry_id", "ix_entries_source_link_role"} <= idx
-        assert "ck_entries_link_role" in checks
+        assert {"ck_entries_link_role", "ck_entries_link_role_when_linked"} <= checks
     finally:
         await eng.dispose()
 

@@ -267,6 +267,54 @@ async def test_paperless_thumbnail_long_id(db_session):
 
 
 @pytest.mark.asyncio
+async def test_immich_sidecar_without_original_extension(db_session):
+    db = db_session
+    app, _ = await _immich(db)
+    b = await _backing(db, [_map(app)])
+    p = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
+    await _seed(db, b, p)
+    await relink_backing(db, b.id)
+    assert (await _roles(db, b))[p].link_role == "sidecar"
+
+
+@pytest.mark.asyncio
+async def test_immich_sidecar_ext_form_wins_over_stem_form(db_session):
+    db = db_session
+    app, _ = await _immich(db)
+    b = await _backing(db, [_map(app)])
+    both = f"{BASE}/upload/u1/ab/cd/IMG_1.jpg.xmp"
+    stem = f"{BASE}/upload/u1/ab/cd/IMG_1.xmp"
+    await _seed(db, b, both)
+    await _seed(db, b, stem)
+    await relink_backing(db, b.id)
+    got = await _roles(db, b)
+    assert got[both].link_role == "sidecar"
+    assert got[stem].link_role is None
+
+
+@pytest.mark.asyncio
+async def test_relink_and_flush_chunks_mark_dirty(db_session, monkeypatch):
+    from akashic.services import mirror_links as ml
+
+    db = db_session
+    ids = [uuid.uuid4() for _ in range(25)]
+    async def fake_relink(_db, _bid):
+        return ml.LinkPassResult(ids, 25)
+    monkeypatch.setattr(ml, "relink_backing", fake_relink)
+    monkeypatch.setattr(ml, "_MARK_DIRTY_CHUNK", 10)
+    seen = []
+    async def fake_mark(_sid, chunk):
+        seen.append(list(chunk))
+    flush = AsyncMock(return_value=0)
+    monkeypatch.setattr(ml.meili_indexer, "mark_dirty", fake_mark)
+    monkeypatch.setattr(ml.meili_indexer, "flush", flush)
+    assert await ml.relink_and_flush(db, uuid.uuid4()) is True
+    assert [len(c) for c in seen] == [10, 10, 5]
+    assert [i for c in seen for i in c] == ids
+    assert flush.await_count == 3
+
+
+@pytest.mark.asyncio
 async def test_relink_after_scan_marks_and_flushes(db_session):
     db = db_session
     app, _ = await _immich(db)
@@ -296,3 +344,24 @@ async def test_relink_after_scan_isolates_bad_backing(db_session):
          patch("akashic.services.mirror_links.meili_indexer.flush", new=AsyncMock(return_value=0)):
         await relink_after_scan(db, aid)
     md.assert_awaited_once_with(gid, [eid])
+
+
+@pytest.mark.asyncio
+async def test_relink_after_scan_survives_generic_error(db_session, monkeypatch):
+    from akashic.services import mirror_links as ml
+
+    db = db_session
+    app, _ = await _immich(db)
+    first = await _backing(db, [_map(app)])
+    second = await _backing(db, [_map(app)])
+    await db.commit()
+    done = []
+    async def fake(_db, bid):
+        if bid == first.id:
+            raise RuntimeError("boom")
+        done.append(bid)
+        return True
+    monkeypatch.setattr(ml, "backing_sources_for", AsyncMock(return_value=[first.id, second.id]))
+    monkeypatch.setattr(ml, "relink_and_flush", fake)
+    await ml.relink_after_scan(db, app.id)
+    assert done == [second.id]

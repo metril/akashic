@@ -39,24 +39,42 @@ def upgrade() -> None:
         "fk_entries_link_target_source_id", "entries", "sources",
         ["link_target_source_id"], ["id"], ondelete="SET NULL",
     )
-    op.create_check_constraint(
-        "ck_entries_link_role", "entries",
-        "link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')",
+    # Checks are added NOT VALID (no table scan under the ACCESS EXCLUSIVE
+    # lock) and validated afterwards (SHARE UPDATE EXCLUSIVE only).
+    op.execute(
+        "ALTER TABLE entries ADD CONSTRAINT ck_entries_link_role CHECK "
+        "(link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')) NOT VALID"
     )
-    op.create_check_constraint(
-        "ck_entries_link_role_when_linked", "entries",
-        "linked_entry_id IS NULL OR link_role IS NOT NULL",
+    op.execute(
+        "ALTER TABLE entries ADD CONSTRAINT ck_entries_link_role_when_linked CHECK "
+        "(linked_entry_id IS NULL OR link_role IS NOT NULL) NOT VALID"
     )
-    op.create_index(
-        "ix_entries_linked_entry_id", "entries", ["linked_entry_id"],
-        postgresql_where=sa.text("linked_entry_id IS NOT NULL"),
-    )
-    op.create_index("ix_entries_source_link_role", "entries", ["source_id", "link_role"])
+    op.execute("ALTER TABLE entries VALIDATE CONSTRAINT ck_entries_link_role")
+    op.execute("ALTER TABLE entries VALIDATE CONSTRAINT ck_entries_link_role_when_linked")
+    # CREATE INDEX CONCURRENTLY cannot run inside a transaction.
+    with op.get_context().autocommit_block():
+        op.create_index(
+            "ix_entries_linked_entry_id", "entries", ["linked_entry_id"],
+            postgresql_where=sa.text("linked_entry_id IS NOT NULL"),
+            postgresql_concurrently=True,
+        )
+        op.create_index(
+            "ix_entries_source_link_role", "entries", ["source_id", "link_role"],
+            postgresql_where=sa.text("link_role IS NOT NULL"),
+            postgresql_concurrently=True,
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_entries_source_link_role", table_name="entries")
-    op.drop_index("ix_entries_linked_entry_id", table_name="entries")
+    with op.get_context().autocommit_block():
+        op.drop_index(
+            "ix_entries_source_link_role", table_name="entries",
+            postgresql_concurrently=True,
+        )
+        op.drop_index(
+            "ix_entries_linked_entry_id", table_name="entries",
+            postgresql_concurrently=True,
+        )
     op.drop_constraint("ck_entries_link_role_when_linked", "entries", type_="check")
     op.drop_constraint("ck_entries_link_role", "entries", type_="check")
     op.drop_constraint("fk_entries_link_target_source_id", "entries", type_="foreignkey")

@@ -61,7 +61,7 @@ import { BulkTagDialog } from "../components/tags/BulkTagDialog";
 import { useScopes } from "../hooks/useScopes";
 import { useEntryDetail } from "../hooks/useEntryDetail";
 import { useFilterUrlState } from "../hooks/useFilterUrlState";
-import { serialize as serializeFilters } from "../lib/filterGrammar";
+import { serialize as serializeFilters, withoutLinkPredicates } from "../lib/filterGrammar";
 import type { components } from "../api/schema";
 
 type S = components["schemas"];
@@ -118,7 +118,7 @@ export default function Search() {
   const [searchAs, setSearchAs] = useState<SearchAsOverride | null>(null);
   const [showSearchAs, setShowSearchAs] = useState(false);
   const { openEntry } = useEntryDetail();
-  const { filters, addFilter, removeFilter } = useFilterUrlState();
+  const { filters, setFilters, addFilter } = useFilterUrlState();
   const linkPredicate = { kind: "link", value: "any" } as const;
   const includeLinked = filters.some((f) => f.kind === "link");
   const { has } = useScopes();
@@ -370,7 +370,9 @@ export default function Search() {
           type="checkbox"
           checked={includeLinked}
           onChange={(e) =>
-            e.target.checked ? addFilter(linkPredicate) : removeFilter(linkPredicate)
+            e.target.checked
+              ? addFilter(linkPredicate)
+              : setFilters(withoutLinkPredicates(filters))
           }
         />
         <span>Linked files only</span>

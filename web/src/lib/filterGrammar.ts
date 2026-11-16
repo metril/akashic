@@ -171,3 +171,8 @@ export function sameTarget(a: Predicate, b: Predicate): boolean {
   }
   return (a as { value: string }).value === (b as { value: string }).value;
 }
+
+/** Drop every `link` predicate (any value), e.g. when "Linked files only" is unticked. */
+export function withoutLinkPredicates(preds: Predicate[]): Predicate[] {
+  return preds.filter((p) => p.kind !== "link");
+}

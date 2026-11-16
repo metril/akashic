@@ -177,6 +177,18 @@ _IMMICH_RULES = [
         _rule("sidecar", "JOIN entries be ON be.path = " + _IMMICH_PATH + " || '.xmp'", _IMMICH_OK),
         _BASE_ALL, {"prio": "sidecar"},
     ),
+    # Immich also accepts the extension-less form (IMG_1.xmp); the
+    # IMG_1.jpg.xmp form wins when both exist.
+    (
+        _rule(
+            "sidecar",
+            "JOIN entries be ON be.path = regexp_replace(" + _IMMICH_PATH
+            + ", '\\.[^./]*$', '') || '.xmp'",
+            _IMMICH_OK + " AND NOT EXISTS (SELECT 1 FROM entries bx WHERE bx.source_id = :b "
+            "AND bx.path = " + _IMMICH_PATH + " || '.xmp')",
+        ),
+        _BASE_ALL, {"prio": "sidecar"},
+    ),
     # Derivatives are matched by the asset uuid embedded in the file name, so
     # this rule scans the backing source's thumbs/ and encoded-video/ rows
     # (no index on the path prefix); it is the costliest rule of the pass.
@@ -310,6 +322,7 @@ async def backing_sources_for(db: AsyncSession, source_id: uuid.UUID) -> list[uu
 
 
 _MAX_FLUSH_ROUNDS = 1000
+_MARK_DIRTY_CHUNK = 10_000
 
 
 async def relink_and_flush(db: AsyncSession, backing_id: uuid.UUID) -> bool:
@@ -324,17 +337,25 @@ async def relink_and_flush(db: AsyncSession, backing_id: uuid.UUID) -> bool:
         await db.rollback()
         logger.exception("mirror relink failed for backing_id=%s", backing_id)
         return False
-    await meili_indexer.mark_dirty(backing_id, result.changed_ids)
-    # flush() caps work per call; drain this backing's dirty set.
-    for _ in range(_MAX_FLUSH_ROUNDS):
-        if not await meili_indexer.flush(backing_id):
-            break
+    # Chunked so one SADD never carries an unbounded argument list (a first
+    # run over a large library changes every backing row); flush() caps work
+    # per call, so drain this backing's dirty set after each chunk.
+    ids = result.changed_ids
+    for i in range(0, len(ids), _MARK_DIRTY_CHUNK):
+        await meili_indexer.mark_dirty(backing_id, ids[i:i + _MARK_DIRTY_CHUNK])
+        for _ in range(_MAX_FLUSH_ROUNDS):
+            if not await meili_indexer.flush(backing_id):
+                break
     return True
 
 
 async def relink_after_scan(db: AsyncSession, source_id: uuid.UUID) -> None:
     for backing_id in await backing_sources_for(db, source_id):
-        await relink_and_flush(db, backing_id)
+        try:
+            await relink_and_flush(db, backing_id)
+        except Exception:  # noqa: BLE001 - one backing must not skip the rest
+            await db.rollback()
+            logger.exception("mirror relink failed for backing_id=%s", backing_id)
 
 
 async def logical_view_source_ids(db: AsyncSession) -> set[uuid.UUID]:

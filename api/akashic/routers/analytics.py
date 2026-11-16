@@ -100,7 +100,7 @@ async def get_storage_by_source(
         principal,
     )
     result = await db.execute(stmt)
-    return [
+    rows = [
         {
             "source_id": str(r.source_id),
             "source_name": r.source_name,
@@ -110,6 +110,8 @@ async def get_storage_by_source(
         }
         for r in result.all()
     ]
+    rows.sort(key=lambda r: r["total_size"] or 0, reverse=True)
+    return rows
 
 
 @router.get(

@@ -26,7 +26,7 @@ def test_hide_linked_meili_variants():
 
 def test_hide_linked_empty_scope_hides_nothing():
     sid = uuid.uuid4()
-    for toks, srcs in (([], None), (None, []), ([], [sid])):
+    for toks, srcs in (([], None), (None, []), ([], [sid]), (["t"], [])):
         assert hide_linked_meili(toks, srcs) == ""
         assert str(hide_linked_sql(toks, srcs)) == "true"
 
