@@ -363,12 +363,11 @@ func (c *Client) ResolveSource(ctx context.Context, nameOrID string) (*apiclient
 }
 
 // SearchIdentities finds people and groups across AD, Authentik and Akashic
-// users. kind is "person", "group" or "" for both; limit 0 uses the server default.
-func (c *Client) SearchIdentities(ctx context.Context, q, kind string, limit int) (*apiclient.IdentitySearchResponse, error) {
+// users. kind is empty for both; limit 0 uses the server default.
+func (c *Client) SearchIdentities(ctx context.Context, q string, kind apiclient.SearchIdentitiesRouteParamsKind, limit int) (*apiclient.IdentitySearchResponse, error) {
 	p := &apiclient.SearchIdentitiesRouteParams{Q: q}
 	if kind != "" {
-		k := apiclient.SearchIdentitiesRouteParamsKind(kind)
-		p.Kind = &k
+		p.Kind = &kind
 	}
 	if limit > 0 {
 		p.Limit = &limit

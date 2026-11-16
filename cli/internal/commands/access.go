@@ -43,6 +43,16 @@ func NewAccessCmd(c *client.Client) *cobra.Command {
 			for _, r := range res.Results {
 				fmt.Fprintf(out, "%-32s  %-8s  %-24s  %-16s  %s\n", r.Id, r.Kind, identityName(r), backendList(r), identityNotes(r))
 			}
+			for _, b := range res.BackendsStatus {
+				if b.Status == apiclient.BackendStatusStatusOk {
+					continue
+				}
+				line := fmt.Sprintf("%s: %s", b.Backend, b.Status)
+				if b.Detail != nil && *b.Detail != "" {
+					line += fmt.Sprintf(" (%s)", *b.Detail)
+				}
+				fmt.Fprintln(out, line)
+			}
 			return nil
 		},
 	}
@@ -102,7 +112,11 @@ func NewAccessCmd(c *client.Client) *cobra.Command {
 			if !syncWait {
 				return nil
 			}
-			return waitForSync(ctx, c, out, syncTimeout)
+			ids := make(map[string]bool, len(started.Runs))
+			for _, r := range started.Runs {
+				ids[r.Id.String()] = true
+			}
+			return waitForSync(ctx, c, out, syncTimeout, ids)
 		},
 	}
 	syncCmd.Flags().BoolVar(&syncWait, "wait", false, "Wait for the sync to finish; exit non-zero if a run failed")
@@ -126,12 +140,12 @@ func NewAccessCmd(c *client.Client) *cobra.Command {
 	return cmd
 }
 
-func identityKind(k string) (string, error) {
-	switch k {
-	case "any", "":
+func identityKind(k string) (apiclient.SearchIdentitiesRouteParamsKind, error) {
+	switch apiclient.SearchIdentitiesRouteParamsKind(k) {
+	case apiclient.SearchIdentitiesRouteParamsKindAny, "":
 		return "", nil
-	case "person", "group":
-		return k, nil
+	case apiclient.SearchIdentitiesRouteParamsKindPerson, apiclient.SearchIdentitiesRouteParamsKindGroup:
+		return apiclient.SearchIdentitiesRouteParamsKind(k), nil
 	}
 	return "", &ExitErr{Code: ExitUserErr, Err: fmt.Errorf("kind must be any, person or group, got %q", k)}
 }
@@ -156,8 +170,12 @@ func backendList(r apiclient.IdentityResult) string {
 
 func identityNotes(r apiclient.IdentityResult) string {
 	var notes []string
-	if r.MatchQuality == apiclient.IdentityResultMatchQuality("possible") {
-		notes = append(notes, "possible match")
+	if r.MatchQuality == apiclient.Possible {
+		note := "possible match"
+		if len(r.PossibleMatchOf) > 0 {
+			note += " of " + strings.Join(r.PossibleMatchOf, ",")
+		}
+		notes = append(notes, note)
 	}
 	if !r.HasFsIdentity {
 		notes = append(notes, "no file-system identity")
@@ -169,7 +187,7 @@ func identityNotes(r apiclient.IdentityResult) string {
 func pickIdentity(query string, results []apiclient.IdentityResult) (string, error) {
 	var exact []apiclient.IdentityResult
 	for _, r := range results {
-		if r.MatchQuality == apiclient.IdentityResultMatchQuality("exact") {
+		if r.MatchQuality == apiclient.Exact {
 			exact = append(exact, r)
 		}
 	}
@@ -191,13 +209,13 @@ func printAccess(out io.Writer, r *apiclient.PrincipalAccessResponse) {
 		fmt.Fprintf(out, "Identity: %s (%s, %s)\n", identityName(*r.Identity), r.Identity.Kind, r.Identity.Id)
 	}
 	fmt.Fprintf(out, "Right: %s\n", r.Right)
-	fmt.Fprintf(out, "Files: %d in %d sources, %d bytes\n", r.Summary.FileCount, r.Summary.SourceCount, r.Summary.TotalSizeBytes)
+	fmt.Fprintf(out, "Files: %d in %d sources, %s (%d bytes)\n", r.Summary.FileCount, r.Summary.SourceCount, humanSize(r.Summary.TotalSizeBytes), r.Summary.TotalSizeBytes)
 	for _, s := range r.BySource {
 		fmt.Fprintf(out, "  %s: %d files\n", s.SourceName, s.FileCount)
 	}
 	if e := r.Expansion; e != nil {
 		fmt.Fprintf(out, "Group expansion: %s", e.Status)
-		if e.Status != apiclient.AccessExpansionStatus("ok") {
+		if e.Status != apiclient.AccessExpansionStatusOk {
 			if e.CachedAt != nil {
 				fmt.Fprintf(out, " (as of %s)", e.CachedAt.Format(time.RFC3339))
 			}
@@ -207,7 +225,11 @@ func printAccess(out io.Writer, r *apiclient.PrincipalAccessResponse) {
 		}
 		fmt.Fprintln(out)
 		if len(e.MissingIdentityKinds) > 0 {
-			fmt.Fprintf(out, "Missing identity: %s\n", strings.Join(e.MissingIdentityKinds, ", "))
+			kinds := make([]string, len(e.MissingIdentityKinds))
+			for i, k := range e.MissingIdentityKinds {
+				kinds[i] = string(k)
+			}
+			fmt.Fprintf(out, "Missing identity: %s\n", strings.Join(kinds, ", "))
 		}
 	}
 	if r.TokensUsed != nil && len(*r.TokensUsed) > 0 {
@@ -258,13 +280,35 @@ func printSyncStatus(out io.Writer, st *apiclient.DirectoryStatusResponse) {
 	fmt.Fprintf(out, "Schedule: every %d min, next run %s\n", st.IntervalMinutes, next)
 }
 
-// waitForSync polls until no backend is running, then fails if any last run failed.
-func waitForSync(ctx context.Context, c *client.Client, out io.Writer, timeout time.Duration) error {
+// humanSize renders a byte count with a binary unit (e.g. 4.0 KiB).
+func humanSize(b int) string {
+	n := int64(b)
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// waitForSync polls until no backend is running, then fails if one of this
+// sync's runs (ids) failed; a stale failed run elsewhere is not this sync's.
+func waitForSync(ctx context.Context, c *client.Client, out io.Writer, timeout time.Duration, ids map[string]bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	timedOut := func() error {
+		return &ExitErr{Code: ExitServerErr, Err: fmt.Errorf("timed out waiting for directory sync after %s", timeout)}
+	}
 	for {
 		st, err := c.DirectoryStatus(ctx)
 		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
+				return timedOut()
+			}
 			return classifyAPIError(err)
 		}
 		running := false
@@ -274,7 +318,7 @@ func waitForSync(ctx context.Context, c *client.Client, out io.Writer, timeout t
 		if !running {
 			var failed []string
 			for _, b := range st.Backends {
-				if b.LastRun != nil && b.LastRun.Status == apiclient.DirectorySyncRunOutStatusFailed {
+				if b.LastRun != nil && ids[b.LastRun.Id.String()] && b.LastRun.Status == apiclient.DirectorySyncRunOutStatusFailed {
 					reason := ""
 					if b.LastRun.Error != nil {
 						reason = ": " + *b.LastRun.Error
@@ -290,7 +334,7 @@ func waitForSync(ctx context.Context, c *client.Client, out io.Writer, timeout t
 		}
 		select {
 		case <-ctx.Done():
-			return &ExitErr{Code: ExitServerErr, Err: fmt.Errorf("timed out waiting for directory sync after %s", timeout)}
+			return timedOut()
 		case <-time.After(syncPollInterval):
 		}
 	}
