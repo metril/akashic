@@ -45,6 +45,7 @@ func main() {
 	rootCmd.AddCommand(commands.NewTagCmd(c))
 	rootCmd.AddCommand(commands.NewPurgeCmd(c))
 	rootCmd.AddCommand(commands.NewUsersCmd(c))
+	rootCmd.AddCommand(commands.NewAccessCmd(c))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

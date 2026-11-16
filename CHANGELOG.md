@@ -5,6 +5,26 @@ User-visible changes by release. Format follows
 bullet under each version is the *why*, not the implementation
 detail.
 
+## v0.53.0 — 2026-11-16
+
+**Admin → Access finds people and groups by name across AD, Authentik and akashic users and shows everything they can reach through all their groups.**
+
+### Added
+
+- **People and group picker** on the Access page. Search matches AD, Authentik and akashic users and merges records of the same person or group into one result listing its backends. Results that only share a username are shown separately as "possible match" and never merged. People with no SID, POSIX id or file-system binding are badged "no file-system identity".
+- **Identity lookup**: `GET /api/v1/access?identity=<id>` returns the union of everything the person can reach through all their groups, or what a group (and its parent groups) grants. The response lists every token used with its origin (`ad`, `authentik`, `akashic_binding`, `email`, `builtin`) and an expansion status: `ok`, `cached` (older group data, shown "as of"), `partial` (group membership incomplete) or `failed` (no file-system identity). Identities with more than 50 linked records are reported `partial`. 404 for an unknown identity. The audit event `access_lookup` records the requested and the resolved identity.
+- **Directory cache**: AD and Authentik users and groups are synced into Postgres so search is fast and works while a directory is down. A failed sync keeps the previous cache; a successful one removes records no longer in the directory. Migration `0049_directory_cache`.
+- **Sync schedule**: the scheduler runs the sync every `directory_sync_interval_minutes` (default 60; 0 = manual only). "Sync now" on the Access page and `POST /api/v1/access/directory/sync` start one (202; 409 if already running; 400 if nothing is configured). `GET /api/v1/access/directory/status` returns per-backend state and the next run.
+- **Per-person refresh**: `POST /api/v1/access/identities/refresh` re-reads one person's directory records live (400 for identities without an AD or Authentik record, 502 if every directory read failed).
+- **Tokens-used panel** on the Access page, listing every token with its origin and the expansion status.
+- **Settings** (group "Directory"): `ldap_group_base` (default empty = the user base), `authentik_url`, `authentik_api_token` (secret), `directory_sync_interval_minutes`. AD is used for the directory when `ldap_server` and `ldap_user_base` are set, independent of `ldap_enabled`.
+- **CLI**: `akashic access who <query> [--kind any|person|group]`, `akashic access show <id|query> [--right read|write|delete]`, `akashic access sync [--wait] [--timeout 10m]` (non-zero exit when a run fails), `akashic access sync-status`.
+
+### Notes
+
+- Deny ACEs applied through groups are not evaluated: identity lookups return the union of all tokens' access, every response carries a warning saying so, and sample rows whose ACL contains a deny ACE are flagged (`has_deny_ace`). Totals are not deny-adjusted.
+- `?principal=` and `?file=` lookups are unchanged apart from the additive `has_deny_ace` flag on sample rows.
+
 ## v0.52.0 — 2026-11-16
 
 **Mirror settings now live on the Immich/Paperless source, where the library is defined, and the Access page shows the real total size.**

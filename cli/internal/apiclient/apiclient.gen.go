@@ -18,6 +18,204 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessExpansionStatus.
+const (
+	AccessExpansionStatusCached  AccessExpansionStatus = "cached"
+	AccessExpansionStatusFailed  AccessExpansionStatus = "failed"
+	AccessExpansionStatusOk      AccessExpansionStatus = "ok"
+	AccessExpansionStatusPartial AccessExpansionStatus = "partial"
+)
+
+// Valid indicates whether the value is a known member of the AccessExpansionStatus enum.
+func (e AccessExpansionStatus) Valid() bool {
+	switch e {
+	case AccessExpansionStatusCached:
+		return true
+	case AccessExpansionStatusFailed:
+		return true
+	case AccessExpansionStatusOk:
+		return true
+	case AccessExpansionStatusPartial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BackendStatusBackend.
+const (
+	BackendStatusBackendAd        BackendStatusBackend = "ad"
+	BackendStatusBackendAkashic   BackendStatusBackend = "akashic"
+	BackendStatusBackendAuthentik BackendStatusBackend = "authentik"
+)
+
+// Valid indicates whether the value is a known member of the BackendStatusBackend enum.
+func (e BackendStatusBackend) Valid() bool {
+	switch e {
+	case BackendStatusBackendAd:
+		return true
+	case BackendStatusBackendAkashic:
+		return true
+	case BackendStatusBackendAuthentik:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BackendStatusStatus.
+const (
+	BackendStatusStatusNotConfigured BackendStatusStatus = "not_configured"
+	BackendStatusStatusOk            BackendStatusStatus = "ok"
+	BackendStatusStatusUnavailable   BackendStatusStatus = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the BackendStatusStatus enum.
+func (e BackendStatusStatus) Valid() bool {
+	switch e {
+	case BackendStatusStatusNotConfigured:
+		return true
+	case BackendStatusStatusOk:
+		return true
+	case BackendStatusStatusUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DirectoryBackendStateBackend.
+const (
+	DirectoryBackendStateBackendAd        DirectoryBackendStateBackend = "ad"
+	DirectoryBackendStateBackendAuthentik DirectoryBackendStateBackend = "authentik"
+)
+
+// Valid indicates whether the value is a known member of the DirectoryBackendStateBackend enum.
+func (e DirectoryBackendStateBackend) Valid() bool {
+	switch e {
+	case DirectoryBackendStateBackendAd:
+		return true
+	case DirectoryBackendStateBackendAuthentik:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DirectorySyncRunOutBackend.
+const (
+	DirectorySyncRunOutBackendAd        DirectorySyncRunOutBackend = "ad"
+	DirectorySyncRunOutBackendAuthentik DirectorySyncRunOutBackend = "authentik"
+)
+
+// Valid indicates whether the value is a known member of the DirectorySyncRunOutBackend enum.
+func (e DirectorySyncRunOutBackend) Valid() bool {
+	switch e {
+	case DirectorySyncRunOutBackendAd:
+		return true
+	case DirectorySyncRunOutBackendAuthentik:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DirectorySyncRunOutStatus.
+const (
+	DirectorySyncRunOutStatusFailed    DirectorySyncRunOutStatus = "failed"
+	DirectorySyncRunOutStatusRunning   DirectorySyncRunOutStatus = "running"
+	DirectorySyncRunOutStatusSucceeded DirectorySyncRunOutStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the DirectorySyncRunOutStatus enum.
+func (e DirectorySyncRunOutStatus) Valid() bool {
+	switch e {
+	case DirectorySyncRunOutStatusFailed:
+		return true
+	case DirectorySyncRunOutStatusRunning:
+		return true
+	case DirectorySyncRunOutStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DirectorySyncRunOutTrigger.
+const (
+	Manual    DirectorySyncRunOutTrigger = "manual"
+	Scheduled DirectorySyncRunOutTrigger = "scheduled"
+)
+
+// Valid indicates whether the value is a known member of the DirectorySyncRunOutTrigger enum.
+func (e DirectorySyncRunOutTrigger) Valid() bool {
+	switch e {
+	case Manual:
+		return true
+	case Scheduled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IdentityBackendRefBackend.
+const (
+	IdentityBackendRefBackendAd        IdentityBackendRefBackend = "ad"
+	IdentityBackendRefBackendAkashic   IdentityBackendRefBackend = "akashic"
+	IdentityBackendRefBackendAuthentik IdentityBackendRefBackend = "authentik"
+)
+
+// Valid indicates whether the value is a known member of the IdentityBackendRefBackend enum.
+func (e IdentityBackendRefBackend) Valid() bool {
+	switch e {
+	case IdentityBackendRefBackendAd:
+		return true
+	case IdentityBackendRefBackendAkashic:
+		return true
+	case IdentityBackendRefBackendAuthentik:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IdentityResultKind.
+const (
+	IdentityResultKindGroup  IdentityResultKind = "group"
+	IdentityResultKindPerson IdentityResultKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the IdentityResultKind enum.
+func (e IdentityResultKind) Valid() bool {
+	switch e {
+	case IdentityResultKindGroup:
+		return true
+	case IdentityResultKindPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IdentityResultMatchQuality.
+const (
+	Exact    IdentityResultMatchQuality = "exact"
+	Possible IdentityResultMatchQuality = "possible"
+)
+
+// Valid indicates whether the value is a known member of the IdentityResultMatchQuality enum.
+func (e IdentityResultMatchQuality) Valid() bool {
+	switch e {
+	case Exact:
+		return true
+	case Possible:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MeResponseRole.
 const (
 	MeResponseRoleAdmin  MeResponseRole = "admin"
@@ -114,6 +312,33 @@ func (e TestResultStep) Valid() bool {
 	}
 }
 
+// Defines values for TokenUsedOrigin.
+const (
+	TokenUsedOriginAd             TokenUsedOrigin = "ad"
+	TokenUsedOriginAkashicBinding TokenUsedOrigin = "akashic_binding"
+	TokenUsedOriginAuthentik      TokenUsedOrigin = "authentik"
+	TokenUsedOriginBuiltin        TokenUsedOrigin = "builtin"
+	TokenUsedOriginEmail          TokenUsedOrigin = "email"
+)
+
+// Valid indicates whether the value is a known member of the TokenUsedOrigin enum.
+func (e TokenUsedOrigin) Valid() bool {
+	switch e {
+	case TokenUsedOriginAd:
+		return true
+	case TokenUsedOriginAkashicBinding:
+		return true
+	case TokenUsedOriginAuthentik:
+		return true
+	case TokenUsedOriginBuiltin:
+		return true
+	case TokenUsedOriginEmail:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserCreateRole.
 const (
 	UserCreateRoleAdmin  UserCreateRole = "admin"
@@ -162,6 +387,27 @@ func (e UserRoleUpdateRole) Valid() bool {
 	case UserRoleUpdateRoleAdmin:
 		return true
 	case UserRoleUpdateRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchIdentitiesRouteParamsKind.
+const (
+	SearchIdentitiesRouteParamsKindAny    SearchIdentitiesRouteParamsKind = "any"
+	SearchIdentitiesRouteParamsKindGroup  SearchIdentitiesRouteParamsKind = "group"
+	SearchIdentitiesRouteParamsKindPerson SearchIdentitiesRouteParamsKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the SearchIdentitiesRouteParamsKind enum.
+func (e SearchIdentitiesRouteParamsKind) Valid() bool {
+	switch e {
+	case SearchIdentitiesRouteParamsKindAny:
+		return true
+	case SearchIdentitiesRouteParamsKindGroup:
+		return true
+	case SearchIdentitiesRouteParamsKindPerson:
 		return true
 	default:
 		return false
@@ -252,6 +498,91 @@ func (e SearchParamsOrder) Valid() bool {
 	}
 }
 
+// AccessExpansion How completely the identity's tokens were expanded.
+type AccessExpansion struct {
+	// CachedAt Oldest successful directory read behind the tokens, when any.
+	CachedAt *time.Time `json:"cached_at"`
+
+	// Detail Why the expansion is not `ok`, when it is not.
+	Detail *string `json:"detail"`
+
+	// MissingIdentityKinds Token kinds the identity lacks: `sid`, `posix`.
+	MissingIdentityKinds []string `json:"missing_identity_kinds"`
+
+	// Status `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.
+	Status AccessExpansionStatus `json:"status"`
+}
+
+// AccessExpansionStatus `ok` fresh, `cached` older group data, `partial` group membership incomplete, `failed` no file-system identity.
+type AccessExpansionStatus string
+
+// AccessPrincipal The principal that was looked up.
+type AccessPrincipal struct {
+	// Domain Resolved domain, when known.
+	Domain *string `json:"domain"`
+
+	// Kind `user`, `group`, `wildcard` or `unknown`.
+	Kind string `json:"kind"`
+
+	// Name Resolved name, when known.
+	Name *string `json:"name"`
+
+	// Token Canonical principal token, e.g. `sid:S-1-5-...` or `posix:uid:1000`.
+	Token string `json:"token"`
+}
+
+// AccessSampleHit One reachable file from the search index.
+type AccessSampleHit struct {
+	// Filename Base name.
+	Filename string `json:"filename"`
+
+	// FsModifiedAt Modified time, epoch seconds.
+	FsModifiedAt *int `json:"fs_modified_at"`
+
+	// HasDenyAce Whether the file's stored ACL contains any deny ACE (NT and NFSv4 ACLs only). Present on principal and identity lookups.
+	HasDenyAce *bool `json:"has_deny_ace"`
+
+	// Id Entry id.
+	Id string `json:"id"`
+
+	// OwnerName Owner name.
+	OwnerName *string `json:"owner_name"`
+
+	// Path Full path.
+	Path string `json:"path"`
+
+	// SizeBytes Size in bytes.
+	SizeBytes *int `json:"size_bytes"`
+
+	// SourceId Source id.
+	SourceId             string                 `json:"source_id"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// AccessSourceRollup Reachable files within one source.
+type AccessSourceRollup struct {
+	// FileCount Reachable files in the source.
+	FileCount int `json:"file_count"`
+
+	// SourceId Source id.
+	SourceId string `json:"source_id"`
+
+	// SourceName Source display name.
+	SourceName string `json:"source_name"`
+}
+
+// AccessSummary Totals across everything the principal can reach.
+type AccessSummary struct {
+	// FileCount Files reachable.
+	FileCount int `json:"file_count"`
+
+	// SourceCount Sources containing reachable files.
+	SourceCount int `json:"source_count"`
+
+	// TotalSizeBytes Total bytes reachable.
+	TotalSizeBytes int `json:"total_size_bytes"`
+}
+
 // AllowedScannersRequest Examples: {"scanner_ids":["5a2d9f10-77c3-4b8e-9d21-4c0a8e1b6f33"]}
 type AllowedScannersRequest struct {
 	// ScannerIds Scanners that should be allowed to scan the source; all others are excluded.
@@ -290,6 +621,24 @@ type AuditEventOut struct {
 	// UserId User who performed the action; null when the event is not attributable to a user.
 	UserId *openapi_types.UUID `json:"user_id"`
 }
+
+// BackendStatus Availability of one identity backend.
+type BackendStatus struct {
+	// Backend Backend name.
+	Backend BackendStatusBackend `json:"backend"`
+
+	// Detail Why the backend is unavailable, when it is.
+	Detail *string `json:"detail"`
+
+	// Status Backend availability.
+	Status BackendStatusStatus `json:"status"`
+}
+
+// BackendStatusBackend Backend name.
+type BackendStatusBackend string
+
+// BackendStatusStatus Backend availability.
+type BackendStatusStatus string
 
 // CancelResponse defines model for CancelResponse.
 type CancelResponse struct {
@@ -334,6 +683,81 @@ type DeleteCopyOutcome struct {
 
 	// Step Step that failed, for a failed copy; empty on success.
 	Step string `json:"step"`
+}
+
+// DirectoryBackendState Sync state of one directory backend.
+type DirectoryBackendState struct {
+	// Backend Backend name.
+	Backend DirectoryBackendStateBackend `json:"backend"`
+
+	// Configured Whether the backend has the settings it needs.
+	Configured bool `json:"configured"`
+
+	// LastRun Most recent run, when any.
+	LastRun *DirectorySyncRunOut `json:"last_run"`
+
+	// LastSuccessAt When the most recent successful run finished.
+	LastSuccessAt *time.Time `json:"last_success_at"`
+
+	// Running Whether a sync is in progress.
+	Running bool `json:"running"`
+}
+
+// DirectoryBackendStateBackend Backend name.
+type DirectoryBackendStateBackend string
+
+// DirectoryStatusResponse Directory sync state and schedule.
+type DirectoryStatusResponse struct {
+	// Backends State of each directory backend.
+	Backends []DirectoryBackendState `json:"backends"`
+
+	// IntervalMinutes Scheduled sync interval in minutes; 0 means manual only.
+	IntervalMinutes int `json:"interval_minutes"`
+
+	// NextRunAt Latest run start plus the interval, or now when nothing has run yet; null when the schedule is manual-only.
+	NextRunAt *time.Time `json:"next_run_at"`
+}
+
+// DirectorySyncRunOut One directory sync run for one backend.
+type DirectorySyncRunOut struct {
+	// Backend Backend synced.
+	Backend DirectorySyncRunOutBackend `json:"backend"`
+
+	// Counts Run counters: `users`, `groups`, `removed`, `groups_failed`; empty until the run ends.
+	Counts map[string]int `json:"counts"`
+
+	// Error Redacted failure reason, when the run failed.
+	Error *string `json:"error"`
+
+	// FinishedAt When the run ended; null while running.
+	FinishedAt *time.Time `json:"finished_at"`
+
+	// Id Run id.
+	Id openapi_types.UUID `json:"id"`
+
+	// StartedAt When the run started.
+	StartedAt time.Time `json:"started_at"`
+
+	// Status Run state.
+	Status DirectorySyncRunOutStatus `json:"status"`
+
+	// Trigger What started the run.
+	Trigger DirectorySyncRunOutTrigger `json:"trigger"`
+}
+
+// DirectorySyncRunOutBackend Backend synced.
+type DirectorySyncRunOutBackend string
+
+// DirectorySyncRunOutStatus Run state.
+type DirectorySyncRunOutStatus string
+
+// DirectorySyncRunOutTrigger What started the run.
+type DirectorySyncRunOutTrigger string
+
+// DirectorySyncStarted The sync runs that were started.
+type DirectorySyncStarted struct {
+	// Runs One run per configured backend.
+	Runs []DirectorySyncRunOut `json:"runs"`
 }
 
 // DuplicateFile One copy within a duplicate group.
@@ -432,6 +856,42 @@ type ExtensionTrendPoint struct {
 	TakenAt string `json:"taken_at"`
 }
 
+// FileAccessResponse File-to-principals lookup (`?file=`).
+type FileAccessResponse struct {
+	// EntryId Entry id.
+	EntryId openapi_types.UUID `json:"entry_id"`
+
+	// Filename Base name.
+	Filename string `json:"filename"`
+
+	// Path Full path.
+	Path string `json:"path"`
+
+	// Principals Principals that hold the right.
+	Principals []FilePrincipal `json:"principals"`
+
+	// Right `read`, `write` or `delete`.
+	Right string `json:"right"`
+}
+
+// FilePrincipal A principal holding the right on a file.
+type FilePrincipal struct {
+	// Domain Resolved domain (SIDs only).
+	Domain *string `json:"domain"`
+
+	// Kind `user`, `group`, `wildcard` or `unknown`.
+	Kind string `json:"kind"`
+
+	// Name Resolved name (SIDs only).
+	Name *string `json:"name"`
+
+	// Source Where the grant comes from (`acl`).
+	Source string `json:"source"`
+
+	// Token Canonical principal token.
+	Token string `json:"token"`
+}
+
 // ForecastPoint One projected point with its 95% interval.
 type ForecastPoint struct {
 	// High Upper bound of the 95% interval.
@@ -469,6 +929,81 @@ type ForecastResponse struct {
 
 	// Reason `ok`, or `insufficient_history` when fewer than 3 snapshots exist.
 	Reason string `json:"reason"`
+}
+
+// IdentityBackendRef One backend record merged into an identity.
+type IdentityBackendRef struct {
+	// Backend Backend that holds the record.
+	Backend IdentityBackendRefBackend `json:"backend"`
+
+	// Ref Backend-specific record reference (AD objectGUID hex, Authentik pk, Akashic user id).
+	Ref string `json:"ref"`
+}
+
+// IdentityBackendRefBackend Backend that holds the record.
+type IdentityBackendRefBackend string
+
+// IdentityRefreshRequest Identity to re-read live from its backends.
+type IdentityRefreshRequest struct {
+	// Id Merge id of the identity, as returned by search.
+	Id string `json:"id"`
+}
+
+// IdentityResult A person or group merged across AD, Authentik and Akashic users.
+type IdentityResult struct {
+	// AkashicUserId Akashic user id, when the identity has one.
+	AkashicUserId *openapi_types.UUID `json:"akashic_user_id"`
+
+	// Backends The backend records merged into this identity.
+	Backends []IdentityBackendRef `json:"backends"`
+
+	// DisplayName Display name, when known.
+	DisplayName *string `json:"display_name"`
+
+	// Dn LDAP distinguished name, when known.
+	Dn *string `json:"dn"`
+
+	// Email Email address, when known.
+	Email *string `json:"email"`
+
+	// GroupsSyncedAt Oldest successful group read among the identity's directory records, when any.
+	GroupsSyncedAt *time.Time `json:"groups_synced_at"`
+
+	// HasFsIdentity Whether the identity carries a SID, POSIX id or file-system binding usable in access lookups.
+	HasFsIdentity bool `json:"has_fs_identity"`
+
+	// Id Stable merge id: `sid:<SID>`, `dn:<dn>`, `email:<email>` or `<backend>:<ref>`.
+	Id string `json:"id"`
+
+	// Kind `person` or `group`.
+	Kind IdentityResultKind `json:"kind"`
+
+	// MatchQuality `possible` when only the username matches another result; such results are never merged.
+	MatchQuality IdentityResultMatchQuality `json:"match_quality"`
+
+	// PossibleMatchOf Ids of the results this one possibly matches.
+	PossibleMatchOf []string `json:"possible_match_of"`
+
+	// Sid Windows SID (lowest of the merged records), when known.
+	Sid *string `json:"sid"`
+
+	// Username Login name, when known.
+	Username *string `json:"username"`
+}
+
+// IdentityResultKind `person` or `group`.
+type IdentityResultKind string
+
+// IdentityResultMatchQuality `possible` when only the username matches another result; such results are never merged.
+type IdentityResultMatchQuality string
+
+// IdentitySearchResponse Identity search results and the state of each backend.
+type IdentitySearchResponse struct {
+	// BackendsStatus Availability of every backend.
+	BackendsStatus []BackendStatus `json:"backends_status"`
+
+	// Results Matching identities, best match first.
+	Results []IdentityResult `json:"results"`
 }
 
 // LargestFile One of the largest files the caller can see.
@@ -658,6 +1193,42 @@ type PerScannerHistory struct {
 
 	// ScannerName Scanner name.
 	ScannerName *string `json:"scanner_name"`
+}
+
+// PrincipalAccessResponse Principal-to-files lookup (`?principal=`).
+type PrincipalAccessResponse struct {
+	// BySource Per-source rollup, largest first.
+	BySource []AccessSourceRollup `json:"by_source"`
+
+	// Expansion Token expansion state (`?identity=` only).
+	Expansion *AccessExpansion `json:"expansion"`
+
+	// Identity The merged identity looked up (`?identity=` only).
+	Identity *IdentityResult `json:"identity"`
+
+	// Limit Page size requested.
+	Limit int `json:"limit"`
+
+	// NextCursor Opaque cursor for the next page of `sample`; null at the end.
+	NextCursor *string `json:"next_cursor"`
+
+	// Principal The looked-up principal.
+	Principal AccessPrincipal `json:"principal"`
+
+	// Right `read`, `write` or `delete`.
+	Right string `json:"right"`
+
+	// Sample One page of reachable files.
+	Sample []AccessSampleHit `json:"sample"`
+
+	// Summary Totals.
+	Summary AccessSummary `json:"summary"`
+
+	// TokensUsed Every token evaluated, with its origin (`?identity=` only).
+	TokensUsed *[]TokenUsed `json:"tokens_used"`
+
+	// Warnings Caveats about the results, e.g. deny ACEs not evaluated across an identity's tokens.
+	Warnings []string `json:"warnings"`
 }
 
 // PublicAccessBlock S3 bucket-level Public Access Block settings.
@@ -1383,6 +1954,21 @@ type TokenResponse struct {
 	TokenType string `json:"token_type"`
 }
 
+// TokenUsed One token an identity lookup evaluated.
+type TokenUsed struct {
+	// Name Resolved name (SIDs only).
+	Name *string `json:"name"`
+
+	// Origin Where the token came from.
+	Origin TokenUsedOrigin `json:"origin"`
+
+	// Token Canonical principal token.
+	Token string `json:"token"`
+}
+
+// TokenUsedOrigin Where the token came from.
+type TokenUsedOrigin string
+
 // TreeNode A node of the nested treemap.
 type TreeNode struct {
 	// Children Child nodes, largest first.
@@ -1517,6 +2103,50 @@ type UnderscoreTagApplyBody struct {
 	// Tags Tag names to apply (at least one).
 	Tags []string `json:"tags"`
 }
+
+// AccessQueryParams defines parameters for AccessQuery.
+type AccessQueryParams struct {
+	// Principal Principal token to look up, in the canonical token vocabulary (`sid:S-1-5-...`, `posix:uid:1000`, `posix:gid:100`, `nfsv4:...`, `*` for everyone). Mutually exclusive with `identity` and `file`.
+	Principal *string `form:"principal,omitempty" json:"principal,omitempty"`
+
+	// Identity Merge id of a person or group from `GET /access/identities`. Mutually exclusive with `principal` and `file`.
+	Identity *string `form:"identity,omitempty" json:"identity,omitempty"`
+
+	// File Entry id to list principals for. Mutually exclusive with `principal` and `identity`.
+	File *openapi_types.UUID `form:"file,omitempty" json:"file,omitempty"`
+
+	// Right Right to evaluate: `read`, `write` or `delete`.
+	Right *string `form:"right,omitempty" json:"right,omitempty"`
+
+	// SourceId Restrict a `principal` lookup to this source.
+	SourceId *openapi_types.UUID `form:"source_id,omitempty" json:"source_id,omitempty"`
+
+	// Cursor Opaque cursor from a previous `next_cursor` (principal mode only).
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Page size for the sample of files (principal mode only).
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// AccessQuery200JSONResponseBody defines parameters for AccessQuery.
+type AccessQuery200JSONResponseBody struct {
+	union json.RawMessage
+}
+
+// SearchIdentitiesRouteParams defines parameters for SearchIdentitiesRoute.
+type SearchIdentitiesRouteParams struct {
+	// Q Text to match (case-insensitive substring; `%`, `_` and `\` are literal).
+	Q string `form:"q" json:"q"`
+
+	// Kind Restrict results to people or groups.
+	Kind *SearchIdentitiesRouteParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// Limit Maximum number of results.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchIdentitiesRouteParamsKind defines parameters for SearchIdentitiesRoute.
+type SearchIdentitiesRouteParamsKind string
 
 // GetExtensionTrendParams defines parameters for GetExtensionTrend.
 type GetExtensionTrendParams struct {
@@ -1707,6 +2337,9 @@ type GetSourceReachabilityHistoryParams struct {
 // TestSourceScannersJSONBody defines parameters for TestSourceScanners.
 type TestSourceScannersJSONBody = TestScannersRequest
 
+// RefreshIdentityJSONRequestBody defines body for RefreshIdentity for application/json ContentType.
+type RefreshIdentityJSONRequestBody = IdentityRefreshRequest
+
 // DeleteDuplicateCopiesJSONRequestBody defines body for DeleteDuplicateCopies for application/json ContentType.
 type DeleteDuplicateCopiesJSONRequestBody = DeleteCopiesRequest
 
@@ -1751,6 +2384,225 @@ type RegisterJSONRequestBody = UserCreate
 
 // UpdateUserRoleJSONRequestBody defines body for UpdateUserRole for application/json ContentType.
 type UpdateUserRoleJSONRequestBody = UserRoleUpdate
+
+// Getter for additional properties for AccessSampleHit. Returns the specified
+// element and whether it was found
+func (a AccessSampleHit) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for AccessSampleHit
+func (a *AccessSampleHit) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for AccessSampleHit to handle AdditionalProperties
+func (a *AccessSampleHit) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["filename"]; found {
+		err = json.Unmarshal(raw, &a.Filename)
+		if err != nil {
+			return fmt.Errorf("error reading 'filename': %w", err)
+		}
+		delete(object, "filename")
+	}
+
+	if raw, found := object["fs_modified_at"]; found {
+		err = json.Unmarshal(raw, &a.FsModifiedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'fs_modified_at': %w", err)
+		}
+		delete(object, "fs_modified_at")
+	}
+
+	if raw, found := object["has_deny_ace"]; found {
+		err = json.Unmarshal(raw, &a.HasDenyAce)
+		if err != nil {
+			return fmt.Errorf("error reading 'has_deny_ace': %w", err)
+		}
+		delete(object, "has_deny_ace")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["owner_name"]; found {
+		err = json.Unmarshal(raw, &a.OwnerName)
+		if err != nil {
+			return fmt.Errorf("error reading 'owner_name': %w", err)
+		}
+		delete(object, "owner_name")
+	}
+
+	if raw, found := object["path"]; found {
+		err = json.Unmarshal(raw, &a.Path)
+		if err != nil {
+			return fmt.Errorf("error reading 'path': %w", err)
+		}
+		delete(object, "path")
+	}
+
+	if raw, found := object["size_bytes"]; found {
+		err = json.Unmarshal(raw, &a.SizeBytes)
+		if err != nil {
+			return fmt.Errorf("error reading 'size_bytes': %w", err)
+		}
+		delete(object, "size_bytes")
+	}
+
+	if raw, found := object["source_id"]; found {
+		err = json.Unmarshal(raw, &a.SourceId)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_id': %w", err)
+		}
+		delete(object, "source_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for AccessSampleHit to handle AdditionalProperties
+func (a AccessSampleHit) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["filename"], err = json.Marshal(a.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'filename': %w", err)
+	}
+
+	object["fs_modified_at"], err = json.Marshal(a.FsModifiedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'fs_modified_at': %w", err)
+	}
+
+	object["has_deny_ace"], err = json.Marshal(a.HasDenyAce)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'has_deny_ace': %w", err)
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	object["owner_name"], err = json.Marshal(a.OwnerName)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'owner_name': %w", err)
+	}
+
+	object["path"], err = json.Marshal(a.Path)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'path': %w", err)
+	}
+
+	object["size_bytes"], err = json.Marshal(a.SizeBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'size_bytes': %w", err)
+	}
+
+	object["source_id"], err = json.Marshal(a.SourceId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// AsPrincipalAccessResponse returns the union data inside the AccessQuery200JSONResponseBody as a PrincipalAccessResponse
+func (t AccessQuery200JSONResponseBody) AsPrincipalAccessResponse() (PrincipalAccessResponse, error) {
+	var body PrincipalAccessResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPrincipalAccessResponse overwrites any union data inside the AccessQuery200JSONResponseBody as the provided PrincipalAccessResponse
+func (t *AccessQuery200JSONResponseBody) FromPrincipalAccessResponse(v PrincipalAccessResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePrincipalAccessResponse performs a merge with any union data inside the AccessQuery200JSONResponseBody, using the provided PrincipalAccessResponse
+func (t *AccessQuery200JSONResponseBody) MergePrincipalAccessResponse(v PrincipalAccessResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFileAccessResponse returns the union data inside the AccessQuery200JSONResponseBody as a FileAccessResponse
+func (t AccessQuery200JSONResponseBody) AsFileAccessResponse() (FileAccessResponse, error) {
+	var body FileAccessResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFileAccessResponse overwrites any union data inside the AccessQuery200JSONResponseBody as the provided FileAccessResponse
+func (t *AccessQuery200JSONResponseBody) FromFileAccessResponse(v FileAccessResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFileAccessResponse performs a merge with any union data inside the AccessQuery200JSONResponseBody, using the provided FileAccessResponse
+func (t *AccessQuery200JSONResponseBody) MergeFileAccessResponse(v FileAccessResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AccessQuery200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AccessQuery200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1825,6 +2677,62 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+
+	// AccessQuery Look up access (blast radius)
+	//
+	// Answers one of two questions, selected by which parameter is given.
+	// `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+	// `identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
+	// `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
+	// Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
+	// Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+	//
+	// Corresponds with GET /api/v1/access (the `AccessQuery` operationId).
+	AccessQuery(ctx context.Context, params *AccessQueryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DirectoryStatus Directory sync status
+	//
+	// Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
+	// Requires scope `access:read`; not available to source-limited API tokens.
+	//
+	// Corresponds with GET /api/v1/access/directory/status (the `DirectoryStatus` operationId).
+	DirectoryStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartDirectorySync Start a directory sync
+	//
+	// Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+	// Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+	//
+	// Corresponds with POST /api/v1/access/directory/sync (the `StartDirectorySync` operationId).
+	StartDirectorySync(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SearchIdentitiesRoute Search people and groups
+	//
+	// Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+	//
+	// Corresponds with GET /api/v1/access/identities (the `SearchIdentitiesRoute` operationId).
+	SearchIdentitiesRoute(ctx context.Context, params *SearchIdentitiesRouteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshIdentityWithBody Refresh one person from the directory
+	//
+	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+	RefreshIdentityWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshIdentity Refresh one person from the directory
+	//
+	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+	RefreshIdentity(ctx context.Context, body RefreshIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetExtensionTrend Per-extension trend
 	//
@@ -2390,6 +3298,122 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
 	UpdateUserRole(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// AccessQuery Look up access (blast radius)
+//
+// Answers one of two questions, selected by which parameter is given.
+// `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+// `identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
+// `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
+// Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
+// Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+//
+// Corresponds with GET /api/v1/access (the `AccessQuery` operationId).
+func (c *Client) AccessQuery(ctx context.Context, params *AccessQueryParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAccessQueryRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DirectoryStatus Directory sync status
+//
+// Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
+// Requires scope `access:read`; not available to source-limited API tokens.
+//
+// Corresponds with GET /api/v1/access/directory/status (the `DirectoryStatus` operationId).
+func (c *Client) DirectoryStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDirectoryStatusRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartDirectorySync Start a directory sync
+//
+// Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+// Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+//
+// Corresponds with POST /api/v1/access/directory/sync (the `StartDirectorySync` operationId).
+func (c *Client) StartDirectorySync(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartDirectorySyncRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SearchIdentitiesRoute Search people and groups
+//
+// Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+//
+// Corresponds with GET /api/v1/access/identities (the `SearchIdentitiesRoute` operationId).
+func (c *Client) SearchIdentitiesRoute(ctx context.Context, params *SearchIdentitiesRouteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchIdentitiesRouteRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RefreshIdentityWithBody Refresh one person from the directory
+//
+// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+func (c *Client) RefreshIdentityWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshIdentityRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RefreshIdentity Refresh one person from the directory
+//
+// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+func (c *Client) RefreshIdentity(ctx context.Context, body RefreshIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshIdentityRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // GetExtensionTrend Per-extension trend
@@ -3585,6 +4609,300 @@ func (c *Client) UpdateUserRole(ctx context.Context, userId openapi_types.UUID, 
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewAccessQueryRequest constructs an http.Request for the AccessQuery method
+func NewAccessQueryRequest(server string, params *AccessQueryParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/access")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Principal != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "principal", *params.Principal, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Identity != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "identity", *params.Identity, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.File != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "file", *params.File, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Right != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "right", *params.Right, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SourceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_id", *params.SourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDirectoryStatusRequest constructs an http.Request for the DirectoryStatus method
+func NewDirectoryStatusRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/access/directory/status")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStartDirectorySyncRequest constructs an http.Request for the StartDirectorySync method
+func NewStartDirectorySyncRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/access/directory/sync")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSearchIdentitiesRouteRequest constructs an http.Request for the SearchIdentitiesRoute method
+func NewSearchIdentitiesRouteRequest(server string, params *SearchIdentitiesRouteParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/access/identities")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRefreshIdentityRequest calls the generic RefreshIdentity builder with application/json body
+func NewRefreshIdentityRequest(server string, body RefreshIdentityJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRefreshIdentityRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRefreshIdentityRequestWithBody constructs an http.Request for the RefreshIdentity method, with any body, and a specified content type
+func NewRefreshIdentityRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/access/identities/refresh")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewGetExtensionTrendRequest constructs an http.Request for the GetExtensionTrend method
@@ -6007,6 +7325,70 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// AccessQueryWithResponse Look up access (blast radius)
+	//
+	// Answers one of two questions, selected by which parameter is given.
+	// `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+	// `identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
+	// `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
+	// Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
+	// Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/access (the `AccessQuery` operationId).
+	AccessQueryWithResponse(ctx context.Context, params *AccessQueryParams, reqEditors ...RequestEditorFn) (*AccessQueryReply, error)
+
+	// DirectoryStatusWithResponse Directory sync status
+	//
+	// Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
+	// Requires scope `access:read`; not available to source-limited API tokens.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/access/directory/status (the `DirectoryStatus` operationId).
+	DirectoryStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DirectoryStatusReply, error)
+
+	// StartDirectorySyncWithResponse Start a directory sync
+	//
+	// Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+	// Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/access/directory/sync (the `StartDirectorySync` operationId).
+	StartDirectorySyncWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*StartDirectorySyncReply, error)
+
+	// SearchIdentitiesRouteWithResponse Search people and groups
+	//
+	// Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/access/identities (the `SearchIdentitiesRoute` operationId).
+	SearchIdentitiesRouteWithResponse(ctx context.Context, params *SearchIdentitiesRouteParams, reqEditors ...RequestEditorFn) (*SearchIdentitiesRouteReply, error)
+
+	// RefreshIdentityWithBodyWithResponse Refresh one person from the directory
+	//
+	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+	RefreshIdentityWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshIdentityReply, error)
+
+	// RefreshIdentityWithResponse Refresh one person from the directory
+	//
+	// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+	// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+	RefreshIdentityWithResponse(ctx context.Context, body RefreshIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshIdentityReply, error)
+
 	// GetExtensionTrendWithResponse Per-extension trend
 	//
 	// Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
@@ -6637,6 +8019,351 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/users/{user_id} (the `UpdateUserRole` operationId).
 	UpdateUserRoleWithResponse(ctx context.Context, userId openapi_types.UUID, body UpdateUserRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserRoleReply, error)
+}
+
+type AccessQueryReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AccessQuery200JSONResponseBody
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AccessQueryReply) GetJSON200() *AccessQuery200JSONResponseBody {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AccessQueryReply) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AccessQueryReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AccessQueryReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AccessQueryReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r AccessQueryReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r AccessQueryReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AccessQueryReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AccessQueryReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AccessQueryReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DirectoryStatusReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DirectoryStatusResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DirectoryStatusReply) GetJSON200() *DirectoryStatusResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DirectoryStatusReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DirectoryStatusReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r DirectoryStatusReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DirectoryStatusReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DirectoryStatusReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DirectoryStatusReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartDirectorySyncReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON202 the response for an HTTP 202 `application/json` response
+	JSON202 *DirectorySyncStarted
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+}
+
+// GetJSON202 returns the response for an HTTP 202 `application/json` response
+func (r StartDirectorySyncReply) GetJSON202() *DirectorySyncStarted {
+	return r.JSON202
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r StartDirectorySyncReply) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r StartDirectorySyncReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r StartDirectorySyncReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r StartDirectorySyncReply) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r StartDirectorySyncReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartDirectorySyncReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartDirectorySyncReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartDirectorySyncReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SearchIdentitiesRouteReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IdentitySearchResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SearchIdentitiesRouteReply) GetJSON200() *IdentitySearchResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SearchIdentitiesRouteReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SearchIdentitiesRouteReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r SearchIdentitiesRouteReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r SearchIdentitiesRouteReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SearchIdentitiesRouteReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SearchIdentitiesRouteReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SearchIdentitiesRouteReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RefreshIdentityReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IdentityResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RefreshIdentityReply) GetJSON200() *IdentityResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RefreshIdentityReply) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RefreshIdentityReply) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RefreshIdentityReply) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RefreshIdentityReply) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RefreshIdentityReply) GetJSON422() *ErrorResponse {
+	return r.JSON422
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r RefreshIdentityReply) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r RefreshIdentityReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RefreshIdentityReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RefreshIdentityReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RefreshIdentityReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type GetExtensionTrendReply struct {
@@ -9818,6 +11545,106 @@ func (r UpdateUserRoleReply) ContentType() string {
 	return ""
 }
 
+// AccessQueryWithResponse Look up access (blast radius)
+//
+// Answers one of two questions, selected by which parameter is given.
+// `principal`: what can this principal reach? Returns a summary, a per-source rollup and a paginated sample of files the principal holds `right` on, from the search index.
+// `identity`: what can this person or group reach? `identity` is a merge id from `GET /access/identities`. Returns the same shape for the union of every token of the identity (`tokens_used`, with `expansion` describing how complete the token set is), plus the resolved `identity`. Deny ACEs are not evaluated across the identity's tokens: `warnings` says so, and each sample row carries `has_deny_ace`.
+// `file`: who can reach this file? Returns the principals holding `right` on the entry, computed from its stored ACL, mode, uid and gid.
+// Requires scope `access:read`. Source-limited API tokens only see their permitted sources. Every successful lookup is recorded as an `access_lookup` audit event; failed lookups (4xx) are not.
+// Errors: 400 unless exactly one of `principal`, `identity` and `file` is given; 404 if `identity` is unknown, if the `file` entry does not exist or is outside the token's sources, or if `source_id` names a source outside the token's sources (a `source_id` that does not exist at all simply yields empty results); 422 for a malformed `cursor` or invalid parameter.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/access (the `AccessQuery` operationId).
+func (c *ClientWithResponses) AccessQueryWithResponse(ctx context.Context, params *AccessQueryParams, reqEditors ...RequestEditorFn) (*AccessQueryReply, error) {
+	rsp, err := c.AccessQuery(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAccessQueryReply(rsp)
+}
+
+// DirectoryStatusWithResponse Directory sync status
+//
+// Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
+// Requires scope `access:read`; not available to source-limited API tokens.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/access/directory/status (the `DirectoryStatus` operationId).
+func (c *ClientWithResponses) DirectoryStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DirectoryStatusReply, error) {
+	rsp, err := c.DirectoryStatus(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDirectoryStatusReply(rsp)
+}
+
+// StartDirectorySyncWithResponse Start a directory sync
+//
+// Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+// Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/access/directory/sync (the `StartDirectorySync` operationId).
+func (c *ClientWithResponses) StartDirectorySyncWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*StartDirectorySyncReply, error) {
+	rsp, err := c.StartDirectorySync(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartDirectorySyncReply(rsp)
+}
+
+// SearchIdentitiesRouteWithResponse Search people and groups
+//
+// Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/access/identities (the `SearchIdentitiesRoute` operationId).
+func (c *ClientWithResponses) SearchIdentitiesRouteWithResponse(ctx context.Context, params *SearchIdentitiesRouteParams, reqEditors ...RequestEditorFn) (*SearchIdentitiesRouteReply, error) {
+	rsp, err := c.SearchIdentitiesRoute(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchIdentitiesRouteReply(rsp)
+}
+
+// RefreshIdentityWithBodyWithResponse Refresh one person from the directory
+//
+// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+func (c *ClientWithResponses) RefreshIdentityWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RefreshIdentityReply, error) {
+	rsp, err := c.RefreshIdentityWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshIdentityReply(rsp)
+}
+
+// RefreshIdentityWithResponse Refresh one person from the directory
+//
+// Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+// Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/access/identities/refresh (the `RefreshIdentity` operationId).
+func (c *ClientWithResponses) RefreshIdentityWithResponse(ctx context.Context, body RefreshIdentityJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshIdentityReply, error) {
+	rsp, err := c.RefreshIdentity(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshIdentityReply(rsp)
+}
+
 // GetExtensionTrendWithResponse Per-extension trend
 //
 // Per-extension series (file count `n` and `bytes`) across a source's snapshots in the window, keyed by extension. A snapshot that lacks an extension contributes zeros so each series stays continuous.
@@ -10825,6 +12652,276 @@ func (c *ClientWithResponses) UpdateUserRoleWithResponse(ctx context.Context, us
 		return nil, err
 	}
 	return ParseUpdateUserRoleReply(rsp)
+}
+
+// ParseAccessQueryReply parses an HTTP response from a AccessQueryWithResponse call
+func ParseAccessQueryReply(rsp *http.Response) (*AccessQueryReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AccessQueryReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AccessQuery200JSONResponseBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDirectoryStatusReply parses an HTTP response from a DirectoryStatusWithResponse call
+func ParseDirectoryStatusReply(rsp *http.Response) (*DirectoryStatusReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DirectoryStatusReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DirectoryStatusResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartDirectorySyncReply parses an HTTP response from a StartDirectorySyncWithResponse call
+func ParseStartDirectorySyncReply(rsp *http.Response) (*StartDirectorySyncReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartDirectorySyncReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest DirectorySyncStarted
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSearchIdentitiesRouteReply parses an HTTP response from a SearchIdentitiesRouteWithResponse call
+func ParseSearchIdentitiesRouteReply(rsp *http.Response) (*SearchIdentitiesRouteReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SearchIdentitiesRouteReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IdentitySearchResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRefreshIdentityReply parses an HTTP response from a RefreshIdentityWithResponse call
+func ParseRefreshIdentityReply(rsp *http.Response) (*RefreshIdentityReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RefreshIdentityReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IdentityResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetExtensionTrendReply parses an HTTP response from a GetExtensionTrendWithResponse call

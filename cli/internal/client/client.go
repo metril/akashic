@@ -361,3 +361,85 @@ func (c *Client) ResolveSource(ctx context.Context, nameOrID string) (*apiclient
 	}
 	return nil, fmt.Errorf("source %q not found", nameOrID)
 }
+
+// SearchIdentities finds people and groups across AD, Authentik and Akashic
+// users. kind is "person", "group" or "" for both; limit 0 uses the server default.
+func (c *Client) SearchIdentities(ctx context.Context, q, kind string, limit int) (*apiclient.IdentitySearchResponse, error) {
+	p := &apiclient.SearchIdentitiesRouteParams{Q: q}
+	if kind != "" {
+		k := apiclient.SearchIdentitiesRouteParamsKind(kind)
+		p.Kind = &k
+	}
+	if limit > 0 {
+		p.Limit = &limit
+	}
+	resp, err := c.api.SearchIdentitiesRouteWithResponse(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
+// AccessByIdentity returns everything a merged identity can reach. The
+// returned identity may differ from the requested id.
+func (c *Client) AccessByIdentity(ctx context.Context, id, right string, limit int) (*apiclient.PrincipalAccessResponse, error) {
+	p := &apiclient.AccessQueryParams{Identity: &id}
+	if right != "" {
+		p.Right = &right
+	}
+	if limit > 0 {
+		p.Limit = &limit
+	}
+	resp, err := c.api.AccessQueryWithResponse(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	out, err := resp.JSON200.AsPrincipalAccessResponse()
+	if err != nil {
+		return nil, fmt.Errorf("decode access response: %w", err)
+	}
+	return &out, nil
+}
+
+// StartDirectorySync starts a directory sync on every configured backend.
+// 409 (already running) and 400 (nothing configured) surface as *APIError.
+func (c *Client) StartDirectorySync(ctx context.Context) (*apiclient.DirectorySyncStarted, error) {
+	resp, err := c.api.StartDirectorySyncWithResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON202 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON202, nil
+}
+
+// DirectoryStatus returns each directory backend's sync state and the schedule.
+func (c *Client) DirectoryStatus(ctx context.Context) (*apiclient.DirectoryStatusResponse, error) {
+	resp, err := c.api.DirectoryStatusWithResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := check(resp.StatusCode(), resp.Body); err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, missingBody(resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
