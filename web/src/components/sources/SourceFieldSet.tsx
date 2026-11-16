@@ -1,4 +1,4 @@
-import type { AnyConfig, SourceType } from "./sourceTypes";
+import type { AnyConfig, MirrorMapping, SourceType } from "./sourceTypes";
 import { LocalFields } from "./source-fields/LocalFields";
 import { NfsFields } from "./source-fields/NfsFields";
 import { SmbFields } from "./source-fields/SmbFields";
@@ -8,6 +8,7 @@ import { ImmichFields } from "./source-fields/ImmichFields";
 import { WebDAVFields } from "./source-fields/WebDAVFields";
 import { GDriveFields } from "./source-fields/GDriveFields";
 import { OneDriveFields } from "./source-fields/OneDriveFields";
+import { MirrorOfFields } from "./source-fields/MirrorOfFields";
 import { DropboxFields } from "./source-fields/DropboxFields";
 
 interface SourceFieldSetProps {
@@ -27,15 +28,40 @@ interface SourceFieldSetProps {
  * branches here on a `mode` prop.
  */
 export function SourceFieldSet({ type, value, onChange }: SourceFieldSetProps) {
+  const mirrorProps = {
+    value: (value as { mirror_of?: MirrorMapping[] }).mirror_of ?? [],
+    onChange: (next: MirrorMapping[]) => onChange({ ...value, mirror_of: next } as never),
+    backingType: type,
+  };
   switch (type) {
     case "local":
-      return <LocalFields value={value as never} onChange={onChange as never} />;
+      return (
+        <>
+          <LocalFields value={value as never} onChange={onChange as never} />
+          <MirrorOfFields {...mirrorProps} />
+        </>
+      );
     case "nfs":
-      return <NfsFields value={value as never} onChange={onChange as never} />;
+      return (
+        <>
+          <NfsFields value={value as never} onChange={onChange as never} />
+          <MirrorOfFields {...mirrorProps} />
+        </>
+      );
     case "smb":
-      return <SmbFields value={value as never} onChange={onChange as never} />;
+      return (
+        <>
+          <SmbFields value={value as never} onChange={onChange as never} />
+          <MirrorOfFields {...mirrorProps} />
+        </>
+      );
     case "s3":
-      return <S3Fields value={value as never} onChange={onChange as never} />;
+      return (
+        <>
+          <S3Fields value={value as never} onChange={onChange as never} />
+          <MirrorOfFields {...mirrorProps} />
+        </>
+      );
     case "paperless":
       return <PaperlessFields value={value as never} onChange={onChange as never} />;
     case "immich":

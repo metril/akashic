@@ -104,3 +104,6 @@ export interface Paginated<T> {
   limit: number;
   total?: number | null;
 }
+export type StorageByLinkRole = S["StorageByLinkRole"];
+export type BackingFileRef = S["BackingFileRef"];
+export type LinkedEntryRef = S["LinkedEntryRef"];

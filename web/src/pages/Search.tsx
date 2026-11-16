@@ -118,7 +118,9 @@ export default function Search() {
   const [searchAs, setSearchAs] = useState<SearchAsOverride | null>(null);
   const [showSearchAs, setShowSearchAs] = useState(false);
   const { openEntry } = useEntryDetail();
-  const { filters } = useFilterUrlState();
+  const { filters, addFilter, removeFilter } = useFilterUrlState();
+  const linkPredicate = { kind: "link", value: "any" } as const;
+  const includeLinked = filters.some((f) => f.kind === "link");
   const { has } = useScopes();
   const canTag = has("tags:write");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -363,6 +365,17 @@ export default function Search() {
 
       <FilterChips className="mb-3" />
 
+      <label className="flex items-center gap-2 mb-3 text-xs text-fg cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={includeLinked}
+          onChange={(e) =>
+            e.target.checked ? addFilter(linkPredicate) : removeFilter(linkPredicate)
+          }
+        />
+        <span>Include linked files</span>
+      </label>
+
       <ResultFacets
         className="mb-3"
         facetDistribution={searchQuery.data?.pages[0]?.facet_distribution}
@@ -520,6 +533,9 @@ const SearchResultRow = memo(function SearchResultRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium text-fg truncate">{file.filename}</span>
+            {file.linked_entry_id && (
+              <Badge variant="info" title={file.link_role ?? undefined}>linked</Badge>
+            )}
             {file.extension && (
               <FilterableCell
                 predicate={{ kind: "extension", value: file.extension }}

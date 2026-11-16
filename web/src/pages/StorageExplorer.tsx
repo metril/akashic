@@ -508,7 +508,8 @@ function SourceList({ sources, loading, onPick, onEmpty }: SourceListProps) {
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-fg truncate">{s.source_name}</div>
                 <div className="text-xs text-fg-muted mt-0.5">
-                  {s.source_type} ·{" "}
+                  {s.source_type}
+                  {s.logical_view ? " · logical view (bytes counted on backing source)" : ""} ·{" "}
                   {formatNumber(s.file_count)} files,{" "}
                   {formatNumber(s.directory_count)} folders
                 </div>

@@ -9,6 +9,7 @@ import {
   Cell,
 } from "recharts";
 import { client, ok } from "../api/client";
+import { LinkRoleBreakdown } from "../components/analytics/LinkRoleBreakdown";
 import { useSources } from "../hooks/useSources";
 import type { StorageByType, StorageBySource, LargestFile } from "../api/types";
 import {
@@ -118,7 +119,7 @@ export default function Analytics() {
       (sourceQuery.data ?? [])
         .slice(0, 10)
         .map((r) => ({
-          label: r.source_name || r.source_id.slice(0, 8),
+          label: (r.source_name || r.source_id.slice(0, 8)) + (r.logical_view ? " (logical view)" : ""),
           size: r.total_size ?? 0,
           count: r.count,
         }))
@@ -201,6 +202,8 @@ export default function Analytics() {
           )}
         </Card>
       </div>
+
+      <LinkRoleBreakdown />
 
       {/* Time-series row: depends on scan_snapshots being populated.
           Sources with zero snapshots render an empty state with a hint.

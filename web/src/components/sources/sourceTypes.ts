@@ -1,3 +1,6 @@
+import { validateMirrorOf, type MirrorMapping } from "../../lib/mirrorConfig";
+export type { MirrorMapping };
+
 export const SOURCE_TYPES = [
   "local", "smb", "nfs", "s3",
   "paperless", "immich", "webdav",
@@ -33,11 +36,13 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
 
 export type LocalConfig = {
   path: string;
+  mirror_of?: MirrorMapping[];
 };
 
 export type NfsAuthMethod = "sys" | "krb5" | "krb5i" | "krb5p";
 
 export type NfsConfig = {
+  mirror_of?: MirrorMapping[];
   host: string;
   export_path: string;
   mount_options?: string;
@@ -70,6 +75,7 @@ export type NfsConfig = {
 };
 
 export type SmbConfig = {
+  mirror_of?: MirrorMapping[];
   host: string;
   port?: number;
   username: string;
@@ -79,6 +85,7 @@ export type SmbConfig = {
 };
 
 export type S3Config = {
+  mirror_of?: MirrorMapping[];
   endpoint?: string;
   bucket: string;
   region: string;
@@ -247,9 +254,12 @@ export function validateSourceConfig(
   const c = cfg as Record<string, unknown>;
   const isStr = (k: string) => typeof c[k] === "string" && (c[k] as string).trim() !== "";
 
+  const mirrorErr = (): string | null =>
+    validateMirrorOf((c["mirror_of"] as MirrorMapping[] | undefined) ?? [], type);
+
   switch (type) {
     case "local":
-      return isStr("path") ? null : "Path is required";
+      return isStr("path") ? mirrorErr() : "Path is required";
     case "nfs": {
       if (!isStr("host")) return "Host is required";
       if (!isStr("export_path")) return "Export path is required";
@@ -279,20 +289,20 @@ export function validateSourceConfig(
           return "Provide either a keytab path or a password, not both";
         }
       }
-      return null;
+      return mirrorErr();
     }
     case "smb":
       if (!isStr("host")) return "Host is required";
       if (!isStr("username")) return "Username is required";
       if (!isStr("password")) return "Password is required";
       if (!isStr("share")) return "Share is required";
-      return null;
+      return mirrorErr();
     case "s3":
       if (!isStr("bucket")) return "Bucket is required";
       if (!isStr("region")) return "Region is required";
       if (!isStr("access_key_id")) return "Access key ID is required";
       if (!isStr("secret_access_key")) return "Secret access key is required";
-      return null;
+      return mirrorErr();
     case "paperless": {
       if (!isStr("url")) return "URL is required";
       const url = (c["url"] as string).trim();

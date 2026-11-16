@@ -12,6 +12,7 @@ import { EffectivePermissions } from "./acl/EffectivePermissions";
 import { ContentTab } from "./entry-detail/ContentTab";
 import { EntryTags } from "./entry-detail/EntryTags";
 import { LibraryMetadata } from "./entry-detail/LibraryMetadata";
+import { MirrorLinks } from "./entry-detail/MirrorLinks";
 
 interface Props {
   entryId: string | null;
@@ -132,6 +133,12 @@ export function EntryDetail({ entryId }: Props) {
           {entry.mime_type && <Row label="MIME">{entry.mime_type}</Row>}
         </dl>
       </Section>
+
+      {(entry.linked_entry || (entry.backing_files ?? []).length > 0) && (
+        <Section title="Mirror links">
+          <MirrorLinks entry={entry} />
+        </Section>
+      )}
 
       {entry.kind === "file" && (
         <Section title="Content">

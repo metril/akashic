@@ -606,6 +606,7 @@ function BrowseList({
   toggleSelected,
   aclHiddenCount,
 }: BrowseListProps) {
+  const { openEntry } = useEntryDetail();
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: entries.length,
@@ -750,6 +751,19 @@ function BrowseList({
                   <span className="truncate text-fg font-medium">
                     {child.name}
                   </span>
+                  {child.linked_entry_id && child.linked_entry_name && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEntry(child.linked_entry_id);
+                      }}
+                      title={`Open ${child.linked_entry_name} (${child.link_role ?? "linked"})`}
+                      className="flex-shrink-0"
+                    >
+                      <Badge variant="info">linked to {child.linked_entry_name}</Badge>
+                    </button>
+                  )}
                   {child.kind === "directory" &&
                     child.child_count != null && (
                       <Badge variant="neutral" className="flex-shrink-0">
