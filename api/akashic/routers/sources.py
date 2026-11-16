@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 import uuid
 from datetime import datetime
@@ -35,7 +36,8 @@ from akashic.services.mirror_links import (
     MIRROR_APP_TYPES,
     MirrorConfigError,
     backing_sources_for,
-    validate_mirror_of,
+    changed_backings,
+    validate_mirrors,
 )
 from akashic.services.source_config import (
     merge_host_and_source,
@@ -47,6 +49,8 @@ from akashic.services.source_merge import (
     merge_connection_config,
     reject_sentinel_in_create,
 )
+
+logger = logging.getLogger(__name__)
 
 router = ApiRouter(prefix="/sources", tags=["sources"])
 
@@ -63,16 +67,27 @@ HOSTLESS_SOURCE_TYPES = {
 }
 
 
+_MIRROR_OF_REMOVED = "mirror_of was replaced by mirrors on the Immich/Paperless source"
+
+
 @raises(400, 404)  # MirrorConfigError carries its own status
-async def _validated_mirror_of(
-    db: AsyncSession, *, backing_id: uuid.UUID | None, backing_type: str, raw: object,
+async def _validated_mirrors(
+    db: AsyncSession, *, app_id: uuid.UUID | None, app_type: str, raw: object,
 ) -> list[dict]:
     try:
-        return await validate_mirror_of(
-            db, backing_id=backing_id, backing_type=backing_type, raw=raw,
-        )
+        return await validate_mirrors(db, app_id=app_id, app_type=app_type, raw=raw)
     except MirrorConfigError as e:
         raise HTTPException(e.status_code, e.detail)
+
+
+def _cfg_backing_ids(cfg: dict | None) -> list[uuid.UUID]:
+    """Backing ids named by a (normalised) mirrors list, first-seen order."""
+    ids: list[uuid.UUID] = []
+    for m in (cfg or {}).get("mirrors") or []:
+        bid = uuid.UUID(m["source_id"])
+        if bid not in ids:
+            ids.append(bid)
+    return ids
 
 
 def _config_safe_summary(cfg: dict | None) -> dict:
@@ -176,8 +191,8 @@ async def _validate_smb_password_requirement(
         "Requires scope `sources:write`. Not available to source-limited tokens, since a new source "
         "is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile "
         "of a different type, a hostless type given a host, an invalid SMB password setup, "
-        "out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, "
-        "`credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a "
+        "out-of-range scan controls or an invalid `mirrors` or any `mirror_of`; 404 for an unknown `host_id`, "
+        "`credential_profile_id`, `oauth_credential_id` or `mirrors` backing source; 409 if the OAuth credential is attached elsewhere; 422 for a "
         "malformed body."
     ),
 )
@@ -247,11 +262,16 @@ async def create_source(
         )
 
     payload = data.model_dump()
-    if isinstance(payload.get("connection_config"), dict) and "mirror_of" in payload["connection_config"]:
-        payload["connection_config"]["mirror_of"] = await _validated_mirror_of(
-            db, backing_id=None, backing_type=data.type,
-            raw=payload["connection_config"]["mirror_of"],
-        )
+    new_backings: list[uuid.UUID] = []
+    if isinstance(payload.get("connection_config"), dict):
+        if "mirror_of" in payload["connection_config"]:
+            raise HTTPException(status_code=400, detail=_MIRROR_OF_REMOVED)
+        if "mirrors" in payload["connection_config"]:
+            payload["connection_config"]["mirrors"] = await _validated_mirrors(
+                db, app_id=None, app_type=data.type,
+                raw=payload["connection_config"]["mirrors"],
+            )
+            new_backings = _cfg_backing_ids(payload["connection_config"])
     # v0.35.0 — a NULL max_parallel_scanners / scan_chunk_size now means
     # "inherit from the host" (or the built-in default), so it is kept
     # as NULL rather than forced to a concrete value here.
@@ -304,9 +324,9 @@ async def create_source(
         cred.source_id = source.id
     await db.commit()
     await db.refresh(source)
-    if (source.connection_config or {}).get("mirror_of"):
+    for backing_id in new_backings:
         background_tasks.add_task(
-            post_scan.relink_source_bg, str(source.id), settings.database_url,
+            post_scan.relink_source_bg, str(backing_id), settings.database_url,
         )
     # Push to /ws/v1/scans subscribers so the Sources page sees the
     # new card without polling.
@@ -457,10 +477,10 @@ LIMITED_UPDATE_FIELDS = frozenset({
         "`source_limited`.\n"
         "Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a "
         "hostless type given a host, removing a required host, a masked `***` in a non-secret key, an "
-        "invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the "
-        "source (or host, profile or `mirror_of` target) does not exist or is outside the token's "
-        "sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised "
-        "and starts a background mirror-link pass."
+        "invalid SMB password setup, out-of-range scan controls or an invalid `mirrors` or any `mirror_of`; 404 if the "
+        "source (or host, profile or `mirrors` backing source) does not exist or is outside the token's "
+        "sources; 422 for a malformed body. A changed `connection_config.mirrors` is normalised "
+        "and relinks the affected backing sources in the background."
     ),
 )
 @raises(400, 404)  # MirrorConfigError carries its own status
@@ -501,6 +521,8 @@ async def update_source(
     }
 
     incoming = data.model_dump(exclude_unset=True)
+    if "mirror_of" in (incoming.get("connection_config") or {}):
+        raise HTTPException(status_code=400, detail=_MIRROR_OF_REMOVED)
     if "max_parallel_scanners" in incoming or "scan_chunk_size" in incoming:
         ctrl_err = validate_scan_controls(
             max_parallel_scanners=incoming.get("max_parallel_scanners"),
@@ -588,20 +610,27 @@ async def update_source(
             connection_config=source.connection_config,
         )
 
-    mirror_changed = False
-    if "mirror_of" in (incoming.get("connection_config") or {}):
-        normalized = await _validated_mirror_of(
-            db, backing_id=source.id, backing_type=source.type,
-            raw=(source.connection_config or {}).get("mirror_of"),
+    relink_ids: list[uuid.UUID] = []
+    if "mirrors" in (incoming.get("connection_config") or {}):
+        normalized = await _validated_mirrors(
+            db, app_id=source.id, app_type=source.type,
+            raw=(source.connection_config or {}).get("mirrors"),
         )
-        source.connection_config = {**source.connection_config, "mirror_of": normalized}
-        mirror_changed = normalized != (before["connection_config"].get("mirror_of") or [])
+        source.connection_config = {**source.connection_config, "mirrors": normalized}
+        relink_ids = changed_backings(
+            before["connection_config"].get("mirrors") or [], normalized
+        )
+    if "name" in incoming and incoming["name"] != before["name"]:
+        # Priority is name-ordered, so a rename can reorder every backing's links.
+        relink_ids += [
+            i for i in _cfg_backing_ids(source.connection_config) if i not in relink_ids
+        ]
 
     await db.commit()
     await db.refresh(source)
-    if mirror_changed:
+    for backing_id in relink_ids:
         background_tasks.add_task(
-            post_scan.relink_source_bg, str(source.id), settings.database_url,
+            post_scan.relink_source_bg, str(backing_id), settings.database_url,
         )
     # Push to /ws/v1/scans subscribers so other tabs/users see the edit
     # without polling (mirrors source.created / source.deleted).
@@ -657,8 +686,8 @@ async def update_source(
         "/sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans "
         "are kept, detached from the source. The search index is updated, a `source.deleted` event is "
         "published and a `source_deleted` audit event records the details. Deleting an Immich or "
-        "Paperless source removes its mappings from every source's `mirror_of` and unlinks the "
-        "files that were linked to it.\n"
+        "Paperless source unlinks its backing files; deleting a backing source removes it from "
+        "every app's `mirrors`.\n"
         "Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the "
         "token's sources."
     ),
@@ -690,31 +719,50 @@ async def delete_source(
     }
     deleted_id = source.id
 
-    # Mirror links: strip this app source from every backing's mirror_of
-    # (relinked after the delete commits); unlink a backing's own files.
-    stripped_backings: list[uuid.UUID] = []
+    # Mirror links: an app source unlinks its backings (relinked after the
+    # delete commits); a backing source is stripped from every app's mirrors.
+    relink_backings: list[uuid.UUID] = []
     if source.type in MIRROR_APP_TYPES:
-        for backing_id in await backing_sources_for(db, source_id):
-            backing = await db.get(Source, backing_id)
-            before_cfg = dict(backing.connection_config or {})
+        try:
+            relink_backings = await backing_sources_for(db, source_id)
+        except MirrorConfigError:
+            logger.warning(
+                "delete_source: corrupt mirrors on %s; unlinking backings by link target",
+                source_id,
+            )
+            relink_backings = list((await db.execute(
+                select(Entry.source_id).where(
+                    Entry.link_target_source_id == source_id, Entry.source_id.is_not(None),
+                ).distinct()
+            )).scalars().all())
+    else:
+        apps = (await db.execute(
+            select(Source).where(Source.type.in_(MIRROR_APP_TYPES)).order_by(Source.name, Source.id)
+        )).scalars().all()
+        for app in apps:
+            before_cfg = dict(app.connection_config or {})
+            mirrors = before_cfg.get("mirrors")
+            if not isinstance(mirrors, list):
+                continue
             kept = [
-                m for m in before_cfg.get("mirror_of") or []
-                if m.get("source_id") != str(source_id)
+                m for m in mirrors
+                if not (isinstance(m, dict) and m.get("source_id") == str(source_id))
             ]
-            backing.connection_config = {**before_cfg, "mirror_of": kept}
+            if len(kept) == len(mirrors):
+                continue
+            app.connection_config = {**before_cfg, "mirrors": kept}
             await record_event(
-                db=db, user=user, event_type="source_updated", source_id=backing.id,
+                db=db, user=user, event_type="source_updated", source_id=app.id,
                 request=request, commit=False,
-                payload={"diff": {"connection_config": field_diff(before_cfg, backing.connection_config)}},
+                payload={"diff": {"connection_config": field_diff(before_cfg, app.connection_config)}},
             )
-            stripped_backings.append(backing_id)
-    elif not purge_entries:
-        await db.execute(
-            sql_update(Entry).where(Entry.source_id == source_id).values(
-                linked_entry_id=None, link_role=None,
-                link_target_viewable=None, link_target_source_id=None,
+        if not purge_entries:
+            await db.execute(
+                sql_update(Entry).where(Entry.source_id == source_id).values(
+                    linked_entry_id=None, link_role=None,
+                    link_target_viewable=None, link_target_source_id=None,
+                )
             )
-        )
 
     # Snapshot the affected entry ids BEFORE the source delete so we
     # can sync Meilisearch in either flavour. On the preserve path
@@ -731,7 +779,7 @@ async def delete_source(
 
     await db.delete(source)
     await db.commit()
-    for backing_id in stripped_backings:
+    for backing_id in relink_backings:
         background_tasks.add_task(
             post_scan.relink_source_bg, str(backing_id), settings.database_url,
         )

@@ -2491,7 +2491,7 @@ export interface paths {
         /**
          * Create a source
          * @description Registers a storage source. `connection_config` holds the type's connection settings; attach a `host_id` (SMB, NFS and S3 sources) and/or a `credential_profile_id` to inherit connection settings and credentials, which `connection_config` overrides. For OAuth-backed types pass `oauth_credential_id` inside `connection_config` to attach an unattached credential. `is_removable` is inferred from the type and path when omitted. The scan-control values are validated. Publishes a `source.created` event and records a `source_created` audit event (secrets omitted).
-         *     Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirror_of` target; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
+         *     Requires scope `sources:write`. Not available to source-limited tokens, since a new source is outside any limit. Errors: 400 for a masked `***` value in the config, a host or profile of a different type, a hostless type given a host, an invalid SMB password setup, out-of-range scan controls or an invalid `mirrors` or any `mirror_of`; 404 for an unknown `host_id`, `credential_profile_id`, `oauth_credential_id` or `mirrors` backing source; 409 if the OAuth credential is attached elsewhere; 422 for a malformed body.
          */
         post: operations["create_source"];
         delete?: never;
@@ -2539,7 +2539,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a source
-         * @description Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source removes its mappings from every source's `mirror_of` and unlinks the files that were linked to it.
+         * @description Deletes the source. By default its entries are kept as orphans with no source (still searchable, content unavailable) and can later be re-attached to another source with `POST /sources/{source_id}/reattach-orphans`; with `purge_entries` they are deleted too. Its scans are kept, detached from the source. The search index is updated, a `source.deleted` event is published and a `source_deleted` audit event records the details. Deleting an Immich or Paperless source unlinks its backing files; deleting a backing source removes it from every app's `mirrors`.
          *     Requires scope `sources:write`. Errors: 404 if the source does not exist or is outside the token's sources.
          */
         delete: operations["delete_source"];
@@ -2548,7 +2548,7 @@ export interface paths {
         /**
          * Update a source
          * @description Changes the fields that are sent; omitted fields are untouched. `connection_config` is merged key by key into the stored one, and a secret key sent as `***` keeps its stored value. The new state is validated as for creation. Publishes a `source.updated` event and records a `source_updated` audit event with the before and after of what changed (secrets omitted). A source-limited token may change only: exclude_patterns, is_removable, max_parallel_scanners, name, preferred_pool, scan_chunk_size, scan_schedule. Changing `connection_config`, `credential_profile_id` or `host_id` is refused with 403 `source_limited`.
-         *     Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirror_of`; 404 if the source (or host, profile or `mirror_of` target) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirror_of` is normalised and starts a background mirror-link pass.
+         *     Requires scope `sources:write`. Errors: 400 for a host or profile of a different type, a hostless type given a host, removing a required host, a masked `***` in a non-secret key, an invalid SMB password setup, out-of-range scan controls or an invalid `mirrors` or any `mirror_of`; 404 if the source (or host, profile or `mirrors` backing source) does not exist or is outside the token's sources; 422 for a malformed body. A changed `connection_config.mirrors` is normalised and relinks the affected backing sources in the background.
          */
         patch: operations["update_source"];
         trace?: never;

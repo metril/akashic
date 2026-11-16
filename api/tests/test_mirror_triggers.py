@@ -12,6 +12,7 @@ from sqlalchemy import select
 from akashic.auth.dependencies import get_principal
 from akashic.database import get_db
 from akashic.main import create_app
+from akashic.models.audit_event import AuditEvent
 from akashic.models.entry import Entry
 from akashic.models.source import Source
 from akashic.models.user import User
@@ -75,79 +76,137 @@ async def _mk(setup_db, type_, cfg=None) -> uuid.UUID:
         return s.id
 
 
-def _body(target, local=f"{BASE}/"):
+def _m(backing, local=f"{BASE}/", remote="/data"):
+    return {"source_id": str(backing), "remote_prefix": remote, "local_prefix": local}
+
+
+async def _app(setup_db, type_="immich", mirrors=None, name=None) -> uuid.UUID:
+    cfg = {"mirrors": mirrors} if mirrors is not None else {}
+    async with setup_db() as db:
+        s = Source(name=name or f"{type_}-{_u()}", type=type_, connection_config=cfg)
+        db.add(s)
+        await db.commit()
+        return s.id
+
+
+def _create_body(mirrors):
     return {
-        "name": f"b-{_u()}", "type": "local",
-        "connection_config": {
-            "path": "/tmp",
-            "mirror_of": [{"source_id": str(target), "remote_prefix": "/data", "local_prefix": local}],
-        },
+        "name": f"app-{_u()}", "type": "immich",
+        "connection_config": {"url": "http://x", "api_key": "k", "mirrors": mirrors},
     }
 
 
 @pytest.mark.asyncio
-async def test_create_source_normalizes_mirror_of(client, setup_db):
-    app = await _mk(setup_db, "immich")
-    r = await client.post("/api/v1/sources", json=_body(app))
+async def test_create_app_source_normalizes_mirrors(client, setup_db):
+    b = await _mk(setup_db, "local", {"path": "/tmp"})
+    r = await client.post("/api/v1/sources", json=_create_body([_m(b)]))
     assert r.status_code == 201, r.text
-    assert r.json()["connection_config"]["mirror_of"][0]["local_prefix"] == BASE
-    assert post_scan.relink_source_bg.call_count == 1
+    assert r.json()["connection_config"]["mirrors"][0]["local_prefix"] == BASE
+    post_scan.relink_source_bg.assert_called_once()
+    assert post_scan.relink_source_bg.call_args.args[0] == str(b)
 
 
 @pytest.mark.asyncio
-async def test_create_source_rejects_bad_mirror_target(client, setup_db):
-    local = await _mk(setup_db, "local")
-    r = await client.post("/api/v1/sources", json=_body(local))
+@pytest.mark.parametrize("case", ["create_local", "update_local", "update_immich"])
+async def test_mirror_of_rejected(client, setup_db, case):
+    if case == "create_local":
+        r = await client.post("/api/v1/sources", json={
+            "name": f"l-{_u()}", "type": "local",
+            "connection_config": {"path": "/tmp", "mirror_of": []},
+        })
+    else:
+        sid = await _mk(setup_db, "local" if case == "update_local" else "immich", {"path": "/tmp"})
+        r = await client.patch(
+            f"/api/v1/sources/{sid}", json={"connection_config": {"mirror_of": []}}
+        )
+    assert r.status_code == 400
+    assert "mirrors" in r.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_mirrors_on_backing_type_rejected(client, setup_db):
+    other = await _mk(setup_db, "local", {"path": "/tmp"})
+    b = await _mk(setup_db, "local", {"path": "/tmp"})
+    r = await client.patch(
+        f"/api/v1/sources/{b}", json={"connection_config": {"mirrors": [_m(other)]}}
+    )
     assert r.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_update_source_unknown_mirror_target_404(client, setup_db):
-    b = await _mk(setup_db, "local", {"path": "/tmp"})
+async def test_update_unknown_backing_404(client, setup_db):
+    app = await _app(setup_db)
     r = await client.patch(
-        f"/api/v1/sources/{b}",
-        json={"connection_config": _body(uuid.uuid4())["connection_config"]},
+        f"/api/v1/sources/{app}",
+        json={"connection_config": {"mirrors": [_m(uuid.uuid4())]}},
     )
     assert r.status_code == 404
 
 
+def test_changed_backings():
+    b1, b2, b3 = sorted(uuid.uuid4() for _ in range(3))
+    x, y = _m(b1, "/a"), _m(b1, "/b")
+    base = [x, y, _m(b2, "/c")]
+    assert mirror_links.changed_backings(base, list(base)) == []
+    assert mirror_links.changed_backings(base, [y, x, _m(b2, "/c")]) == [b1]
+    assert mirror_links.changed_backings(base, [x, y]) == [b2]
+    assert mirror_links.changed_backings(base, base + [_m(b3, "/d")]) == [b3]
+
+
 @pytest.mark.asyncio
-async def test_update_mirror_of_schedules_relink(client, setup_db):
-    app = await _mk(setup_db, "immich")
-    b = await _mk(setup_db, "local", {"path": "/tmp"})
-    cfg = {"connection_config": _body(app)["connection_config"]}
-    r = await client.patch(f"/api/v1/sources/{b}", json=cfg)
+async def test_update_mirrors_relinks_changed_only(client, setup_db):
+    b1 = await _mk(setup_db, "local", {"path": "/tmp"})
+    b2 = await _mk(setup_db, "local", {"path": "/tmp"})
+    app = await _app(setup_db, mirrors=[_m(b1, "/a"), _m(b2, "/b")])
+    r = await client.patch(
+        f"/api/v1/sources/{app}",
+        json={"connection_config": {"mirrors": [_m(b1, "/z"), _m(b2, "/b")]}},
+    )
     assert r.status_code == 200, r.text
-    assert post_scan.relink_source_bg.call_count == 1
-    assert post_scan.relink_source_bg.call_args.args[0] == str(b)
-    r = await client.patch(f"/api/v1/sources/{b}", json=cfg)
+    post_scan.relink_source_bg.assert_called_once()
+    assert post_scan.relink_source_bg.call_args.args[0] == str(b1)
+    post_scan.relink_source_bg.reset_mock()
+    r = await client.patch(
+        f"/api/v1/sources/{app}",
+        json={"connection_config": {"mirrors": [_m(b1, "/z"), _m(b2, "/b")]}},
+    )
     assert r.status_code == 200
-    assert post_scan.relink_source_bg.call_count == 1
+    post_scan.relink_source_bg.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rename_app_source_relinks_backings(client, setup_db):
+    b1 = await _mk(setup_db, "local", {"path": "/tmp"})
+    b2 = await _mk(setup_db, "local", {"path": "/tmp"})
+    app = await _app(setup_db, mirrors=[_m(b1, "/a"), _m(b2, "/b")])
+    r = await client.patch(f"/api/v1/sources/{app}", json={"name": f"renamed-{_u()}"})
+    assert r.status_code == 200, r.text
+    got = {c.args[0] for c in post_scan.relink_source_bg.call_args_list}
+    assert got == {str(b1), str(b2)}
 
 
 @pytest.mark.asyncio
 async def test_clearing_last_mapping_unlinks(client, setup_db):
-    app = await _mk(setup_db, "immich")
+    bid = await _mk(setup_db, "local", {"path": "/tmp"})
+    app = await _app(setup_db, mirrors=[_m(bid, BASE)])
     async with setup_db() as db:
         asset = Entry(
             source_id=app, kind="file", path=f"/asset/{_u()}", parent_path="/asset", name="a",
             domain_metadata={"immich_id": IMM_ID, "original_path": "/data/x/IMG.jpg"},
         )
-        b = Source(name=f"b-{_u()}", type="local", connection_config={"path": "/tmp", "mirror_of": [
-            {"source_id": str(app), "remote_prefix": "/data", "local_prefix": BASE}]})
-        db.add_all([asset, b])
+        db.add(asset)
         await db.flush()
-        db.add(Entry(source_id=b.id, kind="file", path=f"{BASE}/x/IMG.jpg",
+        db.add(Entry(source_id=bid, kind="file", path=f"{BASE}/x/IMG.jpg",
                      parent_path=f"{BASE}/x", name="IMG.jpg"))
         await db.flush()
-        await relink_backing(db, b.id)
+        await relink_backing(db, bid)
         await db.commit()
-        bid = b.id
     async with setup_db() as db:
         e = (await db.execute(select(Entry).where(Entry.source_id == bid))).scalar_one()
         assert e.linked_entry_id is not None
-    r = await client.patch(f"/api/v1/sources/{bid}", json={"connection_config": {"mirror_of": []}})
+    r = await client.patch(f"/api/v1/sources/{app}", json={"connection_config": {"mirrors": []}})
     assert r.status_code == 200, r.text
+    assert post_scan.relink_source_bg.call_args.args[0] == str(bid)
     # real background relink, run against the test DB
     async with setup_db() as db:
         await mirror_links.relink_and_flush(db, bid)
@@ -175,16 +234,18 @@ async def test_run_post_scan_tasks_order(monkeypatch):
     assert calls == ["rollup", "snapshot", "webhooks"]
 
 
-async def _backing_with_link(setup_db, app):
+async def _backing_with_link(setup_db, app, extra_apps=()):
     async with setup_db() as db:
         asset = Entry(
             source_id=app, kind="file", path=f"/asset/{_u()}", parent_path="/asset", name="a",
             domain_metadata={"immich_id": IMM_ID, "original_path": "/data/x/IMG.jpg"},
         )
-        b = Source(name=f"b-{_u()}", type="local", connection_config={"path": "/tmp", "mirror_of": [
-            {"source_id": str(app), "remote_prefix": "/data", "local_prefix": BASE}]})
+        b = Source(name=f"b-{_u()}", type="local", connection_config={"path": "/tmp"})
         db.add_all([asset, b])
         await db.flush()
+        for aid in (app, *extra_apps):
+            a = await db.get(Source, aid)
+            a.connection_config = {**a.connection_config, "mirrors": [_m(b.id, BASE)]}
         db.add(Entry(source_id=b.id, kind="file", path=f"{BASE}/x/IMG.jpg",
                      parent_path=f"{BASE}/x", name="IMG.jpg"))
         await db.flush()
@@ -194,16 +255,14 @@ async def _backing_with_link(setup_db, app):
 
 
 @pytest.mark.asyncio
-async def test_delete_app_source_strips_mapping_and_unlinks(client, setup_db):
-    app = await _mk(setup_db, "immich")
+async def test_delete_app_source_relinks_backings(client, setup_db):
+    app = await _app(setup_db)
     bid = await _backing_with_link(setup_db, app)
     r = await client.delete(f"/api/v1/sources/{app}")
     assert r.status_code == 204, r.text
     post_scan.relink_source_bg.assert_called_once()
     assert post_scan.relink_source_bg.call_args.args[0] == str(bid)
     async with setup_db() as db:
-        b = await db.get(Source, bid)
-        assert b.connection_config["mirror_of"] == []
         await mirror_links.relink_and_flush(db, bid)
     async with setup_db() as db:
         e = (await db.execute(select(Entry).where(Entry.source_id == bid))).scalar_one()
@@ -212,12 +271,37 @@ async def test_delete_app_source_strips_mapping_and_unlinks(client, setup_db):
 
 
 @pytest.mark.asyncio
-async def test_delete_backing_source_preserve_clears_links(client, setup_db):
-    app = await _mk(setup_db, "immich")
+async def test_delete_app_source_with_corrupt_mirrors_succeeds(client, setup_db):
+    app = await _app(setup_db)
     bid = await _backing_with_link(setup_db, app)
+    async with setup_db() as db:
+        a = await db.get(Source, app)
+        a.connection_config = {"mirrors": [{"source_id": "not-a-uuid"}]}
+        await db.commit()
+    r = await client.delete(f"/api/v1/sources/{app}")
+    assert r.status_code == 204, r.text
+    assert post_scan.relink_source_bg.call_args.args[0] == str(bid)
+    async with setup_db() as db:
+        assert await db.get(Source, app) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_backing_strips_from_apps(client, setup_db):
+    app1 = await _app(setup_db)
+    app2 = await _app(setup_db, "paperless")
+    bid = await _backing_with_link(setup_db, app1, extra_apps=(app2,))
     r = await client.delete(f"/api/v1/sources/{bid}")
     assert r.status_code == 204, r.text
     async with setup_db() as db:
+        for aid in (app1, app2):
+            assert (await db.get(Source, aid)).connection_config["mirrors"] == []
+        n = (await db.execute(
+            select(AuditEvent).where(
+                AuditEvent.event_type == "source_updated",
+                AuditEvent.source_id.in_([app1, app2]),
+            )
+        )).scalars().all()
+        assert len(n) == 2
         e = (await db.execute(select(Entry).where(Entry.path == f"{BASE}/x/IMG.jpg"))).scalars().all()
         assert e and all(
             x.linked_entry_id is None and x.link_role is None

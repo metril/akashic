@@ -106,37 +106,23 @@ async def validate_mirrors(
     return out
 
 
-# Removed in Task 2 together with the sources router's mirror_of handling.
-async def validate_mirror_of(
-    db: AsyncSession, *, backing_id: uuid.UUID | None, backing_type: str, raw: Any
-) -> list[dict]:
-    if raw is None or raw == []:
-        return []
-    if not isinstance(raw, list):
-        raise MirrorConfigError(400, "mirror_of must be a list")
-    if backing_type not in MIRROR_BACKING_TYPES:
-        raise MirrorConfigError(
-            400, f"mirror_of is not supported for source type '{backing_type}'"
-        )
-    out: list[dict] = []
-    for item in raw:
-        m = normalize_mapping(item, backing_type)
-        target_id = uuid.UUID(m["source_id"])
-        if backing_id is not None and target_id == backing_id:
-            raise MirrorConfigError(400, "a source cannot mirror itself")
-        target = await db.get(Source, target_id)
-        if target is None:
-            raise MirrorConfigError(404, f"mirror_of target {target_id} not found")
-        if target.type not in MIRROR_APP_TYPES:
-            raise MirrorConfigError(
-                400, f"mirror_of target must be an immich or paperless source, not '{target.type}'"
-            )
-        if target.type == "paperless" and m["remote_prefix"]:
-            raise MirrorConfigError(400, "paperless mappings must have an empty remote_prefix")
-        if m in out:
-            raise MirrorConfigError(400, "duplicate mirror_of mapping")
-        out.append(m)
+def _prefix_pairs(mirrors: Any) -> dict[uuid.UUID, list[tuple[str, str]]]:
+    out: dict[uuid.UUID, list[tuple[str, str]]] = {}
+    for m in mirrors if isinstance(mirrors, list) else []:
+        if not isinstance(m, dict):
+            continue
+        try:
+            bid = uuid.UUID(str(m.get("source_id")))
+        except ValueError:
+            continue
+        out.setdefault(bid, []).append((str(m.get("remote_prefix")), str(m.get("local_prefix"))))
     return out
+
+
+def changed_backings(before: list[dict], after: list[dict]) -> list[uuid.UUID]:
+    """Backing ids whose ordered (remote_prefix, local_prefix) list differs (incl. added/removed)."""
+    b, a = _prefix_pairs(before), _prefix_pairs(after)
+    return sorted(i for i in b.keys() | a.keys() if b.get(i) != a.get(i))
 
 
 def prefix_with_sep(local_prefix: str, backing_type: str) -> str:

@@ -160,7 +160,7 @@ async def run_post_scan_tasks(scan_id: str, source_id: str, status: str, db_url:
 
 
 async def relink_source_bg(backing_id: str, db_url: str) -> None:
-    """Relink one backing after its mirror_of mapping changed (including cleared)."""
+    """Relink one backing after its mirrors mapping changed (including cleared)."""
     try:
         async with bg_session(db_url)() as db:
             await relink_and_flush(db, uuid.UUID(backing_id))
