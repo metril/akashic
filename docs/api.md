@@ -3041,7 +3041,7 @@ Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `
 
 Auth: `userJWT`, scope `access:read`
 
-Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).
+Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
 Requires scope `access:read`; not available to source-limited API tokens.
 
 | Status | Description | Body |
@@ -3099,7 +3099,7 @@ Requires scope `access:read`; not available to source-limited API tokens. Errors
 Auth: `userJWT`, scope `access:read`
 
 Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-Requires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
 
 **Request body** (required)
 - `application/json`: [`IdentityRefreshRequest`](#schema-identityrefreshrequest)
@@ -3107,6 +3107,7 @@ Requires scope `access:read`; not available to source-limited API tokens. Errors
 | Status | Description | Body |
 | --- | --- | --- |
 | 200 | Successful Response | `application/json`: [`IdentityResult`](#schema-identityresult) |
+| 400 | Malformed or unacceptable request. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
@@ -4834,7 +4835,7 @@ Directory sync state and schedule.
 | --- | --- | --- | --- |
 | `backends` | array of [`DirectoryBackendState`](#schema-directorybackendstate) | yes | State of each directory backend. |
 | `interval_minutes` | `integer` | yes | Scheduled sync interval in minutes; 0 means manual only. |
-| `next_run_at` | `string` (`date-time`) \| `null` | yes | Latest run start plus the interval; null when the schedule is manual-only or nothing has run. |
+| `next_run_at` | `string` (`date-time`) \| `null` | yes | Latest run start plus the interval, or now when nothing has run yet; null when the schedule is manual-only. |
 
 <a id="schema-directorysyncrunout"></a>
 ### DirectorySyncRunOut

@@ -95,4 +95,4 @@ class DirectoryStatusResponse(ApiModel):
     backends: list[DirectoryBackendState] = Field(description="State of each directory backend.")
     interval_minutes: int = Field(description="Scheduled sync interval in minutes; 0 means manual only.")
     next_run_at: datetime | None = Field(
-        description="Latest run start plus the interval; null when the schedule is manual-only or nothing has run.")
+        description="Latest run start plus the interval, or now when nothing has run yet; null when the schedule is manual-only.")

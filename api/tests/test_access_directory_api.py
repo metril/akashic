@@ -8,6 +8,8 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from akashic.models.audit_event import AuditEvent
+from akashic.models.source import Source
+from akashic.models.user import User
 from akashic.models.directory import DirectoryEntry, DirectorySyncRun
 from akashic.services.directory import sync
 from akashic.services.directory.records import DirectoryError, DirRecord
@@ -46,9 +48,10 @@ async def viewer(client, admin):
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-@pytest.fixture
-def gated_sync(setup_db, monkeypatch):
-    """Sync fetches block on an Event; teardown releases and drains the tasks."""
+@pytest_asyncio.fixture
+async def gated_sync(setup_db, monkeypatch):
+    """Sync fetches block on an Event; teardown releases the gate and awaits the
+    tasks while the test session factory is still patched in."""
     monkeypatch.setattr(sync, "async_session", setup_db)
     gate = asyncio.Event()
 
@@ -58,12 +61,14 @@ def gated_sync(setup_db, monkeypatch):
     monkeypatch.setattr(sync, "_fetch", fetch)
     yield gate
     gate.set()
+    await asyncio.gather(*list(sync._tasks))
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def drain_sync_tasks():
+async def no_leaked_sync_tasks():
+    """Backstop: a test that starts a sync must drain it itself."""
     yield
-    await asyncio.gather(*list(sync._tasks), return_exceptions=True)
+    assert not sync._tasks, "sync tasks left running"
 
 
 # ── search ────────────────────────────────────────────────────────────────
@@ -225,10 +230,70 @@ async def test_status_next_run_at(client, admin, db_session, rt_set):
 
 
 @pytest.mark.asyncio
-async def test_status_never_leaks_secrets(client, admin, db_session, rt_set):
-    rt_set(**AD_CFG, authentik_url="https://a", ldap_bind_password="s3cr3t-bind-pw", authentik_api_token="s3cr3t-ak-token")
-    db_session.add(DirectorySyncRun(backend="ad", status="failed", trigger="manual", error="bind failed"))
+async def test_status_next_run_at_now_when_never_run(client, admin, rt_set):
+    rt_set(**AD_CFG, directory_sync_interval_minutes=60)
+    before = now()
+    st = (await client.get("/api/v1/access/directory/status", headers=admin)).json()
+    assert before <= datetime.fromisoformat(st["next_run_at"]) <= now()
+
+
+@pytest.mark.asyncio
+async def test_refresh_rejects_groups_and_non_directory_identities(client, admin, db_session, rt_set):
+    rt_set(**AD_CFG)
+    db_session.add(entry("g1", kind="group", sid="S-1-5-21-1-2-3-513"))
     await db_session.commit()
+    r = await client.post("/api/v1/access/identities/refresh", json={"id": "sid:S-1-5-21-1-2-3-513"}, headers=admin)
+    assert r.status_code == 400 and "directory record" in r.json()["message"]
+    local = User(username="local1")
+    db_session.add(local)
+    await db_session.commit()
+    r = await client.post("/api/v1/access/identities/refresh", json={"id": f"akashic:{local.id}"}, headers=admin)
+    assert r.status_code == 400 and "directory record" in r.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_source_limited_token_forbidden_on_directory_routes(client, admin, db_session):
+    src = Source(name="s-lim", type="local", connection_config={"path": "/tmp"}, status="online")
+    db_session.add(src)
+    await db_session.commit()
+    r = await client.post(
+        "/api/v1/me/tokens", headers=admin,
+        json={"name": "lim", "scopes": ["access:read"], "source_ids": [str(src.id)]})
+    assert r.status_code == 201, r.text
+    # A limited token cannot hold maintenance:write, so the sync route is
+    # refused on scope; the other three are refused as not source-aware.
+    h = {"Authorization": f"Bearer {r.json()['token']}"}
+    for method, path, kw in (
+        ("GET", "/api/v1/access/identities?q=a", {}),
+        ("POST", "/api/v1/access/identities/refresh", {"json": {"id": "sid:x"}}),
+        ("POST", "/api/v1/access/directory/sync", {}),
+        ("GET", "/api/v1/access/directory/status", {}),
+    ):
+        assert (await client.request(method, path, headers=h, **kw)).status_code == 403, path
+
+
+@pytest.mark.asyncio
+async def test_status_never_leaks_secrets(client, admin, db_session, rt_set, gated_sync, monkeypatch):
+    pw, tok = "s3cr3t-bind-pw", "s3cr3t-ak-token"
+    rt_set(**AD_CFG, authentik_url="https://a", ldap_bind_password=pw, authentik_api_token=tok)
+    db_session.add(DirectorySyncRun(backend="ad", status="failed", trigger="manual", error="bind failed"))
+    db_session.add(entry("p1", sid=SID))
+    await db_session.commit()
+    texts = []
+    r = await client.post("/api/v1/access/directory/sync", headers=admin)
+    assert r.status_code == 202
+    texts.append(r.text)
     for path in ("/api/v1/access/directory/status", "/api/v1/access/identities?q=a"):
-        text = json.dumps((await client.get(path, headers=admin)).json())
-        assert "s3cr3t-bind-pw" not in text and "s3cr3t-ak-token" not in text
+        texts.append((await client.get(path, headers=admin)).text)
+    audit = (await db_session.execute(
+        select(AuditEvent).where(AuditEvent.event_type == "directory_sync"))).scalars().all()
+    texts.append(json.dumps([e.payload for e in audit]))
+
+    def down(*, sid, dn, timeout):
+        raise DirectoryError("LDAP unreachable")
+    monkeypatch.setattr(sync, "fetch_ad_person", down)
+    r = await client.post("/api/v1/access/identities/refresh", json={"id": f"sid:{SID}"}, headers=admin)
+    assert r.status_code == 502
+    texts.append(r.text)
+    for text in texts:
+        assert pw not in text and tok not in text

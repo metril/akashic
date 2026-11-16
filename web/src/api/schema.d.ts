@@ -37,7 +37,7 @@ export interface paths {
         };
         /**
          * Directory sync status
-         * @description Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).
+         * @description Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).
          *     Requires scope `access:read`; not available to source-limited API tokens.
          */
         get: operations["directory_status"];
@@ -103,7 +103,7 @@ export interface paths {
         /**
          * Refresh one person from the directory
          * @description Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
-         *     Requires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+         *     Requires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
          */
         post: operations["refresh_identity"];
         delete?: never;
@@ -4829,7 +4829,7 @@ export interface components {
             interval_minutes: number;
             /**
              * Next Run At
-             * @description Latest run start plus the interval; null when the schedule is manual-only or nothing has run.
+             * @description Latest run start plus the interval, or now when nothing has run yet; null when the schedule is manual-only.
              */
             next_run_at: string | null;
         };
@@ -12444,6 +12444,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IdentityResult"];
+                };
+            };
+            /** @description Malformed or unacceptable request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Missing, invalid or expired credentials. */

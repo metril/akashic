@@ -5,7 +5,7 @@ person live, and trigger / inspect the periodic directory sync.
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -88,7 +88,7 @@ async def search_identities_route(
         "backend is removed from the cache. The merge id is sent in the body because it contains "
         "characters that do not survive a URL path.\n"
         "Requires scope `access:read`; not available to source-limited API tokens. "
-        "Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read "
+        "Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read "
         "failed, with a redacted reason in `detail` (the cache is left untouched)."
     ),
 )
@@ -100,6 +100,8 @@ async def refresh_identity(
     ident = await load_identity(db, body.id)
     if ident is None:
         raise HTTPException(status_code=404, detail="Identity not found")
+    if ident.kind != "person" or not any(r.backend in ("ad", "authentik") for r in ident.records):
+        raise HTTPException(status_code=400, detail="Only people with a directory record can be refreshed")
     try:
         await sync.refresh_records(db, ident.records)
     except sync.RefreshFailed as exc:
@@ -149,7 +151,7 @@ async def start_directory_sync(
     description=(
         "Returns, per directory backend, whether it is configured, whether a sync is running, "
         "its latest run and when it last succeeded, plus the sync interval and the next scheduled start "
-        "(latest run start plus the interval; null when the interval is 0 or nothing has run).\n"
+        "(latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).\n"
         "Requires scope `access:read`; not available to source-limited API tokens."
     ),
 )
@@ -178,5 +180,7 @@ async def directory_status(
         ))
     interval = rt().directory_sync_interval_minutes
     latest = (await db.execute(select(func.max(DirectorySyncRun.started_at)))).scalar_one()
-    next_run = latest + timedelta(minutes=interval) if interval > 0 and latest else None
+    next_run = None
+    if interval > 0:
+        next_run = latest + timedelta(minutes=interval) if latest else datetime.now(timezone.utc)
     return DirectoryStatusResponse(backends=states, interval_minutes=interval, next_run_at=next_run)

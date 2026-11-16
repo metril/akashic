@@ -2953,7 +2953,7 @@
                 "type": "null"
               }
             ],
-            "description": "Latest run start plus the interval; null when the schedule is manual-only or nothing has run.",
+            "description": "Latest run start plus the interval, or now when nothing has run yet; null when the schedule is manual-only.",
             "title": "Next Run At"
           }
         },
@@ -15843,7 +15843,7 @@
     },
     "/api/v1/access/directory/status": {
       "get": {
-        "description": "Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).\nRequires scope `access:read`; not available to source-limited API tokens.",
+        "description": "Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval, or now when nothing has run yet; null when the interval is 0).\nRequires scope `access:read`; not available to source-limited API tokens.",
         "operationId": "directory_status",
         "responses": {
           "200": {
@@ -16066,7 +16066,7 @@
     },
     "/api/v1/access/identities/refresh": {
       "post": {
-        "description": "Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).",
+        "description": "Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 400 if the identity is a group or has no AD or Authentik record; 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).",
         "operationId": "refresh_identity",
         "requestBody": {
           "content": {
@@ -16088,6 +16088,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
           },
           "401": {
             "content": {
