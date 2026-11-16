@@ -9,16 +9,15 @@ Both endpoints are admin-only — the admin gate is the same one used
 by other admin endpoints (require_admin), so we cover the 403 path
 once and skip duplicating it on every assertion.
 """
-from unittest.mock import AsyncMock, patch
-
-from akashic.schemas.common import decode_offset_cursor
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from akashic.models.entry import Entry
 from akashic.models.principals_cache import PrincipalsCache
 from akashic.models.source import Source
+from akashic.schemas.common import decode_offset_cursor
 
 
 async def _register_login(client, username="admin", password="testpass123"):
@@ -165,7 +164,7 @@ async def test_principal_to_files_returns_summary_and_sample(client, db_session)
     assert body["next_cursor"] is None
     assert body["limit"] == 20
     assert body["identity"] is None and body["warnings"] == []
-    assert all(h["has_deny_ace"] is False for h in body["sample"])
+    assert [h["has_deny_ace"] for h in body["sample"]] == [None, None]  # stub hits have no entry rows
 
 
 @pytest.mark.asyncio

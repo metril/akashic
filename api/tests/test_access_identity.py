@@ -162,7 +162,7 @@ async def test_identity_respects_source_limited_token(client, db_session):
     r, index = await _get(client, h, f"identity=sid:{S1}")
     s = r.json()["summary"]
     assert (s["file_count"], s["total_size_bytes"]) == (1, 10)
-    assert f'source_id = "{b.id}"' not in index.search.call_args.kwargs["filter"]
+    assert f'(source_id = "{a.id}")' in index.search.call_args.kwargs["filter"]
 
 
 @pytest.mark.asyncio
@@ -174,5 +174,19 @@ async def test_identity_lookup_audited(client, db_session):
     assert r.status_code == 200
     ev = (await db_session.execute(
         select(AuditEvent).where(AuditEvent.event_type == "access_lookup"))).scalars().one()
-    assert ev.payload["identity"] == f"sid:{S1}" and ev.payload["token_count"] == 4
+    assert ev.payload["requested_identity"] == f"sid:{S1}" and ev.payload["identity"] == f"sid:{S1}"
+    assert ev.payload["token_count"] == 4
     assert ev.payload["identity_name"] == "Alice" and ev.payload["expansion"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_stale_hit_deny_flag_is_unknown(client, db_session):
+    h = await _login(client)
+    src = await _source(db_session, "s")
+    live = _file(src, [f"sid:{S1}"], 1)
+    db_session.add(live)
+    await db_session.commit()
+    hits = [{"id": str(live.id), "source_id": str(src.id), "path": "/a", "filename": "a"},
+            {"id": str(uuid.uuid4()), "source_id": str(src.id), "path": "/b", "filename": "b"}]
+    r, _ = await _get(client, h, "principal=sid:" + S1, hits)
+    assert [x["has_deny_ace"] for x in r.json()["sample"]] == [False, None]

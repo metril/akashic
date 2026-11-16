@@ -217,6 +217,7 @@ async def access_query(
             "missing_identity_kinds": resolved.missing_identity_kinds,
         }
         result["warnings"] = [DENY_WARNING]
+        audit_payload["requested_identity"] = identity
         audit_payload["identity"] = ident.id
         audit_payload["identity_name"] = ident.display_name
         audit_payload["token_count"] = len(resolved.tokens)
@@ -244,7 +245,7 @@ _DENY_ACE = literal_column("""'$.entries[*] ? (@.ace_type == "deny")'::jsonpath"
 
 
 async def _flag_deny_aces(db: AsyncSession, hits: list[dict]) -> None:
-    """Set `has_deny_ace` on each sample hit from the entry's stored ACL."""
+    """Set `has_deny_ace` on each sample hit from the entry's stored ACL; None when the entry no longer exists (stale index doc)."""
     ids = [uuid.UUID(h["id"]) for h in hits]
     flagged: dict[uuid.UUID, bool] = {}
     if ids:
@@ -253,7 +254,7 @@ async def _flag_deny_aces(db: AsyncSession, hits: list[dict]) -> None:
         )
         flagged = {eid: bool(has) for eid, has in rows.all()}
     for h in hits:
-        h["has_deny_ace"] = flagged.get(uuid.UUID(h["id"]), False)
+        h["has_deny_ace"] = flagged.get(uuid.UUID(h["id"]))
 
 
 async def _principal_to_files(
