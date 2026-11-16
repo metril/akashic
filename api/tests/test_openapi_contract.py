@@ -41,6 +41,15 @@ DATA_TAGS = frozenset({
     "access", "effective-permissions", "scans", "sources", "tags",
 })
 
+# Routes under a data tag that return directory data, not source data: they
+# are deliberately not source-scoped, so source-limited tokens get 403.
+DIRECTORY_ROUTES = frozenset({
+    "GET /api/v1/access/identities",
+    "POST /api/v1/access/identities/refresh",
+    "POST /api/v1/access/directory/sync",
+    "GET /api/v1/access/directory/status",
+})
+
 # Routes that are intentionally unauthenticated: they mint credentials,
 # bootstrap a scanner, or are browser redirects.
 PUBLIC_ROUTES = frozenset({
@@ -384,7 +393,7 @@ def test_data_routes_depend_on_source_scoping(app):
     for key, route in _routes(app):
         if SCANNER_TAG in (route.tags or []) or not _required_scopes(route):
             continue
-        is_data = bool(DATA_TAGS & set(route.tags or []))
+        is_data = bool(DATA_TAGS & set(route.tags or [])) and key not in DIRECTORY_ROUTES
         assert _source_scoped(route) == is_data, (
             f"{key}: tags {route.tags} but source_scoped={_source_scoped(route)}"
         )

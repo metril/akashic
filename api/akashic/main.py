@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
-from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, scopes, api_tokens, effective_perms, identities, admin_audit, group_resolution, principals, access, dashboard, storage_explorer, scanners, scanner_protocol, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
+from akashic.routers import users, ingest, hosts, sources, source_test, search, entries, entry_content, browse, duplicates, tags, analytics, purge, webhooks, scans, scan_progress, scan_websocket, scan_work, auth, scopes, api_tokens, effective_perms, identities, admin_audit, group_resolution, principals, access_directory, access, dashboard, storage_explorer, scanners, scanner_protocol, scanner_discovery, server_settings, credential_profiles, source_oauth, health_services, maintenance
 from akashic.errors import RequestIdMiddleware, error_response, install_error_handlers, request_id_of
 from akashic.openapi import TAGS, app_version, install_openapi, operation_id
 from akashic.services import metrics as metrics_svc
@@ -400,6 +400,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_audit.router, prefix=API_PREFIX)
     app.include_router(group_resolution.router, prefix=API_PREFIX)
     app.include_router(principals.router, prefix=API_PREFIX)
+    app.include_router(access_directory.router, prefix=API_PREFIX)
     app.include_router(access.router, prefix=API_PREFIX)
     app.include_router(dashboard.router, prefix=API_PREFIX)
     app.include_router(storage_explorer.router, prefix=API_PREFIX)

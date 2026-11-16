@@ -28,6 +28,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/directory/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Directory sync status
+         * @description Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).
+         *     Requires scope `access:read`; not available to source-limited API tokens.
+         */
+        get: operations["directory_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/directory/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a directory sync
+         * @description Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+         *     Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+         */
+        post: operations["start_directory_sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search people and groups
+         * @description Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+         *     Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+         */
+        get: operations["search_identities_route"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access/identities/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh one person from the directory
+         * @description Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+         *     Requires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+         */
+        post: operations["refresh_identity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/audit": {
         parameters: {
             query?: never;
@@ -3628,6 +3712,29 @@ export interface components {
             user_id: string | null;
         };
         /**
+         * BackendStatus
+         * @description Availability of one identity backend.
+         */
+        BackendStatus: {
+            /**
+             * Backend
+             * @description Backend name.
+             * @enum {string}
+             */
+            backend: "ad" | "authentik" | "akashic";
+            /**
+             * Detail
+             * @description Why the backend is unavailable, when it is.
+             */
+            detail: string | null;
+            /**
+             * Status
+             * @description Backend availability.
+             * @enum {string}
+             */
+            status: "ok" | "unavailable" | "not_configured";
+        };
+        /**
          * BackingFileRef
          * @description An on-disk backing file linked to an app entry.
          */
@@ -4675,6 +4782,120 @@ export interface components {
              * @description Reason shown to the scanner.
              */
             reason?: string | null;
+        };
+        /**
+         * DirectoryBackendState
+         * @description Sync state of one directory backend.
+         */
+        DirectoryBackendState: {
+            /**
+             * Backend
+             * @description Backend name.
+             * @enum {string}
+             */
+            backend: "ad" | "authentik";
+            /**
+             * Configured
+             * @description Whether the backend has the settings it needs.
+             */
+            configured: boolean;
+            /** @description Most recent run, when any. */
+            last_run: components["schemas"]["DirectorySyncRunOut"] | null;
+            /**
+             * Last Success At
+             * @description When the most recent successful run finished.
+             */
+            last_success_at: string | null;
+            /**
+             * Running
+             * @description Whether a sync is in progress.
+             */
+            running: boolean;
+        };
+        /**
+         * DirectoryStatusResponse
+         * @description Directory sync state and schedule.
+         */
+        DirectoryStatusResponse: {
+            /**
+             * Backends
+             * @description State of each directory backend.
+             */
+            backends: components["schemas"]["DirectoryBackendState"][];
+            /**
+             * Interval Minutes
+             * @description Scheduled sync interval in minutes; 0 means manual only.
+             */
+            interval_minutes: number;
+            /**
+             * Next Run At
+             * @description Latest run start plus the interval; null when the schedule is manual-only or nothing has run.
+             */
+            next_run_at: string | null;
+        };
+        /**
+         * DirectorySyncRunOut
+         * @description One directory sync run for one backend.
+         */
+        DirectorySyncRunOut: {
+            /**
+             * Backend
+             * @description Backend synced.
+             * @enum {string}
+             */
+            backend: "ad" | "authentik";
+            /**
+             * Counts
+             * @description Run counters: `users`, `groups`, `removed`, `groups_failed`; empty until the run ends.
+             */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Error
+             * @description Redacted failure reason, when the run failed.
+             */
+            error: string | null;
+            /**
+             * Finished At
+             * @description When the run ended; null while running.
+             */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description Run id.
+             */
+            id: string;
+            /**
+             * Started At
+             * Format: date-time
+             * @description When the run started.
+             */
+            started_at: string;
+            /**
+             * Status
+             * @description Run state.
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+            /**
+             * Trigger
+             * @description What started the run.
+             * @enum {string}
+             */
+            trigger: "scheduled" | "manual";
+        };
+        /**
+         * DirectorySyncStarted
+         * @description The sync runs that were started.
+         */
+        DirectorySyncStarted: {
+            /**
+             * Runs
+             * @description One run per configured backend.
+             */
+            runs: components["schemas"]["DirectorySyncRunOut"][];
         };
         /**
          * DiscoverRequest
@@ -6438,6 +6659,23 @@ export interface components {
             scan_chunk_size?: number | null;
         };
         /**
+         * IdentityBackendRef
+         * @description One backend record merged into an identity.
+         */
+        IdentityBackendRef: {
+            /**
+             * Backend
+             * @description Backend that holds the record.
+             * @enum {string}
+             */
+            backend: "ad" | "authentik" | "akashic";
+            /**
+             * Ref
+             * @description Backend-specific record reference (AD objectGUID hex, Authentik pk, Akashic user id).
+             */
+            ref: string;
+        };
+        /**
          * IdentityHealth
          * @description Identity-mapping health counters.
          */
@@ -6452,6 +6690,106 @@ export interface components {
              * @description SIDs whose name is unresolved (admin only).
              */
             unresolved_sid_count: number;
+        };
+        /**
+         * IdentityRefreshRequest
+         * @description Identity to re-read live from its backends.
+         */
+        IdentityRefreshRequest: {
+            /**
+             * Id
+             * @description Merge id of the identity, as returned by search.
+             */
+            id: string;
+        };
+        /**
+         * IdentityResult
+         * @description A person or group merged across AD, Authentik and Akashic users.
+         */
+        IdentityResult: {
+            /**
+             * Akashic User Id
+             * @description Akashic user id, when the identity has one.
+             */
+            akashic_user_id: string | null;
+            /**
+             * Backends
+             * @description The backend records merged into this identity.
+             */
+            backends: components["schemas"]["IdentityBackendRef"][];
+            /**
+             * Display Name
+             * @description Display name, when known.
+             */
+            display_name: string | null;
+            /**
+             * Dn
+             * @description LDAP distinguished name, when known.
+             */
+            dn: string | null;
+            /**
+             * Email
+             * @description Email address, when known.
+             */
+            email: string | null;
+            /**
+             * Groups Synced At
+             * @description Oldest successful group read among the identity's directory records, when any.
+             */
+            groups_synced_at: string | null;
+            /**
+             * Has Fs Identity
+             * @description Whether the identity carries a SID, POSIX id or file-system binding usable in access lookups.
+             */
+            has_fs_identity: boolean;
+            /**
+             * Id
+             * @description Stable merge id: `sid:<SID>`, `dn:<dn>`, `email:<email>` or `<backend>:<ref>`.
+             */
+            id: string;
+            /**
+             * Kind
+             * @description `person` or `group`.
+             * @enum {string}
+             */
+            kind: "person" | "group";
+            /**
+             * Match Quality
+             * @description `possible` when only the username matches another result; such results are never merged.
+             * @enum {string}
+             */
+            match_quality: "exact" | "possible";
+            /**
+             * Possible Match Of
+             * @description Ids of the results this one possibly matches.
+             */
+            possible_match_of: string[];
+            /**
+             * Sid
+             * @description Windows SID (lowest of the merged records), when known.
+             */
+            sid: string | null;
+            /**
+             * Username
+             * @description Login name, when known.
+             */
+            username: string | null;
+        };
+        /**
+         * IdentitySearchResponse
+         * @description Identity search results and the state of each backend.
+         */
+        IdentitySearchResponse: {
+            /**
+             * Backends Status
+             * @description Availability of every backend.
+             */
+            backends_status: components["schemas"]["BackendStatus"][];
+            /**
+             * Results
+             * @description Matching identities, best match first.
+             */
+            results: components["schemas"]["IdentityResult"][];
         };
         /** JobOut */
         JobOut: {
@@ -11929,6 +12267,223 @@ export interface operations {
             };
             /** @description Request failed validation. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    directory_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryStatusResponse"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_directory_sync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorySyncStarted"];
+                };
+            };
+            /** @description Malformed or unacceptable request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflicts with the current resource state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    search_identities_route: {
+        parameters: {
+            query: {
+                /** @description Text to match (case-insensitive substring; `%`, `_` and `\` are literal). */
+                q: string;
+                /** @description Restrict results to people or groups. */
+                kind?: "any" | "person" | "group";
+                /** @description Maximum number of results. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentitySearchResponse"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request failed validation. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    refresh_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityResult"];
+                };
+            };
+            /** @description Missing, invalid or expired credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but not permitted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request failed validation. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -2998,6 +2998,10 @@ Requires scope `identities:read`. Not available to source-limited API tokens (40
 Admin blast-radius lookups: what a principal can reach, and who can reach a file.
 
 - `GET /api/v1/access`: Look up access (blast radius)
+- `GET /api/v1/access/directory/status`: Directory sync status
+- `POST /api/v1/access/directory/sync`: Start a directory sync
+- `GET /api/v1/access/identities`: Search people and groups
+- `POST /api/v1/access/identities/refresh`: Refresh one person from the directory
 
 <a id="op-access-query"></a>
 #### `GET /api/v1/access`
@@ -3029,6 +3033,85 @@ Errors: 400 if both or neither of `principal` and `file` are given; 404 if the `
 | 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 | 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
+<a id="op-directory-status"></a>
+#### `GET /api/v1/access/directory/status`
+
+**Directory sync status** (`directory_status`)
+
+Auth: `userJWT`, scope `access:read`
+
+Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).
+Requires scope `access:read`; not available to source-limited API tokens.
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 200 | Successful Response | `application/json`: [`DirectoryStatusResponse`](#schema-directorystatusresponse) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
+<a id="op-start-directory-sync"></a>
+#### `POST /api/v1/access/directory/sync`
+
+**Start a directory sync** (`start_directory_sync`)
+
+Auth: `userJWT`, scope `maintenance:write`
+
+Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.
+Requires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 202 | Successful Response | `application/json`: [`DirectorySyncStarted`](#schema-directorysyncstarted) |
+| 400 | Malformed or unacceptable request. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 409 | Conflicts with the current resource state. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
+<a id="op-search-identities-route"></a>
+#### `GET /api/v1/access/identities`
+
+**Search people and groups** (`search_identities_route`)
+
+Auth: `userJWT`, scope `access:read`
+
+Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.
+Requires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.
+
+| Parameter | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `q` | query | `string` | yes | Text to match (case-insensitive substring; `%`, `_` and `\` are literal). |
+| `kind` | query | `"any"` \| `"person"` \| `"group"` | no | Restrict results to people or groups. |
+| `limit` | query | `integer` | no | Maximum number of results. |
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 200 | Successful Response | `application/json`: [`IdentitySearchResponse`](#schema-identitysearchresponse) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+
+<a id="op-refresh-identity"></a>
+#### `POST /api/v1/access/identities/refresh`
+
+**Refresh one person from the directory** (`refresh_identity`)
+
+Auth: `userJWT`, scope `access:read`
+
+Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.
+Requires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).
+
+**Request body** (required)
+- `application/json`: [`IdentityRefreshRequest`](#schema-identityrefreshrequest)
+
+| Status | Description | Body |
+| --- | --- | --- |
+| 200 | Successful Response | `application/json`: [`IdentityResult`](#schema-identityresult) |
+| 401 | Missing, invalid or expired credentials. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 403 | Authenticated but not permitted. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 404 | Resource not found. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 422 | Request failed validation. | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
+| 502 | Bad Gateway | `application/json`: [`ErrorResponse`](#schema-errorresponse) |
 
 ### webhooks
 
@@ -4286,6 +4369,17 @@ One row in an /add-shares batch.
 | `user_agent` | `string` | yes | Client user agent; empty when not available. |
 | `user_id` | `string` (`uuid`) \| `null` | yes | User who performed the action; null when the event is not attributable to a user. |
 
+<a id="schema-backendstatus"></a>
+### BackendStatus
+
+Availability of one identity backend.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backend` | `"ad"` \| `"authentik"` \| `"akashic"` | yes | Backend name. |
+| `detail` | `string` \| `null` | yes | Why the backend is unavailable, when it is. |
+| `status` | `"ok"` \| `"unavailable"` \| `"not_configured"` | yes | Backend availability. |
+
 <a id="schema-backingfileref"></a>
 ### BackingFileRef
 
@@ -4717,6 +4811,55 @@ Everything the dashboard tiles need in one call.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `reason` | `string` \| `null` | no | Reason shown to the scanner. |
+
+<a id="schema-directorybackendstate"></a>
+### DirectoryBackendState
+
+Sync state of one directory backend.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backend` | `"ad"` \| `"authentik"` | yes | Backend name. |
+| `configured` | `boolean` | yes | Whether the backend has the settings it needs. |
+| `last_run` | [`DirectorySyncRunOut`](#schema-directorysyncrunout) \| `null` | yes | Most recent run, when any. |
+| `last_success_at` | `string` (`date-time`) \| `null` | yes | When the most recent successful run finished. |
+| `running` | `boolean` | yes | Whether a sync is in progress. |
+
+<a id="schema-directorystatusresponse"></a>
+### DirectoryStatusResponse
+
+Directory sync state and schedule.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backends` | array of [`DirectoryBackendState`](#schema-directorybackendstate) | yes | State of each directory backend. |
+| `interval_minutes` | `integer` | yes | Scheduled sync interval in minutes; 0 means manual only. |
+| `next_run_at` | `string` (`date-time`) \| `null` | yes | Latest run start plus the interval; null when the schedule is manual-only or nothing has run. |
+
+<a id="schema-directorysyncrunout"></a>
+### DirectorySyncRunOut
+
+One directory sync run for one backend.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backend` | `"ad"` \| `"authentik"` | yes | Backend synced. |
+| `counts` | map of `integer` | yes | Run counters: `users`, `groups`, `removed`, `groups_failed`; empty until the run ends. |
+| `error` | `string` \| `null` | yes | Redacted failure reason, when the run failed. |
+| `finished_at` | `string` (`date-time`) \| `null` | yes | When the run ended; null while running. |
+| `id` | `string` (`uuid`) | yes | Run id. |
+| `started_at` | `string` (`date-time`) | yes | When the run started. |
+| `status` | `"running"` \| `"succeeded"` \| `"failed"` | yes | Run state. |
+| `trigger` | `"scheduled"` \| `"manual"` | yes | What started the run. |
+
+<a id="schema-directorysyncstarted"></a>
+### DirectorySyncStarted
+
+The sync runs that were started.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `runs` | array of [`DirectorySyncRunOut`](#schema-directorysyncrunout) | yes | One run per configured backend. |
 
 <a id="schema-discoverrequest"></a>
 ### DiscoverRequest
@@ -5299,6 +5442,16 @@ Periodic heartbeat from a running scanner. ~1 s cadence.
 | `name` | `string` \| `null` | no | New unique host name. |
 | `scan_chunk_size` | `integer` \| `null` | no | New work-unit size (100 to 1,000,000); null clears it so the built-in default applies. |
 
+<a id="schema-identitybackendref"></a>
+### IdentityBackendRef
+
+One backend record merged into an identity.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backend` | `"ad"` \| `"authentik"` \| `"akashic"` | yes | Backend that holds the record. |
+| `ref` | `string` | yes | Backend-specific record reference (AD objectGUID hex, Authentik pk, Akashic user id). |
+
 <a id="schema-identityhealth"></a>
 ### IdentityHealth
 
@@ -5308,6 +5461,46 @@ Identity-mapping health counters.
 | --- | --- | --- | --- |
 | `unbound_count` | `integer` | yes | Filesystem identities not bound to a user. |
 | `unresolved_sid_count` | `integer` | yes | SIDs whose name is unresolved (admin only). |
+
+<a id="schema-identityrefreshrequest"></a>
+### IdentityRefreshRequest
+
+Identity to re-read live from its backends.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | Merge id of the identity, as returned by search. |
+
+<a id="schema-identityresult"></a>
+### IdentityResult
+
+A person or group merged across AD, Authentik and Akashic users.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `akashic_user_id` | `string` (`uuid`) \| `null` | yes | Akashic user id, when the identity has one. |
+| `backends` | array of [`IdentityBackendRef`](#schema-identitybackendref) | yes | The backend records merged into this identity. |
+| `display_name` | `string` \| `null` | yes | Display name, when known. |
+| `dn` | `string` \| `null` | yes | LDAP distinguished name, when known. |
+| `email` | `string` \| `null` | yes | Email address, when known. |
+| `groups_synced_at` | `string` (`date-time`) \| `null` | yes | Oldest successful group read among the identity's directory records, when any. |
+| `has_fs_identity` | `boolean` | yes | Whether the identity carries a SID, POSIX id or file-system binding usable in access lookups. |
+| `id` | `string` | yes | Stable merge id: `sid:<SID>`, `dn:<dn>`, `email:<email>` or `<backend>:<ref>`. |
+| `kind` | `"person"` \| `"group"` | yes | `person` or `group`. |
+| `match_quality` | `"exact"` \| `"possible"` | yes | `possible` when only the username matches another result; such results are never merged. |
+| `possible_match_of` | array of `string` | yes | Ids of the results this one possibly matches. |
+| `sid` | `string` \| `null` | yes | Windows SID (lowest of the merged records), when known. |
+| `username` | `string` \| `null` | yes | Login name, when known. |
+
+<a id="schema-identitysearchresponse"></a>
+### IdentitySearchResponse
+
+Identity search results and the state of each backend.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backends_status` | array of [`BackendStatus`](#schema-backendstatus) | yes | Availability of every backend. |
+| `results` | array of [`IdentityResult`](#schema-identityresult) | yes | Matching identities, best match first. |
 
 <a id="schema-jobout"></a>
 ### JobOut

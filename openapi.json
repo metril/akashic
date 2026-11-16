@@ -1068,6 +1068,50 @@
         "title": "AuditEventOut",
         "type": "object"
       },
+      "BackendStatus": {
+        "description": "Availability of one identity backend.",
+        "properties": {
+          "backend": {
+            "description": "Backend name.",
+            "enum": [
+              "ad",
+              "authentik",
+              "akashic"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the backend is unavailable, when it is.",
+            "title": "Detail"
+          },
+          "status": {
+            "description": "Backend availability.",
+            "enum": [
+              "ok",
+              "unavailable",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "status",
+          "detail"
+        ],
+        "title": "BackendStatus",
+        "type": "object"
+      },
       "BackingFileRef": {
         "description": "An on-disk backing file linked to an app entry.",
         "properties": {
@@ -2824,6 +2868,209 @@
           }
         },
         "title": "DenyBody",
+        "type": "object"
+      },
+      "DirectoryBackendState": {
+        "description": "Sync state of one directory backend.",
+        "properties": {
+          "backend": {
+            "description": "Backend name.",
+            "enum": [
+              "ad",
+              "authentik"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "configured": {
+            "description": "Whether the backend has the settings it needs.",
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DirectorySyncRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent run, when any."
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the most recent successful run finished.",
+            "title": "Last Success At"
+          },
+          "running": {
+            "description": "Whether a sync is in progress.",
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "backend",
+          "configured",
+          "running",
+          "last_run",
+          "last_success_at"
+        ],
+        "title": "DirectoryBackendState",
+        "type": "object"
+      },
+      "DirectoryStatusResponse": {
+        "description": "Directory sync state and schedule.",
+        "properties": {
+          "backends": {
+            "description": "State of each directory backend.",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryBackendState"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "interval_minutes": {
+            "description": "Scheduled sync interval in minutes; 0 means manual only.",
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest run start plus the interval; null when the schedule is manual-only or nothing has run.",
+            "title": "Next Run At"
+          }
+        },
+        "required": [
+          "backends",
+          "interval_minutes",
+          "next_run_at"
+        ],
+        "title": "DirectoryStatusResponse",
+        "type": "object"
+      },
+      "DirectorySyncRunOut": {
+        "description": "One directory sync run for one backend.",
+        "properties": {
+          "backend": {
+            "description": "Backend synced.",
+            "enum": [
+              "ad",
+              "authentik"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Run counters: `users`, `groups`, `removed`, `groups_failed`; empty until the run ends.",
+            "title": "Counts",
+            "type": "object"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Redacted failure reason, when the run failed.",
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the run ended; null while running.",
+            "title": "Finished At"
+          },
+          "id": {
+            "description": "Run id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "When the run started.",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Run state.",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "What started the run.",
+            "enum": [
+              "scheduled",
+              "manual"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "backend",
+          "status",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "counts",
+          "error"
+        ],
+        "title": "DirectorySyncRunOut",
+        "type": "object"
+      },
+      "DirectorySyncStarted": {
+        "description": "The sync runs that were started.",
+        "properties": {
+          "runs": {
+            "description": "One run per configured backend.",
+            "items": {
+              "$ref": "#/components/schemas/DirectorySyncRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "title": "DirectorySyncStarted",
         "type": "object"
       },
       "DiscoverRequest": {
@@ -5975,6 +6222,32 @@
         "title": "HostUpdate",
         "type": "object"
       },
+      "IdentityBackendRef": {
+        "description": "One backend record merged into an identity.",
+        "properties": {
+          "backend": {
+            "description": "Backend that holds the record.",
+            "enum": [
+              "ad",
+              "authentik",
+              "akashic"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Backend-specific record reference (AD objectGUID hex, Authentik pk, Akashic user id).",
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "ref"
+        ],
+        "title": "IdentityBackendRef",
+        "type": "object"
+      },
       "IdentityHealth": {
         "description": "Identity-mapping health counters.",
         "properties": {
@@ -5994,6 +6267,202 @@
           "unresolved_sid_count"
         ],
         "title": "IdentityHealth",
+        "type": "object"
+      },
+      "IdentityRefreshRequest": {
+        "description": "Identity to re-read live from its backends.",
+        "properties": {
+          "id": {
+            "description": "Merge id of the identity, as returned by search.",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "IdentityRefreshRequest",
+        "type": "object"
+      },
+      "IdentityResult": {
+        "description": "A person or group merged across AD, Authentik and Akashic users.",
+        "properties": {
+          "akashic_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Akashic user id, when the identity has one.",
+            "title": "Akashic User Id"
+          },
+          "backends": {
+            "description": "The backend records merged into this identity.",
+            "items": {
+              "$ref": "#/components/schemas/IdentityBackendRef"
+            },
+            "title": "Backends",
+            "type": "array"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name, when known.",
+            "title": "Display Name"
+          },
+          "dn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LDAP distinguished name, when known.",
+            "title": "Dn"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Email address, when known.",
+            "title": "Email"
+          },
+          "groups_synced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Oldest successful group read among the identity's directory records, when any.",
+            "title": "Groups Synced At"
+          },
+          "has_fs_identity": {
+            "description": "Whether the identity carries a SID, POSIX id or file-system binding usable in access lookups.",
+            "title": "Has Fs Identity",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Stable merge id: `sid:<SID>`, `dn:<dn>`, `email:<email>` or `<backend>:<ref>`.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`person` or `group`.",
+            "enum": [
+              "person",
+              "group"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "match_quality": {
+            "description": "`possible` when only the username matches another result; such results are never merged.",
+            "enum": [
+              "exact",
+              "possible"
+            ],
+            "title": "Match Quality",
+            "type": "string"
+          },
+          "possible_match_of": {
+            "description": "Ids of the results this one possibly matches.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Possible Match Of",
+            "type": "array"
+          },
+          "sid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Windows SID (lowest of the merged records), when known.",
+            "title": "Sid"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Login name, when known.",
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "username",
+          "email",
+          "sid",
+          "dn",
+          "backends",
+          "match_quality",
+          "possible_match_of",
+          "akashic_user_id",
+          "groups_synced_at",
+          "has_fs_identity"
+        ],
+        "title": "IdentityResult",
+        "type": "object"
+      },
+      "IdentitySearchResponse": {
+        "description": "Identity search results and the state of each backend.",
+        "properties": {
+          "backends_status": {
+            "description": "Availability of every backend.",
+            "items": {
+              "$ref": "#/components/schemas/BackendStatus"
+            },
+            "title": "Backends Status",
+            "type": "array"
+          },
+          "results": {
+            "description": "Matching identities, best match first.",
+            "items": {
+              "$ref": "#/components/schemas/IdentityResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "backends_status"
+        ],
+        "title": "IdentitySearchResponse",
         "type": "object"
       },
       "JobOut": {
@@ -15367,6 +15836,318 @@
           }
         ],
         "summary": "Look up access (blast radius)",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/directory/status": {
+      "get": {
+        "description": "Returns, per directory backend, whether it is configured, whether a sync is running, its latest run and when it last succeeded, plus the sync interval and the next scheduled start (latest run start plus the interval; null when the interval is 0 or nothing has run).\nRequires scope `access:read`; not available to source-limited API tokens.",
+        "operationId": "directory_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "access:read"
+            ]
+          }
+        ],
+        "summary": "Directory sync status",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/directory/sync": {
+      "post": {
+        "description": "Starts a background sync of every configured directory backend (Active Directory, Authentik) and returns the started runs; poll `GET /access/directory/status` for progress. Records a `directory_sync` audit event.\nRequires scope `maintenance:write`. Errors: 409 if a sync is already running; 400 if no directory backend is configured.",
+        "operationId": "start_directory_sync",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectorySyncStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed or unacceptable request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflicts with the current resource state."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "maintenance:write"
+            ]
+          }
+        ],
+        "summary": "Start a directory sync",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/identities": {
+      "get": {
+        "description": "Searches the directory cache (Active Directory and Authentik, refreshed by the directory sync) and Akashic users for people and groups whose name, username, email or DN contains `q`. Records of the same person found in several backends are merged into one result. `backends_status` reports whether each backend is configured and whether its last sync succeeded.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 422 if `q` is empty or longer than 200 characters or another parameter is invalid.",
+        "operationId": "search_identities_route",
+        "parameters": [
+          {
+            "description": "Text to match (case-insensitive substring; `%`, `_` and `\\` are literal).",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Text to match (case-insensitive substring; `%`, `_` and `\\` are literal).",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict results to people or groups.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "description": "Restrict results to people or groups.",
+              "enum": [
+                "any",
+                "person",
+                "group"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of results.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "Maximum number of results.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentitySearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "access:read"
+            ]
+          }
+        ],
+        "summary": "Search people and groups",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/identities/refresh": {
+      "post": {
+        "description": "Re-reads the person's AD and Authentik records live (with a short timeout per backend), updates the directory cache and returns the identity as it now stands. Groups are not re-read; their cached membership is kept. A person that no longer exists in a backend is removed from the cache. The merge id is sent in the body because it contains characters that do not survive a URL path.\nRequires scope `access:read`; not available to source-limited API tokens. Errors: 404 if the identity is unknown, or no longer exists after the refresh; 502 if every live read failed, with a redacted reason in `detail` (the cache is left untouched).",
+        "operationId": "refresh_identity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, invalid or expired credentials."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but not permitted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Resource not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request failed validation."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "userJWT": [
+              "access:read"
+            ]
+          }
+        ],
+        "summary": "Refresh one person from the directory",
         "tags": [
           "access"
         ]
