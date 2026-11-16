@@ -8,6 +8,8 @@ import {
 } from "../ui";
 import type { Column } from "../ui";
 import { formatBytes, formatNumber } from "../../lib/format";
+import { TokensUsedPanel } from "./TokensUsedPanel";
+import type { components } from "../../api/schema";
 
 interface PrincipalToFiles {
   principal: { token: string; name: string | null; domain: string | null; kind: string };
@@ -17,6 +19,10 @@ interface PrincipalToFiles {
   sample: SampleHit[];
   next_cursor: string | null;
   limit: number;
+  warnings?: string[];
+  tokens_used?: components["schemas"]["TokenUsed"][] | null;
+  expansion?: components["schemas"]["AccessExpansion"] | null;
+  identity?: components["schemas"]["IdentityResult"] | null;
 }
 
 interface SampleHit {
@@ -27,6 +33,7 @@ interface SampleHit {
   size_bytes: number | null;
   owner_name?: string | null;
   fs_modified_at?: number | null;
+  has_deny_ace?: boolean | null;
 }
 
 interface FileToPrincipals {
@@ -53,9 +60,15 @@ const KIND_BADGE_VARIANT: Record<string, "online" | "info" | "neutral" | "failed
 export function PrincipalToFilesResults({
   data,
   onSelectEntry,
+  onRefresh,
+  refreshing,
+  refreshError,
 }: {
   data: PrincipalToFiles;
   onSelectEntry: (id: string) => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshError?: string | null;
 }) {
   const cols: Column<SampleHit>[] = [
     {
@@ -66,13 +79,20 @@ export function PrincipalToFilesResults({
       // accessible (real <button>, focusable, screen-reader-friendly)
       // rather than a row-wide ghost click handler.
       render: (f) => (
-        <button
-          type="button"
-          onClick={() => onSelectEntry(f.id)}
-          className="font-medium text-fg hover:text-accent-700 text-left truncate"
-        >
-          {f.filename}
-        </button>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onSelectEntry(f.id)}
+            className="font-medium text-fg hover:text-accent-700 text-left truncate"
+          >
+            {f.filename}
+          </button>
+          {f.has_deny_ace && (
+            <Badge variant="scanning" title="This file's ACL has a deny ACE that group lookups do not evaluate.">
+              deny ACE
+            </Badge>
+          )}
+        </span>
       ),
     },
     {
@@ -106,6 +126,23 @@ export function PrincipalToFilesResults({
 
   return (
     <div className="space-y-5">
+      {data.warnings && data.warnings.length > 0 && (
+        <div role="alert" className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/40 rounded p-4 text-sm text-amber-800 dark:text-amber-200 space-y-1">
+          {data.warnings.map((w) => (
+            <p key={w}>{w}</p>
+          ))}
+        </div>
+      )}
+      {data.tokens_used && (
+        <TokensUsedPanel
+          tokens={data.tokens_used}
+          expansion={data.expansion ?? null}
+          identity={data.identity ?? null}
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+          refreshError={refreshError}
+        />
+      )}
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-semibold text-fg">{headlineName}</h2>
         <Badge variant={KIND_BADGE_VARIANT[data.principal.kind] ?? "neutral"}>

@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { client, ok } from "../api/client";
 import { Button, Card, Drawer, EmptyState, Page, Spinner } from "../components/ui";
 import { EntryDetail } from "../components/EntryDetail";
+import { IdentityPicker } from "../components/access/IdentityPicker";
+import { DirectorySyncBar } from "../components/access/DirectorySyncBar";
 import { PrincipalLookup } from "../components/access/PrincipalLookup";
 import {
   FileToPrincipalsResults,
@@ -34,6 +36,8 @@ export default function AdminAccess() {
   const [mode, setMode] = useState<Mode>("principal");
   const [right, setRight] = useState<"read" | "write" | "delete">("read");
   const [token, setToken] = useState<string | null>(null);
+  const [identityId, setIdentityId] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const [fileId, setFileId] = useState<string | null>(null);
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
 
@@ -49,6 +53,29 @@ export default function AdminAccess() {
       return r;
     },
     enabled: mode === "principal" && Boolean(token),
+  });
+
+  const qc = useQueryClient();
+  const identityQ = useQuery<PrincipalResult>({
+    queryKey: ["access", "identity", identityId, right],
+    queryFn: async () => {
+      const r = ok(
+        await client.GET("/api/v1/access", {
+          params: { query: { identity: identityId!, right, limit: 20 } },
+        }),
+      );
+      if (!("principal" in r)) throw new Error("Unexpected access response");
+      return r;
+    },
+    enabled: mode === "principal" && !advanced && Boolean(identityId),
+  });
+
+  // The response's identity id is canonical (it can differ from the one asked for).
+  const refreshId = identityQ.data?.identity?.id ?? identityId;
+  const refresh = useMutation({
+    mutationFn: async () =>
+      ok(await client.POST("/api/v1/access/identities/refresh", { body: { id: refreshId! } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["access", "identity", identityId] }),
   });
 
   const fileQ = useQuery<FileResult>({
@@ -76,11 +103,24 @@ export default function AdminAccess() {
       </div>
 
       {mode === "principal" ? (
-        <Card padding="md" className="mb-5">
-          <PrincipalLookup
-            onLookup={setToken}
-            pending={principalQ.isFetching && Boolean(token)}
-          />
+        <Card padding="md" className="mb-5 space-y-4">
+          <DirectorySyncBar />
+          {advanced ? (
+            <PrincipalLookup
+              onLookup={setToken}
+              pending={principalQ.isFetching && Boolean(token)}
+            />
+          ) : (
+            <IdentityPicker onPick={setIdentityId} />
+          )}
+          <button
+            type="button"
+            aria-pressed={advanced}
+            onClick={() => setAdvanced((a) => !a)}
+            className="text-xs text-fg-muted hover:text-fg underline"
+          >
+            Advanced: raw token
+          </button>
         </Card>
       ) : (
         <Card padding="md" className="mb-5">
@@ -92,7 +132,26 @@ export default function AdminAccess() {
         </Card>
       )}
 
-      {mode === "principal" ? (
+      {mode === "principal" && !advanced ? (
+        identityId == null ? (
+          <EmptyState
+            title="Look up a person or group"
+            description="Search above and pick a result to see every file they can reach."
+          />
+        ) : identityQ.isLoading ? (
+          <div className="flex justify-center py-12 text-fg-subtle"><Spinner /></div>
+        ) : identityQ.error ? (
+          <ErrorBanner error={identityQ.error} />
+        ) : identityQ.data ? (
+          <PrincipalToFilesResults
+            data={identityQ.data}
+            onSelectEntry={setOpenEntryId}
+            onRefresh={() => refresh.mutate()}
+            refreshing={refresh.isPending}
+            refreshError={refresh.error ? refresh.error.message : null}
+          />
+        ) : null
+      ) : mode === "principal" ? (
         token == null ? (
           <EmptyState
             title="Look up a principal"
