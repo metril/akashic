@@ -272,6 +272,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     from akashic.scheduler import stop_scheduler
     stop_scheduler()
+    from akashic.services.directory.sync import shutdown_directory_sync
+    await shutdown_directory_sync()
     await top_children_worker.stop_worker()
     # Stop the Meili debouncer cleanly so an in-flight flush isn't
     # cancelled mid-call (which could leave the pending set partially

@@ -46,6 +46,10 @@ class NoBackendConfigured(Exception):
     pass
 
 
+class RefreshFailed(DirectoryError):
+    """Every attempted live read failed; the message is already redacted."""
+
+
 def _configured_backends() -> list[str]:
     out = []
     if ad_configured():
@@ -71,8 +75,12 @@ async def start_sync(
         db.add_all(runs)
         try:
             await db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             await db.rollback()
+            # Only the running-lock index is a conflict; anything else
+            # (e.g. a triggered_by FK violation) is a real error.
+            if "uq_directory_sync_runs_backend_running" not in str(exc.orig):
+                raise
             raise SyncAlreadyRunning() from None
         for r in runs:
             await db.refresh(r)
@@ -83,7 +91,15 @@ async def start_sync(
     return runs
 
 
-def _values(rec: DirRecord, synced_at: datetime) -> dict:
+async def shutdown_directory_sync() -> None:
+    """Cancel in-flight sync tasks; startup reconcile recovers their run rows."""
+    tasks = list(_tasks)
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _values(rec: DirRecord, synced_at) -> dict:
     return {
         "backend": rec.backend,
         "ref": rec.ref,
@@ -102,8 +118,11 @@ def _values(rec: DirRecord, synced_at: datetime) -> dict:
     }
 
 
-async def _upsert(db: AsyncSession, records: list[DirRecord], synced_at: datetime) -> None:
-    """Upsert on (backend, ref). A failed group read keeps the stored groups."""
+async def _upsert(db: AsyncSession, records: list[DirRecord], synced_at) -> None:
+    """Upsert on (backend, ref). A failed group read keeps the stored groups.
+
+    Rows already newer than ``synced_at`` (e.g. refreshed mid-sync) are left alone.
+    """
     by_key = {(r.backend, r.ref): r for r in records}
     rows = [_values(r, synced_at) for r in by_key.values()]
     for i in range(0, len(rows), _CHUNK):
@@ -112,6 +131,7 @@ async def _upsert(db: AsyncSession, records: list[DirRecord], synced_at: datetim
         keep = ex.groups_status == "failed"
         stmt = stmt.on_conflict_do_update(
             constraint="uq_directory_entries_backend_ref",
+            where=DirectoryEntry.synced_at <= ex.synced_at,
             set_={
                 "kind": ex.kind,
                 "display_name": ex.display_name,
@@ -210,7 +230,9 @@ async def sync_due(db: AsyncSession, now: datetime) -> bool:
     )).scalar_one_or_none()
     if running is not None:
         return False
-    last = (await db.execute(select(func.max(DirectorySyncRun.finished_at)))).scalar_one()
+    # started_at, not finished_at: a run reconciled after a restart is stamped
+    # finished now and must not postpone the next sync by a full interval.
+    last = (await db.execute(select(func.max(DirectorySyncRun.started_at)))).scalar_one()
     return last is None or now - last >= timedelta(minutes=interval)
 
 
@@ -223,8 +245,12 @@ def _to_record(e: DirectoryEntry) -> DirRecord:
     )
 
 
-async def _read_live(rec: DirRecord) -> DirRecord | None | Literal["keep"]:
-    """Live re-read of one record. ``"keep"`` = backend unavailable/unsupported."""
+_KEEP = object()  # record not applicable to a live read (group, akashic, unconfigured)
+
+
+async def _read_live(rec: DirRecord) -> DirRecord | None | DirectoryError | object:
+    """Live re-read of one record: record, ``None`` (not found), a
+    ``DirectoryError`` (read failed) or ``_KEEP`` (not applicable)."""
     try:
         if rec.backend == "ad" and rec.kind == "person" and ad_configured():
             return await asyncio.to_thread(
@@ -233,18 +259,26 @@ async def _read_live(rec: DirRecord) -> DirRecord | None | Literal["keep"]:
             )
         if rec.backend == "authentik" and rec.kind == "person" and authentik_configured():
             return await fetch_authentik_person(rec.ref, PERSON_REFRESH_TIMEOUT)
-    except (DirectoryError, NotConfigured):
-        return "keep"
-    return "keep"
+    except DirectoryError as exc:
+        return exc
+    except NotConfigured:
+        return DirectoryError("directory backend not configured")
+    return _KEEP
 
 
 async def refresh_records(db: AsyncSession, records: list[DirRecord]) -> list[DirRecord]:
-    """Re-read AD/Authentik people live; upsert found, delete not-found.
+    """Re-read AD/Authentik *people* live (groups are kept as cached); upsert
+    found, delete not-found. Commits the caller's session.
 
-    Unreachable backends and non-directory records are returned unchanged.
+    Records whose read failed, and non-applicable records, are returned
+    unchanged. If every attempted read failed, raises ``RefreshFailed`` before
+    writing anything.
     """
     lives = await asyncio.gather(*(_read_live(r) for r in records))
-    now = datetime.now(timezone.utc)
+    attempted = [l for l in lives if l is not _KEEP]
+    if attempted and all(isinstance(l, DirectoryError) for l in attempted):
+        raise RefreshFailed("; ".join(dict.fromkeys(str(l) for l in attempted)))
+    now = func.now()
     fresh = [l for l in lives if isinstance(l, DirRecord)]
     gone = [r for r, l in zip(records, lives) if l is None]
     if fresh:

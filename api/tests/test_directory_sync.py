@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from akashic.models.directory import DirectoryEntry, DirectorySyncRun
 from akashic.services.directory import sync
+from akashic import scheduler
 from akashic.services.directory.records import DirectoryError, DirRecord
 
 AD_CFG = {"ldap_server": "ldap://x", "ldap_user_base": "dc=x"}
@@ -199,7 +200,8 @@ async def test_sync_due(svc, rt_set):
     rt_set(directory_sync_interval_minutes=60)
     async with svc() as db:
         assert await sync.sync_due(db, now) is True  # never synced
-    await _run(svc, status="succeeded", finished_at=now - timedelta(minutes=30))
+    await _run(svc, status="succeeded", started_at=now - timedelta(minutes=30),
+               finished_at=now - timedelta(minutes=30))
     async with svc() as db:
         assert await sync.sync_due(db, now) is False  # within interval
     async with svc() as db:
@@ -241,3 +243,150 @@ async def test_refresh_records_updates_and_deletes(svc, rt_set, monkeypatch):
     assert rows["U1"].group_sids == ["NEW"] and rows["U1"].synced_at > old
     assert rows["U1"].groups_synced_at > old
     assert rows["U3"].synced_at == old  # unreachable backend: untouched
+
+
+async def _seed_two(svc):
+    async with svc() as db:
+        db.add_all([
+            entry("U1", sid="S-1-1", group_sids=["OLD"], groups_status="ok"),
+            entry("U2", sid="S-1-2"),
+        ])
+        await db.commit()
+
+
+async def _refresh_all(svc):
+    async with svc() as db:
+        stored = [sync._to_record(e) for e in (await db.execute(select(DirectoryEntry))).scalars()]
+        return await sync.refresh_records(db, stored)
+
+
+@pytest.mark.asyncio
+async def test_refresh_all_failed_raises_and_leaves_cache(svc, rt_set, monkeypatch):
+    rt_set(**AD_CFG)
+    await _seed_two(svc)
+
+    def down(*, sid, dn, timeout):
+        raise DirectoryError("AD: SERVER_DOWN")
+    monkeypatch.setattr(sync, "fetch_ad_person", down)
+    with pytest.raises(sync.RefreshFailed, match="AD: SERVER_DOWN"):
+        await _refresh_all(svc)
+    rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
+    assert set(rows) == {"U1", "U2"} and rows["U1"].group_sids == ["OLD"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_mixed_applies_successes_keeps_errored(svc, rt_set, monkeypatch):
+    rt_set(**AD_CFG)
+    await _seed_two(svc)
+
+    def live(*, sid, dn, timeout):
+        if sid == "S-1-1":
+            return rec("U1", sid="S-1-1", groups=["NEW"], status="ok")
+        raise DirectoryError("AD: SERVER_DOWN")
+    monkeypatch.setattr(sync, "fetch_ad_person", live)
+    out = await _refresh_all(svc)
+    assert {r.ref for r in out} == {"U1", "U2"}
+    rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
+    assert rows["U1"].group_sids == ["NEW"] and rows["U2"].group_sids == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_nothing_applicable_is_not_an_error(svc, rt_set):
+    rt_set()  # nothing configured
+    await _seed_two(svc)
+    assert {r.ref for r in await _refresh_all(svc)} == {"U1", "U2"}
+
+
+@pytest.mark.asyncio
+async def test_start_sync_fk_violation_is_not_conflict(svc, rt_set, noop_runner):
+    import uuid
+    from sqlalchemy.exc import IntegrityError
+    rt_set(**AD_CFG)
+    with pytest.raises(IntegrityError):
+        await sync.start_sync(trigger="manual", triggered_by=uuid.uuid4())
+    assert await _get(svc, DirectorySyncRun) == []
+
+
+@pytest.mark.asyncio
+async def test_start_sync_concurrent_race(svc, rt_set, noop_runner):
+    rt_set(**AD_CFG)
+    res = await asyncio.gather(
+        sync.start_sync(trigger="manual", triggered_by=None),
+        sync.start_sync(trigger="scheduled", triggered_by=None),
+        return_exceptions=True,
+    )
+    await asyncio.gather(*sync._tasks)
+    assert sum(isinstance(r, list) for r in res) == 1
+    assert sum(isinstance(r, sync.SyncAlreadyRunning) for r in res) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_due_reconciled_old_run_does_not_postpone(svc, rt_set):
+    rt_set(directory_sync_interval_minutes=60)
+    now = datetime.now(timezone.utc)
+    run = await _run(svc)
+    async with svc() as db:
+        r = await db.get(DirectorySyncRun, run.id)
+        r.started_at = now - timedelta(hours=3)
+        await db.commit()
+    await sync.reconcile_directory_runs()  # finished_at = now
+    async with svc() as db:
+        assert await sync.sync_due(db, now) is True
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_overwrite_or_delete_newer_refreshed_row(svc, monkeypatch):
+    run = await _run(svc)
+    started = (await _get(svc, DirectorySyncRun, id=run.id))[0].started_at
+    newer = started + timedelta(minutes=5)
+    async with svc() as db:
+        db.add_all([
+            entry("A", display_name="fresh", synced_at=newer),
+            entry("B", synced_at=newer),  # absent from the sync result
+        ])
+        await db.commit()
+    monkeypatch.setattr(sync, "fetch_all_ad", lambda timeout: [rec("A", name="stale")])
+    await sync.run_backend(run.id, "ad")
+    rows = {e.ref: e for e in await _get(svc, DirectoryEntry)}
+    assert set(rows) == {"A", "B"} and rows["A"].display_name == "fresh"
+    assert rows["A"].synced_at == newer
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_inflight_tasks(svc, rt_set, monkeypatch):
+    rt_set(**AD_CFG)
+    gate = asyncio.Event()
+
+    async def hang(run_id, backend):
+        await gate.wait()
+    monkeypatch.setattr(sync, "run_backend", hang)
+    await sync.start_sync(trigger="manual", triggered_by=None)
+    assert sync._tasks
+    await sync.shutdown_directory_sync()
+    assert not sync._tasks
+
+
+@pytest.mark.asyncio
+async def test_scheduler_tick(svc, monkeypatch):
+    monkeypatch.setattr(scheduler, "async_session", svc)
+    calls = []
+    due = {"v": True}
+
+    async def fake_due(db, now):
+        return due["v"]
+
+    async def fake_start(*, trigger, triggered_by):
+        calls.append((trigger, triggered_by))
+        if len(calls) == 2:
+            raise sync.SyncAlreadyRunning()
+        if len(calls) == 3:
+            raise sync.NoBackendConfigured()
+        return []
+    monkeypatch.setattr(sync, "sync_due", fake_due)
+    monkeypatch.setattr(sync, "start_sync", fake_start)
+    for _ in range(3):  # started, conflict swallowed, unconfigured swallowed
+        await scheduler._directory_sync_tick()
+    assert calls == [("scheduled", None)] * 3
+    due["v"] = False
+    await scheduler._directory_sync_tick()
+    assert len(calls) == 3

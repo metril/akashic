@@ -809,20 +809,25 @@ async def _reachability_results_prune_loop():
         await asyncio.sleep(24 * 60 * 60)
 
 
-async def _directory_sync_loop():
-    """Start a directory sync when the configured interval has elapsed.
-    Checked every minute; a racing manual trigger just wins the lock."""
+async def _directory_sync_tick() -> None:
+    """One schedule pass: start a directory sync if the interval elapsed."""
     from akashic.services.directory import sync
+    async with async_session() as db:
+        due = await sync.sync_due(db, datetime.now(timezone.utc))
+    if due:
+        try:
+            await sync.start_sync(trigger="scheduled", triggered_by=None)
+        except (sync.SyncAlreadyRunning, sync.NoBackendConfigured):
+            pass  # a manual trigger won the lock, or nothing is configured
+
+
+async def _directory_sync_loop():
+    """Checked every minute; a racing manual trigger just wins the lock."""
     while True:
         try:
-            async with async_session() as db:
-                due = await sync.sync_due(db, datetime.now(timezone.utc))
-            if due:
-                await sync.start_sync(trigger="scheduled", triggered_by=None)
+            await _directory_sync_tick()
         except asyncio.CancelledError:
             raise
-        except (sync.SyncAlreadyRunning, sync.NoBackendConfigured):
-            pass
         except Exception as exc:  # noqa: BLE001
             logger.warning("directory sync schedule pass failed: %s", type(exc).__name__)
         await asyncio.sleep(60)
@@ -851,7 +856,7 @@ def start_scheduler():
         logger.info("Snapshot fallback scheduler started")
     if _directory_sync_task is None or _directory_sync_task.done():
         _directory_sync_task = asyncio.create_task(_directory_sync_loop())
-
+        logger.info("Directory sync scheduler started")
     if _discovery_expiry_task is None or _discovery_expiry_task.done():
         _discovery_expiry_task = asyncio.create_task(_discovery_expiry_loop())
         logger.info("Discovery expiry scheduler started")
