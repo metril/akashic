@@ -47,7 +47,7 @@ class Entry(Base):
         Index("ix_entries_browse", "source_id", "parent_path", "kind"),
         Index("ix_entries_content_hash", "content_hash"),
         CheckConstraint(
-            "link_role IN ('original','thumbnail','encoded_video','sidecar','archive','version')",
+            "link_role IN (" + ",".join(f"'{r}'" for r in LINK_ROLES) + ")",
             name="ck_entries_link_role",
         ),
         Index(
@@ -145,14 +145,20 @@ class Entry(Base):
     # link_target_viewable / link_target_source_id snapshot the target's ACL
     # projection and source for permission checks.
     linked_entry_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("entries.id", ondelete="SET NULL", name="fk_entries_linked_entry_id"),
+        nullable=True,
     )
     link_role: Mapped[str | None] = mapped_column(String, nullable=True)
     link_target_viewable: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text), nullable=True
     )
     link_target_source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "sources.id", ondelete="SET NULL", name="fk_entries_link_target_source_id"
+        ),
+        nullable=True,
     )
 
     # Phase 9 — directory-only aggregates. NULL on file rows; populated

@@ -141,3 +141,25 @@ async def test_hard_delete_target_nulls_link(scratch_db):
         assert v is None
     finally:
         await eng.dispose()
+
+
+@pytest.mark.asyncio
+async def test_downgrade_removes_link_columns(scratch_db):
+    await _alembic_upgrade(scratch_db, "0047_mirror_links")
+    await _alembic_downgrade(scratch_db, "0046_user_roles")
+    eng = create_async_engine(scratch_db, poolclass=NullPool)
+    try:
+        async with eng.connect() as conn:
+            def _insp(c):
+                i = inspect(c)
+                return (
+                    {col["name"] for col in i.get_columns("entries")},
+                    {ix["name"] for ix in i.get_indexes("entries")},
+                    {cc["name"] for cc in i.get_check_constraints("entries")},
+                )
+            cols, idx, checks = await conn.run_sync(_insp)
+        assert not cols & {"linked_entry_id", "link_role", "link_target_viewable", "link_target_source_id"}
+        assert not idx & {"ix_entries_linked_entry_id", "ix_entries_source_link_role"}
+        assert "ck_entries_link_role" not in checks
+    finally:
+        await eng.dispose()
